@@ -402,36 +402,36 @@ def _offer_page_info(page: Any) -> dict[str, Any]:
     return info
 
 
-def offer_probes() -> list[dict[str, Any]]:
+async def offer_probes() -> list[dict[str, Any]]:
     """Waar staan de aanbiedingen? Kijk naar de pagina's waar `get_offers` zoekt: de startpagina en wat daar over aanbiedingen gaat."""
     probes: list[dict[str, Any]] = []
     try:
-        references = picnic.offer_references()
+        references = await picnic.offer_references()
     except Exception as exc:  # noqa: BLE001 - zonder tabbalk geen paginalijst; de rest van het rapport blijft
         return [{"name": "aanbiedingen: welke pagina's zoeken we", "ok": False, "error": str(exc)[:200]}]
     probes.append({"name": "aanbiedingen: welke pagina's zoeken we (pagina, streng)", "ok": True,
                    "info": {"pagina's": [{"pagina": ref, "streng": strict} for ref, strict in references]}})
     followed: list[str] = []
     for reference, _strict in references:
-        report, page = _probe(f"aanbiedingen: GET pages/{reference}", lambda r=reference: picnic._authed("GET", f"/pages/{r}", text=True), _offer_page_info)
+        report, page = await _probe(f"aanbiedingen: GET pages/{reference}", lambda r=reference: picnic._authed("GET", f"/pages/{r}", text=True), _offer_page_info)
         probes.append(report)
         if isinstance(page, dict):
             linked = picnic.page_references(page) + picnic.lazy_pages(page)
             followed.extend(link for link in linked if picnic._OFFER_WORDS.search(link.split("?")[0]) and link not in followed and picnic._PAGE_REFERENCE.match(link))
     for link in followed[:3]:
-        report, _ = _probe(f"aanbiedingen: GET pages/{_redact(link)}", lambda r=link: picnic._authed("GET", f"/pages/{r}", text=True), _offer_page_info)
+        report, _ = await _probe(f"aanbiedingen: GET pages/{_redact(link)}", lambda r=link: picnic._authed("GET", f"/pages/{r}", text=True), _offer_page_info)
         probes.append(report)
     return probes
 
 
-def explore(extended: bool = False) -> dict[str, Any]:
+async def explore(extended: bool = False) -> dict[str, Any]:
     """Roep de leesroutes aan en geef een rapport met de vorm van de antwoorden.
 
     Met `extended` komt ook de uitgebreide verkenning van de favorieten-pagina's erbij (veel verzoeken; kan een tijdelijke blokkade geven).
     """
-    probes: list[dict[str, Any]] = offer_probes()
+    probes: list[dict[str, Any]] = await offer_probes()
 
-    report, page = _probe(
+    report, page = await _probe(
         "zoeken: GET pages/search-page-results",
         lambda: picnic._authed("GET", f"/pages/search-page-results?search_term={SEARCH_TERM}"),
         lambda data: {"producten gevonden": len(picnic.products_from_search_page(data)),
@@ -443,12 +443,12 @@ def explore(extended: bool = False) -> dict[str, Any]:
         tile = next((n for n in picnic._walk(page.get("body")) if n.get("type") == "SELLING_UNIT_TILE"), None)
         probes.append({"name": "een zoektegel (ruwe vorm)", "ok": tile is not None, "shape": shape(tile)})
 
-    def raw_units(term: str) -> list[dict[str, Any]]:
-        found = picnic._authed("GET", f"/pages/search-page-results?search_term={quote(term)}")
+    async def raw_units(term: str) -> list[dict[str, Any]]:
+        found = await picnic._authed("GET", f"/pages/search-page-results?search_term={quote(term)}")
         return [node["sellingUnit"] for node in picnic._walk(found.get("body") if isinstance(found, dict) else None)
                 if node.get("type") == "SELLING_UNIT_TILE" and isinstance(node.get("sellingUnit"), dict)]
 
-    report, _ = _probe(
+    report, _ = await _probe(
         "aanbiedingen: de velden van zoektegels met een aanbieding",
         lambda: promo_probe(PROMO_TERMS, raw_units, lambda unit: bool((picnic._product(unit) or {}).get("isBonus"))),
         lambda data: data,
@@ -460,7 +460,7 @@ def explore(extended: bool = False) -> dict[str, Any]:
         ("leveringen: POST deliveries/summary", "/deliveries/summary", "POST", []),
         ("lopende leveringen: POST deliveries/summary [CURRENT]", "/deliveries/summary", "POST", ["CURRENT"]),
     ):
-        report, result = _probe(name, lambda m=method, p=path, b=body: picnic._authed(m, p, body=b))
+        report, result = await _probe(name, lambda m=method, p=path, b=body: picnic._authed(m, p, body=b))
         probes.append(report)
         if path == "/deliveries/summary" and body == [] and isinstance(result, list):
             delivery_ids = [picnic._delivery_summary(d)["id"] for d in result if isinstance(d, dict)]
@@ -468,7 +468,7 @@ def explore(extended: bool = False) -> dict[str, Any]:
             # Met een eerste levering kijken we ook hoe één bestelling eruitziet (de producten zitten daarin).
             first_id = next((str(i) for i in delivery_ids if i and picnic._DELIVERY_ID.match(str(i))), None)
             if first_id:
-                detail_report, _ = _probe("bestelling: GET deliveries/<id> (de eerste levering)", lambda i=first_id: picnic._authed("GET", f"/deliveries/{i}"))
+                detail_report, _ = await _probe("bestelling: GET deliveries/<id> (de eerste levering)", lambda i=first_id: picnic._authed("GET", f"/deliveries/{i}"))
                 probes.append(detail_report)
 
     # Routes die we nog niet gebruiken maar uit de community-libraries kennen. Zo zie je welke
@@ -485,12 +485,12 @@ def explore(extended: bool = False) -> dict[str, Any]:
             ("productpagina: GET pages/product-details-page-root", f"/pages/product-details-page-root?id={first['id']}")
         )
     for name, path in candidates:
-        report, result = _probe(name, lambda p=path: picnic._authed("GET", p))
+        report, result = await _probe(name, lambda p=path: picnic._authed("GET", p))
         probes.append(report)
         if path.startswith("/pages/") and result is not None:
             probes.append({"name": f"{name}: namen en verwijzingen rond favorieten", "ok": True,
                            "info": {"favoriet-namen": favorite_hits(result), "verwijzingen": page_links(result)}})
-    report, _ = _probe(
+    report, _ = await _probe(
         "account: leveringen en toestemming voor aankopen (alleen aantallen en waar/onwaar)",
         lambda: picnic._authed("GET", "/user"),
         lambda user: {
@@ -513,7 +513,7 @@ def explore(extended: bool = False) -> dict[str, Any]:
     recipe_page: Any = None
     pages: dict[str, Any] = {}
     for name, page_id in RECIPE_PAGES:
-        report, result = _probe(name, lambda p=page_id: picnic._authed("GET", f"/pages/{p}", text=True), _page_info)
+        report, result = await _probe(name, lambda p=page_id: picnic._authed("GET", f"/pages/{p}", text=True), _page_info)
         probes.append(report)
         pages[page_id] = result
         if result is not None and not isinstance(result, str):
@@ -527,7 +527,7 @@ def explore(extended: bool = False) -> dict[str, Any]:
             "",
         )
         if recipe_id:
-            report, details = _probe(
+            report, details = await _probe(
                 "receptdetails: GET pages/selling-group-details-page",
                 lambda: picnic._authed("GET", f"/pages/selling-group-details-page?selling_group_id={quote(recipe_id, safe='')}", text=True),
                 _page_info,
@@ -544,7 +544,7 @@ def explore(extended: bool = False) -> dict[str, Any]:
                            "shape": pml_vocabulary(recipe_tiles(page)[0])})
 
     # De tabbalk van de app: daar staat de pagina van de Favorieten-tab in.
-    report, tabs = _probe(
+    report, tabs = await _probe(
         "tabbalk van de app: GET bootstrap (id, soort, titel, label en pagina per tab)",
         picnic.bootstrap_tabs,
         lambda found: {"tabs": found, "favorietenpagina": picnic.favorites_reference(found)},
@@ -555,7 +555,7 @@ def explore(extended: bool = False) -> dict[str, Any]:
     if extended:
         reference = picnic.favorites_reference(tabs or [])
         if reference:
-            report, favorites_page = _probe(f"favorieten: GET pages/{reference}", lambda: picnic._authed("GET", f"/pages/{reference}", text=True), _page_info)
+            report, favorites_page = await _probe(f"favorieten: GET pages/{reference}", lambda: picnic._authed("GET", f"/pages/{reference}", text=True), _page_info)
             probes.append(report)
             if isinstance(favorites_page, dict):
                 probes.append({"name": "favorieten: de markering `saved` (vorm, aantallen per product)", "ok": True, "info": saved_report(favorites_page)})
@@ -563,12 +563,12 @@ def explore(extended: bool = False) -> dict[str, Any]:
             # Op de pagina van de tab staan misschien niet je favorieten (zonder boodschappen is het een lijst met
             # populaire producten). Kijk welke pagina's de app daarnaast kent, en of een productpagina zegt of het een favoriet is.
             for page_id in PURCHASE_PAGES:
-                report, purchases = _probe(f"favorieten: GET pages/{page_id}", lambda p=page_id: picnic._authed("GET", f"/pages/{p}", text=True), _page_info)
+                report, purchases = await _probe(f"favorieten: GET pages/{page_id}", lambda p=page_id: picnic._authed("GET", f"/pages/{p}", text=True), _page_info)
                 probes.append(report)
                 if isinstance(purchases, dict):
                     probes.append({"name": f"favorieten: de markering `saved` op {page_id}", "ok": True, "info": saved_report(purchases)})
             for page_id in (reference, "purchases-page-root", "purchased-deep-dive-page-content", "meals-purchase-page-root"):
-                report, code_page = _probe(f"favorieten: hoe {page_id} zijn gegevens ophaalt", lambda p=page_id: picnic._authed("GET", f"/pages/{p}", text=True), code_report)
+                report, code_page = await _probe(f"favorieten: hoe {page_id} zijn gegevens ophaalt", lambda p=page_id: picnic._authed("GET", f"/pages/{p}", text=True), code_report)
                 probes.append(report)
             first_product = next(iter(picnic.products_from_page(favorites_page)), None) if isinstance(favorites_page, dict) else None
             if first_product:
@@ -577,7 +577,7 @@ def explore(extended: bool = False) -> dict[str, Any]:
                     ("de bevestiging bij een favoriet weghalen (met presentatie)", f"unfavorite-confirmation-dialog?presentation-mode=MODAL_OVER_CONTEXT&sellable_id={first_product['id']}"),
                     ("een productpagina", f"product-details-page-root?id={first_product['id']}"),
                 ):
-                    report, code_page = _probe(f"favorieten: hoe {name} zijn gegevens ophaalt", lambda p=page_id: picnic._authed("GET", f"/pages/{p}"), code_report)
+                    report, code_page = await _probe(f"favorieten: hoe {name} zijn gegevens ophaalt", lambda p=page_id: picnic._authed("GET", f"/pages/{p}"), code_report)
                     probes.append(report)
             # De opbouw van de pagina van de tab, en de pagina's die zij zelf later laadt (`pageConfig`).
             if isinstance(favorites_page, dict):
@@ -588,7 +588,7 @@ def explore(extended: bool = False) -> dict[str, Any]:
                     if isinstance(n.get("pageConfig"), dict) and isinstance(n["pageConfig"].get("id"), str)
                     and picnic._PAGE_REFERENCE.match(n["pageConfig"]["id"])))[:4]
                 for lazy_id in lazy_ids:
-                    report, lazy_page = _probe(f"favorieten: later geladen pagina {_redact(lazy_id)}",
+                    report, lazy_page = await _probe(f"favorieten: later geladen pagina {_redact(lazy_id)}",
                                                lambda i=lazy_id: picnic._authed("GET", f"/pages/{i}", text=True), _page_info)
                     probes.append(report)
                     if isinstance(lazy_page, dict):
@@ -599,31 +599,31 @@ def explore(extended: bool = False) -> dict[str, Any]:
             flags: dict[str, Any] = {}
             for index, product in enumerate(sample):
                 try:
-                    flags[f"product {index + 1}"] = like_constants(picnic._authed("GET", f"/pages/product-details-page-root?id={product['id']}"))
+                    flags[f"product {index + 1}"] = like_constants(await picnic._authed("GET", f"/pages/product-details-page-root?id={product['id']}"))
                 except Exception as exc:  # noqa: BLE001 - een product dat niet laadt slaan we over
                     flags[f"product {index + 1}"] = f"fout: {type(exc).__name__}"
             probes.append({"name": "favorieten: waar/onwaar in de hartjescode van de productpagina's (per product)", "ok": True, "info": flags})
             for index, product in enumerate(picnic.products_from_page(favorites_page)[:3] if isinstance(favorites_page, dict) else []):
-                report, detail = _probe(f"favorieten: productpagina {index + 1}: velden over favorieten",
+                report, detail = await _probe(f"favorieten: productpagina {index + 1}: velden over favorieten",
                                         lambda i=product["id"]: picnic._authed("GET", f"/pages/product-details-page-root?id={i}"),
                                         lambda data: {"waarden": favorite_values(data)})
                 probes.append(report)
 
         # De hartjesknop leest `getGlobalState("sellable-favorites")`: een toestand die de app zelf vult, niet de pagina.
         # Misschien zit die in /bootstrap of komt hij van een eigen route; kijk naar beide.
-        report, _ = _probe(
+        report, _ = await _probe(
             "favorieten: de velden van /bootstrap naast de tabs (alleen de vorm)",
             lambda: picnic._authed("GET", "/bootstrap"),
             lambda data: {key: shape(value) for key, value in sorted(data.items()) if key != "tabs"} if isinstance(data, dict) else shape(data),
         )
         probes.append(report)
         for path in FAVORITE_ROUTES:
-            report, _ = _probe(f"favorieten? GET {path}", lambda p=path: picnic._authed("GET", p))
+            report, _ = await _probe(f"favorieten? GET {path}", lambda p=path: picnic._authed("GET", p))
             probes.append(report)
 
         # Favorieten: onbekend. Probeer de gokken; een pagina die bestaat, wordt met zijn vorm en verwijzingen gemeld.
         for page_id in FAVORITE_GUESSES:
-            report, _ = _probe(f"favorieten? GET pages/{page_id}", lambda p=page_id: picnic._authed("GET", f"/pages/{p}", text=True), _page_info)
+            report, _ = await _probe(f"favorieten? GET pages/{page_id}", lambda p=page_id: picnic._authed("GET", f"/pages/{p}", text=True), _page_info)
             probes.append(report)
 
     # Het antwoord van Picnic bij een fout kan van alles bevatten; in het rapport staan alleen de codes.
@@ -633,7 +633,7 @@ def explore(extended: bool = False) -> dict[str, Any]:
 
     return {
         "note": "Alleen de vorm van de antwoorden: geen namen, adressen, prijzen of id's. Veilig te delen.",
-        "linked": bool(picnic.configured_auth_key()),
+        "linked": bool(await picnic.configured_auth_key()),
         "probes": probes,
         "ok": sum(1 for probe in probes if probe["ok"]),
     }

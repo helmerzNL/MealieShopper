@@ -13,6 +13,7 @@ from unittest import mock
 os.environ["PASSKEY_AUTH_ENABLED"] = "false"
 
 from mealieshopper.app import create_app  # noqa: E402
+from helpers import AppTestCase  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 STATIC = ROOT / "static"
@@ -63,7 +64,7 @@ def contrast(a: str, b: str) -> float:
     return (la + 0.05) / (lb + 0.05)
 
 
-class BrandFilesTest(unittest.TestCase):
+class BrandFilesTest(AppTestCase):
     def test_svgs_parse_and_have_a_viewbox(self):
         for name in SVGS:
             root = ET.parse(BRAND / name).getroot()
@@ -108,7 +109,7 @@ class BrandFilesTest(unittest.TestCase):
             self.assertTrue((STATIC / path).is_file(), path)
 
 
-class ManifestTest(unittest.TestCase):
+class ManifestTest(AppTestCase):
     def setUp(self):
         self.manifest = json.loads((STATIC / "manifest.webmanifest").read_text())
 
@@ -151,7 +152,7 @@ class ManifestTest(unittest.TestCase):
             self.assertEqual(color_type, 2, f"{name} moet RGB zijn, zonder alfakanaal")
 
 
-class ServedAssetsTest(unittest.TestCase):
+class ServedAssetsTest(AppTestCase):
     def setUp(self):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
@@ -161,20 +162,30 @@ class ServedAssetsTest(unittest.TestCase):
         })
         patcher.start()
         self.addCleanup(patcher.stop)
-        self.client = create_app().test_client()
+        self.client = self.client_for(create_app())
 
-    def test_manifest_content_type(self):
-        response = self.client.get("/static/manifest.webmanifest")
+    async def test_manifest_content_type(self):
+        response = await self.client.get("/static/manifest.webmanifest")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.mimetype, "application/manifest+json")
         self.assertEqual(response.get_json(force=True)["short_name"], "MealieShopper")
 
-    def test_favicon_ico_at_the_root(self):
-        response = self.client.get("/favicon.ico")
+    async def test_favicon_ico_at_the_root(self):
+        response = await self.client.get("/favicon.ico")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.data[:4], b"\x00\x00\x01\x00")
 
-    def test_assets_work_before_login(self):
+    async def test_static_files_are_revalidated_and_not_cached_for_hours(self):
+        for path in ("/static/app.js?v=1", "/favicon.ico", "/static/manifest.webmanifest"):
+            with self.subTest(path=path):
+                response = await self.client.get(path)
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(response.cache_control.max_age, 0, response.headers.get("Cache-Control"))
+                self.assertIn("ETag", response.headers)
+                again = await self.client.get(path, headers={"If-None-Match": response.headers["ETag"]})
+                self.assertEqual((again.status_code, again.get_data()), (304, b""), "ongewijzigd: geen bestand opnieuw versturen")
+
+    async def test_assets_work_before_login(self):
         # Browsers halen manifest, iconen en lettertypen op voordat iemand ingelogd is.
         with mock.patch.dict(os.environ, {"PASSKEY_AUTH_ENABLED": "true"}):
             for path in (
@@ -183,11 +194,11 @@ class ServedAssetsTest(unittest.TestCase):
                 "/static/brand/favicon.svg", "/static/brand/social-card.png",
                 "/static/fonts/Manrope-Variable.woff2", "/static/fonts/Inter-Variable.woff2", "/favicon.ico",
             ):
-                self.assertEqual(self.client.get(path).status_code, 200, path)
-            self.assertEqual(self.client.get("/api/ah/lists").status_code, 401)
+                self.assertEqual((await self.client.get(path)).status_code, 200, path)
+            self.assertEqual((await self.client.get("/api/ah/lists")).status_code, 401)
 
-    def test_head_covers_ios_android_and_windows(self):
-        html = self.client.get("/").get_data(as_text=True)
+    async def test_head_covers_ios_android_and_windows(self):
+        html = (await self.client.get("/")).get_data(as_text=True)
         expected = [
             '<meta name="theme-color" content="#176B45">',
             'rel="manifest" href="/static/manifest.webmanifest"',
@@ -213,15 +224,15 @@ class ServedAssetsTest(unittest.TestCase):
         )
         self.assertIn('content="https://mealieshopper.example.nl/static/brand/social-card.png"', html)
 
-    def test_brand_mark_replaces_the_ms_placeholder(self):
-        html = self.client.get("/").get_data(as_text=True)
+    async def test_brand_mark_replaces_the_ms_placeholder(self):
+        html = (await self.client.get("/")).get_data(as_text=True)
         self.assertNotIn(">MS<", html)
         self.assertEqual(html.count("brand/mark.svg"), 4)  # kop, inlogscherm, uitnodiging en installatiehulp
         self.assertIn('<h1 class="wordmark">Mealie<span>Shopper</span></h1>', html)
         self.assertIn("Van recept naar geregeld.", html)
 
 
-class DesignTokensTest(unittest.TestCase):
+class DesignTokensTest(AppTestCase):
     def setUp(self):
         self.tokens = css_tokens()
         self.css = (STATIC / "styles.css").read_text()
@@ -301,7 +312,7 @@ class DesignTokensTest(unittest.TestCase):
 
 
 @unittest.skipUnless(find_spec("PIL"), "Pillow ontbreekt; alleen nodig voor het exporteren")
-class BuildScriptTest(unittest.TestCase):
+class BuildScriptTest(AppTestCase):
     @classmethod
     def setUpClass(cls):
         sys.path.insert(0, str(ROOT / "scripts"))

@@ -2,7 +2,7 @@
 (bij Crisp: al je bewaarde recepten).
 
 Er loopt hooguit één import tegelijk, op de achtergrond (zoals de AI-ronde in `ai_match.py`). De stand staat in het
-geheugen van dit proces: de container draait één gunicorn-worker. Met meer workers ziet een andere worker de voortgang
+geheugen van dit proces: de container draait één hypercorn-proces. Met meer workers ziet een andere worker de voortgang
 niet, en na een herstart is de import weg. Opnieuw starten is veilig: een recept dat al in Mealie staat (zelfde bron)
 wordt overgeslagen en telt niet mee voor het maximum, dus een nieuwe import gaat verder waar de vorige stopte.
 
@@ -17,16 +17,15 @@ logboek, nooit bij de gebruiker.
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
-import threading
 import time
+from collections.abc import Awaitable, Callable
 from datetime import datetime, timezone
 from typing import Any
 
-import requests
-
-from . import ah, ah_recipes, audit, crisp, jumbo, jumbo_recipes, mealie
+from . import ah, ah_recipes, audit, crisp, jumbo, jumbo_recipes, mealie, tasks
 from .i18n import tr
 
 log = logging.getLogger(__name__)
@@ -47,9 +46,8 @@ class Busy(ValueError):
     """Er loopt al een import."""
 
 
-_lock = threading.Lock()
 _job: dict[str, Any] = {"state": "idle"}
-_cancel = threading.Event()
+_cancel: asyncio.Event = asyncio.Event()
 
 
 def _now() -> str:
@@ -59,10 +57,9 @@ def _now() -> str:
 # --- de stand -----------------------------------------------------------------------------------------
 
 def progress() -> dict[str, Any]:
-    """De stand van de lopende (of laatste) import, met de tellingen erbij. Een kopie: de draad werkt het origineel bij."""
-    with _lock:
-        job = dict(_job)
-        items = [{key: value for key, value in item.items() if not key.startswith("_")} for item in _job.get("items") or []]
+    """De stand van de lopende (of laatste) import, met de tellingen erbij. Een kopie: de task werkt het origineel bij."""
+    job = dict(_job)
+    items = [{key: value for key, value in item.items() if not key.startswith("_")} for item in _job.get("items") or []]
     if job.get("state") == "idle" and not items:
         return {"state": "idle", "limits": limits()}
     counts = {status: 0 for status in FINAL}
@@ -90,33 +87,28 @@ def limits() -> dict[str, int]:
 
 
 def _set(**values: Any) -> None:
-    with _lock:
-        _job.update(values)
+    _job.update(values)
 
 
 def _set_item(index: int, **values: Any) -> None:
-    with _lock:
-        _job["items"][index].update(values)
+    _job["items"][index].update(values)
 
 
 def _add_items(items: list[dict[str, Any]]) -> None:
-    with _lock:
-        _job["items"].extend(_new_item(item) for item in items)
+    _job["items"].extend(_new_item(item) for item in items)
 
 
 def _warn(code: str) -> None:
-    with _lock:
-        warnings = _job.setdefault("warnings", [])
-        if code not in warnings:
-            warnings.append(code)
+    warnings = _job.setdefault("warnings", [])
+    if code not in warnings:
+        warnings.append(code)
 
 
 def _skip_rest(start: int, code: str) -> None:
     """Zet de recepten vanaf `start` die nog niet aan de beurt waren op overgeslagen."""
-    with _lock:
-        for item in _job["items"][start:]:
-            if item["status"] not in FINAL:
-                item.update(status="skipped", error=code)
+    for item in _job["items"][start:]:
+        if item["status"] not in FINAL:
+            item.update(status="skipped", error=code)
 
 
 def _finish(state: str, error: str = "") -> None:
@@ -147,8 +139,8 @@ def _ids(raw: Any) -> list[str]:
     return ids
 
 
-def _ah_plan(ids: list[str], group_id: str, whole: bool) -> dict[str, Any]:
-    data = ah_recipes.load()
+async def _ah_plan(ids: list[str], group_id: str, whole: bool) -> dict[str, Any]:
+    data = await ah_recipes.load()
     if not data or not data.get("recipes"):
         raise ValueError(tr(
             "Haal eerst je bewaarde recepten op bij AH (Winkels > Albert Heijn > Recepten).",
@@ -188,8 +180,8 @@ def _ah_plan(ids: list[str], group_id: str, whole: bool) -> dict[str, Any]:
     }
 
 
-def _jumbo_plan(ids: list[str], titles: Any, group_id: str, whole: bool) -> dict[str, Any]:
-    if not jumbo.configured_refresh_token():
+async def _jumbo_plan(ids: list[str], titles: Any, group_id: str, whole: bool) -> dict[str, Any]:
+    if not await jumbo.configured_refresh_token():
         raise ValueError(tr(
             "Jumbo is niet gekoppeld. De beheerder koppelt het bij Instellingen > Koppelen > Jumbo.",
             "Jumbo is not linked. The admin links it under Settings > Link > Jumbo.",
@@ -207,8 +199,8 @@ def _jumbo_plan(ids: list[str], titles: Any, group_id: str, whole: bool) -> dict
     return {"items": items, "group": {"id": group_id, "name": ""} if group_id else None, "category": None, "groupSize": len(items)}
 
 
-def _crisp_plan(ids: list[str], titles: Any, group_id: str, whole: bool) -> dict[str, Any]:
-    if not crisp.configured_client_id():
+async def _crisp_plan(ids: list[str], titles: Any, group_id: str, whole: bool) -> dict[str, Any]:
+    if not await crisp.configured_client_id():
         raise ValueError(tr(
             "Crisp is niet gekoppeld. De beheerder koppelt het bij Instellingen > Koppelen > Crisp.",
             "Crisp is not linked. The admin links it under Settings > Link > Crisp.",
@@ -231,7 +223,17 @@ def _valid_store(store: Any) -> str:
     return key
 
 
-def start(
+def _on_cancelled(task: asyncio.Task[None]) -> None:
+    """Een geannuleerde task (afsluiten van de app) laat de stand niet op "running" staan: dan weigert elke nieuwe import."""
+    if not task.cancelled() or _job.get("state") != "running":
+        return
+    items: list[dict[str, Any]] = _job.get("items") or []
+    first: int = next((i for i, item in enumerate(items) if item["status"] not in FINAL), len(items))
+    _skip_rest(first, "cancelled")
+    _finish("cancelled")
+
+
+async def start(
     store: Any,
     ids: Any = None,
     group: Any = None,
@@ -245,9 +247,10 @@ def start(
     de recepten `ids`, met `group` alleen voor de categorie. Of iemand een hele groep mag, bepaalt de route
     (`/api/mealie/bulk-import/group` is voor de beheerder). Er loopt hooguit één import; met `background=False` wacht
     deze aanroep tot de import klaar is. Doet zelf geen aanvragen bij de winkel of Mealie."""
+    global _cancel
     store = _valid_store(store)
     try:
-        mealie.ensure_configured()
+        await mealie.ensure_configured()
     except RuntimeError as exc:
         raise ValueError(str(exc)) from exc
     group_id = str(group or "").strip()
@@ -261,50 +264,47 @@ def start(
                 f"Choose at most {MAX_SELECTION} recipes at a time, or import the whole group.",
             ))
     if store == "ah":
-        plan = _ah_plan(chosen, group_id, whole)
+        plan = await _ah_plan(chosen, group_id, whole)
     elif store == "jumbo":
-        plan = _jumbo_plan(chosen, titles, group_id, whole)
+        plan = await _jumbo_plan(chosen, titles, group_id, whole)
     else:
-        plan = _crisp_plan(chosen, titles, group_id, whole)
+        plan = await _crisp_plan(chosen, titles, group_id, whole)
     plan.update(store=store, whole=bool(whole))
-    with _lock:
-        if _job.get("state") == "running":
-            raise Busy(tr("Er loopt al een import naar Mealie. Wacht tot die klaar is.", "An import into Mealie is already running. Wait until it is finished."))
-        _cancel.clear()
-        _job.clear()
-        _job.update(
-            state="running",
-            # Een Jumbo-lijst en al je bewaarde Crisp-recepten haalt de draad eerst bij de winkel op.
-            phase="preparing" if (store == "jumbo" and (whole or group_id)) or (store == "crisp" and whole) else "importing",
-            store=store,
-            storeName=STORES[store],
-            group=plan["group"],
-            category=plan["category"],
-            whole=bool(whole),
-            groupSize=plan["groupSize"],
-            items=[_new_item(item) for item in plan["items"]],
-            warnings=[],
-            error="",
-            startedBy=(user or {}).get("username") or "",
-            startedById=(user or {}).get("id") or "",
-            startedAt=_now(),
-            finishedAt="",
-        )
-    target = audit.propagate(_run)
+    if _job.get("state") == "running":
+        raise Busy(tr("Er loopt al een import naar Mealie. Wacht tot die klaar is.", "An import into Mealie is already running. Wait until it is finished."))
+    _cancel = asyncio.Event()
+    _job.clear()
+    _job.update(
+        state="running",
+        # Een Jumbo-lijst en al je bewaarde Crisp-recepten haalt de taak eerst bij de winkel op.
+        phase="preparing" if (store == "jumbo" and (whole or group_id)) or (store == "crisp" and whole) else "importing",
+        store=store,
+        storeName=STORES[store],
+        group=plan["group"],
+        category=plan["category"],
+        whole=bool(whole),
+        groupSize=plan["groupSize"],
+        items=[_new_item(item) for item in plan["items"]],
+        warnings=[],
+        error="",
+        startedBy=(user or {}).get("username") or "",
+        startedById=(user or {}).get("id") or "",
+        startedAt=_now(),
+        finishedAt="",
+    )
     if background:
-        threading.Thread(target=target, args=(plan,), daemon=True, name="recipe-bulk").start()
+        tasks.spawn("recipe-bulk", _run(plan)).add_done_callback(_on_cancelled)
     else:
-        target(plan)
+        await _run(plan)
     return progress()
 
 
 def cancel(user: dict[str, Any] | None = None, owner: bool = False) -> dict[str, Any]:
     """Stop de lopende import na het recept waar hij mee bezig is. Mag wie hem startte, en de beheerder."""
-    with _lock:
-        if _job.get("state") != "running":
-            raise ValueError(tr("Er loopt geen import", "No import is running"))
-        if not owner and _job.get("startedById") != (user or {}).get("id"):
-            raise PermissionError(tr("Alleen wie de import startte of de beheerder kan hem stoppen.", "Only whoever started the import or the administrator can stop it."))
+    if _job.get("state") != "running":
+        raise ValueError(tr("Er loopt geen import", "No import is running"))
+    if not owner and _job.get("startedById") != (user or {}).get("id"):
+        raise PermissionError(tr("Alleen wie de import startte of de beheerder kan hem stoppen.", "Only whoever started the import or the administrator can stop it."))
     _cancel.set()
     return progress()
 
@@ -328,9 +328,9 @@ class _Organizers:
         self.tags: list[dict[str, str]] | None = None
         self.categories: list[dict[str, str]] = []
 
-    def _one(self, make: Any, name: str) -> list[dict[str, str]]:
+    async def _one(self, make: Callable[[str], Awaitable[dict[str, str]]], name: str) -> list[dict[str, str]]:
         try:
-            return [make(name)]
+            return [await make(name)]
         except mealie.OrganizerError as exc:
             log.warning("Bulkimport: %s maken mislukt: %s", name, exc)
             _warn("organizers_denied" if exc.forbidden else "organizers_failed")
@@ -339,28 +339,34 @@ class _Organizers:
             _warn("organizers_failed")
         return []
 
-    def apply(self, slug: str, current: dict[str, Any] | None = None) -> None:
+    async def apply(self, slug: str, current: dict[str, Any] | None = None) -> None:
         if self.tags is None:
-            self.tags = self._one(mealie.ensure_tag, self.store_name)
-            self.categories = self._one(mealie.ensure_category, self.category) if self.category else []
+            self.tags = await self._one(mealie.ensure_tag, self.store_name)
+            self.categories = await self._one(mealie.ensure_category, self.category) if self.category else []
         if not self.tags and not self.categories:
             return
         try:
-            mealie.add_organizers(slug, self.tags, self.categories, current)
+            await mealie.add_organizers(slug, self.tags, self.categories, current)
         except Exception as exc:  # noqa: BLE001 - het recept staat in Mealie; alleen de tag ontbreekt
             log.warning("Bulkimport: tag en categorie bij %s zetten mislukt: %s", slug, exc)
             _warn("tagging_failed")
 
 
-def _pause() -> bool:
+async def _pause() -> bool:
     """Wacht tussen twee aanroepen bij de winkel. Geeft True als de import intussen gestopt is."""
-    return _cancel.wait(PAUSE_SECONDS) if PAUSE_SECONDS > 0 else _cancel.is_set()
+    if PAUSE_SECONDS <= 0:
+        return _cancel.is_set()
+    try:
+        await asyncio.wait_for(_cancel.wait(), PAUSE_SECONDS)
+    except asyncio.TimeoutError:
+        return False
+    return True
 
 
-def _jumbo_list(group: dict[str, Any]) -> dict[str, Any]:
+async def _jumbo_list(group: dict[str, Any]) -> dict[str, Any]:
     """De receptenlijst van Jumbo met dit id (`{id, name, kind, count}`)."""
     try:
-        lists = jumbo_recipes.get_lists()
+        lists = await jumbo_recipes.get_lists()
     except jumbo.JumboBlocked as exc:
         raise _Stop("jumbo_blocked" if exc.refused else "list_failed") from exc
     except jumbo.JumboAuthError as exc:
@@ -374,13 +380,13 @@ def _jumbo_list(group: dict[str, Any]) -> dict[str, Any]:
     return found
 
 
-def _collect_jumbo(info: dict[str, Any]) -> None:
+async def _collect_jumbo(info: dict[str, Any]) -> None:
     """Alle recepten van een Jumbo-lijst, pagina voor pagina (met een pauze), tot `MAX_ITEMS`."""
     seen: set[str] = set()
     page = 1
     while True:
         try:
-            data = jumbo_recipes.get_recipes_of(info, page)
+            data = await jumbo_recipes.get_recipes_of(info, page)
         except jumbo.JumboBlocked as exc:
             raise _Stop("jumbo_blocked" if exc.refused else "list_failed") from exc
         except jumbo.JumboAuthError as exc:
@@ -402,14 +408,14 @@ def _collect_jumbo(info: dict[str, Any]) -> None:
         if len(seen) >= MAX_ITEMS or not data.get("hasNext") or not fresh:
             return
         page += 1
-        if _pause():
+        if await _pause():
             return
 
 
-def _collect_crisp() -> None:
+async def _collect_crisp() -> None:
     """Al je bewaarde Crisp-recepten, tot `MAX_ITEMS`. Crisp geeft de hele lijst in één antwoord."""
     try:
-        recipes = crisp.get_saved_recipes()["recipes"]
+        recipes = (await crisp.get_saved_recipes())["recipes"]
     except Exception as exc:  # noqa: BLE001
         log.warning("Bulkimport: bewaarde recepten van Crisp ophalen mislukt: %s", exc)
         raise _Stop(_store_refusal("crisp", exc) or "crisp_saved_failed") from exc
@@ -418,16 +424,16 @@ def _collect_crisp() -> None:
     _set(groupSize=len(items))
 
 
-def _fetch(store: str, item: dict[str, Any]) -> tuple[str, dict[str, Any], str]:
+async def _fetch(store: str, item: dict[str, Any]) -> tuple[str, dict[str, Any], str]:
     """Haal het recept bij de winkel op: (bron, schema.org-recept, titel)."""
     if store == "ah":
         number = int(item["id"])
-        ld = ah.get_recipe_jsonld(number)
+        ld = await ah.get_recipe_jsonld(number)
         return ah.recipe_url(number), ld, str(ld.get("name") or "")
     if store == "crisp":
-        recipe = crisp.get_recipe(item["id"])
+        recipe = await crisp.get_recipe(item["id"])
         return crisp.source_url(item["id"]), crisp.jsonld(recipe), str(recipe.get("name") or "")
-    recipe = jumbo_recipes.get_recipe(item["id"])
+    recipe = await jumbo_recipes.get_recipe(item["id"])
     return jumbo_recipes.source_url(recipe), jumbo_recipes.jsonld(recipe), str(recipe.get("name") or "")
 
 
@@ -446,26 +452,25 @@ def _store_refusal(store: str, exc: Exception) -> str | None:
     return None
 
 
-def _import_all(plan: dict[str, Any]) -> None:
+async def _import_all(plan: dict[str, Any]) -> None:
     store = plan["store"]
     category = plan["category"]
     if store == "jumbo" and plan["group"]:
-        info = _jumbo_list(plan["group"])
+        info = await _jumbo_list(plan["group"])
         if info.get("kind") != "favorites":
             category = info["name"]
         _set(group={"id": info["id"], "name": info["name"]}, category=category)
         if plan["whole"]:
-            _collect_jumbo(info)
+            await _collect_jumbo(info)
             if _cancel.is_set():
                 _finish("cancelled")
                 return
     if store == "crisp" and plan["whole"]:
-        _collect_crisp()
+        await _collect_crisp()
     _set(phase="importing")
     organizers = _Organizers(STORES[store], category)
     catalog = mealie.Catalog()
-    with _lock:
-        items = [dict(item) for item in _job["items"]]
+    items = [dict(item) for item in _job["items"]]
     fetched = 0
     failures = 0
     for index, item in enumerate(items):
@@ -475,29 +480,29 @@ def _import_all(plan: dict[str, Any]) -> None:
             return
         _set_item(index, status="busy")
         try:
-            found = mealie.find_recipe_summary_by_source(item["_source"], strict=True)
+            found = await mealie.find_recipe_summary_by_source(item["_source"], strict=True)
         except mealie.MealieLookupError as exc:
             log.warning("Bulkimport: zoeken in Mealie mislukt: %s", exc)
             _skip_rest(index, "stopped")
             raise _Stop("mealie_lookup") from exc
         if found:
             slug = str(found["slug"])
-            organizers.apply(slug, found)
-            _set_item(index, status="existing", slug=slug, mealieUrl=mealie.recipe_page_url(slug))
+            await organizers.apply(slug, found)
+            _set_item(index, status="existing", slug=slug, mealieUrl=await mealie.recipe_page_url(slug))
             continue
         if fetched >= MAX_IMPORTS:
             _set_item(index, status="skipped", error="limit")
             continue
-        if fetched and _pause():
+        if fetched and await _pause():
             _skip_rest(index, "cancelled")
             _finish("cancelled")
             return
         fetched += 1
         stage = "store_failed"
         try:
-            source, recipe, title = _fetch(store, item)
+            source, recipe, title = await _fetch(store, item)
             stage = "mealie_failed"
-            slug = mealie.import_via_jsonld(source, recipe, catalog=catalog)
+            slug = await mealie.import_via_jsonld(source, recipe, catalog=catalog)
         except (ah.RecipeUnavailable, jumbo_recipes.RecipeUnavailable, crisp.RecipeUnavailable) as exc:
             log.info("Bulkimport: %s-recept %s niet te importeren: %s", store, item["id"], exc)
             _set_item(index, status="failed", error="no_content")
@@ -518,39 +523,38 @@ def _import_all(plan: dict[str, Any]) -> None:
                 raise _Stop("too_many_failures") from exc
             continue
         failures = 0
-        organizers.apply(slug)
-        _set_item(index, status="imported", slug=slug, mealieUrl=mealie.recipe_page_url(slug), title=_title(title) or item["title"])
+        await organizers.apply(slug)
+        _set_item(index, status="imported", slug=slug, mealieUrl=await mealie.recipe_page_url(slug), title=_title(title) or item["title"])
     _finish("done")
 
 
-def _run(plan: dict[str, Any]) -> None:
+async def _run(plan: dict[str, Any]) -> None:
     started = time.perf_counter()
     try:
-        _import_all(plan)
+        await _import_all(plan)
     except _Stop as stop:
         _finish("error", stop.code)
-    except Exception:  # noqa: BLE001 - een draad mag nooit stil stoppen zonder melding
+    except Exception:  # noqa: BLE001 - een taak mag nooit stil stoppen zonder melding
         log.exception("Bulkimport mislukt")
-        with _lock:
-            start = next((i for i, item in enumerate(_job["items"]) if item["status"] not in FINAL), len(_job["items"]))
+        start = next((i for i, item in enumerate(_job["items"]) if item["status"] not in FINAL), len(_job["items"]))
         _skip_rest(start, "stopped")
         _finish("error", "internal")
     finally:
-        _record(plan, started)
+        await _record(plan, started)
 
 
-def _record(plan: dict[str, Any], started: float) -> None:
+async def _record(plan: dict[str, Any], started: float) -> None:
     """Eén regel in het auditlog per import, met de aantallen en de mislukte recepten."""
     job = progress()
     failures = [{"id": item["id"], "error": item["error"]} for item in job.get("items") or [] if item["status"] == "failed"]
-    audit.record(
+    await audit.record(
         kind="outbound",
         service=plan["store"],
         action="Mealie bulk import",
         method="POST",
         ok=job.get("state") == "done",
         duration_ms=round((time.perf_counter() - started) * 1000),
-        actor=audit.current_actor(),
+        actor=await audit.current_actor(),
         error=job.get("error") or "",
         detail={
             "scope": "group" if plan["whole"] else "selection",

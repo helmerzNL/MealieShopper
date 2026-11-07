@@ -13,19 +13,22 @@ tussen de gewone aanbiedingen met `personal` (en `activated`: of je ze in de AH-
 """
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import re
-from concurrent.futures import ThreadPoolExecutor
-from contextlib import closing
+from collections.abc import AsyncIterator, Awaitable
+from contextlib import asynccontextmanager
 from datetime import date, datetime, timezone
-from typing import Any, Callable, Iterable
+from typing import Any, Callable, Iterable, TypeVar
+
+import aiosqlite
 
 from . import about, ah, ah_lists, deals, offer_categories, offer_courses, offer_translate, ah_recipes, auth, crisp, jumbo, jumbo_recipes, mealie, mealie_images, picnic, picnic_recipes
 from .i18n import tr
 
 # Winkels waarvan we aanbiedingen kunnen ophalen, met de functie die dat doet.
-FETCHERS: dict[str, Callable[[], list[dict[str, Any]]]] = {
+FETCHERS: dict[str, Callable[[], Awaitable[list[dict[str, Any]]]]] = {
     "ah": ah.get_bonus_products,
     "picnic": picnic.get_offers,
     "jumbo": jumbo.get_offers,
@@ -34,26 +37,26 @@ FETCHERS: dict[str, Callable[[], list[dict[str, Any]]]] = {
 STORES = ("ah", "picnic", "jumbo", "crisp")
 # Winkels met persoonlijke aanbiedingen (AH: de Bonus Box), met de functie die ze ophaalt. Die vraagt een koppeling, en een fout laat de
 # gewone aanbiedingen staan: dan blijven de persoonlijke van de vorige keer staan en meldt `load` de fout.
-PERSONAL_FETCHERS: dict[str, Callable[[], list[dict[str, Any]]]] = {
+PERSONAL_FETCHERS: dict[str, Callable[[], Awaitable[list[dict[str, Any]]]]] = {
     "ah": ah.get_bonus_box,
 }
 
 
-def linked(store: str) -> bool:
+async def linked(store: str) -> bool:
     """Of we bij deze winkel kunnen vragen: AH Bonus werkt zonder inlog, Picnic, Jumbo en Crisp vragen een koppeling."""
     if store == "picnic":
-        return bool(picnic.configured_auth_key())
+        return bool(await picnic.configured_auth_key())
     if store == "jumbo":
-        return bool(jumbo.configured_refresh_token())
+        return bool(await jumbo.configured_refresh_token())
     if store == "crisp":
-        return bool(crisp.configured_client_id())
+        return bool(await crisp.configured_client_id())
     return True
 
 
-def personal_linked(store: str) -> bool:
+async def personal_linked(store: str) -> bool:
     """Of we de persoonlijke aanbiedingen van deze winkel kunnen ophalen: bij AH (de Bonus Box) vraagt dat je AH-koppeling."""
     if store == "ah":
-        return bool(ah.configured_refresh_token())
+        return bool(await ah.configured_refresh_token())
     return False
 
 MEALIE_RECIPE_LIMIT = 300
@@ -196,45 +199,57 @@ CREATE TABLE IF NOT EXISTS offer_recipes_meta (
 """
 
 
-def _connect():
-    conn = auth.connect()
-    conn.executescript(SCHEMA)
-    # Een database van vóór de categorieën heeft die kolom nog niet.
-    if "category" not in {row["name"] for row in conn.execute("PRAGMA table_info(offers)")}:
-        conn.execute("ALTER TABLE offers ADD COLUMN category TEXT")
-    # Een kopie van vóór de looptijd heeft geen begindatum; die komt bij de volgende synchronisatie.
-    if "valid_from" not in {row["name"] for row in conn.execute("PRAGMA table_info(offers)")}:
-        conn.execute("ALTER TABLE offers ADD COLUMN valid_from TEXT")
-    # Een geschiedenis van vóór de looptijd heeft geen begindatum; oude rijen houden `first_seen` als begin.
-    if "valid_from" not in {row["name"] for row in conn.execute("PRAGMA table_info(offer_history)")}:
-        conn.execute("ALTER TABLE offer_history ADD COLUMN valid_from TEXT")
-    # Een index van vóór de soorten gerecht heeft die kolom nog niet; de soort volgt bij de volgende keer inlezen.
-    if "course" not in {row["name"] for row in conn.execute("PRAGMA table_info(offer_recipes)")}:
-        conn.execute("ALTER TABLE offer_recipes ADD COLUMN course TEXT")
-    # Een melding van v2.66.0 heeft nog geen reden en bron.
-    rejection_columns = {row["name"] for row in conn.execute("PRAGMA table_info(offer_rejections)")}
-    for column in ("reason", "source"):
-        if column not in rejection_columns:
-            conn.execute(f"ALTER TABLE offer_rejections ADD COLUMN {column} TEXT")
-    # Van vóór de Bonus Box: nog geen persoonlijke aanbiedingen. Bestaande rijen zijn gewone aanbiedingen.
-    for table, column, kind in (
-        ("offers", "personal", "INTEGER NOT NULL DEFAULT 0"), ("offers", "activated", "INTEGER"),
-        ("offer_history", "personal", "INTEGER NOT NULL DEFAULT 0"), ("offers_meta", "personal_error", "TEXT"),
-    ):
-        if column not in {row["name"] for row in conn.execute(f"PRAGMA table_info({table})")}:
-            conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {kind}")
-    _drop_offers_key(conn)
-    conn.execute("CREATE INDEX IF NOT EXISTS offers_store ON offers (store, position)")
-    _repair_open_ends(conn)
-    _repair_picnic_recipe_images(conn)
+# De kolommen die er later bij kwamen, in de volgorde waarin `prepare` ze toevoegt: (tabel, kolom, soort).
+# - `offers.category`: een database van vóór de categorieën heeft die kolom nog niet.
+# - `offers.valid_from`: een kopie van vóór de looptijd heeft geen begindatum, die komt bij de volgende synchronisatie.
+# - `offer_history.valid_from`: een geschiedenis van vóór de looptijd heeft geen begindatum: oude rijen houden `first_seen` als begin.
+# - `offer_recipes.course`: een index van vóór de soorten gerecht heeft die kolom nog niet, de soort volgt bij de volgende keer inlezen.
+# - `offer_rejections.reason` en `.source`: een melding van v2.66.0 heeft nog geen reden en bron.
+# - de rest: van vóór de Bonus Box, nog geen persoonlijke aanbiedingen. Bestaande rijen zijn gewone aanbiedingen.
+COLUMN_MIGRATIONS: tuple[tuple[str, str, str], ...] = (
+    ("offers", "category", "TEXT"),
+    ("offers", "valid_from", "TEXT"),
+    ("offer_history", "valid_from", "TEXT"),
+    ("offer_recipes", "course", "TEXT"),
+    ("offer_rejections", "reason", "TEXT"),
+    ("offer_rejections", "source", "TEXT"),
+    ("offers", "personal", "INTEGER NOT NULL DEFAULT 0"),
+    ("offers", "activated", "INTEGER"),
+    ("offer_history", "personal", "INTEGER NOT NULL DEFAULT 0"),
+    ("offers_meta", "personal_error", "TEXT"),
+)
+COLUMNS_SQL = "PRAGMA table_info({table})"
+ADD_COLUMN_SQL = "ALTER TABLE {table} ADD COLUMN {column} {kind}"
+OFFERS_INDEX_SQL = "CREATE INDEX IF NOT EXISTS offers_store ON offers (store, position)"
+
+
+async def prepare(conn: aiosqlite.Connection) -> aiosqlite.Connection:
+    """Het schema van de aanbiedingen en zijn migraties op een open aiosqlite-verbinding, zoals `_connect` ze toepast. Ook voor
+    `prices._connect`, dat `offer_history` en de rest van de aanbiedingen nodig heeft."""
+    await conn.executescript(SCHEMA)
+    for table, column, kind in COLUMN_MIGRATIONS:
+        if column not in {row["name"] for row in await conn.execute_fetchall(COLUMNS_SQL.format(table=table))}:
+            await conn.execute(ADD_COLUMN_SQL.format(table=table, column=column, kind=kind))
+    await _drop_offers_key(conn)
+    await conn.execute(OFFERS_INDEX_SQL)
+    await _repair_open_ends(conn)
+    await _repair_picnic_recipe_images(conn)
     return conn
+
+
+@asynccontextmanager
+async def _connect() -> AsyncIterator[aiosqlite.Connection]:
+    """Een verbinding met het schema en de migraties (`prepare`). Sluit zonder commit, zoals `auth.connect`."""
+    async with auth.connect() as conn:
+        yield await prepare(conn)
 
 
 # De databases waarvan de einddatums al zijn nagekeken, zodat dat per proces een keer gebeurt en niet bij elke verbinding.
 _OPEN_ENDS_REPAIRED: set[str] = set()
+OPEN_ENDS_SQL = "UPDATE {table} SET valid_until = NULL WHERE valid_until >= ?"
 
 
-def _repair_open_ends(conn) -> None:
+async def _repair_open_ends(conn: aiosqlite.Connection) -> None:
     """Een aanbieding die voor v2.75.0 werd opgeslagen kan AH's "doorlopend" (2999-12-31) nog als einddatum hebben. Sinds v2.75.0 maakt
     `ah._bonus_end` daar None van, maar oude rijen houden die datum: een lopende rij tot de volgende synchronisatie, een afgesloten rij voor
     altijd. Dan loopt de grafiek van de Prijsgeschiedenis tot het jaar 2999 en telt `prices` de aanbieding als nog lopend."""
@@ -242,52 +257,61 @@ def _repair_open_ends(conn) -> None:
     if key in _OPEN_ENDS_REPAIRED:
         return
     cutoff = f"{ah.OPEN_ENDED_YEAR:04d}"
-    with conn:
-        for table in ("offers", "offer_history"):
-            conn.execute(f"UPDATE {table} SET valid_until = NULL WHERE valid_until >= ?", (cutoff,))
+    for table in ("offers", "offer_history"):
+        await conn.execute(OPEN_ENDS_SQL.format(table=table), (cutoff,))
+    await conn.commit()
     _OPEN_ENDS_REPAIRED.add(key)
 
 
 # De databases waarvan de receptfoto's van Picnic al zijn nagekeken, ook een keer per proces.
 _PICNIC_IMAGES_REPAIRED: set[str] = set()
+PICNIC_IMAGES_SQL = "SELECT recipe_id, image FROM offer_recipes WHERE source = 'picnic' AND image LIKE '%/static/images/recipes/%'"
+PICNIC_IMAGE_UPDATE_SQL = "UPDATE offer_recipes SET image = ? WHERE source = 'picnic' AND recipe_id = ?"
 
 
-def _repair_picnic_recipe_images(conn) -> None:
+def _picnic_image_changes(rows: Iterable[Any]) -> list[tuple[str, str]]:
+    return [(picnic.current_image(row["image"]), row["recipe_id"]) for row in rows if picnic.current_image(row["image"]) != row["image"]]
+
+
+async def _repair_picnic_recipe_images(conn: aiosqlite.Connection) -> None:
     """Een recept van Picnic dat voor v3.7.2 in de index kwam, heeft een foto met een maatnaam (`…/recipes/<hash>/large.png`). Een
     nieuwer recept heeft die maat niet en dan bleef de foto weg (#236). De index wordt alleen op verzoek opnieuw ingelezen, dus zetten
     we de adressen hier om naar de maat in pixels (`picnic.current_image`); dan haalt ook de afbeeldingencache de goede op."""
     key = str(auth.db_path())
     if key in _PICNIC_IMAGES_REPAIRED:
         return
-    rows = conn.execute("SELECT recipe_id, image FROM offer_recipes WHERE source = 'picnic' AND image LIKE '%/static/images/recipes/%'").fetchall()
-    changed = [(picnic.current_image(row["image"]), row["recipe_id"]) for row in rows if picnic.current_image(row["image"]) != row["image"]]
+    changed = _picnic_image_changes(await conn.execute_fetchall(PICNIC_IMAGES_SQL))
     if changed:
-        with conn:
-            conn.executemany("UPDATE offer_recipes SET image = ? WHERE source = 'picnic' AND recipe_id = ?", changed)
+        await conn.executemany(PICNIC_IMAGE_UPDATE_SQL, changed)
+        await conn.commit()
     _PICNIC_IMAGES_REPAIRED.add(key)
 
 
-def _offers_keyed(conn) -> bool:
-    return any(row["pk"] for row in conn.execute("PRAGMA table_info(offers)"))
+OFFERS_KEY_SQL = "PRAGMA table_info(offers)"
+OFFERS_COPY_SQL = "INSERT INTO offers_rebuilt ({columns}) SELECT {columns} FROM offers"
 
 
-def _drop_offers_key(conn) -> None:
+async def _offers_keyed(conn: aiosqlite.Connection) -> bool:
+    return any(row["pk"] for row in await conn.execute_fetchall(OFFERS_KEY_SQL))
+
+
+async def _drop_offers_key(conn: aiosqlite.Connection) -> None:
     """Een tabel van vóór 2.84.0 heeft een sleutel op (winkel, product), en dan past de bonus van volgende week er niet naast die van
     deze week. SQLite kan een sleutel niet weghalen, dus bouwen we de tabel een keer opnieuw op, met dezelfde rijen."""
-    if not _offers_keyed(conn):
+    if not await _offers_keyed(conn):
         return
-    conn.commit()
-    conn.execute("BEGIN IMMEDIATE")
+    await conn.commit()
+    await conn.execute("BEGIN IMMEDIATE")
     try:
-        if _offers_keyed(conn):  # een andere verbinding kan het intussen gedaan hebben
-            columns = ", ".join(row["name"] for row in conn.execute("PRAGMA table_info(offers)"))
-            conn.execute(OFFERS_TABLE.format(name="offers_rebuilt"))
-            conn.execute(f"INSERT INTO offers_rebuilt ({columns}) SELECT {columns} FROM offers")
-            conn.execute("DROP TABLE offers")
-            conn.execute("ALTER TABLE offers_rebuilt RENAME TO offers")
-        conn.commit()
-    except Exception:
-        conn.rollback()
+        if await _offers_keyed(conn):  # een andere verbinding kan het intussen gedaan hebben
+            columns = ", ".join(row["name"] for row in await conn.execute_fetchall(OFFERS_KEY_SQL))
+            await conn.execute(OFFERS_TABLE.format(name="offers_rebuilt"))
+            await conn.execute(OFFERS_COPY_SQL.format(columns=columns))
+            await conn.execute("DROP TABLE offers")
+            await conn.execute("ALTER TABLE offers_rebuilt RENAME TO offers")
+        await conn.commit()
+    except BaseException:
+        await conn.rollback()
         raise
 
 
@@ -313,17 +337,17 @@ def week_bounds(week: Any) -> tuple[date, date]:
     return bounds
 
 
-def signature(store: Any, week: Any = None) -> str:
+async def signature(store: Any, week: Any = None) -> str:
     """Verandert precies dan als `load(store, week)` een ander antwoord geeft: bij een nieuwe synchronisatie, op een nieuwe dag (aanbiedingen
     lopen af), voor een andere week en bij een nieuwe versie van de app (de indeling en de voorwaarden worden bij het laden uit de bewaarde
     tekst afgeleid). Goedkoop: een rij uit de database. Dient als ETag, zodat een browser met de lijst al in de cache geen nieuwe hoeft te krijgen."""
     store = _valid_store(store)
     monday = week_bounds(week)[0].isoformat() if week is not None else ""
-    with closing(_connect()) as conn:
-        meta = conn.execute("SELECT synced_at FROM offers_meta WHERE store = ?", (store,)).fetchone()
+    async with _connect() as conn:
+        meta = await auth.fetchone(conn, "SELECT synced_at FROM offers_meta WHERE store = ?", (store,))
     # Een nieuwe of verbroken koppeling verandert wat er over de persoonlijke aanbiedingen (de Bonus Box) bij de lijst staat.
-    personal = "personal" if personal_linked(store) else ""
-    return "|".join((store, meta["synced_at"] if meta else "", date.today().isoformat(), monday, personal, about.read_version()))
+    personal = "personal" if await personal_linked(store) else ""
+    return "|".join((store, meta["synced_at"] if meta else "", date.today().isoformat(), monday, personal, about.version()))
 
 
 def _for_week(offers: list[dict[str, Any]], week: Any) -> tuple[list[dict[str, Any]], dict[str, Any]]:
@@ -382,7 +406,7 @@ def _one_per_product(offers: list[dict[str, Any]], prefer_current: bool = False)
     return [best[key] for key in order]
 
 
-def load(store: Any, week: Any = None) -> dict[str, Any]:
+async def load(store: Any, week: Any = None) -> dict[str, Any]:
     """De lokale kopie van de aanbiedingen van een winkel; `syncedAt` is None zolang er nooit is opgehaald.
 
     Met `week` (een datum in de week van het weekmenu) alleen de aanbiedingen die in die week gelden, zie `_for_week`; zonder `week` alle
@@ -390,16 +414,16 @@ def load(store: Any, week: Any = None) -> dict[str, Any]:
     koppelingen die er bekend zijn).
     """
     store = _valid_store(store)
-    with closing(_connect()) as conn:
-        meta = conn.execute("SELECT synced_at, personal_error FROM offers_meta WHERE store = ?", (store,)).fetchone()
-        rows = conn.execute(
+    async with _connect() as conn:
+        meta = await auth.fetchone(conn, "SELECT synced_at, personal_error FROM offers_meta WHERE store = ?", (store,))
+        rows = await conn.execute_fetchall(
             """
             SELECT product_id, title, brand, unit_size, price, price_before, promo_label, image, url, valid_from, valid_until, category,
               personal, activated
             FROM offers WHERE store = ? ORDER BY position
             """,
             (store,),
-        ).fetchall()
+        )
     all_offers = [
         {
             "id": row["product_id"],
@@ -444,41 +468,41 @@ def load(store: Any, week: Any = None) -> dict[str, Any]:
         **selection,
         "syncedAt": meta["synced_at"] if meta else None,
         "supported": store in FETCHERS,
-        "personal": _personal_summary(store, offers, meta["personal_error"] if meta else None),
+        "personal": await _personal_summary(store, offers, meta["personal_error"] if meta else None),
     }
 
 
-def _personal_summary(store: str, offers: list[dict[str, Any]], error: str | None) -> dict[str, Any]:
+async def _personal_summary(store: str, offers: list[dict[str, Any]], error: str | None) -> dict[str, Any]:
     """Wat er over de persoonlijke aanbiedingen (AH: de Bonus Box) bij de lijst staat: of de winkel ze heeft, of de koppeling er is,
     hoeveel er in de lijst staan en hoeveel daarvan geactiveerd zijn, en de fout van de laatste keer ophalen (de vorige bleven dan staan)."""
     personal = [offer for offer in offers if offer.get("personal")]
     return {
         "supported": store in PERSONAL_FETCHERS,
-        "linked": personal_linked(store),
+        "linked": await personal_linked(store),
         "count": len(personal),
         "activated": sum(1 for offer in personal if offer.get("activated")),
         "error": error or None,
     }
 
 
-def _fetch_personal(store: str) -> tuple[list[dict[str, Any]] | None, str | None]:
+async def _fetch_personal(store: str) -> tuple[list[dict[str, Any]] | None, str | None]:
     """De persoonlijke aanbiedingen van een winkel (AH: de Bonus Box): (aanbiedingen, fout). Zonder koppeling ([], None); mislukt het
     ophalen, dan (None, fout), en houdt `sync` de persoonlijke aanbiedingen van de vorige keer."""
     fetch = PERSONAL_FETCHERS.get(store)
-    if not fetch or not personal_linked(store):
+    if not fetch or not await personal_linked(store):
         return [], None
     try:
-        return fetch(), None
+        return await fetch(), None
     except LookupError:
         return [], None
     except Exception as exc:  # noqa: BLE001 - onofficiële route; de gewone aanbiedingen gaan voor
         return None, str(exc)[:300] or tr("mislukt", "failed")
 
 
-def _previous_personal(store: str) -> list[dict[str, Any]]:
+async def _previous_personal(store: str) -> list[dict[str, Any]]:
     """De persoonlijke aanbiedingen uit de kopie, in de vorm van een fetcher: voor als het ophalen ervan mislukt."""
-    with closing(_connect()) as conn:
-        rows = conn.execute("SELECT * FROM offers WHERE store = ? AND personal = 1 ORDER BY position", (store,)).fetchall()
+    async with _connect() as conn:
+        rows = await conn.execute_fetchall("SELECT * FROM offers WHERE store = ? AND personal = 1 ORDER BY position", (store,))
     return [
         {"id": row["product_id"], "title": row["title"], "brand": row["brand"], "unitSize": row["unit_size"], "price": row["price"],
          "priceBefore": row["price_before"], "promoLabel": row["promo_label"], "image": row["image"], "url": row["url"],
@@ -488,7 +512,7 @@ def _previous_personal(store: str) -> list[dict[str, Any]]:
     ]
 
 
-def sync(store: Any) -> dict[str, Any]:
+async def sync(store: Any) -> dict[str, Any]:
     """Haal de aanbiedingen van een winkel op, vervang de lokale kopie en schrijf ze weg in de geschiedenis.
 
     Mislukt het ophalen, dan verandert er niets: de vorige kopie en de geschiedenis blijven zoals ze waren. De persoonlijke aanbiedingen
@@ -499,10 +523,10 @@ def sync(store: Any) -> dict[str, Any]:
     fetch = FETCHERS.get(store)
     if not fetch:
         raise ValueError(tr("Aanbiedingen van deze winkel zijn nog niet beschikbaar", "Offers from this store are not available yet"))
-    offers = fetch()
-    personal, personal_error = _fetch_personal(store)
+    offers = await fetch()
+    personal, personal_error = await _fetch_personal(store)
     if personal is None:
-        personal = _previous_personal(store)
+        personal = await _previous_personal(store)
     now = _now()
     items = []
     # Een product mag er vaker in staan, met een andere looptijd (de bonus van deze en van volgende week) of als persoonlijke aanbieding;
@@ -543,9 +567,9 @@ def sync(store: Any) -> dict[str, Any]:
         )
         for position, item in enumerate(items)
     ]
-    with closing(_connect()) as conn, conn:
-        conn.execute("DELETE FROM offers WHERE store = ?", (store,))
-        conn.executemany(
+    async with _connect() as conn:
+        await conn.execute("DELETE FROM offers WHERE store = ?", (store,))
+        await conn.executemany(
             """
             INSERT OR REPLACE INTO offers
               (store, product_id, position, title, brand, unit_size, price, price_before, promo_label, image, url, valid_from, valid_until, category,
@@ -554,19 +578,20 @@ def sync(store: Any) -> dict[str, Any]:
             """,
             rows,
         )
-        _record_history(conn, store, _started(items), now)
-        conn.execute(
+        await _record_history(conn, store, _started(items), now)
+        await conn.execute(
             """
             INSERT INTO offers_meta (store, synced_at, personal_error) VALUES (?, ?, ?)
             ON CONFLICT(store) DO UPDATE SET synced_at = excluded.synced_at, personal_error = excluded.personal_error
             """,
             (store, now, personal_error),
         )
+        await conn.commit()
     # De afbeeldingen van aanbiedingen die je eerder kocht, om later te vergelijken. Een fout laat de synchronisatie staan.
     from . import product_images  # pylint: disable=import-outside-toplevel - product_images leunt op prices, en prices op deze module
 
-    product_images.save_bought(store, items, now)
-    return load(store)
+    await product_images.save_bought(store, items, now)
+    return await load(store)
 
 
 # --- geschiedenis -------------------------------------------------------------------------------
@@ -589,7 +614,7 @@ def _details(price: Any, price_before: Any, label: Any) -> tuple[Any, Any, str]:
     return (price, price_before, label or "")
 
 
-def _record_history(conn, store: str, items: list[dict[str, Any]], now: str) -> None:
+async def _record_history(conn: aiosqlite.Connection, store: str, items: list[dict[str, Any]], now: str) -> None:
     """Schrijf de aanbiedingen van deze synchronisatie in `offer_history`.
 
     Per product loopt er hooguit een open rij (`ended_at` leeg). Staat het product nog in de aanbieding met dezelfde prijs en
@@ -601,15 +626,15 @@ def _record_history(conn, store: str, items: list[dict[str, Any]], now: str) -> 
     current = {item["id"]: item for item in items}
     handled: set[str] = set()
     changed: set[str] = set()
-    for row in conn.execute("SELECT id, product_id, price, price_before, promo_label, valid_from FROM offer_history WHERE store = ? AND ended_at IS NULL", (store,)).fetchall():
+    for row in await conn.execute_fetchall("SELECT id, product_id, price, price_before, promo_label, valid_from FROM offer_history WHERE store = ? AND ended_at IS NULL", (store,)):
         item = current.get(row["product_id"])
         new_period = item is not None and bool(row["valid_from"]) and bool(item["validFrom"]) and row["valid_from"] != item["validFrom"]
         if new_period:
-            conn.execute("UPDATE offer_history SET ended_at = last_seen WHERE id = ?", (row["id"],))
+            await conn.execute("UPDATE offer_history SET ended_at = last_seen WHERE id = ?", (row["id"],))
             continue
         if item is not None and row["product_id"] not in handled and _details(item["price"], item["priceBefore"], item["promoLabel"]) == _details(row["price"], row["price_before"], row["promo_label"]):
             handled.add(row["product_id"])
-            conn.execute(
+            await conn.execute(
                 """
                 UPDATE offer_history SET last_seen = ?, syncs = syncs + 1, title = ?, brand = ?, unit_size = ?, category = ?,
                   image = ?, url = ?, valid_from = COALESCE(?, valid_from), valid_until = ?, personal = ? WHERE id = ?
@@ -620,8 +645,8 @@ def _record_history(conn, store: str, items: list[dict[str, Any]], now: str) -> 
             continue
         if item is not None:
             changed.add(row["product_id"])
-        conn.execute("UPDATE offer_history SET ended_at = last_seen WHERE id = ?", (row["id"],))
-    conn.executemany(
+        await conn.execute("UPDATE offer_history SET ended_at = last_seen WHERE id = ?", (row["id"],))
+    await conn.executemany(
         """
         INSERT INTO offer_history
           (store, product_id, title, brand, unit_size, category, price, price_before, promo_label, image, url, valid_from, valid_until,
@@ -638,7 +663,7 @@ def _record_history(conn, store: str, items: list[dict[str, Any]], now: str) -> 
     )
 
 
-def _episode_span(row) -> dict[str, Any]:
+def _episode_span(row: Any) -> dict[str, Any]:
     """De dagen waarop een periode in de aanbieding was, als ISO-datums voor de grafiek.
 
     Het begin is de begindatum van de winkel, of de dag dat wij het product voor het eerst zagen. Het einde is de einddatum van
@@ -654,7 +679,7 @@ def _episode_span(row) -> dict[str, Any]:
     return {"start": start.isoformat() if start else None, "end": end.isoformat() if end else None, "open": is_open}
 
 
-def history(store: Any = None, query: Any = "", limit: Any = 50) -> dict[str, Any]:
+async def history(store: Any = None, query: Any = "", limit: Any = 50) -> dict[str, Any]:
     """Hoe vaak producten in de aanbieding waren en wat de details waren, per product, het laatst gezien bovenaan.
 
     `store` en `query` (een deel van de titel) zijn optioneel. `timesOnOffer` telt aaneengesloten periodes: een prijswijziging
@@ -667,19 +692,19 @@ def history(store: Any = None, query: Any = "", limit: Any = 50) -> dict[str, An
     except (TypeError, ValueError):
         limit = 50
     marks = ",".join("?" * len(stores))
-    with closing(_connect()) as conn:
-        rows = conn.execute(
+    async with _connect() as conn:
+        rows = await conn.execute_fetchall(
             f"""
             SELECT * FROM offer_history WHERE store IN ({marks}) AND title LIKE ? ESCAPE '\\'
             ORDER BY store, product_id, first_seen, id
             """,
             (*stores, pattern),
-        ).fetchall()
+        )
     ranked = sorted(_history_products(rows).values(), key=lambda p: (p["lastSeen"], p["timesOnOffer"]), reverse=True)
     return {"products": ranked[:limit], "total": len(ranked)}
 
 
-def history_of(store: Any, product_ids: Iterable[Any]) -> dict[str, dict[str, Any]]:
+async def history_of(store: Any, product_ids: Iterable[Any]) -> dict[str, dict[str, Any]]:
     """De aanbiedingsgeschiedenis van bepaalde producten van een winkel, in de vorm van `history`, per product-id.
 
     Voor de prijsgeschiedenis (`prices.history`), die de aanbiedingen samenvoegt met de normale prijs en wat je betaalde.
@@ -688,14 +713,14 @@ def history_of(store: Any, product_ids: Iterable[Any]) -> dict[str, dict[str, An
     ids = sorted({str(product_id) for product_id in product_ids if product_id not in (None, "")})
     if not ids:
         return {}
-    rows = []
-    with closing(_connect()) as conn:
+    rows: list[Any] = []
+    async with _connect() as conn:
         for start in range(0, len(ids), 500):
             chunk = ids[start:start + 500]
-            rows += conn.execute(
+            rows += await conn.execute_fetchall(
                 f"SELECT * FROM offer_history WHERE store = ? AND product_id IN ({','.join('?' * len(chunk))}) ORDER BY product_id, first_seen, id",
                 (store, *chunk),
-            ).fetchall()
+            )
     return {product["productId"]: product for product in _history_products(rows).values()}
 
 
@@ -737,7 +762,7 @@ def _history_products(rows: Iterable[Any]) -> dict[tuple[str, str], dict[str, An
     return products
 
 
-def sync_all() -> dict[str, Any]:
+async def sync_all() -> dict[str, Any]:
     """Haal de aanbiedingen van alle winkels op. Een winkel die niet gekoppeld is of mislukt laat de rest staan.
 
     Per winkel: `count` en `syncedAt` na een geslaagde vernieuwing, `skipped` als de winkel niet gekoppeld is,
@@ -745,11 +770,11 @@ def sync_all() -> dict[str, Any]:
     """
     results: dict[str, Any] = {}
     for store in STORES:
-        if not linked(store):
+        if not await linked(store):
             results[store] = {"skipped": tr("niet gekoppeld", "not linked")}
             continue
         try:
-            data = sync(store)
+            data = await sync(store)
             results[store] = {"count": data["total"], "syncedAt": data["syncedAt"]}
             if data["personal"]["supported"]:
                 results[store]["personal"] = data["personal"]
@@ -758,19 +783,19 @@ def sync_all() -> dict[str, Any]:
     return {"stores": results, "finishedAt": _now()}
 
 
-def overview() -> dict[str, Any]:
+async def overview() -> dict[str, Any]:
     """Per winkel: wanneer de aanbiedingen voor het laatst zijn opgehaald en hoeveel er staan."""
-    with closing(_connect()) as conn:
-        metas = {row["store"]: row for row in conn.execute("SELECT store, synced_at, personal_error FROM offers_meta")}
-        counts = {row["store"]: (row["n"], row["p"]) for row in conn.execute("SELECT store, COUNT(*) AS n, SUM(personal) AS p FROM offers GROUP BY store")}
+    async with _connect() as conn:
+        metas = {row["store"]: row for row in await conn.execute_fetchall("SELECT store, synced_at, personal_error FROM offers_meta")}
+        counts = {row["store"]: (row["n"], row["p"]) for row in await conn.execute_fetchall("SELECT store, COUNT(*) AS n, SUM(personal) AS p FROM offers GROUP BY store")}
     result: dict[str, Any] = {}
     for store in STORES:
         meta = metas.get(store)
         total, personal = counts.get(store, (0, 0))
-        result[store] = {"linked": linked(store), "syncedAt": meta["synced_at"] if meta else None, "total": total}
+        result[store] = {"linked": await linked(store), "syncedAt": meta["synced_at"] if meta else None, "total": total}
         if store in PERSONAL_FETCHERS:
             # De persoonlijke aanbiedingen (AH: de Bonus Box) tellen mee in `total`.
-            result[store]["personal"] = {"linked": personal_linked(store), "count": personal or 0, "error": (meta["personal_error"] if meta else None) or None}
+            result[store]["personal"] = {"linked": await personal_linked(store), "count": personal or 0, "error": (meta["personal_error"] if meta else None) or None}
     return result
 
 
@@ -1115,17 +1140,17 @@ def merge_duplicates(results: list[dict[str, Any]]) -> list[dict[str, Any]]:
 _MEALIE_RECIPE_PATH = re.compile(r"/(?:recipe|g/[^/]+/r)/([^/?#]+)/?$")
 
 
-def _mealie_recipe_url(stored: str) -> str:
+async def _mealie_recipe_url(stored: str) -> str:
     """Het huidige adres van een Mealie-recept, ook als de index nog het oude adres bewaart (zonder opnieuw inlezen).
 
     Mealie wil /g/<groep>/r/<recept>; tot v2.65.0 bewaarden we /recipe/<recept>. Het adres wordt daarom bij het tonen opnieuw
     opgebouwd uit het recept in het bewaarde adres. Is Mealie niet gekoppeld of niet te bereiken, dan blijft het bewaarde adres staan.
     """
     match = _MEALIE_RECIPE_PATH.search(stored or "")
-    if not match or not mealie.mealie_url():
+    if not match or not await mealie.mealie_url():
         return stored
     try:
-        return mealie.recipe_page_url(match.group(1))
+        return await mealie.recipe_page_url(match.group(1))
     except Exception:  # noqa: BLE001 - een link die niet lukt mag de voorstellen niet blokkeren
         return stored
 
@@ -1139,44 +1164,46 @@ def _rejection_head(ingredient: Any) -> str:
     return head
 
 
-def report_mismatch(store: Any, ingredient: Any, offer_id: Any, reason: Any = "", source: str = "app") -> dict[str, Any]:
+async def report_mismatch(store: Any, ingredient: Any, offer_id: Any, reason: Any = "", source: str = "app") -> dict[str, Any]:
     """Meld dat dit product niet bij dit ingrediënt hoort. De koppeling komt niet meer terug, ook niet bij andere recepten
     met hetzelfde hoofdwoord in deze winkel; `undo_mismatch` haalt de melding weer weg.
 
     `reason` is een korte toelichting (van een AI-assistent) en `source` wie meldde: `app` (jij, met de vlag) of `assistant`."""
     store = _valid_store(store)
     head = _rejection_head(ingredient)
-    with closing(_connect()) as conn:
-        offer = conn.execute("SELECT title FROM offers WHERE store = ? AND product_id = ?", (store, str(offer_id))).fetchone()
+    async with _connect() as conn:
+        offer = await auth.fetchone(conn, "SELECT title FROM offers WHERE store = ? AND product_id = ?", (store, str(offer_id)))
         if offer is None:
             raise ValueError(tr("Dit product staat niet meer in de aanbiedingen", "This product is no longer in the offers"))
-        with conn:
-            conn.execute(
-                "INSERT OR REPLACE INTO offer_rejections (store, product_id, head, ingredient, title, reported_at, reason, source) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                (store, str(offer_id), head, str(ingredient).strip(), offer["title"], _now(), " ".join(str(reason or "").split())[:300], source),
-            )
+        await conn.execute(
+            "INSERT OR REPLACE INTO offer_rejections (store, product_id, head, ingredient, title, reported_at, reason, source) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (store, str(offer_id), head, str(ingredient).strip(), offer["title"], _now(), " ".join(str(reason or "").split())[:300], source),
+        )
+        await conn.commit()
     return {"store": store, "offerId": str(offer_id), "head": head}
 
 
-def undo_mismatch(store: Any, ingredient: Any, offer_id: Any) -> dict[str, Any]:
+async def undo_mismatch(store: Any, ingredient: Any, offer_id: Any) -> dict[str, Any]:
     """Haalt een melding van `report_mismatch` weer weg."""
     store = _valid_store(store)
     head = _rejection_head(ingredient)
-    with closing(_connect()) as conn, conn:
-        conn.execute("DELETE FROM offer_rejections WHERE store = ? AND product_id = ? AND head = ?", (store, str(offer_id), head))
+    async with _connect() as conn:
+        await conn.execute("DELETE FROM offer_rejections WHERE store = ? AND product_id = ? AND head = ?", (store, str(offer_id), head))
+        await conn.commit()
     return {"store": store, "offerId": str(offer_id), "head": head}
 
 
-def list_mismatches(store: Any = None, limit: int = 100) -> dict[str, Any]:
+async def list_mismatches(store: Any = None, limit: int = 100) -> dict[str, Any]:
     """De gemelde koppelingen, de nieuwste eerst: ingrediënt, product, wie meldde en waarom."""
     store = _valid_store(store) if store else None
     where, params = ("WHERE store = ?", (store,)) if store else ("", ())
-    with closing(_connect()) as conn:
-        rows = conn.execute(
+    async with _connect() as conn:
+        rows = await conn.execute_fetchall(
             f"SELECT store, product_id, head, ingredient, title, reported_at, reason, source FROM offer_rejections {where} ORDER BY reported_at DESC LIMIT ?",
             (*params, max(1, min(500, int(limit)))),
-        ).fetchall()
-        total = conn.execute(f"SELECT COUNT(*) FROM offer_rejections {where}", params).fetchone()[0]
+        )
+        counted = await auth.fetchone(conn, f"SELECT COUNT(*) FROM offer_rejections {where}", params)
+    total = counted[0] if counted else 0
     return {
         "total": total,
         "reports": [
@@ -1192,33 +1219,33 @@ def ingredients_hash(ingredients: list[str]) -> str:
     return hashlib.sha1("\n".join(ingredients).encode("utf-8")).hexdigest()
 
 
-def _ai_search_data(store: str) -> tuple[dict[tuple[str, str], str], dict[tuple[str, str], list[tuple[str, str]]]]:
+async def _ai_search_data(store: str) -> tuple[dict[tuple[str, str], str], dict[tuple[str, str], list[tuple[str, str]]]]:
     """Wat het zoeken door een AI voor deze winkel heeft opgeleverd: per recept de vingerafdruk van de ingrediënten waarmee gezocht is en
     de koppelingen (ingrediëntregel, product)."""
-    with closing(_connect()) as conn:
-        runs = conn.execute("SELECT source, recipe_id, ingredients_hash FROM ai_recipe_runs WHERE store = ?", (store,)).fetchall()
-        rows = conn.execute(
+    async with _connect() as conn:
+        runs = await conn.execute_fetchall("SELECT source, recipe_id, ingredients_hash FROM ai_recipe_runs WHERE store = ?", (store,))
+        rows = await conn.execute_fetchall(
             "SELECT source, recipe_id, ingredient, product_id FROM ai_recipe_matches WHERE store = ? ORDER BY line_index", (store,)
-        ).fetchall()
+        )
     matches: dict[tuple[str, str], list[tuple[str, str]]] = {}
     for row in rows:
         matches.setdefault((row["source"], row["recipe_id"]), []).append((row["ingredient"], row["product_id"]))
     return {(row["source"], row["recipe_id"]): row["ingredients_hash"] for row in runs}, matches
 
 
-def _verdicts(store: str) -> dict[tuple[str, str], str]:
-    with closing(_connect()) as conn:
-        rows = conn.execute("SELECT product_id, head, verdict FROM offer_verdicts WHERE store = ?", (store,)).fetchall()
+async def _verdicts(store: str) -> dict[tuple[str, str], str]:
+    async with _connect() as conn:
+        rows = await conn.execute_fetchall("SELECT product_id, head, verdict FROM offer_verdicts WHERE store = ?", (store,))
     return {(row["product_id"], row["head"]): row["verdict"] for row in rows}
 
 
-def _rejections(store: str) -> set[tuple[str, str]]:
-    with closing(_connect()) as conn:
-        rows = conn.execute("SELECT product_id, head FROM offer_rejections WHERE store = ?", (store,)).fetchall()
+async def _rejections(store: str) -> set[tuple[str, str]]:
+    async with _connect() as conn:
+        rows = await conn.execute_fetchall("SELECT product_id, head FROM offer_rejections WHERE store = ?", (store,))
     return {(row["product_id"], row["head"]) for row in rows}
 
 
-def suggest(store: Any, limit: int = 30, course: Any = None, cap: int = 100, week: Any = None) -> dict[str, Any]:
+async def suggest(store: Any, limit: int = 30, course: Any = None, cap: int = 100, week: Any = None) -> dict[str, Any]:
     """Recepten uit de index die zoveel mogelijk met de aanbiedingen van deze winkel te maken zijn, de beste eerst.
 
     Basisingrediënten (zout, olie, boter ...) tellen niet mee. De volgorde is: het grootste deel van de ingrediënten in de aanbieding,
@@ -1231,18 +1258,18 @@ def suggest(store: Any, limit: int = 30, course: Any = None, cap: int = 100, wee
         course = ""
     elif course not in offer_courses.COURSES:
         raise ValueError(tr("Onbekende soort gerecht", "Unknown kind of dish"))
-    offers = load(store, week)
-    rejected = _rejections(offers["store"])
-    verdicts = _verdicts(offers["store"])
+    offers = await load(store, week)
+    rejected = await _rejections(offers["store"])
+    verdicts = await _verdicts(offers["store"])
     pair_judged: dict[tuple[str, str], bool] = {}
-    ai_runs, ai_matches = _ai_search_data(offers["store"])
+    ai_runs, ai_matches = await _ai_search_data(offers["store"])
     ai_searched = 0
     offers_by_id = {str(offer["id"]): offer for offer in offers["offers"]}
     prepared = [(offer, *offer_parts(offer["title"])) for offer in offers["offers"]]
     offer_index = head_index(core for _, core, _ in prepared)
-    with closing(_connect()) as conn:
-        meta = conn.execute("SELECT synced_at, summary FROM offer_recipes_meta WHERE id = 1").fetchone()
-        rows = conn.execute("SELECT source, recipe_id, title, image, url, ingredients, course FROM offer_recipes").fetchall()
+    async with _connect() as conn:
+        meta = await auth.fetchone(conn, "SELECT synced_at, summary FROM offer_recipes_meta WHERE id = 1")
+        rows = await conn.execute_fetchall("SELECT source, recipe_id, title, image, url, ingredients, course FROM offer_recipes")
     results: list[dict[str, Any]] = []
     for row in rows:
         ingredients = json.loads(row["ingredients"])
@@ -1315,7 +1342,7 @@ def suggest(store: Any, limit: int = 30, course: Any = None, cap: int = 100, wee
                 "id": row["recipe_id"],
                 "title": row["title"],
                 "image": row["image"] or "",
-                "url": (_mealie_recipe_url(row["url"]) if row["source"] == "mealie" else row["url"]) or "",
+                "url": (await _mealie_recipe_url(row["url"]) if row["source"] == "mealie" else row["url"]) or "",
                 "course": row["course"] or offer_courses.OTHER,
                 "ingredientCount": len(heads),
                 "matchedCount": len(found),
@@ -1349,12 +1376,12 @@ def suggest(store: Any, limit: int = 30, course: Any = None, cap: int = 100, wee
     }
 
 
-def unique_pairs(store: Any) -> list[dict[str, Any]]:
+async def unique_pairs(store: Any) -> list[dict[str, Any]]:
     """De koppelingen van alle receptvoorstellen als lijst van unieke paren (hoofdwoord van het ingrediënt + product), het vaakst gebruikte eerst.
 
     Hetzelfde paar komt in veel recepten voor en één oordeel (`report_mismatch`) geldt voor al die recepten, dus elk paar staat één keer in
     de lijst, met het aantal recepten, een paar voorbeelden en het hoofdwoord (`head`). Al gemelde paren staan er niet meer in."""
-    suggestions = suggest(store, limit=10**6, cap=10**6)
+    suggestions = await suggest(store, limit=10**6, cap=10**6)
     pairs: dict[tuple[str, str], dict[str, Any]] = {}
     for recipe in suggestions["recipes"]:
         for item in recipe["matched"]:
@@ -1383,9 +1410,9 @@ def unique_pairs(store: Any) -> list[dict[str, Any]]:
     return sorted(pairs.values(), key=lambda pair: (-pair["recipes"], pair["product"], pair["ingredient"]))
 
 
-def review_pairs(store: Any, limit: int = 40, offset: int = 0) -> dict[str, Any]:
+async def review_pairs(store: Any, limit: int = 40, offset: int = 0) -> dict[str, Any]:
     """`unique_pairs` voor de MCP-tool `review_offer_matches`: een stuk van de lijst, zonder het interne hoofdwoord."""
-    ordered = unique_pairs(store)
+    ordered = await unique_pairs(store)
     start = max(0, int(offset))
     page = [{key: value for key, value in pair.items() if key != "head"} for pair in ordered[start : start + max(1, min(100, int(limit)))]]
     return {"store": _valid_store(store), "total": len(ordered), "offset": start, "pairs": page}
@@ -1401,12 +1428,32 @@ def _mealie_ingredient(item: Any) -> str:
     return str(food.get("name") or item.get("note") or item.get("display") or item.get("originalText") or "").strip()
 
 
-def _collect_mealie() -> list[dict[str, Any]]:
-    summaries = mealie.list_recipes(MEALIE_RECIPE_LIMIT)
+_Item = TypeVar("_Item")
 
-    def one(summary: dict[str, Any]) -> dict[str, Any] | None:
+
+async def _each(one: Callable[[_Item], Awaitable[dict[str, Any] | None]], items: Iterable[_Item]) -> list[dict[str, Any]]:
+    """`one` voor elk item, hooguit `WORKERS` tegelijk (een semafoor per aanroep), in de volgorde van `items`. Een item dat None geeft
+    valt weg. Gooit `one` een fout, dan wachten we eerst tot de rest klaar is (zoals de threadpool voorheen) en volgt de fout van het
+    eerste item dat faalde."""
+    slots = asyncio.Semaphore(WORKERS)
+
+    async def bounded(item: _Item) -> dict[str, Any] | None:
+        async with slots:
+            return await one(item)
+
+    results: list[dict[str, Any] | None | BaseException] = await asyncio.gather(*(bounded(item) for item in items), return_exceptions=True)
+    for result in results:
+        if isinstance(result, BaseException):
+            raise result
+    return [result for result in results if result]
+
+
+async def _collect_mealie() -> list[dict[str, Any]]:
+    summaries = await mealie.list_recipes(MEALIE_RECIPE_LIMIT)
+
+    async def one(summary: dict[str, Any]) -> dict[str, Any] | None:
         try:
-            recipe = mealie.get_recipe(summary["slug"])
+            recipe = await mealie.get_recipe(summary["slug"])
         except Exception:  # noqa: BLE001 - een recept dat niet lukt slaan we over
             return None
         lines = [line for line in (_mealie_ingredient(i) for i in recipe.get("recipeIngredient") or []) if line]
@@ -1416,23 +1463,22 @@ def _collect_mealie() -> list[dict[str, Any]]:
             "id": str(recipe.get("id") or summary["slug"]),
             "title": str(recipe.get("name") or summary["slug"]),
             "image": mealie_images.image_path(recipe) or "",
-            "url": mealie.recipe_page_url(summary["slug"]),
+            "url": await mealie.recipe_page_url(summary["slug"]),
             "ingredients": lines,
             "course": offer_courses.course_of(recipe.get("recipeCategory"), recipe.get("tags")),
         }
 
-    with ThreadPoolExecutor(max_workers=WORKERS) as pool:
-        return [item for item in pool.map(one, summaries) if item]
+    return await _each(one, summaries)
 
 
-def _collect_jumbo() -> list[dict[str, Any]]:
-    if not jumbo.configured_refresh_token():
+async def _collect_jumbo() -> list[dict[str, Any]]:
+    if not await jumbo.configured_refresh_token():
         raise LookupError(tr("niet gekoppeld", "not linked"))
-    cards = jumbo_recipes.get_favorites(1).get("recipes") or []
+    cards = (await jumbo_recipes.get_favorites(1)).get("recipes") or []
 
-    def one(card: dict[str, Any]) -> dict[str, Any] | None:
+    async def one(card: dict[str, Any]) -> dict[str, Any] | None:
         try:
-            recipe = jumbo_recipes.get_recipe(card["id"])
+            recipe = await jumbo_recipes.get_recipe(card["id"])
         except Exception:  # noqa: BLE001
             return None
         lines = [i["name"] for i in recipe["ingredients"] if i.get("name")]
@@ -1442,24 +1488,23 @@ def _collect_jumbo() -> list[dict[str, Any]]:
                 "url": jumbo_recipes.source_url(recipe), "ingredients": lines,
                 "course": offer_courses.course_of(recipe.get("course"), card.get("course"))}
 
-    with ThreadPoolExecutor(max_workers=WORKERS) as pool:
-        return [item for item in pool.map(one, cards[:OTHER_RECIPE_LIMIT]) if item]
+    return await _each(one, cards[:OTHER_RECIPE_LIMIT])
 
 
-def _collect_picnic() -> list[dict[str, Any]]:
-    if not picnic.configured_auth_key():
+async def _collect_picnic() -> list[dict[str, Any]]:
+    if not await picnic.configured_auth_key():
         raise LookupError(tr("niet gekoppeld", "not linked"))
     cards: list[dict[str, Any]] = []
     seen: set[str] = set()
     for source in ("saved", "cookbook"):
-        for card in picnic_recipes.get_recipes(source):
+        for card in await picnic_recipes.get_recipes(source):
             if card["id"] not in seen:
                 seen.add(card["id"])
                 cards.append(card)
 
-    def one(card: dict[str, Any]) -> dict[str, Any] | None:
+    async def one(card: dict[str, Any]) -> dict[str, Any] | None:
         try:
-            recipe = picnic_recipes.get_recipe(card["id"])
+            recipe = await picnic_recipes.get_recipe(card["id"])
         except Exception:  # noqa: BLE001
             return None
         lines = [str(i.get("name") or i.get("line") or "").strip() for i in recipe["ingredients"]]
@@ -1470,19 +1515,18 @@ def _collect_picnic() -> list[dict[str, Any]]:
                 "url": picnic_recipes.source_url(recipe["id"]), "ingredients": lines,
                 "course": offer_courses.course_of(card.get("tags"))}
 
-    with ThreadPoolExecutor(max_workers=WORKERS) as pool:
-        return [item for item in pool.map(one, cards[:OTHER_RECIPE_LIMIT]) if item]
+    return await _each(one, cards[:OTHER_RECIPE_LIMIT])
 
 
-def _collect_crisp() -> list[dict[str, Any]]:
+async def _collect_crisp() -> list[dict[str, Any]]:
     """Je bewaarde Crisp-recepten (Winkels > Crisp > Recepten), per recept live opgehaald, zoals bij Picnic."""
-    if not crisp.configured_client_id():
+    if not await crisp.configured_client_id():
         raise LookupError(tr("niet gekoppeld", "not linked"))
-    cards = crisp.get_saved_recipes()["recipes"]
+    cards = (await crisp.get_saved_recipes())["recipes"]
 
-    def one(card: dict[str, Any]) -> dict[str, Any] | None:
+    async def one(card: dict[str, Any]) -> dict[str, Any] | None:
         try:
-            recipe = crisp.get_recipe(card["id"])
+            recipe = await crisp.get_recipe(card["id"])
         except Exception:  # noqa: BLE001
             return None
         lines = [str(i.get("name") or i.get("line") or "").strip() for i in recipe["ingredients"]]
@@ -1494,22 +1538,21 @@ def _collect_crisp() -> list[dict[str, Any]]:
                 "url": recipe.get("url") or crisp.source_url(recipe["id"]), "ingredients": lines,
                 "course": offer_courses.course_of(card.get("tags"))}
 
-    with ThreadPoolExecutor(max_workers=WORKERS) as pool:
-        return [item for item in pool.map(one, cards[:OTHER_RECIPE_LIMIT]) if item]
+    return await _each(one, cards[:OTHER_RECIPE_LIMIT])
 
 
-def _indexed(source: str) -> dict[str, tuple[list[str], str | None]]:
+async def _indexed(source: str) -> dict[str, tuple[list[str], str | None]]:
     """Wat er van een bron al in de index staat: per recept de ingrediënten en de soort (None als die nog niet is ingelezen)."""
-    with closing(_connect()) as conn:
-        rows = conn.execute("SELECT recipe_id, ingredients, course FROM offer_recipes WHERE source = ?", (source,)).fetchall()
+    async with _connect() as conn:
+        rows = await conn.execute_fetchall("SELECT recipe_id, ingredients, course FROM offer_recipes WHERE source = ?", (source,))
     return {row["recipe_id"]: (json.loads(row["ingredients"]), row["course"]) for row in rows}
 
 
-def _collect_ah() -> list[dict[str, Any]]:
-    saved = ah_recipes.load()
+async def _collect_ah() -> list[dict[str, Any]]:
+    saved = await ah_recipes.load()
     if not saved or not saved["recipes"]:
         raise LookupError(tr("geen bewaarde recepten (haal ze eerst op bij Winkels > Albert Heijn > Recepten)", "no saved recipes (fetch them first under Stores > Albert Heijn > Recipes)"))
-    known = _indexed("ah")
+    known = await _indexed("ah")
     fetched = 0
     items: list[dict[str, Any]] = []
     for recipe in saved["recipes"]:
@@ -1523,7 +1566,7 @@ def _collect_ah() -> list[dict[str, Any]]:
             else:
                 fetched += 1
                 try:
-                    jsonld = ah.get_recipe_jsonld(int(recipe_id))
+                    jsonld = await ah.get_recipe_jsonld(int(recipe_id))
                     lines = jsonld.get("recipeIngredient") or lines or []
                     course = offer_courses.course_of(jsonld.get("recipeCategory"))
                 except Exception:  # noqa: BLE001
@@ -1535,7 +1578,7 @@ def _collect_ah() -> list[dict[str, Any]]:
     return items
 
 
-COLLECTORS: tuple[tuple[str, Callable[[], list[dict[str, Any]]]], ...] = (
+COLLECTORS: tuple[tuple[str, Callable[[], Awaitable[list[dict[str, Any]]]]], ...] = (
     ("mealie", _collect_mealie),
     ("jumbo", _collect_jumbo),
     ("picnic", _collect_picnic),
@@ -1544,31 +1587,32 @@ COLLECTORS: tuple[tuple[str, Callable[[], list[dict[str, Any]]]], ...] = (
 )
 
 
-def sync_recipes() -> dict[str, Any]:
+async def sync_recipes() -> dict[str, Any]:
     """Lees de ingrediënten van je recepten in de index. Een bron die niet lukt of niet gekoppeld is laat de rest staan."""
     summary: dict[str, Any] = {}
     collected: dict[str, list[dict[str, Any]]] = {}
     for source, collect in COLLECTORS:
         try:
-            collected[source] = collect()
+            collected[source] = await collect()
             summary[source] = {"count": len(collected[source])}
         except LookupError as exc:
             summary[source] = {"count": 0, "skipped": str(exc)}
         except Exception as exc:  # noqa: BLE001 - een bron die faalt mag de andere niet blokkeren
             summary[source] = {"count": 0, "error": str(exc)[:200] or tr("mislukt", "failed")}
-    with closing(_connect()) as conn, conn:
+    async with _connect() as conn:
         for source, items in collected.items():
-            conn.execute("DELETE FROM offer_recipes WHERE source = ?", (source,))
-            conn.executemany(
+            await conn.execute("DELETE FROM offer_recipes WHERE source = ?", (source,))
+            await conn.executemany(
                 "INSERT OR REPLACE INTO offer_recipes (source, recipe_id, title, image, url, ingredients, course) VALUES (?, ?, ?, ?, ?, ?, ?)",
                 [(source, item["id"], item["title"], item["image"], item["url"], json.dumps(item["ingredients"]), item.get("course"))
                  for item in items],
             )
-        conn.execute(
+        await conn.execute(
             """
             INSERT INTO offer_recipes_meta (id, synced_at, summary) VALUES (1, ?, ?)
             ON CONFLICT(id) DO UPDATE SET synced_at = excluded.synced_at, summary = excluded.summary
             """,
             (_now(), json.dumps(summary)),
         )
+        await conn.commit()
     return {"indexedAt": _now(), "sources": summary, "total": sum(len(items) for items in collected.values())}

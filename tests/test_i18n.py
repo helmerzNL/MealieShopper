@@ -8,8 +8,9 @@ from unittest import mock
 
 os.environ["PASSKEY_AUTH_ENABLED"] = "false"
 
-from mealieshopper import auth, auth_password, i18n, onboarding  # noqa: E402
+from mealieshopper import auth_password, i18n  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
+from helpers import AppTestCase, run  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 STATIC = ROOT / "static"
@@ -67,7 +68,7 @@ def norm(text: str) -> str:
     return re.sub(r"\s+", " ", text).strip()
 
 
-class DictionaryTest(unittest.TestCase):
+class DictionaryTest(AppTestCase):
     def test_every_line_of_both_files_is_read(self):
         for lang in ("nl", "en"):
             source = (STATIC / "i18n" / f"{lang}.js").read_text(encoding="utf-8")
@@ -108,7 +109,7 @@ class DictionaryTest(unittest.TestCase):
             self.assertNotRegex(text, r"<script|javascript:|on\w+=", key)
 
 
-class UsageTest(unittest.TestCase):
+class UsageTest(AppTestCase):
     CALL = re.compile(r'\b(?:t|th|tn|thn)\(\s*["`]([\w.]+)["`]')
 
     def test_every_key_used_in_the_scripts_exists(self):
@@ -176,7 +177,7 @@ class UsageTest(unittest.TestCase):
         self.assertEqual(offenders, [])
 
 
-class PageTest(unittest.TestCase):
+class PageTest(AppTestCase):
     def test_scripts_load_in_the_right_order(self):
         order = [HTML.index(name) for name in ("i18n.js", "i18n/nl.js", "i18n/en.js", "app.js", "onboarding.js")]
         self.assertEqual(order, sorted(order))
@@ -254,7 +255,7 @@ class PageTest(unittest.TestCase):
         self.assertIn("I18N.locale()", JS)
 
 
-class ServerLanguageTest(unittest.TestCase):
+class ServerLanguageTest(AppTestCase):
     def setUp(self):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
@@ -270,54 +271,55 @@ class ServerLanguageTest(unittest.TestCase):
         self.app = create_app()
 
     def client(self, lang=None):
-        client = self.app.test_client()
+        client = self.client_for(self.app)
         if lang:
             client.set_cookie("ms_lang", lang)
         return client
 
     def test_default_and_unknown_languages_are_dutch(self):
         self.assertEqual(i18n.tr("nl", "en"), "nl", "zonder verzoek")
-        with self.app.test_request_context("/"):
-            self.assertEqual(i18n.current_lang(), "nl")
-        with self.app.test_request_context("/", headers={"Cookie": "ms_lang=fr"}):
-            self.assertEqual(i18n.current_lang(), "nl")
-        with self.app.test_request_context("/", headers={"Cookie": "ms_lang=en"}):
-            self.assertEqual(i18n.current_lang(), "en")
+        async def lang(**kwargs):
+            async with self.app.test_request_context("/", **kwargs):
+                return i18n.current_lang()
 
-    def test_login_errors_follow_the_cookie(self):
-        self.client().post("/api/auth/password", json={"username": "admin", "password": "koffie-met-melk-42"})
+        self.assertEqual(run(lang()), "nl")
+        self.assertEqual(run(lang(headers={"Cookie": "ms_lang=fr"})), "nl")
+        self.assertEqual(run(lang(headers={"Cookie": "ms_lang=en"})), "en")
+
+    async def test_login_errors_follow_the_cookie(self):
+        await self.client().post("/api/auth/password", json={"username": "admin", "password": "koffie-met-melk-42"})
         wrong = {"username": "admin", "password": "verkeerd-wachtwoord"}
-        dutch = self.client("nl").post("/api/auth/password/login", json=wrong).get_json()["error"]
-        english = self.client("en").post("/api/auth/password/login", json=wrong).get_json()["error"]
+        dutch = (await self.client("nl").post("/api/auth/password/login", json=wrong)).get_json()["error"]
+        english = (await self.client("en").post("/api/auth/password/login", json=wrong)).get_json()["error"]
         self.assertEqual(dutch, "Gebruikersnaam of wachtwoord klopt niet.")
         self.assertEqual(english, "Username or password is incorrect.")
 
-    def test_password_rules_and_lockout_in_english(self):
-        weak = self.client("en").post("/api/auth/password", json={"username": "admin", "password": "short"}).get_json()["error"]
+    async def test_password_rules_and_lockout_in_english(self):
+        weak = (await self.client("en").post("/api/auth/password", json={"username": "admin", "password": "short"})).get_json()["error"]
         self.assertEqual(weak, "Choose a password of at least 10 characters.")
-        self.client().post("/api/auth/password", json={"username": "admin", "password": "koffie-met-melk-42"})
+        await self.client().post("/api/auth/password", json={"username": "admin", "password": "koffie-met-melk-42"})
         guest = self.client("en")
         for _ in range(auth_password.ATTEMPTS_PER_WINDOW):
-            guest.post("/api/auth/password/login", json={"username": "admin", "password": "nope-nope-nope"})
-        locked = guest.post("/api/auth/password/login", json={"username": "admin", "password": "nope-nope-nope"})
+            await guest.post("/api/auth/password/login", json={"username": "admin", "password": "nope-nope-nope"})
+        locked = await guest.post("/api/auth/password/login", json={"username": "admin", "password": "nope-nope-nope"})
         self.assertEqual(locked.status_code, 429)
         self.assertRegex(locked.get_json()["error"], r"^Too many failed attempts\. Try again in \d+ minutes?\.$")
 
-    def test_onboarding_explains_the_missing_passkey_in_the_chosen_language(self):
+    async def test_onboarding_explains_the_missing_passkey_in_the_chosen_language(self):
         url = "/api/onboarding/status"
 
-        def fetch(lang):
-            client = self.app.test_client()
+        async def fetch(lang):
+            client = self.client_for(self.app)
             client.set_cookie("ms_lang", lang, domain="192.168.1.20")
-            return client.get(url, base_url="http://192.168.1.20:8080").get_json()
+            return (await client.get(url, base_url="http://192.168.1.20:8080")).get_json()
 
-        english, dutch = fetch("en"), fetch("nl")
+        english, dutch = await fetch("en"), await fetch("nl")
         self.assertIn("an IP address", english["passkeyUnavailableReason"])
         self.assertIn("A passkey needs a real domain name", english["passkeyUnavailableReason"])
         self.assertIn("een IP-adres", dutch["passkeyUnavailableReason"])
 
-    def test_open_mode_messages(self):
-        res = self.client("en").post("/api/auth/open", json={})
+    async def test_open_mode_messages(self):
+        res = await self.client("en").post("/api/auth/open", json={})
         self.assertEqual(res.get_json()["error"], "Confirm that you want to continue without security.")
 
 

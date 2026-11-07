@@ -13,18 +13,19 @@ from __future__ import annotations
 import re
 from typing import Any, Callable
 
-import requests
+import httpx
 
-from . import jumbo, jumbo_recipes
-from .ah_explore import PROMO_TERMS, promo_probe, shape
+from . import http_client, jumbo, jumbo_recipes
+from .ah_explore import PROMO_TERMS, promo_probe, resolved, shape
 
 EXAMPLE_TERM = "melk"
 EXAMPLE_RECIPE = "pasta"
 
 
-def _probe(name: str, call: Callable[[], Any], summarize: Callable[[Any], Any] | None = None) -> tuple[dict[str, Any], Any]:
+async def _probe(name: str, call: Callable[[], Any], summarize: Callable[[Any], Any] | None = None) -> tuple[dict[str, Any], Any]:
+    """Roep `call` aan (synchroon of async, zie `ah_explore.resolved`) en geef het rapport van die route en de uitkomst."""
     try:
-        result = call()
+        result = await resolved(call())
     except jumbo.JumboSchemaError as exc:
         # Jumbo's eigen validatiemelding noemt alleen velden en typen uit onze query ("Cannot query field ..."):
         # dat is precies wat nodig is om een query te herstellen en bevat geen persoonsgegevens.
@@ -43,28 +44,28 @@ PROMOTION_FIELD_CANDIDATES = (
 _FIELD_IN_ERROR = re.compile(r'[Ff]ield "(\w+)"')
 
 
-def _search_with_promotion_fields(term: str, fields: list[str]) -> list[dict[str, Any]]:
+async def _search_with_promotion_fields(term: str, fields: list[str]) -> list[dict[str, Any]]:
     # De looptijd (`start` en `end`) is bevestigd en gaat altijd mee; de kandidaten zijn de rest.
     query = jumbo._search_query("", dates=False).replace(
         "promotions { tags { text } }", "promotions { tags { text } " + jumbo.PROMOTION_DATES + " " + " ".join(fields) + " }"
     )
-    data = jumbo._graphql(query, {"input": {"searchType": "KEYWORD", "searchTerms": term}}, "SearchProductsByKeyword")
+    data = await jumbo._graphql(query, {"input": {"searchType": "KEYWORD", "searchTerms": term}}, "SearchProductsByKeyword")
     return [p for p in ((data.get("searchProducts") or {}).get("products") or []) if isinstance(p, dict)]
 
 
-def _promotion_probe() -> dict[str, Any]:
+async def _promotion_probe() -> dict[str, Any]:
     """Zoek welke velden een Jumbo-promotie heeft en laat de actieteksten en looptijd zien."""
     fields = list(PROMOTION_FIELD_CANDIDATES)
     for _ in range(len(fields) + 1):
         try:
-            _search_with_promotion_fields(PROMO_TERMS[0], fields)
+            await _search_with_promotion_fields(PROMO_TERMS[0], fields)
             break
         except jumbo.JumboSchemaError as exc:
             rejected = {name for name in _FIELD_IN_ERROR.findall(str(exc)) if name in fields}
             if not rejected:
                 raise
             fields = [name for name in fields if name not in rejected]
-    report = promo_probe(
+    report = await promo_probe(
         PROMO_TERMS,
         lambda term: _search_with_promotion_fields(term, fields),
         lambda item: bool(item.get("promotions")),
@@ -72,9 +73,14 @@ def _promotion_probe() -> dict[str, Any]:
     return {"promotievelden die bestaan": fields, **report}
 
 
-def _reach(method: str, url: str, **kwargs: Any) -> dict[str, Any]:
+def _client() -> httpx.AsyncClient:
+    """De client van de verkenner: de eigen User-Agent van de Jumbo-website, doorverwijzingen volgen zoals requests deed."""
+    return http_client.client("jumbo-explore", headers={"User-Agent": jumbo.WEB_USER_AGENT}, follow_redirects=True)
+
+
+async def _reach(method: str, url: str, **kwargs: Any) -> dict[str, Any]:
     """Of Jumbo dit adres beantwoordt, en of het antwoord een bot-blokkade lijkt (HTML in plaats van JSON)."""
-    response = requests.request(
+    response: httpx.Response = await _client().request(
         method, url, timeout=20, headers={"User-Agent": jumbo.WEB_USER_AGENT, "Accept": "application/json"}, **kwargs
     )
     kind = (response.headers.get("content-type") or "").split(";")[0].strip()
@@ -85,12 +91,12 @@ def _reach(method: str, url: str, **kwargs: Any) -> dict[str, Any]:
     }
 
 
-def _empty_add_probe() -> dict[str, Any]:
+async def _empty_add_probe() -> dict[str, Any]:
     """Het mandje-vullen-pad met een lege lijst: er wordt niets toegevoegd, we zien alleen of het pad klopt.
 
     `typename` is `Basket` bij succes of de naam van Jumbo's foutvariant (een typenaam, geen persoonsgegeven).
     """
-    data = jumbo._graphql(
+    data = await jumbo._graphql(
         jumbo.ADD_LINES_MUTATION, {"input": {"lines": [], "type": "ECOMMERCE"}}, "BasketPageAddBasketItems"
     )
     return {"typename": (data.get("addBasketLines") or {}).get("__typename")}
@@ -102,17 +108,17 @@ def _route(operation: str) -> str:
     return f"{method} met {client}"
 
 
-def _empty_list_edit_probe() -> dict[str, Any]:
+async def _empty_list_edit_probe() -> dict[str, Any]:
     """Schrijfpad van het lijstje met een lege lijst: er wordt niets toegevoegd, we zien alleen de typenaam."""
-    data = jumbo._graphql_variants(
+    data = await jumbo._graphql_variants(
         "EditShoppingListItems", jumbo.EDIT_LIST_QUERIES, {"input": {"items": []}}, jumbo.LOYALTY_CLIENT
     )
     return {"typename": (data.get("editShoppingListItems") or {}).get("__typename")}
 
 
-def _possible_result_types() -> list[str]:
+async def _possible_result_types() -> list[str]:
     """Welke antwoorden kan `addBasketLines` geven? Introspectie staat bij Jumbo meestal uit; de fout zegt dat dan."""
-    data = jumbo._graphql(
+    data = await jumbo._graphql(
         'query AddBasketLinesResultTypes { __type(name: "AddBasketLinesResult") { possibleTypes { name } } }',
         None,
         "AddBasketLinesResultTypes",
@@ -120,7 +126,7 @@ def _possible_result_types() -> list[str]:
     return [str(entry.get("name")) for entry in ((data.get("__type") or {}).get("possibleTypes") or []) if isinstance(entry, dict)]
 
 
-def explore() -> dict[str, Any]:
+async def explore() -> dict[str, Any]:
     """Controleer de bereikbaarheid en roep de leesroutes aan; geef een rapport met de vorm van de antwoorden."""
     probes: list[dict[str, Any]] = []
 
@@ -129,18 +135,18 @@ def explore() -> dict[str, Any]:
         ("bereikbaar: www.jumbo.com/api/graphql (zonder inloggen)", "POST", jumbo.GRAPHQL_URL,
          {"json": {"operationName": "Reach", "query": "query Reach { __typename }"}}),
     ):
-        report, _ = _probe(name, lambda m=method, u=url, k=kwargs: _reach(m, u, **k), lambda data: data)
+        report, _ = await _probe(name, lambda m=method, u=url, k=kwargs: _reach(m, u, **k), lambda data: data)
         probes.append(report)
 
-    linked = bool(jumbo.configured_refresh_token())
-    report, _ = _probe(
+    linked = bool(await jumbo.configured_refresh_token())
+    report, _ = await _probe(
         "toegangstoken vernieuwen (auth.jumbo.com/oauth/token)",
         lambda: jumbo.get_access_token(force=True),
         lambda _: "ok",
     )
     probes.append(report)
 
-    report, _ = _probe(
+    report, _ = await _probe(
         "zoeken: GraphQL searchProducts",
         lambda: jumbo.search_products(EXAMPLE_TERM, 3),
         lambda products: {
@@ -151,37 +157,37 @@ def explore() -> dict[str, Any]:
     )
     probes.append(report)
 
-    report, _ = _probe(
+    report, _ = await _probe(
         "aanbiedingen: GraphQL searchProducts met extra promotievelden", _promotion_probe, lambda data: data
     )
     probes.append(report)
 
-    report, _ = _probe("mandje: GraphQL activeBasket", jumbo.get_cart)
+    report, _ = await _probe("mandje: GraphQL activeBasket", jumbo.get_cart)
     probes.append(report)
 
-    report, _ = _probe(
+    report, _ = await _probe(
         "mandje vullen: addBasketLines met een lege lijst (voegt niets toe)",
         _empty_add_probe,
         lambda data: data,
     )
     probes.append(report)
 
-    report, live_list = _probe("lijstje: GraphQL shoppingList", jumbo.get_shopping_list)
+    report, live_list = await _probe("lijstje: GraphQL shoppingList", jumbo.get_shopping_list)
     probes.append(report)
 
-    report, _ = _probe(
+    report, _ = await _probe(
         "lijstje: editShoppingListItems met een lege lijst (voegt niets toe)", _empty_list_edit_probe, lambda data: data
     )
     probes.append(report)
 
     sku = next((item["sku"] for item in (live_list or {}).get("items", []) if item.get("sku")), None)
     if sku:
-        report, _ = _probe("productgegevens van een regel van het lijstje: ProductDetail", lambda: jumbo.get_product(sku))
+        report, _ = await _probe("productgegevens van een regel van het lijstje: ProductDetail", lambda: jumbo.get_product(sku))
     else:
         report = {"name": "productgegevens van een regel van het lijstje: ProductDetail", "ok": False, "error": "overgeslagen: geen regel met SKU"}
     probes.append(report)
 
-    report, lists = _probe(
+    report, lists = await _probe(
         "mijn lijstjes: opgeslagen query GetCustomerProductLists",
         jumbo.get_product_lists,
         lambda found: {
@@ -195,7 +201,7 @@ def explore() -> dict[str, Any]:
 
     first = next(iter(lists or []), None)
     if first:
-        report, _ = _probe(
+        report, _ = await _probe(
             "een lijstje: opgeslagen query GetProductList",
             lambda: jumbo.get_product_list(first["id"]),
             lambda found: {
@@ -209,7 +215,7 @@ def explore() -> dict[str, Any]:
         report = {"name": "een lijstje: opgeslagen query GetProductList", "ok": False, "error": "overgeslagen: geen lijstje"}
     probes.append(report)
 
-    report, orders = _probe(
+    report, orders = await _probe(
         "mijn bestellingen: opgeslagen query OnlineOrdersAndStoreReceipts",
         jumbo.get_orders,
         lambda found: {
@@ -224,7 +230,7 @@ def explore() -> dict[str, Any]:
 
     first_order = next(iter((orders or {}).get("orders") or []), None)
     if first_order:
-        report, _ = _probe(
+        report, _ = await _probe(
             "een bestelling met producten: GetOrder",
             lambda: jumbo.get_order(first_order["id"]),
             lambda found: {
@@ -237,7 +243,7 @@ def explore() -> dict[str, Any]:
         report = {"name": "een bestelling met producten: GetOrder", "ok": False, "error": "overgeslagen: geen bestelling"}
     probes.append(report)
 
-    report, found = _probe(
+    report, found = await _probe(
         "recepten zoeken: opgeslagen query getRecipesListers",
         lambda: jumbo_recipes.search(EXAMPLE_RECIPE),
         lambda found: {
@@ -249,7 +255,7 @@ def explore() -> dict[str, Any]:
     )
     probes.append(report)
 
-    report, lists_found = _probe(
+    report, lists_found = await _probe(
         "receptenlijsten: opgeslagen query getRecipeLists",
         jumbo_recipes.get_lists,
         lambda lists: {
@@ -263,7 +269,7 @@ def explore() -> dict[str, Any]:
 
     first_own = next((item for item in (lists_found or []) if item["kind"] == "own"), None)
     if first_own:
-        report, _ = _probe(
+        report, _ = await _probe(
             "een eigen receptenlijst: opgeslagen query getRecipeListById",
             lambda: jumbo_recipes.get_list_recipes(first_own["id"]),
             lambda found: {
@@ -279,7 +285,7 @@ def explore() -> dict[str, Any]:
         report = {"name": "een eigen receptenlijst: opgeslagen query getRecipeListById", "ok": False, "error": "overgeslagen: geen eigen lijstje"}
     probes.append(report)
 
-    report, _ = _probe(
+    report, _ = await _probe(
         "favoriete recepten: opgeslagen query FavoriteRecipes",
         jumbo_recipes.get_favorites,
         lambda found: {
@@ -294,7 +300,7 @@ def explore() -> dict[str, Any]:
 
     first_recipe = next(iter((found or {}).get("recipes") or []), None)
     if first_recipe:
-        report, _ = _probe(
+        report, _ = await _probe(
             "een recept: opgeslagen query getRecipe",
             lambda: jumbo_recipes.get_recipe(first_recipe["id"]),
             lambda recipe: {
@@ -306,7 +312,7 @@ def explore() -> dict[str, Any]:
         )
         probes.append(report)
         # Recepten op id (de categoriepagina's): alleen de vorm van het antwoord, om die later te kunnen tonen.
-        report, _ = _probe(
+        report, _ = await _probe(
             "recepten op id: opgeslagen query getRecipesByIds",
             lambda: jumbo_recipes.get_by_ids([r["id"] for r in found["recipes"][:3]]),
             lambda recipes: {"recepten gevonden": len(recipes), "eerste recept": shape(recipes[0] if recipes else None), "werkt via": _route("getRecipesByIds")},
@@ -315,7 +321,7 @@ def explore() -> dict[str, Any]:
         report = {"name": "een recept: opgeslagen query getRecipe", "ok": False, "error": "overgeslagen: geen recept gevonden"}
     probes.append(report)
 
-    report, _ = _probe(
+    report, _ = await _probe(
         "typen van het antwoord op addBasketLines (introspectie)",
         _possible_result_types,
         lambda names: names or ["leeg"],

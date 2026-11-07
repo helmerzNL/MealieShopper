@@ -9,6 +9,7 @@ from unittest import mock
 os.environ.setdefault("MEALIESHOPPER_DATA_DIR", tempfile.mkdtemp())
 
 from mealieshopper import ah_orders, auth, jumbo_orders, product_links, purchase_lines
+from helpers import db, in_db, run
 
 
 class DiscountTest(unittest.TestCase):
@@ -84,7 +85,7 @@ class ReceiptBonusTest(unittest.TestCase):
     def test_a_bonus_larger_than_the_line_caps_at_the_line(self):
         lines = [{"name": "FOCACCIA", "quantity": 1, "price": 2.59, "amount": 2.59}]
         items = [{**lines[0], "bonus": 4.36}]
-        totals = purchase_lines.enrich(None, "ah", "receipt", "2025-05-19", items)
+        totals = run(purchase_lines.enrich(None, "ah", "receipt", "2025-05-19", items))
         self.assertEqual(
             (
                 items[0]["paidEach"],
@@ -117,7 +118,7 @@ class ReceiptBonusTest(unittest.TestCase):
     def test_a_receipt_line_of_one_without_a_price_uses_its_amount(self):
         # AH zet bij één stuk geen prijs op de bon, alleen het bedrag. Zonder die terugval was er niets betaald en 100% bespaard.
         items = [{"name": "RED VELVET", "quantity": 1, "price": None, "amount": 7.99, "bonus": 2.8}, {"name": "MELK", "quantity": 2, "price": None, "amount": 2.0, "bonus": 0.0}]
-        totals = purchase_lines.enrich(None, "ah", "receipt", "2026-10-30", items)
+        totals = run(purchase_lines.enrich(None, "ah", "receipt", "2026-10-30", items))
         self.assertEqual((items[0]["paidEach"], items[0]["regularPrice"], items[0]["discountSource"], items[0]["discount"]), (5.19, 7.99, "store", 35))
         self.assertEqual((items[1]["paidEach"], items[1]["regularPrice"], items[1]["discount"]), (1.0, None, None))
         # 2.80 bespaard. Betaald 5.19 + 2.00 = 7.19, zonder korting 9.99: 28%.
@@ -128,7 +129,7 @@ class ReceiptBonusTest(unittest.TestCase):
         discounts = [{"name": "PERLAHUISBLE", "amount": -17.97}, {"name": "BROOD", "amount": -0.5}]
         self.assertEqual(purchase_lines.unmatched_bonus(lines, discounts), 17.97)
         items = [{**lines[0], "bonus": 0.5}, {**lines[1], "bonus": 0.0}]
-        totals = purchase_lines.enrich(None, "ah", "receipt", "2025-05-19", items, unmatched_bonus=17.97)
+        totals = run(purchase_lines.enrich(None, "ah", "receipt", "2025-05-19", items, unmatched_bonus=17.97))
         self.assertEqual([item["paidEach"] for item in items], [1.5, 19.0])  # de regels zelf krijgen er niets van
         # 0.50 + 17.97 = 18.47 bespaard. Betaald: 1.50 + 38.00 - 17.97 = 21.53, zonder korting 40.00: 46%.
         self.assertEqual((totals["saved"], totals["savedPercent"]), (18.47, 46))
@@ -164,7 +165,7 @@ class EnrichTest(unittest.TestCase):
                 "taxonomy": None,
             },
         ]
-        totals = purchase_lines.enrich(None, "ah", "order", "2026-09-21", items)
+        totals = run(purchase_lines.enrich(None, "ah", "order", "2026-09-21", items))
         self.assertEqual(
             [
                 (
@@ -195,7 +196,7 @@ class EnrichTest(unittest.TestCase):
                 "productId": None,
             }
         ]
-        totals = purchase_lines.enrich(None, "ah", "imported", "2025-03-14", items)
+        totals = run(purchase_lines.enrich(None, "ah", "imported", "2025-03-14", items))
         self.assertEqual(
             (
                 items[0]["regularPrice"],
@@ -217,7 +218,7 @@ class EnrichTest(unittest.TestCase):
             }
         ]
         self.assertEqual(
-            purchase_lines.enrich(None, "ah", "order", "2026-09-21", items),
+            run(purchase_lines.enrich(None, "ah", "order", "2026-09-21", items)),
             {"saved": 0.0, "savedPercent": None},
         )
 
@@ -253,19 +254,22 @@ class TimesBeforeTest(unittest.TestCase):
         )
         patcher.start()
         self.addCleanup(patcher.stop)
-        auth.init_db()
+        run(auth.init_db())
 
     def test_orders_and_linked_receipt_lines_before_the_day_count_once_per_purchase(
         self,
     ):
-        with closing(ah_orders._connect()) as conn, conn:
-            line = {"productId": 1, "title": "AH Bananen", "quantity": 1, "price": 1.0}
-            ah_orders._save_order(
+        line = {"productId": 1, "title": "AH Bananen", "quantity": 1, "price": 1.0}
+        run(in_db(
+            ah_orders._connect,
+            lambda conn: ah_orders._save_order(
                 conn, {"id": 1, "deliveryDate": "2026-09-01"}, "delivered", [line, line]
-            )  # twee regels, één bestelling
-            ah_orders._save_order(
+            ),  # twee regels, één bestelling
+            lambda conn: ah_orders._save_order(
                 conn, {"id": 2, "deliveryDate": "2026-09-21"}, "delivered", [line]
-            )  # de dag zelf telt niet
+            ),  # de dag zelf telt niet
+        ))
+        with closing(db(ah_orders)) as conn, conn:
             conn.execute(
                 "INSERT INTO ah_receipts (receipt_id, date_time, total, details_synced, first_seen) VALUES ('R1', '2026-09-10T10:00:00', 1, 1, 'x')"
             )
@@ -275,14 +279,17 @@ class TimesBeforeTest(unittest.TestCase):
             conn.execute(
                 "INSERT INTO ah_receipt_products (receipt_product_id, product_id, title, checked_at) VALUES (555, 1, 'AH Bananen', 'x')"
             )
-            found = purchase_lines.times_before(
+        found = run(in_db(
+            ah_orders._connect,
+            lambda conn: purchase_lines.times_before(
                 conn, "ah", ["1", None, "", 2], "2026-09-21"
-            )
+            ),
+        ))[0]
         self.assertEqual(found, {"1": 2})
 
     def test_a_receipt_line_you_linked_yourself_counts_as_an_earlier_purchase(self):
         # Geen automatische koppeling voor 555, wel je eigen (#238): de bon telt bij product 1. De naamkoppeling van "KWARK" telt bij 2.
-        with closing(ah_orders._connect()) as conn, conn:
+        with closing(db(ah_orders)) as conn, conn:
             conn.execute(
                 "INSERT INTO ah_receipts (receipt_id, date_time, total, details_synced, first_seen) VALUES ('R1', '2026-09-10T10:00:00', 1, 1, 'x')"
             )
@@ -290,21 +297,23 @@ class TimesBeforeTest(unittest.TestCase):
                 "INSERT INTO ah_receipt_items (receipt_id, position, product_id, name, quantity, price, amount) VALUES ('R1', ?, ?, ?, 1, 1.0, 1.0)",
                 [(0, 555, "BANANEN"), (1, None, "KWARK")],
             )
-        product_links.save("ah", "BANANEN", {"productId": "1", "title": "AH Bananen"}, article=555)
-        product_links.save("ah", "KWARK", {"productId": "2", "title": "AH Kwark"})
-        with closing(ah_orders._connect()) as conn:
-            found = purchase_lines.times_before(conn, "ah", ["1", "2", "3"], "2026-09-21")
+        run(product_links.save("ah", "BANANEN", {"productId": "1", "title": "AH Bananen"}, article=555))
+        run(product_links.save("ah", "KWARK", {"productId": "2", "title": "AH Kwark"}))
+        # Op een kale verbinding zonder `ms_fold`: `times_before` zet die (en de tabel van `product_links`) er zelf bij.
+        found = run(in_db(
+            auth.connect, lambda conn: purchase_lines.times_before(conn, "ah", ["1", "2", "3"], "2026-09-21")
+        ))[0]
         self.assertEqual(found, {"1": 1, "2": 1})
 
     def test_a_store_without_tables_counts_nothing(self):
-        with closing(auth.connect()) as conn:
-            self.assertEqual(
-                purchase_lines.times_before(conn, "picnic", ["1"], "2026-09-21"), {}
-            )
+        self.assertEqual(
+            run(in_db(auth.connect, lambda conn: purchase_lines.times_before(conn, "picnic", ["1"], "2026-09-21")))[0], {}
+        )
 
     def test_jumbo_counts_its_own_orders_only(self):
-        with closing(jumbo_orders._connect()) as conn, conn:
-            jumbo_orders._save_order(
+        run(in_db(
+            jumbo_orders._connect,
+            lambda conn: jumbo_orders._save_order(
                 conn,
                 {"id": "J1", "deliveryDate": "2026-09-01"},
                 [
@@ -315,11 +324,12 @@ class TimesBeforeTest(unittest.TestCase):
                         "price": 1.0,
                     }
                 ],
-            )
-            self.assertEqual(
-                purchase_lines.times_before(conn, "jumbo", ["123STK"], "2026-09-21"),
-                {"123STK": 1},
-            )
+            ),
+        ))
+        self.assertEqual(
+            run(in_db(jumbo_orders._connect, lambda conn: purchase_lines.times_before(conn, "jumbo", ["123STK"], "2026-09-21")))[0],
+            {"123STK": 1},
+        )
 
 
 class FillRegularTest(unittest.TestCase):
@@ -328,11 +338,14 @@ class FillRegularTest(unittest.TestCase):
 
         with (
             mock.patch.object(
-                prices, "fill_regular_prices", side_effect=RuntimeError("kapot")
+                prices,
+                "fill_regular_prices",
+                new_callable=mock.AsyncMock,
+                side_effect=RuntimeError("kapot"),
             ),
             self.assertLogs("mealieshopper.purchase_lines", "WARNING"),
         ):
-            purchase_lines.fill_regular("ah", order_ids=[1])
+            run(purchase_lines.fill_regular("ah", order_ids=[1]))
 
 
 if __name__ == "__main__":

@@ -29,5 +29,9 @@ EXPOSE 8000
 
 # De entrypoint zet de opties van de Home Assistant-add-on om in omgevingsvariabelen (buiten Home Assistant doet hij niets).
 ENTRYPOINT ["python", "/app/docker-entrypoint.py"]
-# Vier threads: een productfoto die de app nog bij de winkel moet ophalen (image_cache.py) houdt anders de hele app vast.
-CMD ["gunicorn", "--bind", "0.0.0.0:8000", "--timeout", "120", "--threads", "4", "run:app"]
+# Een hypercorn-proces met een asyncio-eventloop bedient alles: een trage winkel of productfoto houdt de rest niet vast.
+# `--workers 0`: de app draait in dit proces zelf, met de signal handlers van hypercorn. SIGTERM (`docker stop`, de herstart
+# na een fabrieksreset) sluit dan netjes af (`after_serving`), en een crash geeft een echte exitcode. Met `--workers 1`
+# draait de app in een kindproces zonder handlers dat bij SIGTERM gewoon sterft, terwijl de hoofdtaak met 0 eindigt.
+# Lopende verzoeken krijgen bij het afsluiten 3 seconden (`graceful_timeout` van hypercorn), de taken 5 (`tasks.py`).
+CMD ["hypercorn", "--bind", "0.0.0.0:8000", "--workers", "0", "run:app"]

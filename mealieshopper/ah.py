@@ -1,16 +1,18 @@
+import asyncio
 import re
 import time
 import unicodedata
-from concurrent.futures import ThreadPoolExecutor
+import weakref
+from collections.abc import Awaitable
 from dataclasses import dataclass
 from datetime import date
 from os import environ
 from typing import Any, Callable, TypeVar
 from urllib.parse import unquote, urlencode, urlparse
 
-import requests
+import httpx
 
-from . import auth, deals
+from . import auth, deals, http_client, tasks
 from .i18n import tr
 from .packs import (  # noqa: F401 - blijft hier bereikbaar voor bestaande aanroepers
     LARGE_PACK_COUNT,
@@ -288,6 +290,29 @@ class TokenCache:
 anon_token_cache: TokenCache | None = None
 user_token_cache: TokenCache | None = None
 
+# Een slot per tokencache (`anon` en `user`), per event loop: een `asyncio.Lock` hoort bij de loop waarin hij voor het
+# eerst wacht. In de app is er een loop per proces, de tests draaien elk een eigen loop. Zo halen twee gelijktijdige
+# verzoeken met een verlopen token een keer een nieuw token, en vernieuwt het gebruikerstoken niet twee keer met
+# hetzelfde refresh-token (AH kan dat bij elke vernieuwing vervangen).
+_token_locks: weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, dict[str, asyncio.Lock]] = weakref.WeakKeyDictionary()
+
+
+def _token_lock(name: str) -> asyncio.Lock:
+    """Het slot `name` (`anon` of `user`) van de lopende event loop."""
+    loop: asyncio.AbstractEventLoop = asyncio.get_running_loop()
+    locks: dict[str, asyncio.Lock] | None = _token_locks.get(loop)
+    if locks is None:
+        locks = _token_locks[loop] = {}
+    lock: asyncio.Lock | None = locks.get(name)
+    if lock is None:
+        lock = locks[name] = asyncio.Lock()
+    return lock
+
+
+def _valid(cache: TokenCache | None) -> str:
+    """Het token uit `cache` als het nog geldig is, anders een lege tekst."""
+    return cache.token if cache and time.time() < cache.expires_at else ""
+
 # AH geeft een anoniem token dat zeven dagen geldig heet, maar trekt het soms eerder in. Dan antwoordt elke aanroep met een 400
 # `invalid_grant` ("member not active") en bleven de bonus en het zoeken tot een week lang mislukken. Daarom bewaren we het hooguit
 # een uur, en vergeten we een token zodra AH het weigert (zie `TokenRejected` en `_anonymous`).
@@ -335,14 +360,14 @@ def _reject_if_token(status: int, body: str, token: str | None, message: str) ->
         raise TokenRejected(message)
 
 
-def _anonymous(call: Callable[[str], T]) -> T:
+async def _anonymous(call: Callable[[str], Awaitable[T]]) -> T:
     """`call(token)` met het anonieme token. Weigert AH dat token, dan één keer opnieuw met een vers token."""
-    token = get_token()
+    token = await get_token()
     try:
-        return call(token)
+        return await call(token)
     except TokenRejected:
         forget_token(token)
-        return call(get_token())
+        return await call(await get_token())
 
 
 def _auth_headers(token: str | None = None, *, include_content_type: bool = True) -> dict[str, str]:
@@ -354,84 +379,102 @@ def _auth_headers(token: str | None = None, *, include_content_type: bool = True
     return headers
 
 
-def _request_json(method: str, url: str, **kwargs: Any) -> Any:
-    response = requests.request(method, url, timeout=30, **kwargs)
-    if not response.ok:
+def _client() -> httpx.AsyncClient:
+    """De client voor alle verzoeken aan AH. Elk verzoek geeft zelf de headers mee die het altijd had (`_auth_headers`, met de
+    User-Agent van de app), dus de standaard-User-Agent van `http_client` gaat nooit naar AH. Doorverwijzingen volgen, zoals
+    requests deed."""
+    return http_client.client("ah", timeout=30)
+
+
+async def _request_json(method: str, url: str, **kwargs: Any) -> Any:
+    response: httpx.Response = await _client().request(method, url, timeout=30, **kwargs)
+    if response.status_code >= 400:
         body = response.text[:500]
         _reject_if_token(response.status_code, body, _bearer(kwargs.get("headers")), f"{response.status_code}: {body}")
         raise AhHttpError(f"{response.status_code}: {body}", response.status_code)
     return response.json()
 
 
-def get_token() -> str:
+async def get_token() -> str:
     global anon_token_cache
 
-    if anon_token_cache and time.time() < anon_token_cache.expires_at:
+    if cached := _valid(anon_token_cache):
+        return cached
+    async with _token_lock("anon"):
+        if cached := _valid(anon_token_cache):
+            return cached  # een ander verzoek haalde het net
+        data: Any = await _request_json(
+            "POST",
+            f"{AH_API_BASE}/mobile-auth/v1/auth/token/anonymous",
+            headers=_auth_headers(),
+            json={"clientId": AH_CLIENT_ID},
+        )
+        anon_token_cache = TokenCache(
+            token=data["access_token"],
+            expires_at=time.time() + min(ANON_TOKEN_MAX_AGE, max(0, int(data.get("expires_in", 3600)) - 60)),
+        )
         return anon_token_cache.token
 
-    data = _request_json(
-        "POST",
-        f"{AH_API_BASE}/mobile-auth/v1/auth/token/anonymous",
-        headers=_auth_headers(),
-        json={"clientId": AH_CLIENT_ID},
-    )
-    anon_token_cache = TokenCache(
-        token=data["access_token"],
-        expires_at=time.time() + min(ANON_TOKEN_MAX_AGE, max(0, int(data.get("expires_in", 3600)) - 60)),
-    )
-    return anon_token_cache.token
+
+async def get_user_token() -> str:
+    if cached := _valid(user_token_cache):
+        return cached
+    # Vernieuwen en het nieuwe refresh-token bewaren lopen als eigen task (`tasks.shielded`), met het slot erin: een
+    # geannuleerd verzoek breekt ze niet af, en wie op het slot wacht, komt pas na het bewaren aan de beurt.
+    return await tasks.shielded(_refresh_user_token())
 
 
-def get_user_token() -> str:
+async def _refresh_user_token() -> str:
+    """Het gebruikerstoken vernieuwen met het refresh-token en het vervangen refresh-token bewaren, achter het slot."""
     global user_token_cache
 
-    if user_token_cache and time.time() < user_token_cache.expires_at:
+    async with _token_lock("user"):
+        if cached := _valid(user_token_cache):
+            return cached  # een ander verzoek vernieuwde het net
+        refresh_token: str = await configured_refresh_token()
+        if not refresh_token:
+            raise RuntimeError(
+                tr(
+                    "AH account niet gekoppeld. De beheerder koppelt het bij Instellingen > Koppelen > Albert Heijn.",
+                    "AH account not linked. The admin links it under Settings > Link > Albert Heijn.",
+                )
+            )
+
+        data: Any = await _request_json(
+            "POST",
+            f"{AH_API_BASE}/mobile-auth/v1/auth/token/refresh",
+            headers=_auth_headers(),
+            json={"clientId": AH_CLIENT_ID, "refreshToken": refresh_token},
+        )
+        await _store_rotated_refresh_token(refresh_token, data.get("refresh_token"))
+        user_token_cache = TokenCache(
+            token=data["access_token"],
+            expires_at=time.time() + max(0, int(data.get("expires_in", 3600)) - 60),
+        )
         return user_token_cache.token
 
-    refresh_token = configured_refresh_token()
-    if not refresh_token:
-        raise RuntimeError(
-            tr(
-                "AH account niet gekoppeld. De beheerder koppelt het bij Instellingen > Koppelen > Albert Heijn.",
-                "AH account not linked. The admin links it under Settings > Link > Albert Heijn.",
-            )
-        )
 
-    data = _request_json(
-        "POST",
-        f"{AH_API_BASE}/mobile-auth/v1/auth/token/refresh",
-        headers=_auth_headers(),
-        json={"clientId": AH_CLIENT_ID, "refreshToken": refresh_token},
-    )
-    _store_rotated_refresh_token(refresh_token, data.get("refresh_token"))
-    user_token_cache = TokenCache(
-        token=data["access_token"],
-        expires_at=time.time() + max(0, int(data.get("expires_in", 3600)) - 60),
-    )
-    return user_token_cache.token
-
-
-def configured_refresh_token() -> str:
+async def configured_refresh_token() -> str:
     # De opgeslagen token gaat voor: AH kan de refresh token bij elke vernieuwing
     # vervangen, en die nieuwe waarde bewaren we in de database. De omgevings-
     # variabele is alleen de startwaarde.
-    return auth.get_secret("AH_REFRESH_TOKEN") or environ.get("AH_REFRESH_TOKEN", "").strip()
+    return await auth.get_secret("AH_REFRESH_TOKEN") or environ.get("AH_REFRESH_TOKEN", "").strip()
 
 
-def _store_rotated_refresh_token(used: str, new: Any) -> None:
+async def _store_rotated_refresh_token(used: str, new: Any) -> None:
     new_token = str(new or "").strip()
     if new_token and new_token != used:
-        save_refresh_token(new_token)
+        await save_refresh_token(new_token)
 
 
-def save_refresh_token(refresh_token: str) -> None:
+async def save_refresh_token(refresh_token: str) -> None:
     token = str(refresh_token or "").strip()
     if not token:
         raise RuntimeError("Refresh token ontbreekt")
-    auth.set_secret("AH_REFRESH_TOKEN", token)
+    await auth.set_secret("AH_REFRESH_TOKEN", token)
 
 
-def link_account(value: str) -> dict[str, Any]:
+async def link_account(value: str) -> dict[str, Any]:
     """Koppel een AH account vanuit een OAuth code (of appie:// URL) of een refresh token.
 
     De gebruiker kan beide plakken in hetzelfde veld; we raden niet op lengte maar
@@ -443,19 +486,18 @@ def link_account(value: str) -> dict[str, Any]:
 
     errors: list[str] = []
 
-    def try_code(raw: str) -> dict[str, Any] | None:
+    async def try_code(raw: str) -> dict[str, Any] | None:
         try:
-            exchange_and_store_oauth_code(extract_oauth_code(raw))
+            await exchange_and_store_oauth_code(extract_oauth_code(raw))
             return {"connected": True, "type": "code"}
         except Exception as exc:  # noqa: BLE001
             errors.append(f"code: {exc}")
             return None
 
-    def try_refresh(raw: str) -> dict[str, Any] | None:
-        result = verify_token(raw)
+    async def try_refresh(raw: str) -> dict[str, Any] | None:
+        result = await adopt_refresh_token(raw)
         if result.get("ok"):
             if result.get("type") == "refresh":
-                save_refresh_token(result.get("refreshToken") or raw)
                 return {"connected": True, "type": "refresh"}
             errors.append(
                 "dit is een access token (verloopt snel); plak de refresh token"
@@ -467,7 +509,7 @@ def link_account(value: str) -> dict[str, Any]:
     looks_like_code = "code=" in text or text.startswith("appie://")
     order = (try_code, try_refresh) if looks_like_code else (try_refresh, try_code)
     for attempt in order:
-        outcome = attempt(text)
+        outcome = await attempt(text)
         if outcome:
             return outcome
 
@@ -477,15 +519,56 @@ def link_account(value: str) -> dict[str, Any]:
     }
 
 
-def auth_status(verify: bool = False) -> dict[str, Any]:
-    token = configured_refresh_token()
+async def adopt_refresh_token(token: str) -> dict[str, Any]:
+    """Een geplakt token controleren (`verify_token`) en, als het een refresh-token is, het vervangen token bewaren.
+
+    AH kan het refresh-token bij de controle al vervangen: daarom achter het slot `user` en afgeschermd, zoals
+    `get_user_token`. Een geannuleerd verzoek (de browser ging weg) raakt het nieuwe token dan niet kwijt."""
+    return await tasks.shielded(_adopt_refresh_token(token))
+
+
+async def _adopt_refresh_token(token: str) -> dict[str, Any]:
+    async with _token_lock("user"):
+        result: dict[str, Any] = await verify_token(token)
+        if result.get("ok") and result.get("type") == "refresh":
+            await save_refresh_token(result.get("refreshToken") or token)
+            # Het geplakte token kan van een ander AH-account zijn: het gebruikerstoken van het vorige account mag niet blijven.
+            _cache_user_token(result)
+        return result
+
+
+def _cache_user_token(result: dict[str, Any]) -> None:
+    """Het gebruikerstoken uit een geslaagde vernieuwing (`verify_token`) in de cache, of de cache leeg als AH er geen gaf."""
+    global user_token_cache
+    access: str = str(result.get("accessToken") or "")
+    user_token_cache = TokenCache(token=access, expires_at=time.time() + max(0, int(result.get("expiresIn") or 3600) - 60)) if access else None
+
+
+async def auth_status(verify: bool = False) -> dict[str, Any]:
+    token = await configured_refresh_token()
     if not token:
         return {"connected": False}
     if not verify:
         return {"connected": True, "verified": False}
-    result = verify_token(token)
-    if result.get("ok") and result.get("type") == "refresh":
-        _store_rotated_refresh_token(token, result.get("refreshToken"))
+    # Controleren vernieuwt met het opgeslagen refresh-token, net als `get_user_token`: zelfde slot en afgeschermd, zodat
+    # een geannuleerde controle het vervangen token niet kwijtraakt en er nooit twee vernieuwingen met hetzelfde token zijn.
+    return await tasks.shielded(_verify_stored_token())
+
+
+async def _verify_stored_token() -> dict[str, Any]:
+    """Het opgeslagen refresh-token controleren (`verify_token`) en wat AH teruggeeft bewaren, achter het slot `user`.
+
+    Een geslaagde vernieuwing levert ook een gebruikerstoken: dat gaat in de cache, zodat een verzoek dat erop wachtte
+    niet nog eens vernieuwt."""
+    async with _token_lock("user"):
+        token: str = await configured_refresh_token()
+        if not token:
+            return {"connected": False}
+        result: dict[str, Any] = await verify_token(token)
+        if result.get("ok") and result.get("type") == "refresh":
+            await _store_rotated_refresh_token(token, result.get("refreshToken"))
+            if result.get("accessToken"):
+                _cache_user_token(result)
     return {
         "connected": bool(result.get("ok")),
         "verified": True,
@@ -510,13 +593,13 @@ def _explain_exchange_error(error: str) -> str:
     return error
 
 
-def exchange_oauth_code(code: str, redirect_uri: str | None = None) -> dict[str, str]:
+async def exchange_oauth_code(code: str, redirect_uri: str | None = None) -> dict[str, str]:
     payload: dict[str, str] = {"clientId": AH_CLIENT_ID, "code": extract_oauth_code(code)}
     if redirect_uri:
         payload["redirect_uri"] = redirect_uri
 
     try:
-        data = _request_json(
+        data = await _request_json(
             "POST",
             f"{AH_API_BASE}/mobile-auth/v1/auth/token",
             headers=_auth_headers(),
@@ -532,32 +615,40 @@ def exchange_oauth_code(code: str, redirect_uri: str | None = None) -> dict[str,
     return {"accessToken": data["access_token"], "refreshToken": data["refresh_token"]}
 
 
-def exchange_and_store_oauth_code(code: str, redirect_uri: str | None = None) -> dict[str, str]:
-    tokens = exchange_oauth_code(code, redirect_uri)
-    save_refresh_token(tokens["refreshToken"])
+async def exchange_and_store_oauth_code(code: str, redirect_uri: str | None = None) -> dict[str, str]:
+    tokens = await exchange_oauth_code(code, redirect_uri)
+    await save_refresh_token(tokens["refreshToken"])
     return tokens
 
 
-def verify_token(token: str) -> dict[str, Any]:
-    refresh_response = requests.post(
+async def verify_token(token: str) -> dict[str, Any]:
+    refresh_response: httpx.Response = await _client().post(
         f"{AH_API_BASE}/mobile-auth/v1/auth/token/refresh",
         headers=_auth_headers(),
         json={"clientId": AH_CLIENT_ID, "refreshToken": token},
         timeout=30,
     )
-    if refresh_response.ok:
+    if refresh_response.status_code < 400:
         try:
-            rotated = (refresh_response.json() or {}).get("refresh_token")
+            body: Any = refresh_response.json() or {}
         except ValueError:
-            rotated = None
-        return {"ok": True, "type": "refresh", "refreshToken": rotated or token}
+            body = {}
+        if not isinstance(body, dict):
+            body = {}
+        return {
+            "ok": True,
+            "type": "refresh",
+            "refreshToken": body.get("refresh_token") or token,
+            "accessToken": body.get("access_token") or "",
+            "expiresIn": body.get("expires_in"),
+        }
 
-    access_response = requests.get(
+    access_response: httpx.Response = await _client().get(
         f"{AH_API_BASE}/mobile-services/member/v2/profile",
         headers=_auth_headers(token, include_content_type=False),
         timeout=30,
     )
-    if access_response.ok:
+    if access_response.status_code < 400:
         return {"ok": True, "type": "access"}
 
     return {
@@ -602,7 +693,7 @@ def _recipe_card(item: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def search_recipes(query: str, page: int = 0, size: int = 12) -> dict[str, Any]:
+async def search_recipes(query: str, page: int = 0, size: int = 12) -> dict[str, Any]:
     """Allerhande-recepten zoeken via GraphQL (anoniem token)."""
     size = max(1, int(size))
     start = max(0, int(page)) * size
@@ -612,7 +703,7 @@ def search_recipes(query: str, page: int = 0, size: int = 12) -> dict[str, Any]:
         )
     size = min(size, RECIPE_SEARCH_WINDOW - start)  # de laatste pagina wordt afgekapt in plaats van een fout
 
-    data = _anonymous(lambda token: _graphql(
+    data = await _anonymous(lambda token: _graphql(
         token,
         RECIPE_SEARCH_QUERY,
         {"query": {"searchText": str(query), "size": size, "start": start}},
@@ -684,16 +775,27 @@ def _bonus_promo(item: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _get_with_retry(url: str, attempts: int = 3, **kwargs: Any) -> requests.Response:
+# Wat bij requests `ConnectionError` en `Timeout` was: geen verbinding, een verbinding die wegvalt (ook een server die
+# zonder antwoord ophangt, bij httpx een protocolfout) en een time-out.
+RETRYABLE: tuple[type[Exception], ...] = (httpx.NetworkError, httpx.RemoteProtocolError, httpx.TimeoutException)
+
+
+async def _wait(seconds: float) -> None:
+    """De pauze voor een nieuwe poging. Een eigen functie, zodat een test de pauze kan vervangen zonder `asyncio.sleep`
+    voor het hele proces te vervangen."""
+    await asyncio.sleep(seconds)
+
+
+async def _get_with_retry(url: str, attempts: int = 3, **kwargs: Any) -> httpx.Response:
     """GET die een verbroken verbinding opnieuw probeert. AH verbreekt er af en toe een, vooral bij
     veel zoekopdrachten kort na elkaar (het weekmenu zoekt elk ingrediënt apart). Alleen voor lezen."""
     for attempt in range(1, attempts + 1):
         try:
-            return requests.get(url, **kwargs)
-        except (requests.ConnectionError, requests.Timeout):
+            return await _client().get(url, **kwargs)
+        except RETRYABLE:
             if attempt == attempts:
                 raise
-            time.sleep(0.5 * attempt)
+            await _wait(0.5 * attempt)
     raise AssertionError("onbereikbaar")  # pragma: no cover
 
 
@@ -781,28 +883,28 @@ class AhHttpError(RuntimeError):
         self.status = status
 
 
-def _search_json(query: str, size: int) -> Any:
+async def _search_json(query: str, size: int) -> Any:
     """De ruwe zoekresultaten van AH (anoniem)."""
 
-    def search(token: str) -> Any:
-        response = _get_with_retry(
+    async def search(token: str) -> Any:
+        response = await _get_with_retry(
             f"{AH_API_BASE}/mobile-services/product/search/v2",
             headers=_auth_headers(token, include_content_type=False),
             params={"query": query, "page": 0, "size": size, "sortOn": "RELEVANCE"},
             timeout=30,
         )
-        if not response.ok:
+        if response.status_code >= 400:
             message = f"AH productzoekopdracht mislukt ({response.status_code})"
             _reject_if_token(response.status_code, _body(response), token, message)
             raise AhHttpError(message, response.status_code)
         return response.json()
 
-    return _anonymous(search)
+    return await _anonymous(search)
 
 
-def search_products(query: str, limit: int = 5) -> list[dict[str, Any]]:
+async def search_products(query: str, limit: int = 5) -> list[dict[str, Any]]:
     limit = max(1, int(limit))
-    products = rank_search_results(query, _search_json(query, max(limit, SEARCH_WINDOW)).get("products") or [])
+    products = rank_search_results(query, (await _search_json(query, max(limit, SEARCH_WINDOW))).get("products") or [])
     return [_search_product_dict(item, query) for item in products[:limit]]
 
 
@@ -810,12 +912,12 @@ def search_products(query: str, limit: int = 5) -> list[dict[str, Any]]:
 HQ_SEARCH_WINDOW = 100
 
 
-def search_hq_ids(query: str) -> list[tuple[int, int, str, str]]:
+async def search_hq_ids(query: str) -> list[tuple[int, int, str, str]]:
     """(hqId, webshopId, titel, foto) van de zoekresultaten. Het id op een kassabon is AH's `hqId` (artikelnummer), niet het id van
     de webwinkel: "BLOEMKOOL" op de bon heeft 20960, "AH Bloemkool" in de webwinkel 4183 (issue #178). Een `hqId` van 0 is onbekend.
     De foto is het adres van de eerste afbeelding (zoals `get_products_by_ids`), of "" zonder foto."""
     found = []
-    for item in _search_json(query, HQ_SEARCH_WINDOW).get("products") or []:
+    for item in (await _search_json(query, HQ_SEARCH_WINDOW)).get("products") or []:
         if not isinstance(item, dict):
             continue
         hq_id, webshop_id = item.get("hqId"), item.get("webshopId") or item.get("id")
@@ -825,8 +927,8 @@ def search_hq_ids(query: str) -> list[tuple[int, int, str, str]]:
     return found
 
 
-def search_product(query: str) -> dict[str, Any] | None:
-    products = search_products(query, 1)
+async def search_product(query: str) -> dict[str, Any] | None:
+    products = await search_products(query, 1)
     return products[0] if products else None
 
 
@@ -837,26 +939,26 @@ def product_web_url(product_id: Any) -> str:
         return ""
 
 
-def get_products_by_ids(product_ids: list[int]) -> list[dict[str, Any]]:
+async def get_products_by_ids(product_ids: list[int]) -> list[dict[str, Any]]:
     if not product_ids:
         return []
     params: list[tuple[str, str]] = [("ids", str(product_id)) for product_id in product_ids]
     params.append(("sortOn", "INPUT_PRODUCT_IDS"))
 
-    def fetch(token: str) -> Any:
-        response = _get_with_retry(
+    async def fetch(token: str) -> Any:
+        response = await _get_with_retry(
             f"{AH_API_BASE}/mobile-services/product/search/v2/products",
             headers=_auth_headers(token, include_content_type=False),
             params=params,
             timeout=30,
         )
-        if not response.ok:
+        if response.status_code >= 400:
             message = f"AH producten ophalen mislukt ({response.status_code}): {response.text[:200]}"
             _reject_if_token(response.status_code, _body(response), token, message)
             raise RuntimeError(message)
         return response
 
-    response = _anonymous(fetch)
+    response = await _anonymous(fetch)
 
     products = []
     for item in response.json() or []:
@@ -970,10 +1072,10 @@ def _promotion_products(promotion: dict[str, Any]) -> list[dict[str, Any]]:
     return products
 
 
-def get_bonus_promotions(today: date | None = None) -> list[dict[str, Any]]:
+async def get_bonus_promotions(today: date | None = None) -> list[dict[str, Any]]:
     """De bonus van alle bonusperiodes die AH kent, als producten met hun looptijd. Een product kan in twee periodes staan
     (deze week en volgende week, elk met een eigen actie); dan komt het twee keer terug. Werkt zonder AH-login."""
-    data = _anonymous(lambda token: _graphql(token, BONUS_PROMOTIONS_QUERY, {}, "AH bonus ophalen"))
+    data = await _anonymous(lambda token: _graphql(token, BONUS_PROMOTIONS_QUERY, {}, "AH bonus ophalen"))
     periods = [
         (deals.parse_date(period.get("startDate")), deals.parse_date(period.get("endDate")))
         for period in data.get("bonusPeriods") or []
@@ -1003,6 +1105,7 @@ BONUS_FALLBACK_TERMS = (
     "brood", "saus", "soep", "pizza", "noten", "olie", "bonen",
 )
 BONUS_PAGE_SIZE = 50
+BONUS_SEARCH_WORKERS = 6  # zoveel zoekopdrachten met de bonusvlag tegelijk
 
 
 def _bonus_label(item: dict[str, Any], group: str = "") -> str:
@@ -1060,14 +1163,14 @@ def bonus_products_in(node: Any, group: str = "") -> list[dict[str, Any]]:
     return list(found.values())
 
 
-def _bonus_from_search(term: str, token: str) -> list[dict[str, Any]]:
-    response = _get_with_retry(
+async def _bonus_from_search(term: str, token: str) -> list[dict[str, Any]]:
+    response = await _get_with_retry(
         f"{AH_API_BASE}/mobile-services/product/search/v2",
         headers=_auth_headers(token, include_content_type=False),
         params={"query": term, "page": 0, "size": BONUS_PAGE_SIZE, "sortOn": "RELEVANCE"},
         timeout=30,
     )
-    if not response.ok:
+    if response.status_code >= 400:
         message = f"AH productzoekopdracht mislukt ({response.status_code})"
         _reject_if_token(response.status_code, _body(response), token, message)
         raise RuntimeError(message)
@@ -1075,20 +1178,20 @@ def _bonus_from_search(term: str, token: str) -> list[dict[str, Any]]:
     return [product for product in products if product]
 
 
-def get_bonus_products() -> list[dict[str, Any]]:
+async def get_bonus_products() -> list[dict[str, Any]]:
     """De aanbiedingen (AH Bonus): eerst de bonus per bonusperiode (GraphQL, deze en volgende week), anders de bonuspagina,
     anders zoekopdrachten met de bonusvlag. Werkt zonder AH-login."""
     errors: list[str] = []
     try:
-        promotions = get_bonus_promotions()
+        promotions = await get_bonus_promotions()
         if promotions:
             return promotions
     except Exception as exc:  # noqa: BLE001 - onofficiële route; val terug op de bonuspagina en zoeken
         errors.append(str(exc)[:200])
-    token = get_token()
+    token = await get_token()
     found: dict[str, dict[str, Any]] = {}
     try:
-        data = _request_json(
+        data = await _request_json(
             "GET",
             f"{AH_API_BASE}{BONUS_SECTION_PATH}",
             headers=_auth_headers(token, include_content_type=False),
@@ -1099,17 +1202,17 @@ def get_bonus_products() -> list[dict[str, Any]]:
     except Exception as exc:  # noqa: BLE001 - onofficiële route; val terug op zoeken
         errors.append(str(exc)[:200])
     if not found:
-        def search(term: str) -> list[dict[str, Any]]:
+        async def search(term: str) -> list[dict[str, Any]]:
             try:
-                return _bonus_from_search(term, token)
+                return await _bonus_from_search(term, token)
             except Exception as exc:  # noqa: BLE001
                 errors.append(str(exc)[:200])
                 return []
 
-        with ThreadPoolExecutor(max_workers=6) as pool:
-            for products in pool.map(search, BONUS_FALLBACK_TERMS):
-                for product in products:
-                    found.setdefault(product["id"], product)
+        # Hooguit zes termen tegelijk, zoals de zes threads van voorheen, in de volgorde van `BONUS_FALLBACK_TERMS`.
+        for products in await tasks.map_bounded(BONUS_SEARCH_WORKERS, search, BONUS_FALLBACK_TERMS):
+            for product in products:
+                found.setdefault(product["id"], product)
     if not found and errors:
         raise RuntimeError(errors[0])
     return list(found.values())
@@ -1163,10 +1266,10 @@ def _activated(status: Any) -> bool | None:
     return (text == BONUS_BOX_ACTIVATED) if text else None
 
 
-def _bonus_box_periods(token: str, today: date) -> list[tuple[str, str, int | None]]:
+async def _bonus_box_periods(token: str, today: date) -> list[tuple[str, str, int | None]]:
     """De bonusweken die nog niet voorbij zijn: (begin, einde, weeknummer). Geeft AH er geen, dan deze week (maandag t/m zondag)."""
     try:
-        data = _graphql(token, BONUS_PERIODS_QUERY, {}, "AH bonusweken ophalen")
+        data = await _graphql(token, BONUS_PERIODS_QUERY, {}, "AH bonusweken ophalen")
     except TokenRejected:
         raise
     except Exception:  # noqa: BLE001 - zonder de weken van AH nemen we deze week
@@ -1228,17 +1331,17 @@ def bonus_box_in(data: Any, start: str, end: str) -> list[dict[str, Any]]:
     return list(found.values())
 
 
-def _bonus_box_week(token: str, start: str, end: str, week: int | None) -> list[dict[str, Any]]:
+async def _bonus_box_week(token: str, start: str, end: str, week: int | None) -> list[dict[str, Any]]:
     """De Bonus Box van één bonusweek: eerst GraphQL, anders de REST-route."""
     try:
-        data = _graphql(token, BONUS_BOX_QUERY, {"periodStart": start, "periodEnd": end, "weekNumber": week}, "AH Bonus Box ophalen")
+        data = await _graphql(token, BONUS_BOX_QUERY, {"periodStart": start, "periodEnd": end, "weekNumber": week}, "AH Bonus Box ophalen")
         return bonus_box_promotions(data.get("bonusPromotions"), start, end)
     except TokenRejected:
         raise
     except Exception as exc:  # noqa: BLE001 - onofficiële route; val terug op de REST-route
         graphql_error = exc
     try:
-        data = _request_json(
+        data = await _request_json(
             "GET", f"{AH_API_BASE}{BONUS_BOX_PATH}",
             headers=_auth_headers(token, include_content_type=False), params={"bonusStartDate": start},
         )
@@ -1249,19 +1352,19 @@ def _bonus_box_week(token: str, start: str, end: str, week: int | None) -> list[
     return bonus_box_in(data, start, end)
 
 
-def get_bonus_box(today: date | None = None) -> list[dict[str, Any]]:
+async def get_bonus_box(today: date | None = None) -> list[dict[str, Any]]:
     """Je Bonus Box: de persoonlijke bonus van deze week en (vanaf vrijdag) volgende week, als producten met hun looptijd en `activated`.
     Vraagt de AH-koppeling: zonder koppeling een LookupError. Weigert AH het token, dan één keer opnieuw met een vers token."""
-    if not configured_refresh_token():
+    if not await configured_refresh_token():
         raise LookupError(tr("AH-account niet gekoppeld", "AH account not linked"))
     today = today or date.today()
 
-    def fetch(token: str) -> list[dict[str, Any]]:
+    async def fetch(token: str) -> list[dict[str, Any]]:
         found: dict[tuple[str, Any, Any], dict[str, Any]] = {}
         errors: list[str] = []
-        for start, end, week in _bonus_box_periods(token, today):
+        for start, end, week in await _bonus_box_periods(token, today):
             try:
-                products = _bonus_box_week(token, start, end, week)
+                products = await _bonus_box_week(token, start, end, week)
             except TokenRejected:
                 raise
             except Exception as exc:  # noqa: BLE001 - een week die niet lukt laat de andere staan
@@ -1273,22 +1376,22 @@ def get_bonus_box(today: date | None = None) -> list[dict[str, Any]]:
             raise RuntimeError(errors[0])
         return list(found.values())
 
-    token = get_user_token()
+    token = await get_user_token()
     try:
-        return fetch(token)
+        return await fetch(token)
     except TokenRejected:
         forget_token(token)
-        return fetch(get_user_token())
+        return await fetch(await get_user_token())
 
 
-def _graphql(token: str, query: str, variables: dict[str, Any], what: str) -> dict[str, Any]:
-    response = requests.post(
+async def _graphql(token: str, query: str, variables: dict[str, Any], what: str) -> dict[str, Any]:
+    response: httpx.Response = await _client().post(
         f"{AH_API_BASE}/graphql",
         headers=_auth_headers(token),
         json={"query": query, "variables": variables},
         timeout=30,
     )
-    if not response.ok:
+    if response.status_code >= 400:
         message = f"{what} mislukt ({response.status_code}): {response.text[:200]}"
         _reject_if_token(response.status_code, _body(response), token, message)
         raise AhHttpError(message, response.status_code)  # met de status, zodat een aanroeper bij 403/429 kan stoppen
@@ -1298,21 +1401,21 @@ def _graphql(token: str, query: str, variables: dict[str, Any], what: str) -> di
     return data.get("data") or {}
 
 
-def _get_favorite_lists_rest(token: str, product_id: int) -> list[dict[str, Any]]:
+async def _get_favorite_lists_rest(token: str, product_id: int) -> list[dict[str, Any]]:
     # Oude REST-route; AH geeft hier inmiddels een 404 op. Alleen vangnet.
     # AH eist een productId maar geeft alle lijstjes terug; welke waarde wordt
     # geaccepteerd verschilt per AH-release, dus probeer er een paar.
     response = None
     for candidate in (max(1, int(product_id or 1)), 0):
-        response = requests.get(
+        response = await _client().get(
             f"{AH_API_BASE}/mobile-services/lists/v3/lists",
             headers=_auth_headers(token, include_content_type=False),
             params={"productId": candidate},
             timeout=30,
         )
-        if response.ok or response.status_code not in {400, 404, 422}:
+        if response.status_code < 400 or response.status_code not in {400, 404, 422}:
             break
-    if not response.ok:
+    if response.status_code >= 400:
         raise RuntimeError(f"AH lijstjes ophalen mislukt ({response.status_code}): {response.text[:200]}")
     return [
         {
@@ -1324,14 +1427,14 @@ def _get_favorite_lists_rest(token: str, product_id: int) -> list[dict[str, Any]
     ]
 
 
-def get_favorite_lists(product_id: int = 1) -> list[dict[str, Any]]:
-    token = get_user_token()
+async def get_favorite_lists(product_id: int = 1) -> list[dict[str, Any]]:
+    token = await get_user_token()
     try:
         # Een lege ids-lijst geeft alle lijstjes terug.
-        data = _graphql(token, FAVORITE_LISTS_QUERY, {"ids": []}, "AH lijstjes ophalen")
+        data = await _graphql(token, FAVORITE_LISTS_QUERY, {"ids": []}, "AH lijstjes ophalen")
     except RuntimeError as graphql_error:
         try:
-            return _get_favorite_lists_rest(token, product_id)
+            return await _get_favorite_lists_rest(token, product_id)
         except RuntimeError as rest_error:
             raise RuntimeError(f"{graphql_error}; REST: {rest_error}") from rest_error
     return [
@@ -1345,9 +1448,9 @@ def get_favorite_lists(product_id: int = 1) -> list[dict[str, Any]]:
     ]
 
 
-def get_favorite_list_items(list_id: str) -> dict[str, Any]:
-    token = get_user_token()
-    data = _graphql(
+async def get_favorite_list_items(list_id: str) -> dict[str, Any]:
+    token = await get_user_token()
+    data = await _graphql(
         token,
         FAVORITE_LIST_QUERY,
         {"ids": [str(list_id).upper()]},
@@ -1360,7 +1463,7 @@ def get_favorite_list_items(list_id: str) -> dict[str, Any]:
     favorite_list = lists[0]
     raw_items = favorite_list.get("items") or []
     product_ids = [int(item.get("productId")) for item in raw_items if item.get("productId")]
-    product_map = {int(product["id"]): product for product in get_products_by_ids(product_ids) if product.get("id")}
+    product_map = {int(product["id"]): product for product in await get_products_by_ids(product_ids) if product.get("id")}
     items = []
     for item in raw_items:
         product_id = int(item.get("productId") or 0)
@@ -1426,19 +1529,19 @@ def _normalize_recipe(item: Any) -> dict[str, Any] | None:
     }
 
 
-def _fetch_recipe_details(token: str, recipe_ids: list[int]) -> list[dict[str, Any]]:
+async def _fetch_recipe_details(token: str, recipe_ids: list[int]) -> list[dict[str, Any]]:
     """Hydrate recipe ids to full recipe objects. Falls back to id-only cards."""
     if not recipe_ids:
         return []
     params: list[tuple[str, str]] = [("ids", str(recipe_id)) for recipe_id in recipe_ids]
     try:
-        response = requests.get(
+        response: httpx.Response = await _client().get(
             f"{AH_API_BASE}/mobile-services/recipes/v1/recipe/by-ids",
             headers=_auth_headers(token, include_content_type=False),
             params=params,
             timeout=20,
         )
-        if response.ok:
+        if response.status_code < 400:
             data = response.json()
             if isinstance(data, dict):
                 data = (
@@ -1450,20 +1553,20 @@ def _fetch_recipe_details(token: str, recipe_ids: list[int]) -> list[dict[str, A
             details = [normalized for item in (data or []) if (normalized := _normalize_recipe(item))]
             if details:
                 return details
-    except (requests.exceptions.RequestException, ValueError):
+    except (httpx.HTTPError, ValueError):
         pass
     # Fallback: build minimal cards from the ids (links still import in Mealie).
     return [normalized for rid in recipe_ids if (normalized := _normalize_recipe(rid))]
 
 
-def _graphql_variants(
+async def _graphql_variants(
     token: str, queries: tuple[str, ...], variables: dict[str, Any], what: str
 ) -> dict[str, Any]:
     """Probeer query-varianten achter elkaar; de fouten van alle varianten staan in de melding."""
     errors: list[str] = []
     for query in queries:
         try:
-            return _graphql(token, query, variables, what)
+            return await _graphql(token, query, variables, what)
         except TokenRejected:
             raise  # een ander token helpt, een andere variant van de vraag niet
         except AhHttpError as exc:
@@ -1497,9 +1600,9 @@ def _category_recipe_ids(category: dict[str, Any]) -> list[int]:
     return ids
 
 
-def _collection_categories(token: str) -> list[dict[str, Any]]:
+async def _collection_categories(token: str) -> list[dict[str, Any]]:
     """De receptgroepen van het lid (zoals in de AH-app): `[{id, name, isDefault, recipeIds}]`, in de volgorde van AH."""
-    data = _graphql_variants(
+    data = await _graphql_variants(
         token, RECIPE_COLLECTIONS_QUERIES, {}, "AH receptencollectie ophalen"
     )
     groups: list[dict[str, Any]] = []
@@ -1523,9 +1626,9 @@ def _collection_categories(token: str) -> list[dict[str, Any]]:
     return groups
 
 
-def _collection_recipe_ids(token: str) -> list[int]:
+async def _collection_recipe_ids(token: str) -> list[int]:
     """Alle bewaarde recepten: de receptnummers van alle groepen samen, zonder dubbelen."""
-    data = _graphql_variants(
+    data = await _graphql_variants(
         token, RECIPE_COLLECTIONS_QUERIES, {}, "AH receptencollectie ophalen"
     )
     ids: list[int] = []
@@ -1540,8 +1643,8 @@ def _collection_recipe_ids(token: str) -> list[int]:
     return ids
 
 
-def _recipe_summaries(token: str, recipe_ids: list[int]) -> dict[int, dict[str, Any]]:
-    data = _graphql_variants(
+async def _recipe_summaries(token: str, recipe_ids: list[int]) -> dict[int, dict[str, Any]]:
+    data = await _graphql_variants(
         token, RECIPE_SUMMARIES_QUERIES, {"ids": recipe_ids}, "AH receptdetails ophalen"
     )
     summaries: dict[int, dict[str, Any]] = {}
@@ -1563,17 +1666,17 @@ def _recipe_summaries(token: str, recipe_ids: list[int]) -> dict[int, dict[str, 
     return summaries
 
 
-def _get_saved_recipes_collections(page: int, size: int) -> dict[str, Any]:
+async def _get_saved_recipes_collections(page: int, size: int) -> dict[str, Any]:
     """Bewaarde recepten uit de receptencollectie van het lid (GraphQL)."""
-    token = get_user_token()
-    ids = _collection_recipe_ids(token)
+    token = await get_user_token()
+    ids = await _collection_recipe_ids(token)
     size = max(1, int(size))
     start = max(0, int(page)) * size
     page_ids = ids[start:start + size]
     if not page_ids:
         return {"recipes": [], "total": len(ids)}
     try:
-        summaries = _recipe_summaries(token, page_ids)
+        summaries = await _recipe_summaries(token, page_ids)
     except RuntimeError:
         summaries = {}
     recipes = []
@@ -1587,10 +1690,10 @@ def _get_saved_recipes_collections(page: int, size: int) -> dict[str, Any]:
     return {"recipes": recipes, "total": len(ids)}
 
 
-def _get_saved_recipes_cookbook(page: int, size: int) -> dict[str, Any]:
+async def _get_saved_recipes_cookbook(page: int, size: int) -> dict[str, Any]:
     """Verzamelde recepten uit het kookboek van het lid (GraphQL)."""
-    token = get_user_token()
-    data = _graphql(token, COOKBOOK_RECIPES_QUERY, {}, "AH kookboek ophalen")
+    token = await get_user_token()
+    data = await _graphql(token, COOKBOOK_RECIPES_QUERY, {}, "AH kookboek ophalen")
     collected = data.get("cookBookRecipesCollectedMember") or {}
     recipes = []
     for item in collected.get("result") or []:
@@ -1609,7 +1712,7 @@ def _get_saved_recipes_cookbook(page: int, size: int) -> dict[str, Any]:
     return _recipe_page(recipes, total, page, size)
 
 
-def _get_saved_recipes_api(page: int, size: int) -> dict[str, Any]:
+async def _get_saved_recipes_api(page: int, size: int) -> dict[str, Any]:
     """Bewaarde recepten via de OAuth-koppeling: eerst de receptencollectie, dan het kookboek."""
     errors: list[str] = []
     empty: dict[str, Any] | None = None
@@ -1618,7 +1721,7 @@ def _get_saved_recipes_api(page: int, size: int) -> dict[str, Any]:
         ("kookboek", _get_saved_recipes_cookbook),
     ):
         try:
-            result = source(page, size)
+            result = await source(page, size)
         except RuntimeError as exc:
             errors.append(f"{label}: {exc}")
             continue
@@ -1630,9 +1733,9 @@ def _get_saved_recipes_api(page: int, size: int) -> dict[str, Any]:
     raise RuntimeError("; ".join(errors))
 
 
-def get_saved_recipes(page: int = 0, size: int = 50) -> dict[str, Any]:
+async def get_saved_recipes(page: int = 0, size: int = 50) -> dict[str, Any]:
     """Bewaarde recepten uit de receptencollectie van het AH-account (GraphQL)."""
-    if not configured_refresh_token():
+    if not await configured_refresh_token():
         raise RuntimeError(
             tr(
                 "AH account niet gekoppeld. De beheerder koppelt het bij Instellingen > Koppelen > Albert Heijn "
@@ -1641,12 +1744,12 @@ def get_saved_recipes(page: int = 0, size: int = 50) -> dict[str, Any]:
                 "to fetch saved recipes.",
             )
         )
-    return _get_saved_recipes_api(page, size)
+    return await _get_saved_recipes_api(page, size)
 
 
-def get_saved_recipe_groups() -> list[dict[str, Any]]:
+async def get_saved_recipe_groups() -> list[dict[str, Any]]:
     """De receptgroepen van het AH-account met hun receptnummers: `[{id, name, isDefault, recipeIds}]`."""
-    if not configured_refresh_token():
+    if not await configured_refresh_token():
         raise RuntimeError(
             tr(
                 "AH account niet gekoppeld. De beheerder koppelt het bij Instellingen > Koppelen > Albert Heijn "
@@ -1655,11 +1758,11 @@ def get_saved_recipe_groups() -> list[dict[str, Any]]:
                 "to fetch recipe groups.",
             )
         )
-    return _collection_categories(get_user_token())
+    return await _collection_categories(await get_user_token())
 
 
-def add_to_shopping_list(items: list[dict[str, Any]]) -> None:
-    token = get_user_token()
+async def add_to_shopping_list(items: list[dict[str, Any]]) -> None:
+    token = await get_user_token()
     # AH weigt hetzelfde product twee keer in één verzoek met een 409 ("Grocery items cannot be
     # duplicate"). Twee recepten in het weekmenu die dezelfde melk nodig hebben worden dus één regel.
     by_product: dict[int, dict[str, Any]] = {}
@@ -1693,7 +1796,7 @@ def add_to_shopping_list(items: list[dict[str, Any]]) -> None:
         raise RuntimeError("Geen geldige producten om toe te voegen")
 
     payload = {"items": shopping_items}
-    response = requests.patch(
+    response: httpx.Response = await _client().patch(
         f"{AH_API_BASE}/mobile-services/shoppinglist/v2/items",
         headers=_auth_headers(token),
         json=payload,
@@ -1709,7 +1812,7 @@ def add_to_shopping_list(items: list[dict[str, Any]]) -> None:
                 "Close that order first and try again (412, Server in order mode).",
             )
         )
-    if not response.ok:
+    if response.status_code >= 400:
         raise RuntimeError(f"AH winkelmandje vullen mislukt ({response.status_code}): {response.text}")
 
 
@@ -1736,11 +1839,11 @@ def _text(value: Any) -> str:
     return " ".join(str(value or "").split())
 
 
-def _get_json(path: str, params: dict[str, Any] | None = None) -> Any:
-    return _request_json(
+async def _get_json(path: str, params: dict[str, Any] | None = None) -> Any:
+    return await _request_json(
         "GET",
         f"{AH_API_BASE}{path}",
-        headers=_auth_headers(get_user_token(), include_content_type=False),
+        headers=_auth_headers(await get_user_token(), include_content_type=False),
         params=params,
     )
 
@@ -1767,14 +1870,14 @@ def _order_item(entry: dict[str, Any], taxonomy: str = "") -> dict[str, Any]:
     }
 
 
-def get_shopping_list() -> dict[str, Any]:
+async def get_shopping_list() -> dict[str, Any]:
     """Het AH-mandje zoals de app het toont: de boodschappenlijst waar `add_to_shopping_list` in schrijft.
 
     Het antwoord is `{items: [{quantity, strikedthrough, type, productDetails: {product: {...}}}]}`. Een vrije tekstregel heeft
     geen product maar een `description`. Afgevinkte regels (`strikedthrough`) laten we weg. De lezing is ruim: ook een kale
     lijst, `product` direct in de regel en de schrijfwijze `strikeThrough` worden begrepen.
     """
-    data = _get_json("/mobile-services/shoppinglist/v2/items") or {}
+    data = await _get_json("/mobile-services/shoppinglist/v2/items") or {}
     entries = data if isinstance(data, list) else data.get("items") or data.get("products") or []
     items = []
     for entry in entries:
@@ -1792,10 +1895,10 @@ def get_shopping_list() -> dict[str, Any]:
     return {"id": None, "state": "", "shoppingType": "", "total": None, "discount": None, "deliveryDate": "", "slotStart": "", "slotEnd": "", "items": items}
 
 
-def get_active_order() -> dict[str, Any]:
+async def get_active_order() -> dict[str, Any]:
     """Het bestelmandje: de actieve bestelling bij AH (producten, totaal, gekozen bezorgmoment)."""
     try:
-        data = _get_json("/mobile-services/order/v1/summaries/active", {"sortBy": "DEFAULT"}) or {}
+        data = await _get_json("/mobile-services/order/v1/summaries/active", {"sortBy": "DEFAULT"}) or {}
     except RuntimeError as exc:
         # Zonder actieve bestelling antwoordt AH met een 404: dan is het mandje gewoon leeg.
         if not str(exc).startswith("404") or "Order does not exist" not in str(exc):
@@ -1816,9 +1919,9 @@ def get_active_order() -> dict[str, Any]:
     }
 
 
-def get_order_details(order_id: int) -> dict[str, Any]:
+async def get_order_details(order_id: int) -> dict[str, Any]:
     """Een bestelling met zijn producten, per categorie (werkt voor elke bestelling-id)."""
-    data = _get_json(f"/mobile-services/order/v1/{int(order_id)}/details-grouped-by-taxonomy") or {}
+    data = await _get_json(f"/mobile-services/order/v1/{int(order_id)}/details-grouped-by-taxonomy") or {}
     period = data.get("deliveryTimePeriod") or {}
     items = []
     for group in data.get("groupedProductsInTaxonomy") or []:
@@ -1849,19 +1952,19 @@ query OrderFulfillments {
 """
 
 
-def get_open_fulfillments() -> list[dict[str, Any]]:
+async def get_open_fulfillments() -> list[dict[str, Any]]:
     """Geplaatste bestellingen die nog niet zijn geleverd."""
-    return _fulfillments("OPEN")
+    return await _fulfillments("OPEN")
 
 
-def get_closed_fulfillments(offset: int = 0) -> list[dict[str, Any]]:
+async def get_closed_fulfillments(offset: int = 0) -> list[dict[str, Any]]:
     """Afgeronde bestellingen, nieuwste eerst: afgeleverd of geannuleerd (`deliveryStatus`). AH geeft er per keer 10; `offset` bladert verder."""
-    return _fulfillments("CLOSED", offset)
+    return await _fulfillments("CLOSED", offset)
 
 
-def _fulfillments(status: str, offset: int = 0) -> list[dict[str, Any]]:
+async def _fulfillments(status: str, offset: int = 0) -> list[dict[str, Any]]:
     arguments = f"status: {status}" + (f", offset: {int(offset)}" if offset else "")
-    data = _graphql(get_user_token(), FULFILLMENTS_QUERY.replace("status: OPEN", arguments), {}, "AH bestellingen ophalen")
+    data = await _graphql(await get_user_token(), FULFILLMENTS_QUERY.replace("status: OPEN", arguments), {}, "AH bestellingen ophalen")
     result = ((data.get("orderFulfillments") or {}).get("result")) or []
     orders = []
     for entry in result:
@@ -1907,9 +2010,9 @@ query FetchReceipt($id: String!) {
 """
 
 
-def get_receipts(offset: int = 0, limit: int = 100) -> list[dict[str, Any]]:
+async def get_receipts(offset: int = 0, limit: int = 100) -> list[dict[str, Any]]:
     """Kassabonnen van aankopen in de winkel, nieuwste eerst (een pagina)."""
-    data = _graphql(get_user_token(), RECEIPTS_QUERY, {"offset": int(offset), "limit": int(limit)}, "AH kassabonnen ophalen")
+    data = await _graphql(await get_user_token(), RECEIPTS_QUERY, {"offset": int(offset), "limit": int(limit)}, "AH kassabonnen ophalen")
     page = ((data.get("posReceiptsPage") or {}).get("posReceipts")) or []
     return [
         {
@@ -1922,9 +2025,9 @@ def get_receipts(offset: int = 0, limit: int = 100) -> list[dict[str, Any]]:
     ]
 
 
-def get_receipt(receipt_id: str) -> dict[str, Any]:
+async def get_receipt(receipt_id: str) -> dict[str, Any]:
     """Eén kassabon met regels, kortingen en betalingen."""
-    data = _graphql(get_user_token(), RECEIPT_QUERY, {"id": str(receipt_id)}, "AH kassabon ophalen")
+    data = await _graphql(await get_user_token(), RECEIPT_QUERY, {"id": str(receipt_id)}, "AH kassabon ophalen")
     detail = data.get("posReceiptDetails") or {}
     return {
         "id": _text(detail.get("id")) or str(receipt_id),
@@ -1972,9 +2075,9 @@ class RecipeUnavailable(RuntimeError):
     """AH kent het recept niet (meer), of het heeft geen ingrediënten en geen bereiding: opnieuw proberen helpt niet."""
 
 
-def get_recipe_jsonld(recipe_id: int) -> dict[str, Any]:
+async def get_recipe_jsonld(recipe_id: int) -> dict[str, Any]:
     """Allerhande-recept als schema.org Recipe (JSON-LD), via de AH-API zonder paginascraping."""
-    data = _anonymous(lambda token: _graphql_variants(token, RECIPE_DETAIL_QUERIES, {"id": int(recipe_id)}, "AH recept ophalen"))
+    data = await _anonymous(lambda token: _graphql_variants(token, RECIPE_DETAIL_QUERIES, {"id": int(recipe_id)}, "AH recept ophalen"))
     recipe = data.get("recipe")
     if not recipe:
         raise RecipeUnavailable("AH recept niet gevonden")
@@ -2026,9 +2129,9 @@ def recipe_url(recipe_id: int) -> str:
     return f"https://www.ah.nl/allerhande/recept/R-R{int(recipe_id)}"
 
 
-def recipe_detail(recipe_id: int) -> dict[str, Any]:
+async def recipe_detail(recipe_id: int) -> dict[str, Any]:
     """Een Allerhande-recept in de vorm van het detailscherm (zoals Jumbo, Picnic en de maaltijdboxen)."""
-    ld = get_recipe_jsonld(recipe_id)
+    ld = await get_recipe_jsonld(recipe_id)
     images = ld.get("image") or []
     portions = re.match(r"\s*(\d+)", str(ld.get("recipeYield") or ""))
     minutes = re.fullmatch(r"PT(\d+)M", str(ld.get("totalTime") or ""))

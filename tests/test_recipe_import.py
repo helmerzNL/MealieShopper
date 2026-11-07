@@ -4,9 +4,15 @@ import tempfile
 import unittest
 from unittest import mock
 
+import httpx
+
 os.environ.setdefault("MEALIESHOPPER_DATA_DIR", tempfile.mkdtemp())
 
 from mealieshopper import ah, mealie, picnic_recipes  # noqa: E402
+from helpers import routes, run, sent_json, served  # noqa: E402
+
+CREATE_HTML = "http://mealie/api/recipes/create/html-or-json"
+CREATE_URL = "http://mealie/api/recipes/create/url"
 
 RECIPE = {
     "id": 1234,
@@ -23,14 +29,12 @@ RECIPE = {
 
 
 def graphql_ok(recipe):
-    response = mock.Mock(ok=True)
-    response.json.return_value = {"data": {"recipe": recipe}}
+    response = httpx.Response(200, json={"data": {"recipe": recipe}})
     return response
 
 
 def graphql_error(message):
-    response = mock.Mock(ok=True)
-    response.json.return_value = {"errors": [{"message": message}]}
+    response = httpx.Response(200, json={"errors": [{"message": message}]})
     return response
 
 
@@ -51,8 +55,8 @@ class AllerhandeRecipeIdTest(unittest.TestCase):
 class RecipeJsonLdTest(unittest.TestCase):
     def build(self, responses):
         with mock.patch.object(ah, "get_token", return_value="anon"), \
-                mock.patch.object(ah.requests, "post", side_effect=responses) as post:
-            return ah.get_recipe_jsonld(1234), post
+                served(side_effect=responses) as post:
+            return run(ah.get_recipe_jsonld(1234)), post
 
     def test_schema_org_recipe(self):
         ld, post = self.build([graphql_ok(RECIPE)])
@@ -68,7 +72,7 @@ class RecipeJsonLdTest(unittest.TestCase):
         self.assertEqual(ld["recipeYield"], "4 personen")
         self.assertEqual(ld["cookTime"], "PT20M")
         self.assertEqual(ld["totalTime"], "PT25M")
-        self.assertEqual(post.call_args.kwargs["json"]["variables"], {"id": 1234})
+        self.assertEqual(sent_json(post.calls.last)["variables"], {"id": 1234})
         json.dumps(ld)  # serialiseerbaar voor Mealie
 
     def test_falls_back_to_simpler_query_and_string_steps(self):
@@ -107,55 +111,74 @@ class ImportFromUrlTest(unittest.TestCase):
         patcher.start()
         self.addCleanup(patcher.stop)
         # Het analyseren van de ingrediënten na de import heeft zijn eigen tests (test_ingredients).
-        parser = mock.patch.object(mealie, "parse_imported_ingredients", side_effect=lambda slug: slug)
+        parser = mock.patch.object(mealie, "parse_imported_ingredients", new_callable=mock.AsyncMock, side_effect=lambda slug: slug)
         parser.start()
         self.addCleanup(parser.stop)
 
-    def response(self, ok=True, status=200, body="slug"):
-        response = mock.Mock(ok=ok, status_code=status, text=str(body))
-        response.json.return_value = body
-        return response
+    def response(self, status=200, body="slug"):
+        return httpx.Response(status, json=body) if status < 400 else httpx.Response(status, text=str(body))
 
     def test_ah_recipe_goes_through_the_api_without_fetching_the_page(self):
         ld = {"@type": "Recipe", "name": "X"}
-        with mock.patch.object(ah, "get_recipe_jsonld", return_value=ld), \
-                mock.patch.object(mealie.requests, "post", return_value=self.response(body="stamppot")) as post, \
-                mock.patch.object(mealie.requests, "get") as get:
-            slug = mealie.import_from_url(self.URL)
+        with mock.patch.object(ah, "get_recipe_jsonld", return_value=ld), routes() as api:
+            post = api.post(CREATE_HTML).mock(return_value=self.response(body="stamppot"))
+            get = api.get()
+            slug = run(mealie.import_from_url(self.URL))
         self.assertEqual(slug, "stamppot")
-        get.assert_not_called()
-        self.assertEqual(post.call_args.args[0], "http://mealie/api/recipes/create/html-or-json")
-        sent = post.call_args.kwargs["json"]
+        self.assertFalse(get.called)
+        sent = sent_json(post.calls.last)
         self.assertEqual(json.loads(sent["data"]), ld)
         self.assertEqual(sent["url"], self.URL)
 
     def test_ah_api_failure_falls_back_to_mealie_url_import(self):
-        with mock.patch.object(ah, "get_recipe_jsonld", side_effect=RuntimeError("niet gevonden")), \
-                mock.patch.object(mealie.requests, "post", return_value=self.response(body="via-url")) as post:
-            self.assertEqual(mealie.import_from_url(self.URL), "via-url")
-        self.assertEqual(post.call_args.args[0], "http://mealie/api/recipes/create/url")
+        with mock.patch.object(ah, "get_recipe_jsonld", side_effect=RuntimeError("niet gevonden")), routes() as api:
+            post = api.post(CREATE_URL).mock(return_value=self.response(body="via-url"))
+            self.assertEqual(run(mealie.import_from_url(self.URL)), "via-url")
+        self.assertEqual(sent_json(post.calls.last), {"url": self.URL, "include_tags": True, "include_categories": True})
 
     def test_non_ah_url_skips_the_ah_api(self):
-        with mock.patch.object(ah, "get_recipe_jsonld", side_effect=AssertionError("niet aanroepen")), \
-                mock.patch.object(mealie.requests, "post", return_value=self.response(body="ok")):
-            self.assertEqual(mealie.import_from_url("https://example.com/r"), "ok")
+        with mock.patch.object(ah, "get_recipe_jsonld", side_effect=AssertionError("niet aanroepen")), routes() as api:
+            api.post(CREATE_URL).mock(return_value=self.response(body="ok"))
+            self.assertEqual(run(mealie.import_from_url("https://example.com/r")), "ok")
 
     def test_the_html_of_a_page_keeps_its_address_for_the_scraper_of_that_site(self):
-        page = mock.Mock(ok=True, status_code=200, text="<html>recept</html>")
-        with mock.patch.object(mealie.requests, "get", return_value=page), \
-                mock.patch.object(mealie.requests, "post", return_value=self.response(body="soep")) as post:
-            self.assertEqual(mealie.import_via_html("https://www.example.com/soep"), "soep")
-        sent = post.call_args.kwargs["json"]
+        with routes() as api:
+            page = api.get("https://www.example.com/soep").mock(return_value=httpx.Response(200, text="<html>recept</html>"))
+            post = api.post(CREATE_HTML).mock(return_value=self.response(body="soep"))
+            self.assertEqual(run(mealie.import_via_html("https://www.example.com/soep")), "soep")
+        sent = sent_json(post.calls.last)
         self.assertEqual((sent["data"], sent["url"]), ("<html>recept</html>", "https://www.example.com/soep"))
+        self.assertEqual(page.calls.last.request.headers["User-Agent"], mealie.BROWSER_HEADERS["User-Agent"], "de pagina krijgt een browser")
+        self.assertNotIn("Authorization", page.calls.last.request.headers, "het token gaat alleen naar Mealie")
+
+    def test_a_cookie_from_a_redirect_goes_along_to_the_page(self):
+        # Een cookiemuur: eerst een 302 met een cookie, en pas met die cookie komt de pagina zelf.
+        with routes() as api:
+            page = api.get("https://www.example.com/soep").mock(side_effect=[
+                httpx.Response(302, headers={"Location": "https://www.example.com/soep", "Set-Cookie": "consent=yes; Path=/"}),
+                httpx.Response(200, text="<html>recept</html>"),
+            ])
+            post = api.post(CREATE_HTML).mock(return_value=self.response(body="soep"))
+            self.assertEqual(run(mealie.import_via_html("https://www.example.com/soep")), "soep")
+        self.assertNotIn("Cookie", page.calls[0].request.headers)
+        self.assertEqual(page.calls[1].request.headers["Cookie"], "consent=yes")
+        self.assertEqual(sent_json(post.calls.last)["data"], "<html>recept</html>")
+        self.assertNotIn("Cookie", post.calls.last.request.headers, "de cookie gaat niet mee naar Mealie")
+
+    def test_the_page_follows_a_redirect(self):
+        with routes() as api:
+            api.get("https://example.com/soep").mock(return_value=httpx.Response(301, headers={"Location": "https://www.example.com/soep"}))
+            api.get("https://www.example.com/soep").mock(return_value=httpx.Response(200, text="<html>recept</html>"))
+            post = api.post(CREATE_HTML).mock(return_value=self.response(body="soep"))
+            self.assertEqual(run(mealie.import_via_html("https://example.com/soep")), "soep")
+        self.assertEqual(sent_json(post.calls.last)["data"], "<html>recept</html>")
 
     def test_all_failures_are_reported_together(self):
-        mealie_error = self.response(ok=False, status=400, body="Recipe scrape failed")
-        page_error = self.response(ok=False, status=403, body="Access Denied")
-        with mock.patch.object(ah, "get_recipe_jsonld", side_effect=RuntimeError("niet gevonden")), \
-                mock.patch.object(mealie.requests, "post", return_value=mealie_error), \
-                mock.patch.object(mealie.requests, "get", return_value=page_error):
+        with mock.patch.object(ah, "get_recipe_jsonld", side_effect=RuntimeError("niet gevonden")), routes() as api:
+            api.post(CREATE_URL).mock(return_value=self.response(status=400, body="Recipe scrape failed"))
+            api.get(self.URL).mock(return_value=self.response(status=403, body="Access Denied"))
             with self.assertRaises(RuntimeError) as ctx:
-                mealie.import_from_url(self.URL)
+                run(mealie.import_from_url(self.URL))
         message = str(ctx.exception)
         self.assertIn("AH-API: niet gevonden", message)
         self.assertIn("Mealie: Mealie kon de pagina niet importeren (400): Recipe scrape failed", message)
@@ -174,26 +197,24 @@ class JsonLdSourceTest(unittest.TestCase):
         patcher = mock.patch.dict(os.environ, {"MEALIE_URL": "http://mealie", "MEALIE_API_TOKEN": "t"})
         patcher.start()
         self.addCleanup(patcher.stop)
-        parser = mock.patch.object(mealie, "parse_imported_ingredients", side_effect=lambda slug, *args: slug)
+        parser = mock.patch.object(mealie, "parse_imported_ingredients", new_callable=mock.AsyncMock, side_effect=lambda slug, *args: slug)
         self.parser = parser.start()
         self.addCleanup(parser.stop)
 
-    def response(self, ok=True, status=200, body="pasta-pesto"):
-        response = mock.Mock(ok=ok, status_code=status, text=str(body))
-        response.json.return_value = body
-        return response
+    def response(self, status=200, body="pasta-pesto"):
+        return httpx.Response(status, json=body) if status < 400 else httpx.Response(status, text=str(body))
 
     def test_a_picnic_recipe_is_read_under_a_neutral_link_and_keeps_its_source(self):
         source = picnic_recipes.source_url("r1")
-        with mock.patch.object(mealie.requests, "post", return_value=self.response()) as post, \
-                mock.patch.object(mealie.requests, "patch", return_value=self.response(body={})) as patch:
-            self.assertEqual(mealie.import_via_jsonld(source, self.LD), "pasta-pesto")
-        sent = post.call_args.kwargs["json"]
+        with routes() as api:
+            post = api.post(CREATE_HTML).mock(return_value=self.response())
+            patch = api.patch("http://mealie/api/recipes/pasta-pesto").mock(return_value=self.response(body={}))
+            self.assertEqual(run(mealie.import_via_jsonld(source, self.LD)), "pasta-pesto")
+        sent = sent_json(post.calls.last)
         self.assertEqual(sent["url"], mealie.NEUTRAL_SOURCE)
         self.assertEqual(json.loads(sent["data"]), self.LD, "de JSON-LD zelf verandert niet")
-        self.assertEqual(patch.call_args.args[0], "http://mealie/api/recipes/pasta-pesto")
-        self.assertEqual(patch.call_args.kwargs["json"], {"orgURL": source}, "de bron blijft de link naar Picnic")
-        self.parser.assert_called_once_with("pasta-pesto")
+        self.assertEqual(sent_json(patch.calls.last), {"orgURL": source}, "de bron blijft de link naar Picnic")
+        self.parser.assert_awaited_once_with("pasta-pesto")
 
     def test_every_picnic_link_counts_and_other_stores_keep_their_own_link(self):
         for url in ("https://picnic.app/#recipe-r1", "https://www.picnic.app/nl/recepten/x", "https://PICNIC.app/r"):
@@ -209,20 +230,20 @@ class JsonLdSourceTest(unittest.TestCase):
 
     def test_another_source_is_sent_as_is_and_not_patched(self):
         url = "https://www.jumbo.com/recepten/romige-pasta-123"
-        with mock.patch.object(mealie.requests, "post", return_value=self.response()) as post, \
-                mock.patch.object(mealie.requests, "patch") as patch:
-            self.assertEqual(mealie.import_via_jsonld(url, self.LD), "pasta-pesto")
-        self.assertEqual(post.call_args.kwargs["json"]["url"], url)
-        patch.assert_not_called()
+        with routes() as api:
+            post = api.post(CREATE_HTML).mock(return_value=self.response())
+            patch = api.patch()
+            self.assertEqual(run(mealie.import_via_jsonld(url, self.LD)), "pasta-pesto")
+        self.assertEqual(sent_json(post.calls.last)["url"], url)
+        self.assertFalse(patch.called)
 
     def test_a_failed_source_update_keeps_the_imported_recipe(self):
-        for failure in ({"return_value": self.response(ok=False, status=403, body="Forbidden")},
-                        {"side_effect": mealie.requests.ConnectionError("weg")}):
-            with self.subTest(failure=failure), \
-                    mock.patch.object(mealie.requests, "post", return_value=self.response()), \
-                    mock.patch.object(mealie.requests, "patch", **failure), \
-                    self.assertLogs(mealie.log, "WARNING") as logs:
-                self.assertEqual(mealie.import_via_jsonld(picnic_recipes.source_url("r1"), self.LD), "pasta-pesto")
+        for failure in ({"return_value": self.response(status=403, body="Forbidden")},
+                        {"side_effect": httpx.ConnectError("weg")}):
+            with self.subTest(failure=failure), routes() as api, self.assertLogs(mealie.log, "WARNING") as logs:
+                api.post(CREATE_HTML).mock(return_value=self.response())
+                api.patch("http://mealie/api/recipes/pasta-pesto").mock(**failure)
+                self.assertEqual(run(mealie.import_via_jsonld(picnic_recipes.source_url("r1"), self.LD)), "pasta-pesto")
             self.assertNotIn("Forbidden", " ".join(logs.output))
             self.assertNotIn("weg", " ".join(logs.output))
 

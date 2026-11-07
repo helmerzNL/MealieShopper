@@ -26,12 +26,12 @@ If nothing applies, write exactly: "No changes to Compose or .env files in this 
 
 <!--
 NL: Verplicht als deze pull request een grens voor grootte, aantal of tijd verandert (bijvoorbeeld de 200 MB van een
-back-upbestand of de 120 seconden van Gunicorn). Noem de nieuwe waarde als getal waar een beheerder iets mee kan
+back-upbestand of de 120 seconden voor het lichaam van een aanvraag). Noem de nieuwe waarde als getal waar een beheerder iets mee kan
 ("de grootste aanvraag is nu 60 MB; wat ervoor staat moet minstens dat doorlaten"), niet als instelling van één
 proxy. Anders: "Geen wijzigingen in grenzen in deze pull request."
 
 EN: Required when this pull request raises or lowers a size, rate or timeout limit (for example the 200 MB of a
-backup file or the 120 seconds of Gunicorn). State the new value as a number an operator can act on ("the largest
+backup file or the 120 seconds for a request body). State the new value as a number an operator can act on ("the largest
 request is now 60 MB; whatever runs in front must allow at least that"), never as one proxy's setting. Otherwise
 write "No limit changes in this pull request."
 -->

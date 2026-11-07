@@ -1,29 +1,34 @@
+import asyncio
+import json
 import os
 import tempfile
 import unittest
 from datetime import datetime, timedelta, timezone
 from unittest import mock
 
+import httpx
+
 os.environ.setdefault("MEALIESHOPPER_DATA_DIR", tempfile.mkdtemp())
 
 from mealieshopper import ah_orders, auth, crisp, image_cache, jumbo, offers, offers_schedule, picnic, prices  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
+from helpers import AppTestCase, returned, run, served  # noqa: E402
 
 
-class TempDataDirTest(unittest.TestCase):
+class TempDataDirTest(AppTestCase):
     def setUp(self):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
         patcher = mock.patch.dict(os.environ, {"MEALIESHOPPER_DATA_DIR": tmp.name, "PASSKEY_AUTH_ENABLED": "false"})
         patcher.start()
         self.addCleanup(patcher.stop)
-        # Geen thread die echt foto's ophaalt: na een synchronisatie (offers_schedule.sync_now, POST /api/offers/sync-all) start
+        # Geen task die echt foto's ophaalt: na een synchronisatie (offers_schedule.sync_now, POST /api/offers/sync-all) start
         # image_cache.prefetch_async er een, en die schreef soms nog in de tijdelijke map terwijl de test die opruimde
-        # ("OSError: Directory not empty"). Een test die de thread wil zien, zet zijn eigen mock eroverheen.
-        background = mock.patch.object(image_cache, "prefetch_async")
+        # ("OSError: Directory not empty"). Een test die de task wil zien, zet zijn eigen mock eroverheen.
+        background = mock.patch.object(image_cache, "prefetch_async", new_callable=mock.AsyncMock)
         background.start()
         self.addCleanup(background.stop)
-        auth.init_db()
+        run(auth.init_db())
         jumbo._search_variant = 0
         jumbo._promo_dates = True
 
@@ -64,7 +69,7 @@ class JumboOffersTest(TempDataDirTest):
             return {"searchProducts": {"products": [jumbo_product("1", "Kipfilet", 499, 349), jumbo_product(f"x-{term}", term, 200, 100)]}}
 
         with mock.patch.object(jumbo, "_search_data", side_effect=search):
-            found = jumbo.get_offers()
+            found = run(jumbo.get_offers())
         self.assertEqual(len(found), len(jumbo.OFFER_TERMS) + 1)
         self.assertEqual([o["id"] for o in found].count("1"), 1)
 
@@ -75,20 +80,70 @@ class JumboOffersTest(TempDataDirTest):
             return {"searchProducts": {"products": [jumbo_product(term, term, 200, 100)]}}
 
         with mock.patch.object(jumbo, "_search_data", side_effect=search):
-            self.assertEqual(len(jumbo.get_offers()), len(jumbo.OFFER_TERMS) - 1)
+            self.assertEqual(len(run(jumbo.get_offers())), len(jumbo.OFFER_TERMS) - 1)
         with mock.patch.object(jumbo, "_search_data", side_effect=RuntimeError("alles stuk")):
             with self.assertRaisesRegex(RuntimeError, "alles stuk"):
-                jumbo.get_offers()
+                run(jumbo.get_offers())
 
     def test_a_refused_link_is_reported_as_such(self):
         with mock.patch.object(jumbo, "_search_data", side_effect=jumbo.JumboAuthError("verlopen")):
             with self.assertRaises(jumbo.JumboAuthError):
-                jumbo.get_offers()
+                run(jumbo.get_offers())
+
+    def test_at_most_six_terms_are_searched_at_once_over_the_network(self):
+        # Elk zoekverzoek geeft de loop een paar keer vrij, zoals een echt antwoord van Jumbo. Zonder grens zouden alle
+        # termen tegelijk lopen, met de grens precies zes.
+        jumbo._access_cache.update(token="acc", expires_at=jumbo.time.time() + 3600)
+        state: list[int] = [0, 0]  # nu bezig, hoogste aantal tegelijk
+
+        async def answer(request: httpx.Request) -> httpx.Response:
+            term = json.loads(request.content)["variables"]["input"]["searchTerms"]
+            state[0] += 1
+            state[1] = max(state[1], state[0])
+            for _ in range(3):
+                await asyncio.sleep(0)
+            state[0] -= 1
+            return httpx.Response(200, json={"data": {"searchProducts": {"products": [jumbo_product(f"x-{term}", term, 200, 100)]}}})
+
+        with served(side_effect=answer) as route:
+            found = run(jumbo.get_offers())
+        self.assertEqual(route.call_count, len(jumbo.OFFER_TERMS))
+        self.assertEqual([o["id"] for o in found], [f"x-{term}" for term in jumbo.OFFER_TERMS], "in de volgorde van de termen")
+        self.assertEqual(state[1], jumbo.OFFER_WORKERS)
+        self.assertEqual(jumbo.OFFER_WORKERS, 6)
+
+    def test_a_refused_link_stops_the_other_terms(self):
+        # Een verlopen koppeling geldt voor elke term: de andere zoekopdrachten worden geannuleerd in plaats van door te lopen.
+        cancelled: list[str] = []
+        finished: list[str] = []
+
+        async def search(term: str) -> dict:
+            try:
+                for _ in range(2 if term == jumbo.OFFER_TERMS[0] else 20):
+                    await asyncio.sleep(0)
+            except asyncio.CancelledError:
+                cancelled.append(term)
+                raise
+            if term == jumbo.OFFER_TERMS[0]:
+                raise jumbo.JumboAuthError("verlopen")
+            finished.append(term)
+            return {"searchProducts": {"products": []}}
+
+        async def scenario() -> list[str]:
+            with self.assertRaises(jumbo.JumboAuthError):
+                await jumbo.get_offers()
+            return list(cancelled)  # wat al geannuleerd was toen de fout bovenkwam, niet pas bij het sluiten van de loop
+
+        with mock.patch.object(jumbo, "_search_data", side_effect=search):
+            stopped = run(scenario())
+        self.assertEqual(finished, [])
+        self.assertTrue(set(jumbo.OFFER_TERMS[1:6]) <= set(stopped))
+        self.assertLess(len(stopped), len(jumbo.OFFER_TERMS), "de termen die nog niet aan de beurt waren zijn nooit begonnen")
 
     def test_search_still_filters_unavailable_products(self):
         data = {"searchProducts": {"products": [jumbo_product("1", "A", 100), jumbo_product("2", "B", 100, availability={"isAvailable": False})]}}
         with mock.patch.object(jumbo, "_search_data", return_value=data):
-            self.assertEqual([p["id"] for p in jumbo.search_products("a")], ["1"])
+            self.assertEqual([p["id"] for p in run(jumbo.search_products("a"))], ["1"])
 
 
 def tile(unit_id, name, cents=199, regular=None, promo_text=None, **extra):
@@ -107,7 +162,7 @@ def page(*tiles, links=()):
 class PicnicOffersTest(TempDataDirTest):
     def setUp(self):
         super().setUp()
-        picnic.save_auth_key("key")
+        run(picnic.save_auth_key("key"))
         patcher = mock.patch.object(picnic, "OFFER_PAGE_DELAY", 0)
         patcher.start()
         self.addCleanup(patcher.stop)
@@ -133,20 +188,20 @@ class PicnicOffersTest(TempDataDirTest):
         tabs = [{"id": "deals", "title": "Aanbiedingen", "tab_type": "PAGE", "target": {"type": "PICNIC_PAGE_REFERENCE", "reference": "deals-root"}}]
         pages = {"deals-root": page(tile("s1", "Kipfilet", 349, 499), tile("s2", "Melk", 129))}
         with self.serve(pages, tabs):
-            found = picnic.get_offers()
+            found = run(picnic.get_offers())
         self.assertEqual([(o["id"], o["price"], o["priceBefore"]) for o in found], [("s1", 3.49, 4.99)])
         self.assertNotIn("promo", found[0])
 
     def test_linked_pages_are_followed_and_fallback_names_are_tried(self):
         pages = {"deals-page-root": page(links=["week-deals"]), "week-deals": page(tile("s1", "Kaas", 299, 399))}
         with self.serve(pages):
-            found = picnic.get_offers()
+            found = run(picnic.get_offers())
         self.assertEqual([o["id"] for o in found], ["s1"])
 
     def test_a_page_without_promotion_markers_keeps_all_its_products(self):
         pages = {"deals-page-root": page(tile("s1", "Kaas", 299), tile("s2", "Melk", 129))}
         with self.serve(pages):
-            self.assertEqual([o["id"] for o in picnic.get_offers()], ["s1", "s2"])
+            self.assertEqual([o["id"] for o in run(picnic.get_offers())], ["s1", "s2"])
 
     HOME_TABS = [
         {"id": "home-tab", "title": "Ontdek", "label": "Ontdek", "tab_type": "PAGE", "target": {"type": "PICNIC_PAGE_REFERENCE", "reference": "home_page_root"}},
@@ -156,17 +211,17 @@ class PicnicOffersTest(TempDataDirTest):
     def test_without_an_offers_tab_the_discover_page_is_used_and_only_discounts_count(self):
         pages = {"home_page_root": page(tile("s1", "Kipfilet", 349, 499, "2e halve prijs"), tile("s2", "Melk", 129))}
         with self.serve(pages, self.HOME_TABS):
-            found = picnic.get_offers()
+            found = run(picnic.get_offers())
         self.assertEqual([o["id"] for o in found], ["s1"], "de gewone producten van de startpagina zijn geen aanbiedingen")
 
     def test_references_put_offer_pages_first_and_mark_the_home_page_strict(self):
         with self.serve({}, self.HOME_TABS):
-            references = picnic.offer_references()
+            references = run(picnic.offer_references())
         self.assertEqual(references[-1], ("home_page_root", True))
         self.assertEqual([ref for ref, strict in references if strict], ["home_page_root"])
         self.assertEqual([ref for ref, _ in references[:3]], list(picnic.OFFER_FALLBACKS))
         with self.serve({}, []):
-            self.assertEqual(picnic.offer_references()[-1], (picnic.HOME_FALLBACK, True))
+            self.assertEqual(run(picnic.offer_references())[-1], (picnic.HOME_FALLBACK, True))
 
     def test_the_strict_page_only_follows_links_about_offers_including_lazy_pages(self):
         home = page(tile("s1", "Melk", 129), links=["aanbiedingen-page", "fruit-page"])
@@ -178,14 +233,14 @@ class PicnicOffersTest(TempDataDirTest):
             "fruit-page": page(tile("s4", "Appel", 99, 199)),
         }
         with self.serve(pages, self.HOME_TABS):
-            found = picnic.get_offers()
+            found = run(picnic.get_offers())
         self.assertEqual(sorted(o["id"] for o in found), ["s2", "s3"], "fruit-page gaat niet over aanbiedingen")
 
     def test_a_home_page_without_any_discount_is_an_error_not_a_list_of_products(self):
         pages = {"home_page_root": page(tile("s1", "Melk", 129), tile("s2", "Kaas", 299))}
         with self.serve(pages, self.HOME_TABS):
             with self.assertRaisesRegex(RuntimeError, "verkenner|explorer"):
-                picnic.get_offers()
+                run(picnic.get_offers())
 
     def test_discount_markers_cover_ranges_and_other_promo_decorators(self):
         ranged = picnic.offers_from_page(page(tile("s1", "Koffie", 599, price_ranges=[{"x": 1}])))
@@ -198,10 +253,10 @@ class PicnicOffersTest(TempDataDirTest):
     def test_no_page_at_all_is_a_clear_error_and_an_unlinked_account_too(self):
         with self.serve({}):
             with self.assertRaisesRegex(RuntimeError, "geen aanbiedingen|no offers"):
-                picnic.get_offers()
-        auth.set_secret(picnic.AUTH_KEY_SECRET, "")
+                run(picnic.get_offers())
+        run(auth.set_secret(picnic.AUTH_KEY_SECRET, ""))
         with self.assertRaises(RuntimeError):
-            picnic.get_offers()
+            run(picnic.get_offers())
 
 
 def text_tile(unit_id, name, cents, *texts):
@@ -222,7 +277,7 @@ class PicnicHomePageOffersTest(TempDataDirTest):
 
     def setUp(self):
         super().setUp()
-        picnic.save_auth_key("key")
+        run(picnic.save_auth_key("key"))
         patcher = mock.patch.object(picnic, "OFFER_PAGE_DELAY", 0)
         patcher.start()
         self.addCleanup(patcher.stop)
@@ -279,7 +334,7 @@ class PicnicHomePageOffersTest(TempDataDirTest):
             "promo-group-deep-dive?promo_group_id=g2-7": {"body": {"children": [text_tile("s5", "Pringles", 199, "Pringles")]}},
         }
         with self.serve(pages):
-            found = {o["id"]: o for o in picnic.get_offers()}
+            found = {o["id"]: o for o in run(picnic.get_offers())}
         self.assertEqual(sorted(found), ["s1", "s3", "s4", "s5"], "s2 is een gewoon product op de startpagina")
         self.assertEqual(found["s1"]["promoLabel"], "1+1 gratis")
         self.assertEqual(found["s3"]["promoLabel"], "20% korting", "de tekst van de tegel gaat voor")
@@ -294,7 +349,7 @@ class PicnicHomePageOffersTest(TempDataDirTest):
         home = {"body": {"children": [promo_card("Een", "promo-group-deep-dive,promo_group_id=g1-4"), promo_card("Twee", "promo-group-deep-dive,promo_group_id=g2-7")]}}
         pages = {"home_page_root": home, "promo-group-deep-dive?promo_group_id=g2-7": group, "promo-group-content": {"body": {"children": [text_tile("s9", "Peer", 99, "Peer")]}}}
         with self.serve(pages):
-            found = picnic.get_offers()
+            found = run(picnic.get_offers())
         self.assertEqual(sorted(o["id"] for o in found), ["s3", "s9"])
 
     def test_the_number_of_pages_is_capped(self):
@@ -302,7 +357,7 @@ class PicnicHomePageOffersTest(TempDataDirTest):
         pages = {"home_page_root": {"body": {"children": cards}}}
         pages.update({f"promo-group-deep-dive?promo_group_id=g{i}-1": {"body": {"children": [text_tile(f"s{i}", "x", 100, "x")]}} for i in range(80)})
         with self.serve(pages):
-            found = picnic.get_offers()
+            found = run(picnic.get_offers())
         self.assertLessEqual(len([p for p in self.asked if "/pages/" in p and "home_page_root" in p or "promo-group" in p]), picnic.MAX_OFFER_PAGES)
         self.assertGreater(len(found), 10)
 
@@ -324,9 +379,9 @@ class PicnicExplorerTest(TempDataDirTest):
                 raise RuntimeError('404: {"error": {"code": "NOT_FOUND"}}')
             return pages[reference]
 
-        picnic.save_auth_key("key")
+        run(picnic.save_auth_key("key"))
         with mock.patch.object(picnic, "_authed", side_effect=authed):
-            probes = picnic_explore.offer_probes()
+            probes = run(picnic_explore.offer_probes())
         names = [p["name"] for p in probes]
         self.assertEqual(names[0], "aanbiedingen: welke pagina's zoeken we (pagina, streng)")
         home_probe = next(p for p in probes if p["name"] == "aanbiedingen: GET pages/home_page_root")
@@ -382,85 +437,85 @@ class PicnicExplorerDetailTest(TempDataDirTest):
             asked.append(path)
             return {"tabs": []} if path == "/bootstrap" else {}
 
-        picnic.save_auth_key("key")
+        run(picnic.save_auth_key("key"))
         with mock.patch.object(picnic, "_authed", side_effect=authed):
-            picnic_explore.explore()
+            run(picnic_explore.explore())
             short = len(asked)
             asked.clear()
-            picnic_explore.explore(extended=True)
+            run(picnic_explore.explore(extended=True))
         self.assertLess(short, 40, "zonder extended geen ruim honderd verzoeken")
         self.assertGreater(len(asked), short)
         self.assertFalse(any("liked_sellables" in path for path in asked[:short]))
 
-    def test_the_route_passes_extended_on(self):
+    async def test_the_route_passes_extended_on(self):
         from mealieshopper import picnic_explore
 
-        client = create_app().test_client()
-        with mock.patch.object(picnic_explore, "explore", return_value={"probes": [], "ok": 0, "linked": True}) as explore:
-            client.post("/api/picnic/explore")
-            client.post("/api/picnic/explore?extended=1")
+        client = self.client_for(create_app())
+        with mock.patch.object(picnic_explore, "explore", new_callable=mock.AsyncMock, return_value={"probes": [], "ok": 0, "linked": True}) as explore:
+            await client.post("/api/picnic/explore")
+            await client.post("/api/picnic/explore?extended=1")
         self.assertEqual([call.kwargs for call in explore.call_args_list], [{"extended": False}, {"extended": True}])
 
 
 class SyncAllTest(TempDataDirTest):
     def fetchers(self, **overrides):
         base = {
-            "ah": lambda: [{"id": "1", "title": "Kip", "price": 3.0, "priceBefore": 4.0}],
-            "picnic": lambda: [{"id": "p1", "title": "Melk"}],
-            "jumbo": lambda: [{"id": "j1", "title": "Kaas"}, {"id": "j2", "title": "Brood"}],
-            "crisp": lambda: [{"id": "c1", "title": "Eieren"}],
+            "ah": lambda: returned([{"id": "1", "title": "Kip", "price": 3.0, "priceBefore": 4.0}]),
+            "picnic": lambda: returned([{"id": "p1", "title": "Melk"}]),
+            "jumbo": lambda: returned([{"id": "j1", "title": "Kaas"}, {"id": "j2", "title": "Brood"}]),
+            "crisp": lambda: returned([{"id": "c1", "title": "Eieren"}]),
         }
         base.update(overrides)
         return mock.patch.dict(offers.FETCHERS, base)
 
     def test_unlinked_stores_are_skipped_and_linked_ones_synced(self):
         with self.fetchers(), mock.patch.object(offers, "linked", side_effect=lambda store: store != "picnic"):
-            result = offers.sync_all()
+            result = run(offers.sync_all())
         self.assertEqual(result["stores"]["ah"]["count"], 1)
         self.assertEqual(result["stores"]["jumbo"]["count"], 2)
         self.assertIn("skipped", result["stores"]["picnic"])
-        self.assertEqual(offers.load("picnic")["total"], 0)
+        self.assertEqual(run(offers.load("picnic"))["total"], 0)
 
     def test_one_failing_store_does_not_block_the_others_and_keeps_its_copy(self):
         with self.fetchers(), mock.patch.object(offers, "linked", return_value=True):
-            offers.sync_all()
+            run(offers.sync_all())
 
         def boom():
             raise RuntimeError("Jumbo geweigerd")
 
         with self.fetchers(jumbo=boom), mock.patch.object(offers, "linked", return_value=True):
-            result = offers.sync_all()
+            result = run(offers.sync_all())
         self.assertEqual(result["stores"]["jumbo"], {"error": "Jumbo geweigerd"})
         self.assertEqual(result["stores"]["picnic"]["count"], 1)
-        self.assertEqual(offers.load("jumbo")["total"], 2, "de vorige kopie blijft staan")
+        self.assertEqual(run(offers.load("jumbo"))["total"], 2, "de vorige kopie blijft staan")
 
     def test_linked_follows_the_store_connections(self):
-        self.assertTrue(offers.linked("ah"))
-        self.assertFalse(offers.linked("picnic"))
-        self.assertFalse(offers.linked("jumbo"))
-        picnic.save_auth_key("key")
-        auth.set_secret(jumbo.REFRESH_SECRET, "ref")
-        self.assertTrue(offers.linked("picnic") and offers.linked("jumbo"))
-        self.assertFalse(offers.linked("crisp"))
-        auth.set_secret(crisp.CLIENT_SECRET, "CLIENTabc1234567890x")
-        self.assertTrue(offers.linked("crisp"))
+        self.assertTrue(run(offers.linked("ah")))
+        self.assertFalse(run(offers.linked("picnic")))
+        self.assertFalse(run(offers.linked("jumbo")))
+        run(picnic.save_auth_key("key"))
+        run(auth.set_secret(jumbo.REFRESH_SECRET, "ref"))
+        self.assertTrue(run(offers.linked("picnic")) and run(offers.linked("jumbo")))
+        self.assertFalse(run(offers.linked("crisp")))
+        run(auth.set_secret(crisp.CLIENT_SECRET, "CLIENTabc1234567890x"))
+        self.assertTrue(run(offers.linked("crisp")))
 
     def test_overview_lists_every_store(self):
         with self.fetchers(), mock.patch.object(offers, "linked", return_value=True):
-            offers.sync_all()
-        overview = offers.overview()
+            run(offers.sync_all())
+        overview = run(offers.overview())
         self.assertEqual(sorted(overview), ["ah", "crisp", "jumbo", "picnic"])
         self.assertEqual(overview["crisp"]["total"], 1)
         self.assertEqual((overview["jumbo"]["total"], bool(overview["jumbo"]["syncedAt"])), (2, True))
 
 
-class ScheduleTest(TempDataDirTest):
+class ScheduleTest(TempDataDirTest, unittest.IsolatedAsyncioTestCase):
     def setUp(self):
         super().setUp()
         patcher = mock.patch.dict(os.environ, {"MEALIESHOPPER_OFFERS_SYNC_HOUR": "5", "MEALIESHOPPER_OFFERS_SCHEDULE": "true"})
         patcher.start()
         self.addCleanup(patcher.stop)
-        fake = mock.patch.object(offers, "sync_all", return_value={"stores": {"ah": {"count": 1}}, "finishedAt": "x"})
+        fake = mock.patch.object(offers, "sync_all", new_callable=mock.AsyncMock, return_value={"stores": {"ah": {"count": 1}}, "finishedAt": "x"})
         self.sync_all = fake.start()
         self.addCleanup(fake.stop)
 
@@ -475,28 +530,28 @@ class ScheduleTest(TempDataDirTest):
         self.assertEqual(offers_schedule.latest_slot(early), datetime(2026, 10, 21, 5, 0).astimezone())
         self.assertEqual(offers_schedule.next_slot(now), datetime(2026, 10, 23, 5, 0).astimezone())
 
-    def test_it_runs_once_per_day(self):
+    async def test_it_runs_once_per_day(self):
         morning = datetime(2026, 10, 22, 6, 0).astimezone()
-        self.assertTrue(offers_schedule.run_if_due(morning))
-        self.assertFalse(offers_schedule.run_if_due(morning + timedelta(hours=3)))
-        self.assertTrue(offers_schedule.run_if_due(morning + timedelta(days=1)))
+        self.assertTrue(await offers_schedule.run_if_due(morning))
+        self.assertFalse(await offers_schedule.run_if_due(morning + timedelta(hours=3)))
+        self.assertTrue(await offers_schedule.run_if_due(morning + timedelta(days=1)))
         self.assertEqual(self.sync_all.call_count, 2)
 
-    def test_it_catches_up_after_the_app_was_off_but_not_before_the_hour_of_the_first_day(self):
-        self.assertTrue(offers_schedule.run_if_due(datetime(2026, 10, 22, 3, 0).astimezone()), "de run van gisteren is nooit gedaan")
-        self.assertFalse(offers_schedule.run_if_due(datetime(2026, 10, 22, 4, 0).astimezone()))
-        self.assertTrue(offers_schedule.run_if_due(datetime(2026, 10, 22, 5, 1).astimezone()))
+    async def test_it_catches_up_after_the_app_was_off_but_not_before_the_hour_of_the_first_day(self):
+        self.assertTrue(await offers_schedule.run_if_due(datetime(2026, 10, 22, 3, 0).astimezone()), "de run van gisteren is nooit gedaan")
+        self.assertFalse(await offers_schedule.run_if_due(datetime(2026, 10, 22, 4, 0).astimezone()))
+        self.assertTrue(await offers_schedule.run_if_due(datetime(2026, 10, 22, 5, 1).astimezone()))
 
-    def test_only_the_first_claim_wins(self):
+    async def test_only_the_first_claim_wins(self):
         now = datetime(2026, 10, 22, 6, 0).astimezone()
-        self.assertTrue(offers_schedule._claim(now))
-        self.assertFalse(offers_schedule._claim(now))
+        self.assertTrue(await offers_schedule._claim(now))
+        self.assertFalse(await offers_schedule._claim(now))
 
-    def test_it_can_be_switched_off(self):
+    async def test_it_can_be_switched_off(self):
         with mock.patch.dict(os.environ, {"MEALIESHOPPER_OFFERS_SCHEDULE": "false"}):
-            self.assertFalse(offers_schedule.run_if_due(datetime(2026, 10, 22, 6, 0).astimezone()))
-            self.assertFalse(offers_schedule.status()["enabled"])
-            self.assertIsNone(offers_schedule.status()["nextRun"])
+            self.assertFalse(await offers_schedule.run_if_due(datetime(2026, 10, 22, 6, 0).astimezone()))
+            self.assertFalse((await offers_schedule.status())["enabled"])
+            self.assertIsNone((await offers_schedule.status())["nextRun"])
         self.sync_all.assert_not_called()
 
     def test_a_bad_hour_falls_back_to_the_default(self):
@@ -504,66 +559,66 @@ class ScheduleTest(TempDataDirTest):
             with mock.patch.dict(os.environ, {"MEALIESHOPPER_OFFERS_SYNC_HOUR": value}):
                 self.assertEqual(offers_schedule.sync_hour(), 5)
 
-    def test_status_remembers_the_last_run(self):
-        self.assertIsNone(offers_schedule.status()["lastRun"])
+    async def test_status_remembers_the_last_run(self):
+        self.assertIsNone((await offers_schedule.status())["lastRun"])
         with mock.patch.object(offers_schedule, "_local_now", return_value=datetime(2026, 10, 24, 12, 0).astimezone()):
-            offers_schedule.sync_now()
-        status = offers_schedule.status()
+            await offers_schedule.sync_now()
+        status = await offers_schedule.status()
         self.assertEqual((status["lastTrigger"], status["lastResult"]["stores"]["ah"]["count"], status["hour"]), ("manual", 1, 5))
         self.assertTrue(status["enabled"] and status["nextRun"])
-        offers_schedule.run_if_due(datetime(2026, 10, 25, 6, 0).astimezone())
-        self.assertEqual(offers_schedule.status()["lastTrigger"], "scheduled")
+        await offers_schedule.run_if_due(datetime(2026, 10, 25, 6, 0).astimezone())
+        self.assertEqual((await offers_schedule.status())["lastTrigger"], "scheduled")
 
-    def test_the_scheduled_run_also_links_receipts_fills_their_images_and_the_cache(self):
-        with mock.patch.object(ah_orders, "resolve_receipt_products_nightly", return_value={"found": 1}) as link, \
-             mock.patch.object(ah_orders, "backfill_receipt_images_nightly", return_value={"products": 2}) as fill, \
-             mock.patch.object(prices, "fill_regular_prices_nightly", return_value={"lines": 4}) as regular, \
-             mock.patch.object(image_cache, "prefetch_nightly", return_value={"fetched": 3}) as prefetch:
-            self.assertTrue(offers_schedule.run_if_due(datetime(2026, 10, 22, 6, 0).astimezone()))
+    async def test_the_scheduled_run_also_links_receipts_fills_their_images_and_the_cache(self):
+        with mock.patch.object(ah_orders, "resolve_receipt_products_nightly", new_callable=mock.AsyncMock, return_value={"found": 1}) as link, \
+             mock.patch.object(ah_orders, "backfill_receipt_images_nightly", new_callable=mock.AsyncMock, return_value={"products": 2}) as fill, \
+             mock.patch.object(prices, "fill_regular_prices_nightly", new_callable=mock.AsyncMock, return_value={"lines": 4}) as regular, \
+             mock.patch.object(image_cache, "prefetch_nightly", new_callable=mock.AsyncMock, return_value={"fetched": 3}) as prefetch:
+            self.assertTrue(await offers_schedule.run_if_due(datetime(2026, 10, 22, 6, 0).astimezone()))
         self.assertEqual((link.call_count, fill.call_count, regular.call_count, prefetch.call_count), (1, 1, 1, 1))
         self.assertIsNotNone(link.call_args.args[0])
         self.assertEqual(link.call_args.args, fill.call_args.args, "koppelen en foto's delen een tijdstip: een laatste ronde")
-        result = offers_schedule.status()["lastResult"]
+        result = (await offers_schedule.status())["lastResult"]
         self.assertEqual((result["receiptProducts"], result["receiptImages"], result["regularPrices"], result["images"]),
                          ({"found": 1}, {"products": 2}, {"lines": 4}, {"fetched": 3}))
         self.assertEqual(result["stores"]["ah"]["count"], 1)
 
-    def test_the_button_does_not_wait_for_the_image_round(self):
+    async def test_the_button_does_not_wait_for_the_image_round(self):
         # De knop onder Koppelen is een gewone aanvraag: de foto's gaan in de achtergrond, alleen de nachtelijke run wacht erop.
-        with mock.patch.object(ah_orders, "resolve_receipt_products_nightly", return_value=None), \
-             mock.patch.object(ah_orders, "backfill_receipt_images_nightly", return_value=None), \
-             mock.patch.object(image_cache, "prefetch_nightly") as nightly, \
-             mock.patch.object(image_cache, "prefetch_async") as background:
-            result = offers_schedule.sync_now()
+        with mock.patch.object(ah_orders, "resolve_receipt_products_nightly", new_callable=mock.AsyncMock, return_value=None), \
+             mock.patch.object(ah_orders, "backfill_receipt_images_nightly", new_callable=mock.AsyncMock, return_value=None), \
+             mock.patch.object(image_cache, "prefetch_nightly", new_callable=mock.AsyncMock) as nightly, \
+             mock.patch.object(image_cache, "prefetch_async", new_callable=mock.AsyncMock) as background:
+            result = await offers_schedule.sync_now()
         nightly.assert_not_called()
-        background.assert_called_once_with(limit=image_cache.PREFETCH_LIMIT)
+        background.assert_awaited_once_with(limit=image_cache.PREFETCH_LIMIT)
         self.assertNotIn("images", result)
 
-    def test_the_manual_run_skips_what_has_nothing_to_do(self):
-        with mock.patch.object(ah_orders, "resolve_receipt_products_nightly", return_value=None), \
-             mock.patch.object(ah_orders, "backfill_receipt_images_nightly", return_value=None), \
-             mock.patch.object(image_cache, "prefetch_nightly", return_value=None):
-            result = offers_schedule.sync_now()
+    async def test_the_manual_run_skips_what_has_nothing_to_do(self):
+        with mock.patch.object(ah_orders, "resolve_receipt_products_nightly", new_callable=mock.AsyncMock, return_value=None), \
+             mock.patch.object(ah_orders, "backfill_receipt_images_nightly", new_callable=mock.AsyncMock, return_value=None), \
+             mock.patch.object(image_cache, "prefetch_nightly", new_callable=mock.AsyncMock, return_value=None):
+            result = await offers_schedule.sync_now()
         self.assertEqual(sorted(result), ["finishedAt", "stores"])
 
-    def test_a_failing_run_does_not_stop_the_loop_condition(self):
+    async def test_a_failing_run_does_not_stop_the_loop_condition(self):
         self.sync_all.side_effect = RuntimeError("stuk")
         with self.assertRaises(RuntimeError):
-            offers_schedule.run_if_due(datetime(2026, 10, 22, 6, 0).astimezone())
+            await offers_schedule.run_if_due(datetime(2026, 10, 22, 6, 0).astimezone())
 
 
 class RoutesTest(TempDataDirTest):
     def setUp(self):
         super().setUp()
-        self.client = create_app().test_client()
+        self.client = self.client_for(create_app())
 
-    def test_status_and_sync_all(self):
-        status = self.client.get("/api/offers/status").get_json()
+    async def test_status_and_sync_all(self):
+        status = (await self.client.get("/api/offers/status")).get_json()
         self.assertEqual(sorted(status["stores"]), ["ah", "crisp", "jumbo", "picnic"])
-        with mock.patch.object(offers, "sync_all", return_value={"stores": {"ah": {"count": 2}}, "finishedAt": "x"}):
-            response = self.client.post("/api/offers/sync-all")
+        with mock.patch.object(offers, "sync_all", new_callable=mock.AsyncMock, return_value={"stores": {"ah": {"count": 2}}, "finishedAt": "x"}):
+            response = await self.client.post("/api/offers/sync-all")
         self.assertEqual((response.status_code, response.get_json()["stores"]["ah"]["count"]), (200, 2))
-        self.assertEqual(self.client.get("/api/offers/status").get_json()["lastTrigger"], "manual")
+        self.assertEqual((await self.client.get("/api/offers/status")).get_json()["lastTrigger"], "manual")
 
     def test_sync_all_is_for_the_administrator_only(self):
         from mealieshopper import auth as auth_module
@@ -572,8 +627,8 @@ class RoutesTest(TempDataDirTest):
         self.assertFalse(auth_module.admin_only("/api/offers/status"))
         self.assertFalse(auth_module.admin_only("/api/offers/sync"))
 
-    def test_the_connect_page_has_the_sync_button(self):
-        html = self.client.get("/").get_data(as_text=True)
+    async def test_the_connect_page_has_the_sync_button(self):
+        html = (await self.client.get("/")).get_data(as_text=True)
         link = html[html.index('id="settings-link"'):html.index('id="settings-users"')]
         self.assertIn('id="offers-sync-all"', link)
         self.assertIn('id="offers-sync-stores"', link)

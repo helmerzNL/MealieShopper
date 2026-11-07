@@ -9,6 +9,7 @@ os.environ.setdefault("MEALIESHOPPER_DATA_DIR", tempfile.mkdtemp())
 from unittest import mock  # noqa: E402
 
 from mealieshopper import ah, ah_explore, deals, jumbo, jumbo_explore, picnic  # noqa: E402
+from helpers import run  # noqa: E402
 
 
 class ParseMechanicTests(unittest.TestCase):
@@ -306,7 +307,7 @@ class PromoExplorerTests(unittest.TestCase):
 
     def test_probe_counts_products_and_keeps_only_deals(self):
         pages = {"kip": [{"isBonus": True, "bonusMechanism": "1+1 gratis"}, {"isBonus": False}], "kaas": [{"isBonus": False}]}
-        report = ah_explore.promo_probe(("kip", "kaas"), lambda term: pages[term], lambda item: item["isBonus"])
+        report = run(ah_explore.promo_probe(("kip", "kaas"), lambda term: pages[term], lambda item: item["isBonus"]))
         self.assertEqual((report["producten"], report["met aanbieding"]), (3, 1))
         self.assertEqual(report["teksten"]["bonusMechanism"], ["1+1 gratis"])
 
@@ -320,7 +321,7 @@ class PromoExplorerTests(unittest.TestCase):
             return {"searchProducts": {"products": [{"promotions": [{"tags": [{"text": "2 voor 5"}], "id": "p1"}]}]}}
 
         with mock.patch.object(jumbo, "_graphql", side_effect=fake_graphql):
-            report = jumbo_explore._promotion_probe()
+            report = run(jumbo_explore._promotion_probe())
         self.assertNotIn("description", report["promotievelden die bestaan"])
         self.assertNotIn("maxQuantity", report["promotievelden die bestaan"])
         self.assertIn("validityPeriod", report["promotievelden die bestaan"])
@@ -331,7 +332,7 @@ class PromoExplorerTests(unittest.TestCase):
     def test_jumbo_probe_gives_up_on_an_error_that_names_no_known_field(self):
         with mock.patch.object(jumbo, "_graphql", side_effect=jumbo.JumboSchemaError("iets anders")):
             with self.assertRaises(jumbo.JumboSchemaError):
-                jumbo_explore._promotion_probe()
+                run(jumbo_explore._promotion_probe())
 
 
 if __name__ == "__main__":
