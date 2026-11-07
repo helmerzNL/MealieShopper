@@ -16,7 +16,8 @@ weggevallen antwoord verder waar de server is, zonder iets dubbel of verkeerd te
 doet de module zelf, met `take`: dat geeft het bestand alleen als het precies zo groot is als het scherm zei.
 
 Het bestand heet `<prefix><token>.part` met het voorvoegsel van de module (`.restore-`, `.price-archive-`), zodat het
-opruimen na een uur en de fabrieksreset het al kennen.
+opruimen na een uur en de fabrieksreset het al kennen. Een nieuw voorvoegsel hoort ook in `factory_reset.STAGED_PREFIXES`;
+`tests/test_factory_reset.py` faalt als het daar ontbreekt.
 
 Een stuk past ruim in de standaardgrens van 16 MiB per verzoek (body_limits.py). Er geldt geen tijdslimiet op een stuk als
 geheel, wel op de stilte: komt er READ_TIMEOUT_SECONDS niets binnen, dan geeft de server het stuk op met 408. Gaat de client
