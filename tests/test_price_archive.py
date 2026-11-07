@@ -9,18 +9,19 @@ import os
 import sqlite3
 import tarfile
 import tempfile
+import threading
 import time
 import unittest
 import zipfile
 from contextlib import closing
 from datetime import date, timedelta
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Callable, Iterator
 from unittest import mock
 
 os.environ["PASSKEY_AUTH_ENABLED"] = "false"
 
-from mealieshopper import about, auth, auth_password, backup, deals, price_archive, price_archive_tidy, prices, uploads  # noqa: E402
+from mealieshopper import about, auth, auth_password, backup, deals, price_archive, price_archive_tidy, prices, tasks, uploads  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
 from helpers import AppClient, run_aside  # noqa: E402
 
@@ -996,6 +997,153 @@ class JobAndAccessTest(ArchiveCase):
     async def test_the_job_table_stays_out_of_the_backup(self):
         self.assertIn("price_archive_jobs", backup.EXCLUDED_TABLES)
         self.assertNotIn("price_archive_jobs", backup.DATA_TABLES)
+
+
+class InterruptTest(ArchiveCase):
+    """Het afsluiten annuleert de klus (tasks.cancel_all). Het invoegen in zijn thread loopt dan door of niet: de stand van de
+    klus moet zeggen wat er met de database gebeurd is, zoals bij het terugzetten van een back-up."""
+
+    async def staged_token(self) -> str:
+        staged = await self.stage(gist_zip())
+        self.assertEqual(staged.status_code, 200, staged.get_json())
+        return staged.get_json()["token"]
+
+    async def begin(self, token: str) -> str:
+        started = await self.admin.post("/api/price-archive/jobs", json={"token": token})
+        self.assertEqual(started.status_code, 202, started.get_json())
+        return started.get_json()["id"]
+
+    async def until_finished(self, seconds: float = 15) -> dict:
+        deadline = time.monotonic() + seconds
+        job = (await self.admin.get("/api/price-archive/jobs/latest")).get_json()["job"]
+        while (job is None or job["status"] != "done") and time.monotonic() < deadline:
+            await asyncio.sleep(0.05)
+            job = (await self.admin.get("/api/price-archive/jobs/latest")).get_json()["job"]
+        return job
+
+    def job_row(self, job_id: str) -> sqlite3.Row:
+        with closing(self.connect()) as conn:
+            return conn.execute("SELECT * FROM price_archive_jobs WHERE id = ?", (job_id,)).fetchone()
+
+    def import_audits(self) -> list[sqlite3.Row]:
+        with closing(self.connect()) as conn:
+            if not conn.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'audit_log'").fetchone():
+                return []  # nog nooit een auditregel geschreven
+            return conn.execute("SELECT detail FROM audit_log WHERE service = 'price-archive' AND action = 'import'").fetchall()
+
+    async def audited(self, seconds: float = 5) -> list[sqlite3.Row]:
+        deadline = time.monotonic() + seconds
+        while not self.import_audits() and time.monotonic() < deadline:
+            await asyncio.sleep(0.05)
+        return self.import_audits()
+
+    def hold_in_transaction(self) -> tuple[threading.Event, threading.Event]:
+        """Houdt het invoegen vast midden in zijn transactie (na BEGIN IMMEDIATE, met het schrijfslot), tot de test `release` zet."""
+        entered, release = threading.Event(), threading.Event()
+        original: Callable[[Path], Iterator[tuple[str, tuple[Any, ...]]]] = price_archive._staged_rows
+
+        def held(path: Path) -> Iterator[tuple[str, tuple[Any, ...]]]:
+            rows = original(path)
+            first = next(rows)
+            entered.set()
+            release.wait(15)
+            yield first
+            yield from rows
+
+        patch = mock.patch.object(price_archive, "_staged_rows", held)
+        patch.start()
+        self.addCleanup(patch.stop)
+        self.addCleanup(release.set)  # de thread blijft nooit hangen
+        return entered, release
+
+    async def test_a_cancelled_import_marks_the_job_failed(self) -> None:
+        token = await self.staged_token()
+        before = self.snapshot()
+        waiting = asyncio.Event()
+
+        async def never() -> None:
+            waiting.set()
+            await asyncio.Event().wait()
+
+        with mock.patch.object(price_archive, "ensure_schema", never):  # de klus komt niet verder dan de voorbereiding
+            job_id = await self.begin(token)
+            await asyncio.wait_for(waiting.wait(), 5)
+            task: asyncio.Task[Any] = tasks.running()[f"price-archive-{job_id}"]
+            await tasks.cancel_all()  # wat de app bij het afsluiten doet (after_serving)
+        self.assertTrue(task.cancelled())
+        job = (await self.admin.get("/api/price-archive/jobs/latest")).get_json()["job"]
+        self.assertEqual((job["id"], job["status"]), (job_id, "failed"))
+        self.assertIn("onderbroken", job["error"])
+        self.assertIn("niets gewijzigd", job["error"])
+        row = self.job_row(job_id)
+        self.assertEqual(row["error_key"], "interrupted")
+        self.assertTrue(row["finished_at"])
+        self.assertEqual(self.snapshot(), before)
+        self.assertEqual(self.staged_files(), [])
+        self.assertEqual(self.import_audits(), [])
+        # en daarna kan er weer een starten
+        _, again = await self.run_import(gist_zip())
+        self.assertEqual(again["summary"]["offers"], 5)
+
+    async def test_an_interrupted_import_whose_insert_still_commits_ends_done_without_an_error(self) -> None:
+        # Het afsluiten annuleert de klus terwijl de thread van het invoegen nog niet aan zijn transactie begon. De thread
+        # maakt het daarna af: de klus heet dan klaar, zonder de melding "onderbroken, niets gewijzigd".
+        token = await self.staged_token()
+        entered, release = threading.Event(), threading.Event()
+        original: Callable[..., dict[str, Any]] = price_archive.apply
+
+        def gated(*args: Any, **kwargs: Any) -> dict[str, Any]:
+            entered.set()
+            release.wait(15)
+            return original(*args, **kwargs)
+
+        patch = mock.patch.object(price_archive, "apply", gated)
+        patch.start()
+        self.addCleanup(patch.stop)
+        self.addCleanup(release.set)
+        job_id = await self.begin(token)
+        self.assertTrue(await asyncio.to_thread(entered.wait, 10), "het invoegen is niet begonnen")
+        await tasks.cancel_all(timeout=0.5)
+        job = (await self.admin.get("/api/price-archive/jobs/latest")).get_json()["job"]
+        self.assertEqual(job["status"], "failed")
+        self.assertIn("onderbroken", job["error"])
+        release.set()
+        job = await self.until_finished()
+        self.assertEqual((job["id"], job["status"], job["error"]), (job_id, "done", None))
+        self.assertEqual((job["summary"]["offers"], job["summary"]["prices"]), (5, 4))
+        row = self.job_row(job_id)
+        self.assertEqual((row["error_key"], row["error_params"]), (None, None))
+        self.assertEqual(len(self.rows("offer_history")), 5)
+        self.assertEqual(len(await self.audited()), 1, "het auditlog krijgt de import ook als de klus geannuleerd was")
+
+    async def interrupted_inside_the_transaction(self, commit_after: float) -> tuple[str, dict]:
+        """Het afsluiten begint terwijl het invoegen in zijn transactie zit, en die commit `commit_after` seconden later."""
+        token = await self.staged_token()
+        entered, release = self.hold_in_transaction()
+        job_id = await self.begin(token)
+        self.assertTrue(await asyncio.to_thread(entered.wait, 10), "het invoegen zit niet in zijn transactie")
+        asyncio.get_running_loop().call_later(commit_after, release.set)
+        await tasks.cancel_all(timeout=tasks.SHUTDOWN_TIMEOUT)
+        return job_id, await self.until_finished()
+
+    async def check_done_and_free(self, job_id: str, job: dict) -> None:
+        self.assertEqual((job["id"], job["status"], job["error"]), (job_id, "done", None))
+        self.assertEqual(len(self.rows("offer_history")), 5)
+        self.assertEqual(len(self.rows("price_observations")), 4)
+        self.assertEqual(len(await self.audited()), 1)
+        # Geen klus die blijft "lopen": een volgende import kan meteen.
+        _, again = await self.run_import(gist_zip())
+        self.assertEqual(again["summary"]["offers"], 0)
+
+    async def test_a_commit_one_second_into_the_shutdown_ends_done(self) -> None:
+        job_id, job = await self.interrupted_inside_the_transaction(1.0)
+        await self.check_done_and_free(job_id, job)
+
+    async def test_a_commit_after_the_lock_wait_of_the_interruption_ends_done(self) -> None:
+        # 6,5 s: langer dan de 5 s die aiosqlite op het schrijfslot wacht, dus het vastleggen van "onderbroken" mislukt.
+        with self.assertLogs("mealieshopper.price_archive", "WARNING"):
+            job_id, job = await self.interrupted_inside_the_transaction(6.5)
+        await self.check_done_and_free(job_id, job)
 
 
 if __name__ == "__main__":

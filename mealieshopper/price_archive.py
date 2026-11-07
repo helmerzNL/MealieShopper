@@ -138,6 +138,12 @@ CREATE TABLE IF NOT EXISTS price_archive_jobs (
 );
 """
 
+# De klus is klaar: in de transactie van het invoegen (`apply`), ook als de klus bij het afsluiten al onderbroken heette.
+JOB_DONE_SQL = (
+    "UPDATE price_archive_jobs SET status = 'done', error_key = NULL, error_params = NULL, summary = ?, seconds = ?,"
+    " updated_at = ?, finished_at = ? WHERE id = ?"
+)
+
 # --- meldingen --------------------------------------------------------------------------------------------------
 
 MESSAGES: dict[str, tuple[str, str]] = {
@@ -1132,11 +1138,15 @@ def _staged_rows(path: Path) -> Iterator[tuple[str, tuple[Any, ...]]]:
             yield kind, tuple(values)
 
 
-def apply(path: Path, replace: bool = False) -> dict[str, Any]:
+def apply(
+    path: Path, replace: bool = False, on_commit: Callable[[sqlite3.Connection, dict[str, Any]], None] | None = None
+) -> dict[str, Any]:
     """Zet de klaargezette regels in één transactie in de database, na een nieuwe vergelijking met wat er dan staat.
 
     Met `replace` gaat eerst alles eruit wat eerder uit een prijsarchief kwam (ARCHIVE_OFFERS_SQL en ARCHIVE_PRICES_SQL), in
-    dezelfde transactie: mislukt er iets, dan staat alles er nog. Voor `asyncio.to_thread`, na `ensure_schema`.
+    dezelfde transactie: mislukt er iets, dan staat alles er nog. `on_commit` krijgt de verbinding en de samenvatting vlak voor
+    de COMMIT, in dezelfde transactie (de klus legt daar vast dat hij klaar is, zoals `backup.replace_everything`). Voor
+    `asyncio.to_thread`, na `ensure_schema`.
     """
     started = time.monotonic()
     conn = _thread_connect()
@@ -1174,6 +1184,18 @@ def apply(path: Path, replace: bool = False) -> dict[str, Any]:
         corrections, updates = plan.resolve_corrections(conn)
         for new_price, new_before, row_id, _old_price, _old_before in updates:
             conn.execute("UPDATE offer_history SET price = ?, price_before = ? WHERE id = ?", (new_price, new_before, row_id))
+        stores = _store_list(plan)
+        summary: dict[str, Any] = {
+            "stores": stores,
+            "corrections": corrections,
+            "offers": sum(s["offers"]["new"] for s in stores),
+            "prices": sum(s["prices"]["new"] for s in stores),
+            "replaced": replace,
+            "removed": removed,
+            "seconds": round(time.monotonic() - started, 2),
+        }
+        if on_commit is not None:
+            on_commit(conn, summary)
         conn.execute("COMMIT")
     except BaseException:
         try:
@@ -1183,16 +1205,7 @@ def apply(path: Path, replace: bool = False) -> dict[str, Any]:
         raise
     finally:
         conn.close()
-    stores = _store_list(plan)
-    return {
-        "stores": stores,
-        "corrections": corrections,
-        "offers": sum(s["offers"]["new"] for s in stores),
-        "prices": sum(s["prices"]["new"] for s in stores),
-        "replaced": replace,
-        "removed": removed,
-        "seconds": round(time.monotonic() - started, 2),
-    }
+    return summary
 
 
 # --- klussen ------------------------------------------------------------------------------------------------------
@@ -1300,23 +1313,29 @@ async def start_job(token: str, replace: bool = False) -> dict[str, Any]:
 
 
 async def run_job(job_id: str, staged: Path, actor: str = "system", replace: bool = False) -> None:
-    """De klus zelf, als achtergrondtask. Het invoegen (`apply`) loopt als geheel in een thread.
+    """De klus zelf, als achtergrondtask. Het invoegen (`apply`) loopt als geheel in een thread en legt in zijn eigen
+    transactie vast dat de klus klaar is (`JOB_DONE_SQL`).
 
     Een fout geeft een mislukte klus (de database is dan niet veranderd). Bij het afsluiten van de app wordt de task
-    geannuleerd: de klus heet dan onderbroken, net als na een herstart."""
+    geannuleerd: de klus heet dan onderbroken, net als na een herstart. Was het invoegen al in zijn thread bezig, dan loopt dat
+    door. Komt het nog tot een COMMIT, dan heet de klus klaar, want de stand gaat mee in die transactie. Het auditlog krijgt de
+    import via `audit.record` (de enige schrijver van het auditlog), na de COMMIT.
+    """
     started: float = time.monotonic()
+
+    def done(conn: sqlite3.Connection, summary: dict[str, Any]) -> None:
+        now: str = _now()
+        conn.execute(JOB_DONE_SQL, (json.dumps(summary), round(time.monotonic() - started, 2), now, now, job_id))
+
+    work: asyncio.Future[dict[str, Any]] | None = None
+    auditing: bool = False  # de auditregel is onderweg: een annulering daarna schrijft hem niet nog een keer
     try:
         try:
             await ensure_schema()
-            summary: dict[str, Any] = await asyncio.to_thread(apply, staged, replace)
-            log.info("Prijsarchief geïmporteerd: %s aanbiedingen, %s prijzen", summary["offers"], summary["prices"])
-            # Eerst het auditlog, dan klaar: wie op "klaar" wacht, ziet de regel in het auditlog dan al staan.
-            await audit.record(
-                kind="task", service="price-archive", action="import", actor=actor, duration_ms=int((time.monotonic() - started) * 1000),
-                detail={"offers": summary["offers"], "prices": summary["prices"], "corrections": summary["corrections"],
-                        "replaced": summary["replaced"], "removed": summary["removed"]},
-            )
-            await _finish_job(job_id, status="done", summary=json.dumps(summary), seconds=round(time.monotonic() - started, 2))
+            work = asyncio.ensure_future(asyncio.to_thread(apply, staged, replace, done))
+            summary: dict[str, Any] = await asyncio.shield(work)  # een annulering stopt de thread niet: we zien hem afkomen
+            auditing = True
+            await _record_import(summary, actor, started)
         except Exception:  # noqa: BLE001 - de beheerder krijgt een algemene zin, het logboek de hele fout
             log.exception("Import van een prijsarchief mislukt")
             try:
@@ -1326,12 +1345,35 @@ async def run_job(job_id: str, staged: Path, actor: str = "system", replace: boo
     except asyncio.CancelledError:
         log.warning("Import van een prijsarchief onderbroken: de app sluit af")
         try:
-            await _interrupt_job(job_id)
+            await _interrupt_job(job_id)  # wacht op het schrijfslot van een lopend invoegen, en laat een klare klus staan
         except sqlite3.Error:
-            log.exception("Kon de onderbroken klus niet vastleggen")
+            log.warning("Kon de onderbroken klus niet vastleggen (het invoegen houdt de database vast)", exc_info=True)
+        if work is not None and not auditing:
+            await _record_when_committed(work, actor, started)
         raise
     finally:
         staged.unlink(missing_ok=True)
+
+
+async def _record_import(summary: dict[str, Any], actor: str, started: float) -> None:
+    log.info("Prijsarchief geïmporteerd: %s aanbiedingen, %s prijzen", summary["offers"], summary["prices"])
+    await audit.record(
+        kind="task", service="price-archive", action="import", actor=actor, duration_ms=int((time.monotonic() - started) * 1000),
+        detail={"offers": summary["offers"], "prices": summary["prices"], "corrections": summary["corrections"],
+                "replaced": summary["replaced"], "removed": summary["removed"]},
+    )
+
+
+async def _record_when_committed(work: asyncio.Future[dict[str, Any]], actor: str, started: float) -> None:
+    """Na een annulering: wacht op het invoegen in zijn thread en schrijft de auditregel als het tot een COMMIT kwam.
+
+    Het afsluiten wacht hier hoogstens `tasks.SHUTDOWN_TIMEOUT` op. Duurt het invoegen langer, dan staat de klus wel op klaar
+    (dat ging mee in de transactie), maar ontbreekt de auditregel."""
+    await asyncio.wait({work})
+    if work.cancelled() or work.exception() is not None:
+        log.warning("Het onderbroken invoegen kwam niet tot een COMMIT: er is niets gewijzigd")
+        return
+    await _record_import(work.result(), actor, started)
 
 
 # --- routes -------------------------------------------------------------------------------------------------------
