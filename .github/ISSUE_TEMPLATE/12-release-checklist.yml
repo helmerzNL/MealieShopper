@@ -43,7 +43,7 @@ body:
   attributes:
     label: Testen / Testing
     options:
-    - label: "`python -m unittest discover -s tests` slaagt / `python -m unittest discover -s tests` passes"
+    - label: "`MEALIESHOPPER_TESTING=1 python -m pytest` slaagt / `MEALIESHOPPER_TESTING=1 python -m pytest` passes"
     - label: De pull request richt zich op `beta` en de check `Pull request target` is groen / The pull request targets `beta` and the `Pull request target` check is green
     - label: Bijwerken vanaf de vorige versie getest, met bestaande gegevens / Upgrade from the previous version tested, with existing data
     - label: Back-up maken en terugzetten getest bij wijzigingen aan de database / Backup and restore tested when the database changed
