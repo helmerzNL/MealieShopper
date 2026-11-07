@@ -116,9 +116,10 @@ async def shielded(coro: Coroutine[Any, Any, T]) -> T:
     """Draait `coro` als eigen task en wacht erop, zonder dat een annulering van de aanroeper die task afbreekt.
 
     Voor werk dat niet halverwege mag stoppen, zoals een token vernieuwen en het nieuwe refresh-token bewaren: de winkel
-    heeft het oude dan misschien al vervangen. Quart annuleert een verzoek als de browser weggaat, `cancel_all` bij het
-    afsluiten, `map_bounded` de andere items bij een fout. De aanroeper krijgt dan zelf een `CancelledError`, de task loopt
-    door. `cancel_all` wacht er ook op.
+    heeft het oude dan misschien al vervangen. Quart annuleert een verzoek als de browser weggaat terwijl het lichaam nog
+    binnenkomt of het antwoord al loopt (daartussen houdt `keep_running` de melding weg), `cancel_all` bij het afsluiten,
+    `map_bounded` de andere items bij een fout. De aanroeper krijgt dan zelf een `CancelledError`, de task loopt door.
+    `cancel_all` wacht er ook op.
     """
     task: asyncio.Task[T] = asyncio.create_task(coro)
     _shielded.add(task)
