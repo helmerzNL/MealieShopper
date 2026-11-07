@@ -29,7 +29,7 @@ Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar
 - **Geen meting voor en na.** Besluit van de eigenaar: een tweede installatie met het echte AH-account naast productie is het risico niet waard. Ter vergelijking voor later de cijfers van een productie-installatie op 2026-11-06, voor deze versie: 117 MiB RSS in rust, een piek van 223 MiB sinds de start, 6 threads in de worker, 0,01% CPU, geen OOM of herstart in 72 uur.
 - **Ontwikkeling**: pytest (met pytest-asyncio en respx) draait de tests: `MEALIESHOPPER_TESTING=1 python -m pytest`. De nieuwe workflow `.github/workflows/tests.yml` draait de suite op elke pull request naar `beta` en `main` en op elke push naar `beta`, met Python 3.12. De tests kunnen het netwerk niet op, alleen loopback. `tests/test_asyncio_guards.py` bewaakt dat geen module Requests, threads of blokkerend werk in een `async def` gebruikt, dat elke httpx-client via `http_client` komt met een eigen User-Agent, dat een verzoek geen thread achterlaat en dat het afsluiten de taken stopt en de clients sluit. Quart staat op 0.22.0, want 0.23 vraagt Python 3.13 en de image draait op `python:3.12-slim`. `python run.py` start zonder reloader, zoals Flask in 3.x (Quart start er standaard een).
 - **Nieuw adres voor de scripts en stijlen** (`MEALIESHOPPER_ASSET_VERSION`). Ververs de pagina één keer.
-- Pull request: volgt.
+- Pull request [#275](https://github.com/helmerzNL/MealieShopper/pull/275).
 
 ## v3.22.0
 
