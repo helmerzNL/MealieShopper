@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncIterator, Iterator
+from collections.abc import AsyncIterator, Callable, Iterator
 from pathlib import Path
 
 import certifi
 import httpcore
 import httpx
+import httpx._utils
 import pytest
 import respx
 
@@ -110,7 +111,11 @@ def one_certificate(target: Path) -> Path:
     """Een CA-bestand met precies een echt certificaat (het eerste uit certifi)."""
     text: str = Path(certifi.where()).read_text(encoding="ascii")
     end: str = "-----END CERTIFICATE-----"
-    target.write_text(text[text.index("-----BEGIN CERTIFICATE-----"):text.index(end) + len(end)] + "\n", encoding="ascii")
+    target.write_text(
+        text[text.index("-----BEGIN CERTIFICATE-----") : text.index(end) + len(end)]
+        + "\n",
+        encoding="ascii",
+    )
     return target
 
 
@@ -119,24 +124,41 @@ def ca_count(made: httpx.AsyncClient) -> int:
     return len(made._transport._pool._ssl_context.get_ca_certs())  # type: ignore[attr-defined]
 
 
-async def test_a_proxy_from_the_environment_is_used(monkeypatch: pytest.MonkeyPatch, closing_clients: None) -> None:
+async def test_a_proxy_from_the_environment_is_used(
+    monkeypatch: pytest.MonkeyPatch, closing_clients: None
+) -> None:
     """Zoals requests in 3.x: HTTPS_PROXY (en de andere proxy-variabelen) tellen mee, voor de gedeelde client en een sessie."""
     monkeypatch.setenv("HTTPS_PROXY", "http://proxy.invalid:3128")
     made: httpx.AsyncClient = http_client.client("test")
     assert made.trust_env is True
-    assert isinstance(made._transport_for_url(httpx.URL(URL))._pool, httpcore.AsyncHTTPProxy)
+    assert isinstance(
+        made._transport_for_url(httpx.URL(URL))._pool, httpcore.AsyncHTTPProxy
+    )
     async with http_client.session("test") as session:
-        assert isinstance(session._transport_for_url(httpx.URL(URL))._pool, httpcore.AsyncHTTPProxy)
+        assert isinstance(
+            session._transport_for_url(httpx.URL(URL))._pool, httpcore.AsyncHTTPProxy
+        )
 
 
-async def test_no_proxy_without_the_environment(closing_clients: None) -> None:
+async def test_no_proxy_without_the_environment(
+    monkeypatch: pytest.MonkeyPatch, closing_clients: None
+) -> None:
+    # httpx leest de proxy met urllib.request.getproxies(), en die valt op macOS en Windows zonder variabelen terug op de
+    # proxy van het systeem. Zonder omgeving betekent hier: ook geen systeemproxy, dus we vervangen alleen die ene naam in httpx.
+    no_proxies: Callable[[], dict[str, str]] = dict
+    monkeypatch.setattr(httpx._utils, "getproxies", no_proxies)
     made: httpx.AsyncClient = http_client.client("test")
-    assert not isinstance(made._transport_for_url(httpx.URL(URL))._pool, httpcore.AsyncHTTPProxy)
+    assert not isinstance(
+        made._transport_for_url(httpx.URL(URL))._pool, httpcore.AsyncHTTPProxy
+    )
 
 
 @pytest.mark.parametrize("variable", ["REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE"])
 async def test_a_ca_bundle_from_the_environment_is_the_trust_store(
-    variable: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, closing_clients: None
+    variable: str,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    closing_clients: None,
 ) -> None:
     """Een eigen CA (een Mealie achter een eigen certificaat): REQUESTS_CA_BUNDLE, anders CURL_CA_BUNDLE, zoals requests."""
     monkeypatch.setenv(variable, str(one_certificate(tmp_path / "ca.pem")))
@@ -145,13 +167,17 @@ async def test_a_ca_bundle_from_the_environment_is_the_trust_store(
         assert ca_count(session) == 1
 
 
-async def test_requests_ca_bundle_goes_before_curl_ca_bundle(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, closing_clients: None) -> None:
+async def test_requests_ca_bundle_goes_before_curl_ca_bundle(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, closing_clients: None
+) -> None:
     monkeypatch.setenv("REQUESTS_CA_BUNDLE", str(one_certificate(tmp_path / "ca.pem")))
     monkeypatch.setenv("CURL_CA_BUNDLE", certifi.where())
     assert ca_count(http_client.client("test")) == 1
 
 
-async def test_without_a_bundle_the_default_trust_store(monkeypatch: pytest.MonkeyPatch, closing_clients: None) -> None:
+async def test_without_a_bundle_the_default_trust_store(
+    monkeypatch: pytest.MonkeyPatch, closing_clients: None
+) -> None:
     monkeypatch.setenv("CURL_CA_BUNDLE", "")
     assert ca_count(http_client.client("test")) > 1
 
@@ -194,8 +220,12 @@ async def test_a_session_carries_a_cookie_across_a_redirect_and_forgets_it_after
         return httpx.Response(302, headers={"Location": CONSENT})
 
     pages: respx.Route = respx_mock.get(PAGE).mock(side_effect=page)
-    respx_mock.get(CONSENT).respond(302, headers={"Location": PAGE, "Set-Cookie": "consent=yes; Path=/"})
-    async with http_client.session("test", headers={"User-Agent": "Browser/1.0"}) as first:
+    respx_mock.get(CONSENT).respond(
+        302, headers={"Location": PAGE, "Set-Cookie": "consent=yes; Path=/"}
+    )
+    async with http_client.session(
+        "test", headers={"User-Agent": "Browser/1.0"}
+    ) as first:
         answer: httpx.Response = await first.get(PAGE)
         assert first.trust_env is True
     assert answer.text == "<html>recept</html>"
@@ -204,8 +234,13 @@ async def test_a_session_carries_a_cookie_across_a_redirect_and_forgets_it_after
     assert first.is_closed, "de sessie sluit na het blok"
     async with http_client.session("test") as second:
         await second.get(CONSENT, follow_redirects=False)
-        assert "Cookie" not in respx_mock.calls.last.request.headers, "een nieuwe sessie kent de cookie van de vorige niet"
-        assert respx_mock.calls.last.request.headers["User-Agent"] == http_client.DEFAULT_USER_AGENT
+        assert "Cookie" not in respx_mock.calls.last.request.headers, (
+            "een nieuwe sessie kent de cookie van de vorige niet"
+        )
+        assert (
+            respx_mock.calls.last.request.headers["User-Agent"]
+            == http_client.DEFAULT_USER_AGENT
+        )
 
 
 async def test_a_session_cookie_never_reaches_the_shared_client(

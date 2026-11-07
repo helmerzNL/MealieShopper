@@ -9,6 +9,12 @@ gelden overal dezelfde regels:
   SSL_CERT_DIR (`trust_env=True`), en REQUESTS_CA_BUNDLE of anders CURL_CA_BUNDLE als eigen CA-bestand of -map,
 * de hooks van het auditlog (`audit.httpx_hooks()`).
 
+Drie verschillen met requests in 3.x blijven bewust staan:
+
+* NO_PROXY met een IP-bereik (`192.168.0.0/16`) telt bij httpx niet. Zet er hostnamen of losse IP-adressen in.
+* `.netrc` wordt niet meer gelezen: httpx kent dat alleen als eigen `auth`, en die geven we niet mee.
+* SSL_CERT_FILE en SSL_CERT_DIR gelden als REQUESTS_CA_BUNDLE en CURL_CA_BUNDLE leeg zijn. requests negeerde ze.
+
 Een `httpx.AsyncClient` hoort bij de event loop waarin hij zijn verbindingen opent. Daarom bewaren we de
 clients per loop: een nieuwe loop (een test, `asyncio.run`) krijgt nieuwe clients. Een loop verdwijnt niet
 vanzelf uit `_clients`: een client die een verzoek deed, houdt open verbindingen vast, en die houden de loop
@@ -76,7 +82,9 @@ def client(
     existing: httpx.AsyncClient | None = clients.get(name)
     if existing is not None and not existing.is_closed:
         return existing
-    made: httpx.AsyncClient = _new_client(wanted, timeout, follow_redirects, forget_cookies=True)
+    made: httpx.AsyncClient = _new_client(
+        wanted, timeout, follow_redirects, forget_cookies=True
+    )
     clients[name] = made
     return made
 
@@ -86,7 +94,9 @@ def _verify() -> ssl.SSLContext | bool:
 
     Zonder die twee `True`: dan kiest httpx met `trust_env` zelf SSL_CERT_FILE, SSL_CERT_DIR of de CA's van certifi. We lezen
     de omgeving bij het maken van de client."""
-    bundle: str = (environ.get("REQUESTS_CA_BUNDLE") or environ.get("CURL_CA_BUNDLE") or "").strip()
+    bundle: str = (
+        environ.get("REQUESTS_CA_BUNDLE") or environ.get("CURL_CA_BUNDLE") or ""
+    ).strip()
     if not bundle:
         return True
     if Path(bundle).is_dir():
@@ -95,7 +105,10 @@ def _verify() -> ssl.SSLContext | bool:
 
 
 def _new_client(
-    headers: httpx.Headers, timeout: float | httpx.Timeout, follow_redirects: bool, forget_cookies: bool
+    headers: httpx.Headers,
+    timeout: float | httpx.Timeout,
+    follow_redirects: bool,
+    forget_cookies: bool,
 ) -> httpx.AsyncClient:
     """Een client met de regels van dit module. `forget_cookies` voor de gedeelde clients, een sessie houdt haar jar."""
     hooks: Mapping[str, list[audit.HttpxHook]] = audit.httpx_hooks()
@@ -141,7 +154,9 @@ async def session(
     logboek, er wordt niets onder bewaard.
     """
     logger.debug("Sessie %s geopend", name)
-    async with _new_client(_headers(headers), timeout, follow_redirects, forget_cookies=False) as made:
+    async with _new_client(
+        _headers(headers), timeout, follow_redirects, forget_cookies=False
+    ) as made:
         yield made
 
 
