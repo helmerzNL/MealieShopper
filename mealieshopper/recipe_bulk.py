@@ -2,7 +2,7 @@
 (bij Crisp: al je bewaarde recepten).
 
 Er loopt hooguit één import tegelijk, op de achtergrond (zoals de AI-ronde in `ai_match.py`). De stand staat in het
-geheugen van dit proces: de container draait één hypercorn-worker. Met meer workers ziet een andere worker de voortgang
+geheugen van dit proces: de container draait één hypercorn-proces. Met meer workers ziet een andere worker de voortgang
 niet, en na een herstart is de import weg. Opnieuw starten is veilig: een recept dat al in Mealie staat (zelfde bron)
 wordt overgeslagen en telt niet mee voor het maximum, dus een nieuwe import gaat verder waar de vorige stopte.
 

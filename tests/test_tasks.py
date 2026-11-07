@@ -284,3 +284,22 @@ async def test_a_failed_shielded_task_with_its_caller_waiting_is_no_warning(capl
         await tasks.shielded(store())
     await _yield(2)
     assert not [record for record in caplog.records if record.levelno >= logging.WARNING]
+
+
+async def test_shutdown_waits_at_most_five_seconds_for_tasks_so_docker_does_not_kill_the_app(monkeypatch: pytest.MonkeyPatch) -> None:
+    """3 seconden van hypercorn voor lopende verzoeken plus deze 5 blijft onder de 10 seconden van `docker stop`."""
+    seen: list[float] = []
+
+    async def record(timeout: float = 10.0) -> None:
+        seen.append(timeout)
+
+    monkeypatch.setattr(tasks, "cancel_all", record)
+    await tasks._cancel_all_hook()
+    assert seen == [5.0]
+
+
+async def test_after_serving_reports_that_the_app_stopped(app: Quart, caplog: pytest.LogCaptureFixture) -> None:
+    with caplog.at_level(logging.WARNING, logger="mealieshopper.tasks"):
+        async with app.test_app():
+            assert "afgesloten" not in caplog.text
+    assert "MealieShopper afgesloten" in caplog.text

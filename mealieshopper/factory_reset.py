@@ -69,7 +69,11 @@ def wipe_data() -> list[str]:
 
 def restart() -> None:
     """Stuurt SIGTERM naar dit proces. Hypercorn sluit dan netjes af (`after_serving` draait), waarna het
-    herstartbeleid van compose of de watchdog van Home Assistant de container opnieuw start."""
+    herstartbeleid van compose of de watchdog van Home Assistant de container opnieuw start.
+
+    Dat werkt omdat de Dockerfile hypercorn met `--workers 0` start: de app draait dan in het proces met de signal
+    handlers van hypercorn. Met `--workers 1` zou dit het kindproces zonder handlers treffen, dat zonder `after_serving`
+    sterft. `tests/test_restart.py` start hypercorn met de CMD uit de Dockerfile en controleert dit."""
     os.kill(os.getpid(), signal.SIGTERM)
 
 

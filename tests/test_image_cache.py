@@ -625,9 +625,9 @@ class RoutesTest(FetchCase):
         paused = (await self.client.get("/api/system/images")).get_json()["paused"]
         self.assertEqual(paused, [{"host": "static.ah.nl", "store": "ah", "until": until}])
 
-    def test_the_container_serves_with_one_asyncio_worker_so_a_slow_store_does_not_block_the_app(self) -> None:
+    def test_the_container_serves_with_one_asyncio_process_so_a_slow_store_does_not_block_the_app(self) -> None:
         dockerfile = (Path(__file__).resolve().parent.parent / "Dockerfile").read_text(encoding="utf-8")
-        self.assertIn('"--workers", "1"', dockerfile)
+        self.assertIn('"--workers", "0"', dockerfile)  # een proces, de app zelf: zie test_restart.py
         self.assertNotIn("--threads", dockerfile)
 
     async def test_the_route_needs_a_login_like_the_rest_of_the_api(self) -> None:

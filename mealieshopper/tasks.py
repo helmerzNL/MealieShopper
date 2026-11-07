@@ -147,11 +147,23 @@ async def cancel_all(timeout: float = 10.0) -> None:
         await asyncio.wait(waiting, timeout=timeout)
 
 
+# Hoe lang het afsluiten op de tasks wacht. Docker geeft een container 10 seconden tussen SIGTERM en SIGKILL, en hypercorn
+# wacht eerst tot 3 seconden (`graceful_timeout`) op lopende verzoeken: 3 plus 5 blijft daaronder.
+SHUTDOWN_TIMEOUT: float = 5.0
+
+
 async def _cancel_all_hook() -> None:
-    await cancel_all()
+    await cancel_all(timeout=SHUTDOWN_TIMEOUT)
+
+
+async def _log_stopped() -> None:
+    # Hypercorn meldt het afsluiten niet, Gunicorn deed dat wel. Een waarschuwing, zodat de regel zonder logconfiguratie in
+    # `docker logs` staat (zoals de melding van de fabrieksreset): zo is te zien dat `after_serving` heeft gelopen.
+    log.warning("MealieShopper afgesloten: achtergrondtaken gestopt en verbindingen gesloten")
 
 
 def register(app: Quart) -> None:
-    """Hangt het opruimen van tasks en httpx-clients aan het afsluiten van de app."""
+    """Hangt het opruimen van tasks en httpx-clients aan het afsluiten van de app, en meldt daarna dat hij is afgesloten."""
     app.after_serving(_cancel_all_hook)
     app.after_serving(http_client.aclose_all)
+    app.after_serving(_log_stopped)
