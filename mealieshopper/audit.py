@@ -902,10 +902,13 @@ def register_routes(app: Quart) -> None:
         user = await auth.current_user()
         await record(kind="audit", service="audit", action="log exported", actor=f"app:{user['username']}" if user else "app", detail={"entries": len(entries)})
         stamp = auth.utcnow().strftime("%Y%m%d-%H%M%S")
+        # Tot MAX_EXPORT regels omzetten is rekenwerk van een paar MB: in een thread, de event loop bedient intussen de rest.
         if request.args.get("format") == "csv":
-            body, mimetype, name = "\ufeff" + entries_csv(entries), "text/csv", f"mealieshopper-audit-{stamp}.csv"  # BOM: Excel leest anders de accenten verkeerd
+            body, mimetype, name = "\ufeff" + await asyncio.to_thread(entries_csv, entries), "text/csv", f"mealieshopper-audit-{stamp}.csv"  # BOM: Excel leest anders de accenten verkeerd
         else:
-            body, mimetype, name = json.dumps({"exportedAt": _now(), "entries": entries}, ensure_ascii=False, indent=1), "application/json", f"mealieshopper-audit-{stamp}.json"
+            exported: dict[str, Any] = {"exportedAt": _now(), "entries": entries}
+            body = await asyncio.to_thread(json.dumps, exported, ensure_ascii=False, indent=1)
+            mimetype, name = "application/json", f"mealieshopper-audit-{stamp}.json"
         return Response(body, mimetype=mimetype, headers={"Content-Disposition": f'attachment; filename="{name}"', "Cache-Control": "no-store"})
 
     @app.get("/api/audit/<int:entry_id>")

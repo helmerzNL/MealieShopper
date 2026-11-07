@@ -532,7 +532,16 @@ async def _adopt_refresh_token(token: str) -> dict[str, Any]:
         result: dict[str, Any] = await verify_token(token)
         if result.get("ok") and result.get("type") == "refresh":
             await save_refresh_token(result.get("refreshToken") or token)
+            # Het geplakte token kan van een ander AH-account zijn: het gebruikerstoken van het vorige account mag niet blijven.
+            _cache_user_token(result)
         return result
+
+
+def _cache_user_token(result: dict[str, Any]) -> None:
+    """Het gebruikerstoken uit een geslaagde vernieuwing (`verify_token`) in de cache, of de cache leeg als AH er geen gaf."""
+    global user_token_cache
+    access: str = str(result.get("accessToken") or "")
+    user_token_cache = TokenCache(token=access, expires_at=time.time() + max(0, int(result.get("expiresIn") or 3600) - 60)) if access else None
 
 
 async def auth_status(verify: bool = False) -> dict[str, Any]:
@@ -551,8 +560,6 @@ async def _verify_stored_token() -> dict[str, Any]:
 
     Een geslaagde vernieuwing levert ook een gebruikerstoken: dat gaat in de cache, zodat een verzoek dat erop wachtte
     niet nog eens vernieuwt."""
-    global user_token_cache
-
     async with _token_lock("user"):
         token: str = await configured_refresh_token()
         if not token:
@@ -561,7 +568,7 @@ async def _verify_stored_token() -> dict[str, Any]:
         if result.get("ok") and result.get("type") == "refresh":
             await _store_rotated_refresh_token(token, result.get("refreshToken"))
             if result.get("accessToken"):
-                user_token_cache = TokenCache(token=result["accessToken"], expires_at=time.time() + max(0, int(result.get("expiresIn") or 3600) - 60))
+                _cache_user_token(result)
     return {
         "connected": bool(result.get("ok")),
         "verified": True,

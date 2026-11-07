@@ -302,3 +302,25 @@ async def test_a_cancelled_verify_route_keeps_the_rotated_token(
         client = test_app.test_client()
         save = await cancel_during_refresh(respx_mock, lambda: client.post("/api/ah/auth/verify", json={"refreshToken": "geplakt"}))
     save.assert_awaited_once_with("rotated-1")
+
+
+async def test_adopting_a_pasted_refresh_token_replaces_the_cached_access_token(fresh_tokens: None, respx_mock: respx.MockRouter) -> None:
+    """Een refresh-token van een ander AH-account: het volgende verzoek gebruikt het nieuwe gebruikerstoken, nooit dat van
+    het vorige account (zoals `_verify_stored_token`)."""
+    ah.user_token_cache = ah.TokenCache(token="old-account", expires_at=10**12)
+    respx_mock.post(REFRESH).mock(return_value=Reply(data={"access_token": "new-account", "refresh_token": "rotated", "expires_in": 3600}))
+    with mock.patch.object(ah, "save_refresh_token", new_callable=mock.AsyncMock) as save:
+        result = await ah.adopt_refresh_token("pasted")
+    assert result["ok"] is True and result["type"] == "refresh"
+    save.assert_awaited_once_with("rotated")
+    assert ah.user_token_cache is not None and ah.user_token_cache.token == "new-account"
+    assert await ah.get_user_token() == "new-account"
+
+
+async def test_adopting_a_refresh_token_without_an_access_token_forgets_the_old_one(fresh_tokens: None, respx_mock: respx.MockRouter) -> None:
+    ah.user_token_cache = ah.TokenCache(token="old-account", expires_at=10**12)
+    respx_mock.post(REFRESH).mock(return_value=Reply(data={"refresh_token": "rotated", "expires_in": 3600}))
+    with mock.patch.object(ah, "save_refresh_token", new_callable=mock.AsyncMock):
+        result = await ah.adopt_refresh_token("pasted")
+    assert result.get("ok") is True
+    assert ah.user_token_cache is None

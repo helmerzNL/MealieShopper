@@ -120,3 +120,16 @@ def test_the_factory_reset_restart_shuts_hypercorn_down_cleanly(tmp_path: Path) 
     # after_serving liep: de taken zijn gestopt en de clients gesloten.
     assert STOPPED_LINE in stderr, stderr
     assert returncode == 0, stderr
+
+
+def test_run_py_starts_without_the_reloader() -> None:
+    """`python run.py` (lokaal draaien) start een proces, zoals Flask in 3.x. Quart start standaard een reloader."""
+    import ast
+
+    tree: ast.Module = ast.parse((ROOT / "run.py").read_text(encoding="utf-8"))
+    calls: list[ast.Call] = [
+        node for node in ast.walk(tree) if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == "run"
+    ]
+    assert len(calls) == 1
+    keywords: dict[str, object] = {keyword.arg: ast.literal_eval(keyword.value) for keyword in calls[0].keywords if keyword.arg == "use_reloader"}
+    assert keywords == {"use_reloader": False}

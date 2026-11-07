@@ -723,7 +723,7 @@ class StageTest(BackupCase):
 
     async def test_a_factory_reset_takes_a_staged_file_along(self) -> None:
         await self.stage((await self.make())[1])
-        removed = factory_reset.wipe_data()
+        removed = await factory_reset.wipe_data()
         self.assertEqual(self.staged_files(), [])
         self.assertTrue(any(name.startswith(".restore-") for name in removed))
 

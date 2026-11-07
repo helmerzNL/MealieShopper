@@ -1,8 +1,10 @@
 import asyncio
 import os
 import re
+import shutil
 import tempfile
 import threading
+import types
 import unittest
 from pathlib import Path
 from collections.abc import Callable
@@ -65,14 +67,29 @@ class PasswordResetTest(FactoryResetCase):
         self.assertEqual(self.files(), [])
         self.assertIn("ms_session=;", response.headers.get("Set-Cookie", ""))
 
-    def test_the_image_cache_folder_goes_too(self):
+    async def test_the_image_cache_folder_goes_too(self):
         cached = self.data / "images" / "ab" / "abcd.webp"
         cached.parent.mkdir(parents=True)
         cached.write_bytes(b"x")
-        removed = factory_reset.wipe_data()
+        removed = await factory_reset.wipe_data()
         self.assertIn("images", removed)
         self.assertFalse((self.data / "images").exists())
-        self.assertNotIn("images", factory_reset.wipe_data(), "een tweede keer is er niets meer te verwijderen")
+        self.assertNotIn("images", await factory_reset.wipe_data(), "een tweede keer is er niets meer te verwijderen")
+
+    async def test_the_image_cache_is_removed_off_the_event_loop(self):
+        """Duizenden bestanden wissen houdt de event loop niet vast: shutil.rmtree loopt in een thread."""
+        (self.data / "images").mkdir()
+        loop_thread: int = threading.get_ident()
+        threads: list[int] = []
+
+        def rmtree(path: Any, ignore_errors: bool = False) -> None:
+            threads.append(threading.get_ident())
+            shutil.rmtree(path, ignore_errors=ignore_errors)
+
+        with mock.patch.object(factory_reset, "shutil", types.SimpleNamespace(rmtree=rmtree)):
+            self.assertIn("images", await factory_reset.wipe_data())
+        self.assertEqual(len(threads), 1)
+        self.assertNotEqual(threads[0], loop_thread)
 
     async def test_the_app_starts_over_as_a_new_installation_without_a_restart(self):
         await self.reset({"password": PASSWORD})

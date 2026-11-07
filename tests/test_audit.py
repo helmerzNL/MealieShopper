@@ -4,6 +4,8 @@ import json
 import os
 import sqlite3
 import tempfile
+import threading
+import types
 import unittest
 from collections.abc import Awaitable, Callable
 from contextlib import closing
@@ -526,6 +528,28 @@ class ExportTest(AuditTestCase):
         self.assertIn("café", rows[0]["response"])
         self.assertEqual(rows[1]["response"], "'=HYPERLINK(1)")
         self.assertEqual(rows[1]["action"], "GraphQL =Boom", "alleen een cel die ermee begint wordt beschermd")
+
+    async def test_the_export_is_converted_off_the_event_loop(self):
+        """Tot 5000 regels omzetten is rekenwerk: CSV en JSON in een thread, niet op de thread van de event loop."""
+        loop_thread: int = threading.get_ident()
+        threads: list[int] = []
+        entries_csv: Callable[..., str] = audit.entries_csv
+
+        def csv_in_thread(entries: list[dict[str, Any]]) -> str:
+            threads.append(threading.get_ident())
+            return entries_csv(entries)
+
+        def dumps(value: Any, **kwargs: Any) -> str:
+            if kwargs.get("indent") == 1:  # de export zelf, niet het auditlog van het verzoek
+                threads.append(threading.get_ident())
+            return json.dumps(value, **kwargs)
+
+        recording_json = types.SimpleNamespace(**{name: getattr(json, name) for name in ("loads", "JSONDecodeError")}, dumps=dumps)
+        with mock.patch.object(audit, "entries_csv", csv_in_thread), mock.patch.object(audit, "json", recording_json):
+            self.assertEqual((await self.client.get("/api/audit/export?format=csv")).status_code, 200)
+            self.assertEqual((await self.client.get("/api/audit/export?format=json")).status_code, 200)
+        self.assertEqual(len(threads), 2)
+        self.assertNotIn(loop_thread, threads)
 
     async def test_an_export_leaves_a_trace(self):
         await self.client.get("/api/audit/export")

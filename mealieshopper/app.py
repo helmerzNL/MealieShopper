@@ -1,7 +1,7 @@
 import hashlib
 import inspect
 import mimetypes
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Iterable
 from datetime import date
 from os import environ
 from pathlib import Path
@@ -41,20 +41,49 @@ AH_PROXY_DROPPED_HEADERS: frozenset[str] = frozenset(
         "forwarded",
         "x-real-ip",
         "authorization",  # bedoeld voor MealieShopper zelf
+        "cookie",  # apart, zonder de eigen cookies: zie _ah_proxy_cookie
+    }
+)
+
+# Headers van AH die niet naar de browser gaan. De lengte en codering kloppen niet meer na het herschrijven, de
+# beveiligingsheaders van AH horen niet bij MealieShopper, cookies en Location gaan apart. De hop-by-hop-headers
+# (RFC 9110, 7.6.1) gelden alleen voor de verbinding met AH, en Date en Server zet hypercorn zelf: zo liet Gunicorn ze
+# in 3.x ook weg (`gunicorn.util.hop_headers`), anders staan ze er twee keer.
+AH_PROXY_BLOCKED_RESPONSE_HEADERS: frozenset[str] = frozenset(
+    {
+        "content-encoding",
+        "content-length",
+        "content-security-policy",
+        "strict-transport-security",
+        "x-frame-options",
+        "set-cookie",
+        "location",
+        "connection",
+        "keep-alive",
+        "proxy-authenticate",
+        "proxy-authorization",
+        "te",
+        "trailer",
+        "transfer-encoding",
+        "upgrade",
+        "date",
+        "server",
     }
 )
 
 
-def _ah_proxy_cookie(header: str) -> str | None:
-    """De Cookie-header voor AH: zonder de eigen cookies van MealieShopper (`ms_`), of None als er niets overblijft."""
+def _ah_proxy_cookie(headers: Iterable[str]) -> str | None:
+    """De Cookie-header voor AH uit alle Cookie-headers van de browser (over HTTP/2 elke cookie apart): zonder de eigen
+    cookies van MealieShopper (`ms_`), of None als er niets overblijft."""
     kept: list[str] = []
-    for pair in header.split(";"):
-        pair = pair.strip()
-        if not pair:
-            continue
-        if pair.partition("=")[0].strip().startswith("ms_"):
-            continue
-        kept.append(pair)
+    for header in headers:
+        for pair in header.split(";"):
+            pair = pair.strip()
+            if not pair:
+                continue
+            if pair.partition("=")[0].strip().startswith("ms_"):
+                continue
+            kept.append(pair)
     return "; ".join(kept) or None
 
 
@@ -1889,7 +1918,7 @@ def create_app() -> Quart:
         headers: dict[str, str] = {
             key: value for key, value in request.headers.items() if key.lower() not in AH_PROXY_DROPPED_HEADERS
         }
-        cookie: str | None = _ah_proxy_cookie(headers.pop("Cookie", ""))
+        cookie: str | None = _ah_proxy_cookie(request.headers.getlist("Cookie"))
         if cookie is not None:
             headers["Cookie"] = cookie
         headers.setdefault("User-Agent", ah.AH_BROWSER_USER_AGENT)
@@ -1933,17 +1962,8 @@ def create_app() -> Quart:
             body = ah.rewrite_login_body(body, proxy_base)
 
         response = Response(body, status=upstream.status_code, content_type=content_type)
-        blocked_headers = {
-            "content-encoding",
-            "content-length",
-            "content-security-policy",
-            "strict-transport-security",
-            "x-frame-options",
-            "set-cookie",
-            "location",
-        }
         for key, value in upstream.headers.items():
-            if key.lower() not in blocked_headers:
+            if key.lower() not in AH_PROXY_BLOCKED_RESPONSE_HEADERS:
                 response.headers[key] = value
 
         if location := upstream.headers.get("Location"):

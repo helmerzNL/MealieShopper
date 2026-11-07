@@ -40,6 +40,8 @@ TO_THREAD_ALLOWED: dict[str, str] = {
     "auth_password.py": "scrypt voor wachtwoorden",
     "backup.py": "zip, versleuteling en de synchrone sqlite3-fases van de back-up",
     "about.py": "git rev-parse (subprocess) voor de commit",
+    "audit.py": "de export van tot 5000 regels als JSON of CSV",
+    "factory_reset.py": "de afbeeldingencache wissen (shutil.rmtree over duizenden bestanden)",
 }
 
 # Waar `sqlite3.connect(` mag: alleen de fases van de back-up, die als geheel in een thread lopen. De app zelf gebruikt aiosqlite.

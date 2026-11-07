@@ -224,3 +224,50 @@ async def test_the_proxy_drops_forwarding_and_authorization_headers(
     assert sent["User-Agent"] == "Browser/1"
     assert sent["Accept-Language"] == "en"
     assert sent["Referer"] == f"{ah.AH_LOGIN_BASE}/login"
+
+
+HOP_BY_HOP: tuple[str, ...] = (
+    "Connection", "Keep-Alive", "Proxy-Authenticate", "Proxy-Authorization", "TE", "Trailer", "Transfer-Encoding", "Upgrade",
+    "Date", "Server",  # zet hypercorn zelf, zoals Gunicorn in 3.x
+)
+
+
+async def test_the_proxy_does_not_pass_hop_by_hop_headers_to_the_browser(client: TestClientProtocol, respx_mock: respx.MockRouter) -> None:
+    """Die gelden voor de verbinding met AH, niet voor die met de browser: hypercorn zet zijn eigen."""
+    respx_mock.get(STEP).mock(
+        return_value=httpx.Response(
+            200,
+            headers=[("Content-Type", "text/plain"), ("X-Spam", "eggs"), *((name, "x") for name in HOP_BY_HOP)],
+            content=b"ok",
+        )
+    )
+    reply = await client.get("/api/ah/auth/proxy/login/step")
+    assert reply.status_code == 200
+    assert reply.headers["X-Spam"] == "eggs"
+    assert [name for name in HOP_BY_HOP if name in reply.headers] == []
+
+
+async def test_every_cookie_header_of_the_browser_reaches_ah(client: TestClientProtocol, respx_mock: respx.MockRouter) -> None:
+    """Over HTTP/2 stuurt een browser elke cookie in een eigen header: geen daarvan valt weg."""
+    route: respx.Route = respx_mock.get(STEP).respond(200, text="ok")
+    reply = await client.get("/api/ah/auth/proxy/login/step", headers=[("Cookie", "ah_sess=abc; ms_session=x"), ("Cookie", "other=1")])
+    assert reply.status_code == 200
+    assert route.calls.last.request.headers["Cookie"] == "ah_sess=abc; other=1"
+
+
+@pytest.mark.parametrize(
+    ("headers", "expected"),
+    [
+        (["ah_sess=abc; ms_session=geheim", "ms_lang=en; other=1"], "ah_sess=abc; other=1"),
+        (["ah_sess=abc", "ah_sess=abc"], "ah_sess=abc; ah_sess=abc"),  # dubbel van de browser: AH beslist, wij filteren alleen
+        (["ms_session=x; ms_lang=nl"], None),
+        (["ms_session=x", "ms_lang=nl"], None),
+        ([], None),
+        (["", " ; ;"], None),
+        ([" spam = eggs ;ms_x=1"], "spam = eggs"),
+    ],
+)
+def test_ah_proxy_cookie_keeps_only_the_cookies_of_ah(headers: list[str], expected: str | None) -> None:
+    from mealieshopper.app import _ah_proxy_cookie
+
+    assert _ah_proxy_cookie(headers) == expected

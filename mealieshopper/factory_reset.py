@@ -40,11 +40,19 @@ def restart_supported() -> bool:
     return Path("/.dockerenv").exists() or Path("/data/options.json").exists()
 
 
-def wipe_data() -> list[str]:
+async def wipe_data() -> list[str]:
     """Verwijdert de database en het geheim. Geeft de namen van de bestanden die er waren.
 
-    Synchroon: alleen bestanden op schijf en het geheugen van auth, geen database-verbinding.
+    Het werk op schijf loopt in een thread: de afbeeldingencache kan duizenden bestanden bevatten. Daarna vergeet auth
+    wat het onthield, op de event loop.
     """
+    removed: list[str] = await asyncio.to_thread(_remove_files)
+    auth.forget_runtime_state()  # zonder herstart maakt de volgende aanvraag een nieuwe, lege database
+    return removed
+
+
+def _remove_files() -> list[str]:
+    """De bestanden van `wipe_data`, als geheel voor `asyncio.to_thread`: geen database-verbinding, alleen de schijf."""
     removed: list[str] = []
     for name in DATA_FILES:
         path = auth.data_dir() / name
@@ -63,7 +71,6 @@ def wipe_data() -> list[str]:
         except OSError:
             continue
         removed.append(path.name)
-    auth.forget_runtime_state()  # zonder herstart maakt de volgende aanvraag een nieuwe, lege database
     return removed
 
 
@@ -170,7 +177,7 @@ def register_routes(app: Quart) -> None:
                 return wrong
 
         restarting = restart_supported()
-        removed = wipe_data()
+        removed = await wipe_data()
         app.logger.warning("Fabrieksinstellingen: %d bestand(en) uit de data-map verwijderd (%s)", len(removed), ", ".join(removed))
         if restarting:
             # Eerst het antwoord, dan stopt het proces zichzelf: een timer op de event loop, geen thread.
