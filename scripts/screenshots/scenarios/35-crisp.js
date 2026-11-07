@@ -1,5 +1,5 @@
-// Crisp: het mandje (tabblad Mandje), Winkels > Crisp (favorieten en bestellingen) en het koppelen met een code per mail.
-const { product } = require("../demo");
+// Crisp: het mandje (tabblad Mandje), Winkels > Crisp (recepten, favorieten en bestellingen) en het koppelen met een code per mail.
+const { product, DISHES } = require("../demo");
 
 // Tijdstippen met de Nederlandse winteroffset (de klok gaat op 25 oktober 2026 terug).
 const at = (day, time) => `${day}T${time}:00+01:00`;
@@ -35,6 +35,16 @@ const crispCart = {
   minimumOrder: 40,
   stillNeeded: 13.13,
 };
+
+// ---- Bewaarde recepten (Door jou bewaard): [id, naam, foto, minuten, porties, ondertitel]
+const savedRecipes = [
+  ["5501", "Kip piri piri met zoete aardappel", DISHES.curry, 35, 2, "met limoenyoghurt"],
+  ["5502", "Kipsaté met atjar en rijst", DISHES.stroganoff, 30, 2, "met kroepoek"],
+  ["5503", "Salade met gegrilde kip en peer", DISHES.salad, 15, 2, "met walnoten"],
+  ["5504", "Romige pompoensoep", DISHES.soup, 25, 2, "met zuurdesembrood"],
+  ["5505", "Zalm met citroen en krieltjes", DISHES.fish, 30, 2, "uit de oven"],
+  ["5506", "Pasta pesto met burrata", DISHES.pesto, 20, 2, "met cherrytomaten"],
+].map(([id, name, image, minutes, portions, tag]) => ({ id, name, image, minutes, portions, tags: [tag] }));
 
 // ---- Favorieten: [id, titel, inhoud, prijs, kleur, soort, in de aanbieding]
 const favorites = [
@@ -74,6 +84,16 @@ module.exports = [
         await page.evaluate(() => window.scrollTo(0, document.querySelector("#basket .box").getBoundingClientRect().top + window.scrollY - 70));
       }
       await page.waitForTimeout(400);
+    },
+  },
+  {
+    // Je bewaarde Crisp-recepten: bekijken, inplannen en (met Selecteren) in bulk in Mealie.
+    name: "crisp-recipes",
+    routes: { "/api/crisp/recipes*": { source: "saved", recipes: savedRecipes, total: savedRecipes.length } },
+    run: async (page) => {
+      await openCrisp(page, "ah-items-crisp-recepten");
+      await page.waitForSelector("#crisp-recipes .recipe-card");
+      await scrollTo(page, 170);
     },
   },
   {

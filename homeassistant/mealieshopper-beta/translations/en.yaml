@@ -17,6 +17,12 @@ configuration:
   openai_api_key:
     name: ChatGPT API key
     description: Optional. Lets ChatGPT review the matches between ingredients and offers.
+  anthropic_base_url:
+    name: Claude API address
+    description: Optional. Another address with the Anthropic API, without /v1 (for example a LiteLLM proxy). Default https://api.anthropic.com.
+  openai_base_url:
+    name: ChatGPT API address
+    description: Optional. Another address with the OpenAI API, with /v1 (for example a LiteLLM proxy, Azure OpenAI or a local model). Default https://api.openai.com/v1.
   picnic_country_code:
     name: Picnic country
     description: The country of your Picnic account. Default NL.

@@ -1,4 +1,4 @@
-// Instellingen (Koppelen, Auditlog, Systeem, Weergave en de navigatiebalk), AI-apps, Over, de beta-build en het donkere thema.
+// Instellingen (Koppelen, Auditlog, Systeem, Voorkeuren en de navigatiebalk), AI-apps, Over, de beta-build en het donkere thema.
 const { DISHES, WEEK, VERSION, NEWER } = require("../demo");
 
 // Open een scherm via de functies van de app (zoals het avatar-menu dat doet) en wacht even op het laden.
@@ -23,7 +23,7 @@ const OFFERS_STATUS = {
   },
 };
 
-// Een AI-sleutel van Claude is ingesteld, dus het blok AI-beoordeling staat ingeklapt.
+// Een AI-sleutel van Claude is ingesteld; het blok AI-beoordeling staat standaard ingeklapt, het blok Aanbiedingen open.
 const AI_REVIEW = {
   active: "anthropic",
   chosen: "",
@@ -56,8 +56,8 @@ const settingsScenarios = [
     routes: LINK_ROUTES,
     run: async (page) => {
       await openSettings("settings-link")(page);
-      // De vier meldingen en daaronder de ingeklapte blokken, zonder de kop van de pagina.
-      await page.evaluate(() => window.scrollTo({ top: document.getElementById("mealie-status").getBoundingClientRect().top + window.scrollY - 84 }));
+      // Het blok Aanbiedingen (open) en daaronder de ingeklapte, compacte blokken, zonder de kop van de pagina.
+      await page.evaluate(() => window.scrollTo({ top: document.getElementById("offers-sync-box").getBoundingClientRect().top + window.scrollY - 84 }));
     },
   },
   {
@@ -268,23 +268,38 @@ const miscScenarios = [
     run: plan.run,
   },
   {
-    // Instellingen, Weergave: het donkere thema met de donkergrijze achtergrond en blauw als accentkleur.
+    // Instellingen, Voorkeuren, Supermarkt: Jumbo is de voorkeurssupermarkt. Het bewaren wordt nagebootst, zodat de keuze niet
+    // op de server blijft staan voor de volgende scenario's.
+    name: "preferences",
+    routes: { "/api/profile/preferences": { preferredStore: "jumbo" } },
+    run: async (page) => {
+      await openSettings("settings-appearance")(page);
+      await page.click("#appearance-store-toggle");
+      await page.click('label.appearance-option:has(input[name="appearance-store"][value="jumbo"])');
+      await page.evaluate(() => window.scrollTo({ top: 0 }));
+    },
+  },
+  {
+    // Instellingen, Voorkeuren: Weergave en Thema open, het donkere thema met de donkergrijze achtergrond en blauw als accentkleur.
     name: "appearance",
     theme: "dark",
     run: async (page) => {
       await openSettings("settings-appearance")(page);
+      await page.click("#appearance-display-toggle");
+      await page.click("#appearance-theme-toggle");
       await page.evaluate(() => {
         THEME.apply({ darkBackground: "grey", accent: "#0b62c4" });
-        const box = document.getElementById("appearance-dark-bg").closest(".box");
+        const box = document.getElementById("appearance-display-box");
         window.scrollTo({ top: box.getBoundingClientRect().top + window.scrollY - 84 });
       });
     },
   },
   {
-    // Instellingen, Weergave, Navigatiebalk: Android-achtig gekozen; de telefoon toont die balk onderaan.
+    // Instellingen, Voorkeuren, Thema, Navigatiebalk: Android-achtig gekozen; de telefoon toont die balk onderaan.
     name: "navbar",
     run: async (page) => {
       await openSettings("settings-appearance")(page);
+      await page.click("#appearance-theme-toggle");
       await page.evaluate(() => {
         THEME.apply({ navbarStyle: "android" });
         const box = document.getElementById("appearance-nav-box");

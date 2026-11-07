@@ -20,6 +20,10 @@
 // als er een var() in calc() staat. De schaal is die van 3dprint_pricing: dekking 1 (schuif op 0) tot 0,15 (op 100). Tot
 // stand 29 (dekking 0,75) halen de labels boven elke foto 4,5 : 1 (tests/test_appearance.py rekent het na); daarboven kan
 // een heel lichte of donkere foto onder het glas ze minder goed leesbaar maken. Dat is de keuze van wie de schuif verzet.
+//
+// De kookmodus (Instellingen, Weergave, Voorkeuren): staat hij uit, dan zet paint() de klasse no-cook-mode op <html> en verbergt
+// styles.css bij een recept Start met koken, de voortgang, Scherm aan laten en de vinkjes bij de ingrediënten
+// (static/recipe_view.js). Standaard staat hij aan.
 (function () {
   "use strict";
 
@@ -198,7 +202,7 @@
   }
 
   // ---- de keuze
-  const look = { theme: null, darkBackground: "green", accent: "", navbarStyle: "auto", navbarGlass: NAV_GLASS };
+  const look = { theme: null, darkBackground: "green", accent: "", navbarStyle: "auto", navbarGlass: NAV_GLASS, cookingMode: true };
 
   function storedTheme() {
     try {
@@ -232,7 +236,14 @@
       const vars = variants(look.accent);
       window.localStorage.setItem(
         LOOK_KEY,
-        JSON.stringify({ darkBackground: look.darkBackground, accent: look.accent, navbarStyle: look.navbarStyle, navbarGlass: look.navbarGlass, vars: vars || {} })
+        JSON.stringify({
+          darkBackground: look.darkBackground,
+          accent: look.accent,
+          navbarStyle: look.navbarStyle,
+          navbarGlass: look.navbarGlass,
+          cookingMode: look.cookingMode,
+          vars: vars || {},
+        })
       );
     } catch {
       /* opslag geblokkeerd: de keuze geldt dan voor deze pagina */
@@ -252,6 +263,7 @@
     root.toggleAttribute("data-accent", Boolean(vars));
     root.setAttribute("data-nav", navStyle());
     applyNavGlass(look.navbarGlass, root);
+    root.classList.toggle("no-cook-mode", !look.cookingMode);
     const bar = theme === "dark" ? DARK_BG[look.darkBackground] || DARK_BG.green : vars ? vars["--accent-light"] : BRAND.light;
     document.querySelectorAll('meta[name="theme-color"]').forEach((meta) => meta.setAttribute("content", bar));
     document.querySelectorAll("[data-theme-toggle]").forEach((button) => {
@@ -290,6 +302,7 @@
     if ("accent" in prefs) look.accent = variants(prefs.accent) ? prefs.accent.toLowerCase() : "";
     if ("navbarStyle" in prefs) look.navbarStyle = NAV_STYLES.includes(prefs.navbarStyle) ? prefs.navbarStyle : "auto";
     if ("navbarGlass" in prefs) look.navbarGlass = cleanGlass(prefs.navbarGlass);
+    if ("cookingMode" in prefs) look.cookingMode = prefs.cookingMode !== false; // alleen een echte false zet hem uit
     remember();
     if (prefs.theme === "system" || prefs.theme === "light" || prefs.theme === "dark") choose(prefs.theme, { announce: false });
     else paint();
@@ -303,6 +316,7 @@
       navbarStyle: look.navbarStyle,
       navbarGlass: look.navbarGlass,
       navShown: navStyle(),
+      cookingMode: look.cookingMode,
     };
   }
 
@@ -322,6 +336,7 @@
   look.accent = variants(cached.accent) ? cached.accent.toLowerCase() : "";
   look.navbarStyle = NAV_STYLES.includes(cached.navbarStyle) ? cached.navbarStyle : "auto";
   look.navbarGlass = cleanGlass(cached.navbarGlass);
+  look.cookingMode = cached.cookingMode !== false;
   look.theme = choice();
 
   window.THEME = { current, set: choose, choose, choice, apply, appearance, variants, contrast, mix, ACCENTS, BRAND, navStyle, applyNavGlass, platform };

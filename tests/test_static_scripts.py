@@ -6,6 +6,7 @@ STATIC = Path(__file__).resolve().parent.parent / "static"
 # Bekende dubbelen die hetzelfde doen (NFKD en NFD geven na het weghalen van accenten dezelfde tekst).
 KNOWN_TWINS = {"foldText"}
 FUNCTION = re.compile(r"^(?:async\s+)?function\s+(\w+)\s*\(.*?^\}", re.M | re.S)
+DECLARATION = re.compile(r"^(?:const|let|class)\s+(\w+)", re.M)
 
 
 class StaticScriptsTest(unittest.TestCase):
@@ -20,6 +21,16 @@ class StaticScriptsTest(unittest.TestCase):
                 if name in seen and seen[name][1] != body and name not in KNOWN_TWINS:
                     self.fail(f"{name} staat in {seen[name][0]} en in {script.name} met een andere inhoud")
                 seen.setdefault(name, (script.name, body))
+
+    def test_no_global_name_is_declared_twice(self):
+        # Een `const`, `let` of `class` met dezelfde naam in twee scripts is erger dan een dubbele functie: het tweede script
+        # breekt bij het laden af (SyntaxError), en alles wat het daarna had moeten doen, ontbreekt.
+        declared: dict[str, str] = {}
+        for script in sorted(STATIC.glob("*.js")):
+            for name in DECLARATION.findall(script.read_text(encoding="utf-8")):
+                if name in declared:
+                    self.fail(f"{name} staat in {declared[name]} en in {script.name}")
+                declared[name] = script.name
 
 
 if __name__ == "__main__":

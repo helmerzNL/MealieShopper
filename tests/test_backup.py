@@ -5,6 +5,7 @@ import json
 import os
 import sqlite3
 import tempfile
+import threading
 import time
 import unittest
 from contextlib import closing
@@ -12,10 +13,11 @@ from pathlib import Path
 from unittest import mock
 
 from PIL import Image
+from werkzeug.exceptions import ClientDisconnected
 
 os.environ["PASSKEY_AUTH_ENABLED"] = "false"
 
-from mealieshopper import audit, auth, auth_password, backup, factory_reset, image_cache, mealie, mealie_images, oauth, profile  # noqa: E402
+from mealieshopper import audit, auth, auth_password, backup, factory_reset, image_cache, mealie, mealie_images, oauth, price_archive, prices, profile, uploads  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -149,6 +151,19 @@ class BackupCase(unittest.TestCase):
     def start(self, token, passphrase="", client=None):
         return (client or self.admin).post("/api/backup/jobs", json={"token": token, "passphrase": passphrase})
 
+    def upload(self, data: bytes, chunk: int = 1000, client=None):
+        """Zoals het scherm (static/upload.js): beginnen, stukken achter elkaar en dan laten controleren."""
+        client = client or self.admin
+        with mock.patch.object(uploads, "CHUNK_BYTES", chunk):
+            begun = client.post("/api/backup/uploads", json={"size": len(data)})
+            self.assertEqual(begun.status_code, 200, begun.get_json())
+            token = begun.get_json()["token"]
+            self.assertEqual(begun.get_json()["chunkBytes"], chunk)
+            for offset in range(0, len(data), chunk):
+                sent = client.put(f"/api/backup/uploads/{token}?offset={offset}", data=data[offset:offset + chunk], content_type="application/octet-stream")
+                self.assertEqual(sent.get_json(), {"received": min(offset + chunk, len(data))})
+        return token, client.post(f"/api/backup/uploads/{token}/stage", json={"size": len(data)})
+
     def wait(self, client=None, seconds=20):
         client = client or self.admin
         deadline = time.time() + seconds
@@ -182,6 +197,8 @@ class ClassificationTest(BackupCase):
         for module in (audit, mealie_images, oauth, image_cache):
             with closing(module._connect()):
                 pass
+        with closing(price_archive._jobs_connect()):
+            pass
         with closing(self.connect()) as conn:
             tables = {row["name"] for row in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
         self.assertEqual(tables - set(backup.DATA_TABLES) - backup.EXCLUDED_TABLES, set(), "een tabel is niet ingedeeld")
@@ -202,6 +219,23 @@ class ClassificationTest(BackupCase):
 
 
 class RoundTripTest(BackupCase):
+    def test_public_observed_prices_keep_their_classification_and_provenance(self) -> None:
+        with closing(self.connect()) as conn, conn:
+            conn.execute(
+                "INSERT INTO price_observations (store, product_id, day, source, title, unit_size, url, price, seen_at) "
+                "VALUES ('picnic', 'milk', '2024-01-02', 'public_observed_unknown', 'Milk', '1 l', 'https://example.org/archive', 1.29, '2024-01-02')"
+            )
+        response, data = self.make()
+        self.assertEqual(response.status_code, 200)
+        self.wipe()
+        self.assertEqual(self.restore(data)["status"], "done")
+        product: dict = prices.history("picnic", product="milk")["products"][0]
+        self.assertEqual(product["observed"], [{
+            "date": "2024-01-02", "price": 1.29, "unitSize": "1 l", "sourceUrl": "https://example.org/archive",
+        }])
+        self.assertEqual(product["regular"], [])
+        self.assertIsNone(product["regularPrice"])
+
     def test_everything_comes_back_with_its_links(self):
         self.seed()
         for key, value in SECRETS.items():
@@ -420,21 +454,27 @@ class OlderBackupTest(BackupCase):
     def test_a_backup_from_before_the_appearance_settings_still_restores(self):
         # De weergave gaf user_profiles de kolommen theme, dark_background en accent; een oudere back-up zet de standaard terug.
         self.seed()
-        profile.set_appearance("owner", theme="dark", dark_background="grey", accent="#0a84ff", navbar_style="android", navbar_glass=0)
+        profile.set_appearance(
+            "owner", theme="dark", dark_background="grey", accent="#0a84ff", navbar_style="android", navbar_glass=0, cooking_mode=False,
+            preferred_store="crisp",
+        )
         _, data = self.make()
         row = json.loads(data)["tables"]["user_profiles"][0]
-        self.assertEqual((row["accent"], row["navbar_style"], row["navbar_glass"]), ("#0a84ff", "android", 0), "de weergave zit in de back-up")
+        self.assertEqual(
+            (row["accent"], row["navbar_style"], row["navbar_glass"], row["cooking_mode"], row["preferred_store"]), ("#0a84ff", "android", 0, 0, "crisp"),
+            "de weergave en de voorkeurssupermarkt zitten in de back-up",
+        )
 
         def older(doc):
             for row in doc["tables"]["user_profiles"]:
-                for column in ("theme", "dark_background", "accent", "navbar_style", "navbar_glass"):
+                for column in ("theme", "dark_background", "accent", "navbar_style", "navbar_glass", "cooking_mode", "preferred_store"):
                     del row[column]
 
         job = self.restore(self.tweak(data, older))
         self.assertEqual(job["status"], "done", job)
         self.assertEqual(
-            {key: profile.get("owner")[key] for key in ("theme", "darkBackground", "accent", "navbarStyle", "navbarGlass")},
-            {"theme": None, "darkBackground": "green", "accent": "", "navbarStyle": "auto", "navbarGlass": 60},
+            {key: profile.get("owner")[key] for key in ("theme", "darkBackground", "accent", "navbarStyle", "navbarGlass", "cookingMode", "preferredStore")},
+            {"theme": None, "darkBackground": "green", "accent": "", "navbarStyle": "auto", "navbarGlass": 60, "cookingMode": True, "preferredStore": "ah"},
         )
 
 
@@ -644,6 +684,296 @@ class StageTest(BackupCase):
         self.assertEqual(path.stat().st_mode & 0o077, 0)
 
 
+class ChunkedUploadTest(BackupCase):
+    """Het scherm stuurt een back-up in stukken (uploads.py): één verzoek van 100 MB komt niet door elke proxy."""
+
+    def parts(self):
+        return sorted(path.name for path in self.data.glob(".restore-*.part"))
+
+    def put(self, token, offset, data: bytes):
+        return self.admin.put(f"/api/backup/uploads/{token}?offset={offset}", data=data, content_type="application/octet-stream")
+
+    def begin(self, size):
+        return self.admin.post("/api/backup/uploads", json={"size": size})
+
+    def test_a_backup_in_pieces_gives_the_same_summary_and_restores(self):
+        self.seed()
+        before, settings = self.snapshot(), self.settings()
+        _, data = self.make(links=False)
+        self.assertGreater(len(data), 3000)  # dus echt meerdere stukken
+        whole = self.stage(data).get_json()
+        self.wipe()
+        token, staged = self.upload(data)
+        self.assertEqual(staged.status_code, 200, staged.get_json())
+        body = staged.get_json()
+        self.assertEqual(body["token"], token)
+        self.assertEqual({k: v for k, v in body.items() if k != "token"}, {k: v for k, v in whole.items() if k != "token"})
+        self.assertEqual(self.parts(), [])
+        self.assertIn(".restore-" + token, self.staged_files())
+        self.assertEqual(self.start(token).status_code, 202)
+        self.assertEqual(self.wait()["status"], "done")
+        expected = dict(before)
+        expected["user_profiles"] = [row for row in before["user_profiles"] if row[0] == "owner"]  # "ghost" bestaat hier niet
+        self.assertEqual(self.snapshot(), expected)
+        self.assertEqual(self.settings(), settings)
+
+    def test_a_part_that_does_not_follow_on_gets_what_the_server_has(self):
+        _, data = self.make()
+        token = self.begin(len(data)).get_json()["token"]
+        self.assertEqual(self.put(token, 0, data[:100]).get_json(), {"received": 100})
+        for offset in (0, 50, 200, "x", ""):  # het antwoord ging verloren en het stuk komt nog eens, of het sluit niet aan
+            response = self.admin.put(f"/api/backup/uploads/{token}?offset={offset}", data=data[100:200], content_type="application/octet-stream")
+            self.assertEqual(response.status_code, 409, offset)
+            self.assertEqual(response.get_json()["received"], 100)
+            self.assertEqual(response.get_json()["code"], "upload_out_of_order")
+        self.assertEqual((self.data / f".restore-{token}.part").read_bytes(), data[:100])  # niets dubbel geplakt
+        self.assertEqual(self.put(token, 100, data[100:]).get_json(), {"received": len(data)})
+        self.assertEqual(self.admin.post(f"/api/backup/uploads/{token}/stage", json={"size": len(data)}).status_code, 200)
+
+    def test_a_file_that_is_too_large_is_refused_before_the_first_byte(self):
+        response = self.begin(backup.MAX_STAGE_BYTES + 1)
+        self.assertEqual((response.status_code, response.get_json()["code"]), (413, "upload_too_large"))
+        self.assertIn("200 MB", response.get_json()["error"])
+        for size in (0, -1, "10", None, True, 1.5):
+            self.assertEqual(self.begin(size).status_code, 400, size)
+        self.assertEqual(self.parts(), [])
+
+    def test_a_part_larger_than_agreed_is_refused_and_leaves_nothing_behind(self):
+        token = self.begin(5000).get_json()["token"]
+        self.put(token, 0, b"{" * 10)
+        with mock.patch.object(uploads, "CHUNK_BYTES", 100):
+            response = self.put(token, 10, b"x" * 101)
+        self.assertEqual((response.status_code, response.get_json()["code"]), (413, "upload_chunk_too_large"))
+        self.assertEqual((self.data / f".restore-{token}.part").read_bytes(), b"{" * 10)
+
+    def test_the_upload_never_grows_past_the_limit(self):
+        token = uploads.begin(backup.STAGE_PREFIX, 10, 10)["token"]
+        with self.assertRaises(uploads.UploadError) as caught:
+            uploads.append(backup.STAGE_PREFIX, token, 0, io.BytesIO(b"x" * 11), None, 10)
+        self.assertEqual((caught.exception.key, caught.exception.status), ("too_large", 413))
+        self.assertEqual((self.data / f".restore-{token}.part").read_bytes(), b"")  # een half stuk blijft niet staan
+
+    def test_a_part_that_gets_stuck_does_not_hold_up_the_others(self):
+        # Een stuk dat onderweg blijft steken (de proxy geeft de rest nooit door) mag de volgende poging niet laten
+        # wachten: anders staan na een paar pogingen alle vier de werkers stil en antwoordt de hele app niet meer.
+        token = uploads.begin(backup.STAGE_PREFIX, 100, 100)["token"]
+        release, reading = threading.Event(), threading.Event()
+
+        class Stuck:
+            def __init__(self):
+                self.sent = False
+
+            def read(self, size):
+                if not self.sent:
+                    self.sent = True
+                    return b"{" * 10
+                reading.set()
+                release.wait(10)
+                return b""
+
+        outcome = {}
+
+        def stuck():
+            try:
+                outcome["result"] = uploads.append(backup.STAGE_PREFIX, token, 0, Stuck(), 20, 100)
+            except uploads.UploadError as exc:
+                outcome["error"] = exc
+
+        thread = threading.Thread(target=stuck)
+        thread.start()
+        self.assertTrue(reading.wait(5))
+        started = time.monotonic()
+        self.assertEqual(uploads.append(backup.STAGE_PREFIX, token, 0, io.BytesIO(b"{" * 20), 20, 100), {"received": 20})
+        self.assertLess(time.monotonic() - started, 1)
+        release.set()
+        thread.join(5)
+        self.assertEqual((outcome["error"].key, outcome["error"].params["received"]), ("out_of_order", 20))  # te laat: niets dubbel
+        self.assertEqual((self.data / f".restore-{token}.part").read_bytes(), b"{" * 20)
+
+    def test_a_part_that_goes_silent_is_given_up_with_408(self):
+        token = uploads.begin(backup.STAGE_PREFIX, 100, 100)["token"]
+
+        class Sock:
+            def __init__(self):
+                self.timeouts = [None]
+
+            def gettimeout(self):
+                return self.timeouts[-1]
+
+            def settimeout(self, value):
+                self.timeouts.append(value)
+
+        class Silent:
+            def read(self, size):
+                raise ClientDisconnected()  # zo meldt werkzeug een verbinding die stil blijft (socket.timeout) of wegvalt
+
+        sock = Sock()
+        with self.assertLogs("mealieshopper.uploads", "WARNING"), self.assertRaises(uploads.UploadError) as caught:
+            uploads.append(backup.STAGE_PREFIX, token, 0, Silent(), 20, 100, sock=sock)
+        self.assertEqual((caught.exception.key, caught.exception.status), ("stalled", 408))
+        self.assertEqual(sock.timeouts, [None, uploads.READ_TIMEOUT_SECONDS, None])  # daarna weer zoals gunicorn hem had
+        self.assertEqual((self.data / f".restore-{token}.part").read_bytes(), b"")
+        self.assertEqual(uploads.append(backup.STAGE_PREFIX, token, 0, io.BytesIO(b"{"), 1, 100, sock=sock), {"received": 1})
+
+    def test_an_incomplete_upload_is_not_checked_and_is_removed(self):
+        _, data = self.make()
+        token = self.begin(len(data)).get_json()["token"]
+        self.put(token, 0, data[:100])
+        response = self.admin.post(f"/api/backup/uploads/{token}/stage", json={"size": len(data)})
+        self.assertEqual((response.status_code, response.get_json()["code"]), (409, "upload_incomplete"))
+        self.assertEqual(self.staged_files(), [])
+        self.assertEqual(self.put(token, 100, data[100:]).status_code, 404)
+
+    def test_a_refused_file_in_pieces_leaves_nothing_behind(self):
+        token, response = self.upload(b'{"format": "iets anders", "tables": {}}', chunk=7)
+        self.assertEqual((response.status_code, response.get_json()["code"]), (400, "not_a_backup"))
+        self.assertEqual(self.staged_files(), [])
+        self.assertEqual(self.start(token).status_code, 404)
+
+    def test_tokens_must_look_like_tokens(self):
+        for token in ("..", "x" * 32, "0" * 31, "0" * 32):
+            self.assertEqual(self.put(token, 0, b"{").status_code, 404, token)
+            self.assertEqual(self.admin.post(f"/api/backup/uploads/{token}/stage", json={"size": 1}).status_code, 404, token)
+        self.assertEqual(self.admin.delete("/api/backup/uploads/..").status_code, 404)
+
+    def test_changing_your_mind_halfway_removes_the_part(self):
+        token = self.begin(100).get_json()["token"]
+        self.put(token, 0, b"{" * 10)
+        self.assertEqual(self.admin.delete(f"/api/backup/uploads/{token}").status_code, 200)
+        self.assertEqual(self.parts(), [])
+
+    def test_an_abandoned_upload_is_cleared_when_a_new_one_begins(self):
+        old = self.data / (".restore-" + "a" * 32 + ".part")
+        old.write_bytes(b"oud")
+        os.utime(old, (time.time() - 2 * 3600, time.time() - 2 * 3600))
+        young = self.data / (".restore-" + "b" * 32 + ".part")
+        young.write_bytes(b"jong")
+        self.assertEqual(self.begin(10).status_code, 200)
+        self.assertFalse(old.exists())
+        self.assertTrue(young.exists())
+
+    def test_a_part_is_private_and_goes_with_a_factory_reset(self):
+        token = self.begin(100).get_json()["token"]
+        self.put(token, 0, b"{" * 10)
+        path = self.data / f".restore-{token}.part"
+        self.assertEqual(path.stat().st_mode & 0o077, 0)
+        self.assertIn(path.name, factory_reset.wipe_data())
+        self.assertFalse(path.exists())
+
+
+class OptionalPartsTest(BackupCase):
+    """De aanbiedingen van nu en de historie mogen bij het maken weg, en bij het terugzetten (net als de koppelingen) blijven."""
+
+    OFFERS = ("offers", "offers_meta")
+    HISTORY = ("offer_history",)
+
+    def change_offers(self):
+        """Wat er op deze installatie staat na het maken van de back-up: andere aanbiedingen en een andere historie."""
+        with closing(self.connect()) as conn, conn:
+            conn.execute("INSERT INTO offers (store, product_id, position, title) VALUES ('ah', 'nu', 1, 'Van nu')")
+            conn.execute("INSERT INTO offers_meta (store, synced_at) VALUES ('nu', 'vandaag')")
+            conn.execute("INSERT INTO offer_history (store, product_id, title, first_seen, last_seen) VALUES ('ah', 'nu', 'Van nu', 'a', 'b')")
+
+    def tables(self, names):
+        snapshot = self.snapshot()
+        return {name: snapshot[name] for name in names}
+
+    def test_a_backup_without_the_offers_leaves_them_out_and_says_so(self):
+        self.seed()
+        response, data = self.make(offers=False, offerHistory=False)
+        self.assertEqual(response.status_code, 200)
+        document = json.loads(data)
+        self.assertEqual(document["left_out"], ["offerHistory", "offers"])
+        for table in self.OFFERS + self.HISTORY:
+            self.assertNotIn(table, document["tables"])
+        self.assertIn("price_observations", document["tables"])
+        body = self.stage(data).get_json()
+        self.assertEqual(body["leftOut"], ["offerHistory", "offers"])
+        self.assertEqual((body["counts"]["offers"], body["counts"]["offerHistory"], body["counts"]["prices"]), (0, 0, 2))
+        _, everything = self.make()
+        self.assertEqual(json.loads(everything)["left_out"], [])
+        self.assertGreater(len(everything), len(data))
+
+    def test_what_a_backup_left_out_stays_as_it_is_and_the_rest_is_replaced(self):
+        self.seed()
+        before = self.snapshot()
+        _, data = self.make(offerHistory=False)
+        self.change_offers()
+        self.junk()
+        history = self.tables(self.HISTORY)
+        job = self.restore(data)
+        self.assertEqual(job["status"], "done", job)
+        self.assertEqual(job["summary"]["kept"], ["offerHistory"])
+        self.assertEqual(self.tables(self.HISTORY), history)  # de historie van nu, niet die van de back-up
+        self.assertEqual(self.tables(self.OFFERS), {table: before[table] for table in self.OFFERS})  # wel teruggezet
+        self.assertEqual(self.snapshot()["ah_lists"], before["ah_lists"])  # de rommel is weg
+
+    def test_parts_you_untick_when_restoring_stay_as_they_are(self):
+        self.seed()
+        before = self.snapshot()
+        _, data = self.make()
+        self.change_offers()
+        offers = self.tables(self.OFFERS)
+        token = self.stage(data).get_json()["token"]
+        started = self.admin.post("/api/backup/jobs", json={"token": token, "offers": False})
+        self.assertEqual(started.status_code, 202, started.get_json())
+        job = self.wait()
+        self.assertEqual(job["status"], "done", job)
+        self.assertEqual(job["summary"]["kept"], ["offers"])
+        self.assertEqual(job["summary"]["counts"]["offers"], 0)
+        self.assertEqual(self.tables(self.OFFERS), offers)
+        self.assertEqual(self.tables(self.HISTORY), {table: before[table] for table in self.HISTORY})
+
+    def test_without_the_links_no_password_is_needed_and_the_links_of_now_stay(self):
+        # Wachtwoord kwijt: de gegevens terugzetten kan dan toch, zonder de koppelingen uit het bestand.
+        self.seed()
+        before = self.snapshot()
+        auth.set_secret(mealie.SECRET_TOKEN, "MEALIE-TOKEN-12345678")
+        _, data = self.make(links=True, passphrase=PASSPHRASE)
+        auth.set_secret(mealie.SECRET_TOKEN, "TOKEN-VAN-NU-87654321")
+        self.wipe()
+        token = self.stage(data).get_json()["token"]
+        self.assertEqual(self.start(token).get_json()["code"], "needs_passphrase")  # met de koppelingen: wel een wachtwoord
+        started = self.admin.post("/api/backup/jobs", json={"token": token, "links": False})
+        self.assertEqual(started.status_code, 202, started.get_json())
+        job = self.wait()
+        self.assertEqual(job["status"], "done", job)
+        self.assertTrue(job["summary"]["linksKept"])
+        self.assertEqual(auth.get_secret(mealie.SECRET_TOKEN), "TOKEN-VAN-NU-87654321")
+        self.assertEqual(self.snapshot()["offer_history"], before["offer_history"])
+
+    def test_an_edited_file_that_hides_a_part_is_refused(self):
+        self.seed()
+        _, data = self.make()
+        for change in (
+            lambda doc: doc.update(left_out=["offers"]),  # zegt dat het er niet in zit, maar het staat er wel
+            lambda doc: doc.update(left_out=["users"]),
+            lambda doc: doc.update(left_out="offers"),
+        ):
+            response = self.stage(self.tweak(data, change))
+            self.assertEqual((response.status_code, response.get_json()["code"]), (400, "bad_structure"))
+        self.assertEqual(self.staged_files(), [])
+
+    def test_an_older_backup_without_left_out_replaces_the_offers_as_before(self):
+        self.seed()
+        before = self.snapshot()
+        _, data = self.make()
+        older = self.tweak(data, lambda doc: doc.pop("left_out"))
+        self.change_offers()
+        self.assertEqual(self.restore(older)["summary"]["kept"], [])
+        self.assertEqual(self.tables(self.OFFERS + self.HISTORY), {table: before[table] for table in self.OFFERS + self.HISTORY})
+
+    def test_every_optional_part_is_a_data_table_with_a_line_on_the_screen(self):
+        for part, tables in backup.OPTIONAL_PARTS.items():
+            self.assertIn(part, backup.COUNT_GROUPS)
+            for table in tables:
+                self.assertIn(table, backup.DATA_TABLES)
+            for lang in ("nl", "en"):
+                source = (ROOT / "static" / "i18n" / f"{lang}.js").read_text(encoding="utf-8")
+                for key in (f"backup.part.{part}", f"backup.restore_part.{part}"):
+                    self.assertIn(f'"{key}":', source)
+
+
 class PassphraseTest(BackupCase):
     def prepare(self):
         auth.set_secret(mealie.SECRET_TOKEN, "MEALIE-TOKEN-12345678")
@@ -676,10 +1006,41 @@ class PassphraseTest(BackupCase):
                 self.assertNotIn(PASSPHRASE.encode(), path.read_bytes(), path.name)
 
 
+class OpenModeTest(BackupCase):
+    def test_the_owner_profile_comes_back_when_login_is_off(self):
+        # Zonder inloggen staat de eigenaar niet in users, maar de app doet alles als OWNER_ID: zijn profiel hoort erbij.
+        self.new_data_dir()
+        auth.forget_runtime_state()
+        with mock.patch.dict(os.environ, {"PASSKEY_AUTH_ENABLED": "false"}):
+            client = self.app.test_client()
+            wanted = {"preferredStore": "jumbo", "accent": "#0b62c4", "theme": "dark"}
+            self.assertEqual(client.put("/api/profile/preferences", json=wanted).status_code, 200)
+            with closing(self.connect()) as conn:
+                self.assertIsNone(conn.execute("SELECT 1 FROM users WHERE id = ?", (auth.OWNER_ID,)).fetchone())
+            response, data = self.make(client=client)
+            self.assertEqual(response.status_code, 200)
+            client.put("/api/profile/preferences", json={"preferredStore": "ah", "accent": "", "theme": "light"})
+            job = self.restore(data, client=client)
+            self.assertEqual(job["status"], "done", job)
+            self.assertEqual(job["summary"]["skippedProfiles"], 0)
+            status = client.get("/api/auth/status").get_json()
+            self.assertEqual({key: status[key] for key in wanted}, wanted)
+
+    def test_a_profile_of_someone_who_is_not_here_is_still_skipped(self):
+        self.seed()  # profielen van "owner" en "ghost"
+        _, data = self.make()
+        job = self.restore(data)
+        self.assertEqual(job["summary"]["skippedProfiles"], 1)
+        with closing(self.connect()) as conn:
+            self.assertEqual([row[0] for row in conn.execute("SELECT user_id FROM user_profiles")], [auth.OWNER_ID])
+
+
 class AccessTest(BackupCase):
     ROUTES = (
         ("get", "/api/backup"), ("post", "/api/backup"), ("post", "/api/backup/stage"), ("delete", "/api/backup/stage/" + "0" * 32),
         ("post", "/api/backup/jobs"), ("get", "/api/backup/jobs/latest"), ("delete", "/api/backup/jobs/abc"),
+        ("post", "/api/backup/uploads"), ("put", "/api/backup/uploads/" + "0" * 32), ("delete", "/api/backup/uploads/" + "0" * 32),
+        ("post", "/api/backup/uploads/" + "0" * 32 + "/stage"),
     )
 
     def test_every_route_needs_a_session(self):
@@ -825,6 +1186,7 @@ class JobTest(BackupCase):
 class PageTest(unittest.TestCase):
     HTML = (ROOT / "templates" / "index.html").read_text(encoding="utf-8")
     JS = (ROOT / "static" / "backup.js").read_text(encoding="utf-8")
+    UPLOAD_JS = (ROOT / "static" / "upload.js").read_text(encoding="utf-8")
 
     def test_the_card_has_a_live_progress_block_and_loads_after_app_js(self):
         self.assertRegex(self.HTML, r'<div class="backup-progress" id="backup-progress" role="status" hidden>')
@@ -835,8 +1197,15 @@ class PageTest(unittest.TestCase):
 
     def test_the_screen_follows_the_contract(self):
         # Alleen een balk vullen die zijn totaal kent, de klus op de server volgen en niet herladen als wegklikken mislukt.
-        for needle in ("/api/backup/stage", "/api/backup/jobs/latest", "XMLHttpRequest", "upload.onprogress", "Content-Length", "dismissed", "BACKUP_POLL_MS"):
+        for needle in ("/api/backup/stage", "/api/backup/jobs/latest", "Content-Length", "dismissed", "BACKUP_POLL_MS"):
             self.assertIn(needle, self.JS)
+        # Het bestand gaat in stukken (upload.js), met een balk per verstuurde byte en een tijdslimiet per stuk.
+        self.assertIn('uploadInChunks(file, "/api/backup/uploads"', self.JS)
+        for needle in ("XMLHttpRequest", "upload.onprogress", "request.timeout", "stall: UPLOAD_STALL_MS", "request.abort()", "status === 409", "408", "/stage`"):
+            self.assertIn(needle, self.UPLOAD_JS)
+        self.assertLess(self.HTML.index("filename='app.js'"), self.HTML.index("filename='upload.js'"))
+        self.assertLess(self.HTML.index("filename='upload.js'"), self.HTML.index("filename='backup.js'"))
+        self.assertLess(self.HTML.index("filename='upload.js'"), self.HTML.index("filename='price_archive.js'"))
         self.assertNotIn("setInterval", self.JS)
         self.assertNotIn("file.text()", self.JS)  # het bestand wordt op de server gecontroleerd, niet in de browser
 

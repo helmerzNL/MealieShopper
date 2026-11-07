@@ -16,7 +16,7 @@ import json
 from typing import Any, Callable
 from urllib.parse import urlsplit
 
-from . import ah, ah_lists, offers, ah_orders, ah_recipes, auth, jumbo, jumbo_lists, jumbo_orders, jumbo_recipes, mealie, picnic, picnic_orders, picnic_recipes, prices, server_settings
+from . import ah, ah_lists, offers, ah_orders, ah_recipes, auth, crisp, jumbo, jumbo_lists, jumbo_orders, jumbo_recipes, mealie, picnic, picnic_orders, picnic_recipes, prices, server_settings
 
 LATEST_PROTOCOL = "2025-06-18"
 SUPPORTED_PROTOCOLS = ("2025-06-18", "2025-03-26", "2024-11-05")
@@ -486,6 +486,21 @@ def tool_picnic_recipes(args: dict[str, Any]) -> Any:
     return {"source": source, "total": len(recipes), "recipes": brief}
 
 
+def _crisp_linked() -> None:
+    if not crisp.configured_client_id():
+        raise ToolError("Crisp is niet gekoppeld. De beheerder koppelt het bij Instellingen, Koppelen, Crisp.")
+
+
+def tool_crisp_recipes(args: dict[str, Any]) -> Any:
+    _crisp_linked()
+    limit = max(1, min(100, int(args.get("limit") or 30)))
+    found = crisp.get_saved_recipes()
+    recipes = found["recipes"]
+    # Alleen wat een assistent nodig heeft; de afbeeldingsadressen laten we weg.
+    brief = [{"id": r["id"], "name": r["name"], "minutes": r["minutes"], "portions": r["portions"], "tags": r["tags"]} for r in recipes[:limit]]
+    return {"source": "saved", "total": len(recipes), "recipes": brief}
+
+
 def _private_host(hostname: str) -> bool:
     """Een adres op je eigen netwerk (Mealie zou het ophalen vanaf jouw server)."""
     host = hostname.strip("[]").rstrip(".").casefold()
@@ -550,6 +565,7 @@ def tool_get_price_history(args: dict[str, Any]) -> Any:
                     for e in product.get("episodes", [])[-keep:]
                 ],
                 "regularPrices": product.get("regular", [])[-keep:],
+                "observed": product.get("observed", [])[-keep:],
                 "purchases": [
                     {"date": p["date"], "pricePerItem": p["price"], "quantity": p["quantity"], "source": p["source"]}
                     for p in product.get("purchases", [])[-keep:]
@@ -561,6 +577,7 @@ def tool_get_price_history(args: dict[str, Any]) -> Any:
             "Prijzen zijn per stuk. regularPrices zijn periodes met dezelfde normale prijs (uit zoekopdrachten, bestellingen en de prijs "
             "vóór een aanbieding); purchases komen uit bestellingen en kassabonnen (op een kassabon is de korting onderaan de bon niet "
             "afgetrokken). Een aanbieding is pas echt voordelig als de actieprijs onder de laagste normale prijs van de laatste weken ligt. "
+            "observed bevat waargenomen pakketprijzen met onbekende actiestatus. Die tellen niet als normale prijs. "
             "personal: een persoonlijke aanbieding (de AH Bonus Box), alleen voor de eigenaar en alleen als die haar in de AH-app activeerde."
         ),
     }
@@ -806,6 +823,12 @@ TOOLS: dict[str, dict[str, Any]] = {
         ),
         "annotations": {**READ_ONLY, "title": "Picnic-recepten"},
         "handler": tool_picnic_recipes,
+    },
+    "list_crisp_recipes": {
+        "description": "Je favoriete recepten bij Crisp (het hartje in de Crisp-app), met id, naam, kooktijd, porties en labels. Live opgehaald; er wordt niets opgeslagen of aan je mandje toegevoegd.",
+        "inputSchema": _schema({"limit": {"type": "integer", "minimum": 1, "maximum": 100, "description": "Aantal recepten, standaard 30."}}),
+        "annotations": {**READ_ONLY, "title": "Crisp-recepten"},
+        "handler": tool_crisp_recipes,
     },
     "search_jumbo_products": {
         "description": "Zoek producten in het assortiment van Jumbo: naam, inhoud, prijs, of er een aanbieding is en de link. Live opgehaald bij Jumbo.",

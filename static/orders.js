@@ -469,7 +469,8 @@ function receiptBonusSummary(receipt) {
 
 // ---- één bestelling of kassabon openen: de kop (titel en metaregel) hier, de badges, de balk en de producten op de bestelpagina
 // (renderOrderPage in order_views.js), voor alle vier de soorten.
-function showPurchaseOverview() {
+// `sync: false` bij een winkelwissel: switchItemsStore opent daarna een tab, en die zet het adres.
+function showPurchaseOverview({ sync = true } = {}) {
   ordersState.open = null;
   // order_views.js en linking.js laden na dit bestand. Een winkelwissel tijdens het laden komt hier al langs.
   if (typeof orderPageClose === "function") orderPageClose();
@@ -478,7 +479,7 @@ function showPurchaseOverview() {
   $("#ah-order-items").style.maxHeight = "";
   $("#ah-order-detail").hidden = true;
   $("#ah-orders-view").hidden = false;
-  if (typeof routerSync === "function") routerSync();
+  if (sync && typeof routerSync === "function") routerSync();
 }
 
 async function openPurchase(kind, id) {
@@ -795,13 +796,14 @@ $("#explore-copy").addEventListener("click", async (event) => {
 });
 
 // Bij een andere winkel in de tab Winkels: schone lijst, en opnieuw laden als dit tabblad openstaat.
+// Bij een winkelwissel: de bestellingen van de vorige winkel weg. Laden doet de tab Bestellingen zelf, als switchItemsStore die
+// daarna opent.
 function resetOrders() {
   Object.assign(ordersState, { basket: null, orders: [], imported: [], receipts: [], ordersSyncedAt: null, receiptsSyncedAt: null, query: "", hits: null, loaded: false });
   purchaseSeq++;
   $("#ah-purchase-filter").value = "";
-  showPurchaseOverview();
+  showPurchaseOverview({ sync: false });
   message("#ah-orders-message", "");
-  if (document.querySelector("#ah-items-bestellingen.is-active")) loadOrders();
 }
 
 window.addEventListener("ms:languagechange", () => {

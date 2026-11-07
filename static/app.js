@@ -23,8 +23,10 @@ const state = {
   aboutLoaded: false,
   store: "ah", // de keuze voor het weekmenu: "ah", "picnic", "jumbo" of "crisp"
   itemsStore: "ah", // de winkel in de tab Winkels: "ah", "jumbo", "picnic" of "crisp"
-  preferredStore: "ah", // de laatste keuze van de gebruiker; geldt zodra die winkel als gekoppeld bekend is
+  itemsStoreChosen: false, // zelf een winkel gekozen in Winkels (menu of adres); tot dan volgt hij de voorkeurssupermarkt
+  preferredStore: "ah", // de laatste keuze van de gebruiker in het weekmenu; geldt zodra die winkel als gekoppeld bekend is
   linkedStores: { picnic: false, jumbo: false, crisp: false, mealie: false }, // gezet door picnic.js, jumbo.js, crisp.js en renderMealieStatus; AH is altijd een keuze
+  storeStatusKnown: { picnic: false, jumbo: false, crisp: false }, // de status van die koppeling is binnen (gekoppeld of niet)
 };
 
 // Material Design Icons (zie static/icons/LICENSE-mdi.txt)
@@ -649,32 +651,20 @@ function renderMeal(entry) {
 }
 
 // ---- Het recept van een maaltijd in een venster: wat de week al van Mealie kreeg (recipeDetail, met de hoeveelheden
-// voor de geplande porties), zonder nieuw verzoek. Wijzigen opent vanuit het venster het plan-venster.
+// voor de geplande porties), zonder nieuw verzoek. Wijzigen opent vanuit het venster het plan-venster. De ingrediënten en
+// de bereiding staan in de kookweergave (renderCookView in recipe_view.js); de sleutel mealie:<slug> is dezelfde als bij
+// Recepten zoeken, zodat de voortgang van een recept op beide plekken dezelfde is.
 const mealRecipe = { entry: null };
-
-function mealRecipeLines(detail) {
-  const ingredients = (detail.recipeIngredient || [])
-    .map((item) => String(item?.display || item?.note || "").replace(/\s+/g, " ").trim())
-    .filter(Boolean);
-  const steps = (detail.recipeInstructions || []).map((step) => String(step?.text || "").trim()).filter(Boolean);
-  return { ingredients, steps };
-}
 
 function renderMealRecipeBody(entry) {
   const detail = entry.recipeDetail;
   if (!detail) return `<p class="muted">${escapeHtml(t("plan.view_unavailable"))}</p>`;
-  const { ingredients, steps } = mealRecipeLines(detail);
   const description = String(detail.description || "").trim();
+  const slug = entry.recipe?.slug || detail.slug;
+  const recipe = cookRecipeFromMealie(detail, slug ? `mealie:${slug}` : `plan:${entry.id}`, mealName(entry));
   return `
     ${description ? `<p class="meal-recipe__description">${escapeHtml(description)}</p>` : ""}
-    <h4>${escapeHtml(t("rsearch.ingredients"))}</h4>
-    ${ingredients.length
-      ? `<ul class="picnic-recipe__list">${ingredients.map((line) => `<li>${escapeHtml(line)}</li>`).join("")}</ul>`
-      : `<p class="muted">${escapeHtml(t("rsearch.no_ingredients_mealie"))}</p>`}
-    <h4>${escapeHtml(t("rsearch.steps"))}</h4>
-    ${steps.length
-      ? `<ol class="picnic-recipe__list meal-recipe__steps">${steps.map((text) => `<li>${escapeHtml(text)}</li>`).join("")}</ol>`
-      : `<p class="muted">${escapeHtml(t("rsearch.no_steps_mealie"))}</p>`}`;
+    ${renderCookView(recipe, { headingLevel: 4, noIngredients: t("rsearch.no_ingredients_mealie"), noSteps: t("rsearch.no_steps_mealie") })}`;
 }
 
 function openMealRecipe(entry) {
@@ -696,6 +686,7 @@ function openMealRecipe(entry) {
   $("#meal-recipe-body").innerHTML = renderMealRecipeBody(entry);
   if (!dialog.open) dialog.showModal();
   dialog.scrollTop = 0;
+  if (typeof cookWakeUpdate === "function") cookWakeUpdate(); // "Scherm aan laten" (recipe_view.js)
 }
 
 function renderMealPlan(entries) {
@@ -1191,6 +1182,36 @@ function currentStore() {
   return STORES[state.store] || STORES.ah;
 }
 
+// De voorkeurssupermarkt van deze gebruiker (Instellingen, Voorkeuren; standaard Albert Heijn). Aanbiedingen en Winkels openen
+// ermee, tot je daar zelf een andere winkel kiest. Niet te verwarren met state.preferredStore, de laatste keuze in het weekmenu.
+function preferredSupermarket() {
+  const store = state.auth?.preferredStore;
+  return STORES[store] ? store : "ah";
+}
+
+// Weet de app al of de voorkeurssupermarkt gekoppeld is? Bij AH altijd; bij de andere zodra hun status binnen is.
+function preferredSupermarketKnown() {
+  const store = preferredSupermarket();
+  return store === "ah" || Boolean(state.storeStatusKnown[store]);
+}
+
+// De winkel waarmee een pagina opent, uit de winkels die daar te kiezen zijn: de voorkeurssupermarkt, of AH als die (nog) niet
+// gekoppeld is.
+function defaultStoreOf(available) {
+  const store = preferredSupermarket();
+  return available.includes(store) ? store : "ah";
+}
+
+// De winkels die gekoppeld zijn; AH is altijd een keuze.
+function linkedStoreKeys() {
+  return Object.keys(STORES).filter((key) => key === "ah" || state.linkedStores[key]);
+}
+
+// De winkel in een adres van Aanbiedingen: weggelaten als het de winkel is waarmee de pagina toch al opent (zie routerApplyOffers).
+function offersStoreParam(store) {
+  return store === defaultStoreOf(linkedStoreKeys()) ? "" : store;
+}
+
 function cartButtonLabel() {
   return t(currentStore().button);
 }
@@ -1231,8 +1252,10 @@ function renderStoreChoice() {
   const button = $("#add-cart");
   if (button) button.textContent = cartButtonLabel();
   renderItemsStore();
+  itemsFollowPreferred();
   if (typeof renderBasketStoreChoice === "function") renderBasketStoreChoice();
   if (typeof renderOffersStore === "function") renderOffersStore();
+  if (typeof renderAppearanceStore === "function") renderAppearanceStore(); // gekoppeld of niet, bij Instellingen, Voorkeuren
 }
 
 // De winkel in de tab Winkels: AH, of Jumbo zodra die gekoppeld is.
@@ -1251,7 +1274,42 @@ function itemsStores() {
 
 const PICNIC_SUBTABS = ["ah-items-picnic", "ah-items-picnic-favorieten", "ah-items-picnic-bestellingen"];
 const JUMBO_SUBTABS = ["ah-items-jumbo-recepten"];
-const CRISP_SUBTABS = ["ah-items-crisp-favorieten", "ah-items-crisp-bestellingen"];
+const CRISP_SUBTABS = ["ah-items-crisp-recepten", "ah-items-crisp-favorieten", "ah-items-crisp-bestellingen"];
+
+// Winkels: per winkel de onderdelen en hun subtab, in de volgorde van de tabs. Het onderdeel is ook het stuk in het adres
+// (/stores/jumbo/lists); /stores/ah/receipts/<id> is een kassabon onder Bestellingen, /stores/ah/imported/<ref> een ingelezen
+// oude bestelling (zie price_import.py en router.js). Elk subtab hoort bij één onderdeel, bij welke winkel ook.
+const STORE_SECTIONS = {
+  ah: { recipes: "ah-items-recepten", lists: "ah-items-lijstjes", orders: "ah-items-bestellingen" },
+  jumbo: { recipes: "ah-items-jumbo-recepten", lists: "ah-items-lijstjes", orders: "ah-items-bestellingen" },
+  picnic: { recipes: "ah-items-picnic", favorites: "ah-items-picnic-favorieten", orders: "ah-items-picnic-bestellingen" },
+  crisp: { recipes: "ah-items-crisp-recepten", favorites: "ah-items-crisp-favorieten", orders: "ah-items-crisp-bestellingen" },
+};
+
+function itemsOpenSubtab() {
+  return document.querySelector("#ah-items .subtab.is-active[data-subtab]")?.dataset.subtab || "";
+}
+
+// Het onderdeel van een subtab: "lists" voor ah-items-lijstjes, "orders" voor ah-items-picnic-bestellingen.
+function itemsSection(subtab) {
+  for (const sections of Object.values(STORE_SECTIONS)) {
+    const found = Object.entries(sections).find(([, id]) => id === subtab);
+    if (found) return found[0];
+  }
+  return "";
+}
+
+// Het subtab van een onderdeel bij een winkel. Heeft de winkel dat onderdeel niet (Lijstjes bij Picnic, Favorieten bij
+// AH), dan zijn eerste tab.
+function itemsSubtab(store, section) {
+  const sections = STORE_SECTIONS[store] || STORE_SECTIONS.ah;
+  return sections[section] || Object.values(sections)[0];
+}
+
+// Waar de winkelkeuze heen gaat: hetzelfde onderdeel als nu open staat, zoals bij Aanbiedingen.
+function itemsStorePath(store) {
+  return storesPath(store, itemsSection(itemsSubtab(store, itemsSection(itemsOpenSubtab()))));
+}
 
 function renderItemsStore() {
   const stores = itemsStores();
@@ -1262,10 +1320,10 @@ function renderItemsStore() {
   $("#items-store-list").innerHTML = stores
     .map(
       (key) =>
-        `<a class="subtab-menu__item${state.itemsStore === key ? " is-active" : ""}" data-store="${key}" href="/stores/${key}" data-nav>${escapeHtml(STORES[key].name)}</a>`
+        `<a class="subtab-menu__item${state.itemsStore === key ? " is-active" : ""}" data-store="${key}" href="${escapeHtml(itemsStorePath(key))}" data-nav>${escapeHtml(STORES[key].name)}</a>`
     )
     .join("");
-  // AH heeft recepten, Jumbo zijn favoriete recepten (zoeken naar Jumbo-recepten staat bij Recepten zoeken); lijstjes en bestellingen zijn er voor AH en Jumbo; Picnic heeft recepten, favorieten en bestellingen; Crisp favorieten en bestellingen.
+  // AH heeft recepten, Jumbo zijn favoriete recepten (zoeken naar Jumbo-recepten staat bij Recepten zoeken); lijstjes en bestellingen zijn er voor AH en Jumbo; Picnic heeft recepten, favorieten en bestellingen; Crisp je bewaarde recepten, favorieten en bestellingen.
   const picnic = state.itemsStore === "picnic";
   const crisp = state.itemsStore === "crisp";
   // Picnic en Crisp hebben eigen tabs voor hun bestellingen; de lijstjes en bestellingen van AH en Jumbo horen daar niet bij.
@@ -1280,26 +1338,57 @@ function renderItemsStore() {
   PICNIC_SUBTABS.forEach((subtab) => hide(subtab, !picnic));
   JUMBO_SUBTABS.forEach((subtab) => hide(subtab, state.itemsStore !== "jumbo"));
   CRISP_SUBTABS.forEach((subtab) => hide(subtab, !crisp));
-  // Staat de open tab niet meer bij de gekozen winkel (bijvoorbeeld na het ontkoppelen), ga dan naar de eerste die er wel is.
-  const open = document.querySelector("#ah-items .subtab.is-active");
-  if (open?.hidden) document.querySelector("#ah-items .subtab[data-subtab]:not([hidden])")?.click();
+  // Staat de open tab niet meer bij de gekozen winkel (bijvoorbeeld na het ontkoppelen), ga dan naar hetzelfde onderdeel bij
+  // deze winkel, of naar zijn eerste tab.
+  const open = itemsOpenSubtab();
+  if (open && document.querySelector(`#ah-items .subtab[data-subtab="${open}"]`).hidden) {
+    document.querySelector(`#ah-items .subtab[data-subtab="${itemsSubtab(state.itemsStore, itemsSection(open))}"]`)?.click();
+  }
   if (typeof routerRetry === "function") routerRetry();
 }
 
-function switchItemsStore(store) {
+// Een andere winkel kiezen. Het onderdeel dat open staat (Recepten, Lijstjes, Bestellingen of Favorieten) blijft open, zoals
+// bij Aanbiedingen; heeft de nieuwe winkel het niet, dan opent zijn eerste tab. Een adres kan een ander onderdeel vragen.
+// `chosen`: de gebruiker koos hem zelf (menu of adres); anders is het de voorkeurssupermarkt (itemsFollowPreferred).
+function switchItemsStore(store, section = itemsSection(itemsOpenSubtab()), { chosen = true } = {}) {
+  state.itemsStoreChosen = chosen;
   state.itemsStore = itemsStores().includes(store) ? store : "ah";
-  // Een andere winkel heeft andere lijstjes: begin met een schone lijst en laad opnieuw.
+  // Een andere winkel heeft andere lijstjes en bestellingen: begin schoon. Ze laden opnieuw als hun tab hieronder opent.
   state.ahListsLoaded = false;
   state.ahLists = [];
   state.ahListHits = {};
   state.ahListQuery = "";
   $("#ah-list-filter").value = "";
-  closeAhList(false);
+  // Een open lijstje dicht zonder stap terug in de browser: die zou het adres van de vorige winkel weer openen.
+  state.ahListFromOverview = false;
+  showAhListsOverview({ restoreScroll: false });
   renderAhLists();
-  renderItemsStore();
   if (typeof resetOrders === "function") resetOrders();
-  // Elke winkel begint bij zijn eerste tabblad, en dat is steeds Recepten. De lijstjes en bestellingen laden opnieuw als je ze opent.
-  document.querySelector("#ah-items .subtab[data-subtab]:not([hidden])")?.click();
+  // Eerst de tab openen en dan de balk tekenen: zo laadt alleen deze tab, een keer, en krijgt het adres een stap. Andersom
+  // ging renderItemsStore eerst nog naar een andere tab, als de open tab bij deze winkel niet bestaat.
+  document.querySelector(`#ah-items .subtab[data-subtab="${itemsSubtab(state.itemsStore, section)}"]`)?.click();
+  renderItemsStore();
+}
+
+// Winkels opent met de voorkeurssupermarkt, tot je zelf een winkel kiest. Alleen terwijl Winkels open staat: een wissel opent
+// een tab, en die laadt de recepten, lijstjes of bestellingen van die winkel. Wacht een adres nog op een koppeling
+// (router.pending), dan beslist dat adres.
+function itemsFollowPreferred() {
+  if (state.itemsStoreChosen || (typeof router !== "undefined" && router.pending)) return;
+  if (!document.querySelector("#ah-items.is-active")) return;
+  const store = defaultStoreOf(itemsStores());
+  if (store !== state.itemsStore) switchItemsStore(store, itemsSection(itemsOpenSubtab()), { chosen: false });
+}
+
+// Een andere voorkeurssupermarkt (Instellingen, Voorkeuren): Aanbiedingen en Winkels openen voortaan daarmee, ook als je er
+// eerder zelf een andere winkel koos.
+function preferredSupermarketChanged() {
+  if (typeof routerRetry === "function") routerRetry(); // een adres dat nog op een koppeling wachtte, is niet meer open
+  state.itemsStoreChosen = false;
+  if (typeof offersState !== "undefined") offersState.chosen = false;
+  itemsFollowPreferred();
+  if (typeof offersFollowPreferred === "function") offersFollowPreferred();
+  if (typeof routerRefreshLinks === "function") routerRefreshLinks();
 }
 
 try {
@@ -1697,23 +1786,32 @@ async function importUrl(url, button = null) {
   }
 }
 
-// De blokken onder Beheer > Koppelen (Mealie, "Inloggen bij ..." per winkel en de AI-beoordeling) zijn inklapbaar en klappen in zodra de
-// koppeling er is (bij de AI-beoordeling: zodra er een sleutel is). Een keuze van de gebruiker blijft staan.
+// De blokken onder Instellingen > Koppelen zijn inklapbaar, in het compacte formaat van Weergave (.fold--compact). Mealie en de
+// winkels klappen in zodra de koppeling er is; de AI-beoordeling staat dicht tot je hem opent, de Aanbiedingen open. Een keuze van
+// de gebruiker blijft staan zolang de pagina open is. Per blok het begin van de id's van de knop en het inklapbare deel.
+const LINK_FOLDS = {
+  offers: "offers-sync",
+  ai: "ai-login",
+  mealie: "mealie-login",
+  ah: "ah-login",
+  jumbo: "jumbo-login",
+  picnic: "picnic-login",
+  crisp: "crisp-login",
+};
 state.storeFold = {};
 
-function applyStoreFold(store, linked) {
-  const toggle = $(`#${store}-login-toggle`);
+function applyStoreFold(store, closed) {
+  const toggle = $(`#${LINK_FOLDS[store]}-toggle`);
   if (!toggle) return;
-  const open = state.storeFold[store] ?? !linked;
+  const open = state.storeFold[store] ?? !closed;
   toggle.setAttribute("aria-expanded", String(open));
   toggle.title = t(open ? "sec.collapse" : "sec.expand");
-  $(`#${store}-login-body`).hidden = !open;
+  $(`#${LINK_FOLDS[store]}-body`).hidden = !open;
 }
 
-for (const store of ["mealie", "ah", "picnic", "jumbo", "crisp", "ai"]) {
-  $(`#${store}-login-toggle`).addEventListener("click", () => {
-    const toggle = $(`#${store}-login-toggle`);
-    state.storeFold[store] = toggle.getAttribute("aria-expanded") !== "true";
+for (const store of Object.keys(LINK_FOLDS)) {
+  $(`#${LINK_FOLDS[store]}-toggle`).addEventListener("click", () => {
+    state.storeFold[store] = $(`#${LINK_FOLDS[store]}-toggle`).getAttribute("aria-expanded") !== "true";
     applyStoreFold(store, false);
   });
 }
@@ -2468,6 +2566,7 @@ function showPanel(panelId, tab = null) {
   $(`#${panelId}`).classList.add("is-active");
   // Zoals een native tabbalk: een andere tab begint bovenaan.
   window.scrollTo({ top: 0 });
+  if (panelId === "ah-items") itemsFollowPreferred();
   if (panelId === "ah-items" && !state.ahRecipesLoaded) loadSavedRecipes({ cachedOnly: true });
   if (panelId === "about" && !state.aboutLoaded) loadAbout();
   if (panelId === "basket") showBasket();
@@ -2476,6 +2575,7 @@ function showPanel(panelId, tab = null) {
   if (panelId === "recipes") ensureMealPlan();
   if (panelId === "settings" && !isRegularUser() && typeof loadOffersSyncStatus === "function") loadOffersSyncStatus();
   if (panelId === "settings" && !isRegularUser() && typeof loadLinkingBox === "function") loadLinkingBox();
+  if (typeof cookWakeUpdate === "function") cookWakeUpdate(); // een ander scherm: is er nog een recept in beeld?
   if (typeof routerSync === "function") routerSync();
 }
 
@@ -2572,12 +2672,14 @@ document.querySelectorAll(".subtab[data-subtab], .subtab-menu__item[data-subtab]
     if (subtab.dataset.subtab === "profile-ai" && typeof loadAi === "function") loadAi();
     if (subtab.dataset.subtab === "settings-audit" && typeof loadAudit === "function") loadAudit();
     if (subtab.dataset.subtab === "settings-system" && typeof loadBackup === "function") loadBackup();
+    if (subtab.dataset.subtab === "settings-system" && typeof loadPriceArchive === "function") loadPriceArchive();
     if (subtab.dataset.subtab === "settings-system" && typeof loadImageCacheStatus === "function") loadImageCacheStatus();
     if (subtab.dataset.subtab === "ah-items-bestellingen" && typeof loadOrders === "function") loadOrders();
     if (subtab.dataset.subtab === "ah-items-picnic" && typeof loadPicnicRecipes === "function" && !picnicRecipes.loaded) loadPicnicRecipes();
     if (subtab.dataset.subtab === "ah-items-picnic-favorieten" && typeof loadPicnicFavorites === "function" && !picnicFavorites.loaded) loadPicnicFavorites({ refresh: false });
     if (subtab.dataset.subtab === "ah-items-picnic-bestellingen" && typeof loadPicnicOrders === "function" && !picnicOrders.loaded) loadPicnicOrders();
     if (subtab.dataset.subtab === "ah-items-jumbo-recepten" && typeof loadJumboFavorites === "function" && !jumboFavorites.loaded) loadJumboFavorites();
+    if (subtab.dataset.subtab === "ah-items-crisp-recepten" && typeof loadCrispRecipes === "function" && !crispRecipes.loaded) loadCrispRecipes();
     if (subtab.dataset.subtab === "ah-items-crisp-favorieten" && typeof loadCrispFavorites === "function" && !crispFavorites.loaded) loadCrispFavorites();
     if (subtab.dataset.subtab === "ah-items-crisp-bestellingen" && typeof loadCrispOrders === "function" && !crispOrders.loaded) loadCrispOrders();
     if (subtab.dataset.subtab === "ah-items-lijstjes" && !state.ahListsLoaded) {
@@ -2645,7 +2747,7 @@ function isRegularUser() {
   return document.documentElement.classList.contains("is-regular-user");
 }
 
-// Een gewone gebruiker ziet onder Instellingen alleen Weergave.
+// Een gewone gebruiker ziet onder Instellingen alleen Voorkeuren.
 function openSettings(subtab = "settings-link") {
   openSubtab("settings", isRegularUser() ? "settings-appearance" : subtab);
 }
@@ -2673,6 +2775,7 @@ $("#meal-days").addEventListener("click", (event) => {
   else openPlanDialog({ entry });
 });
 // Het recept van een maaltijd (openMealRecipe): Wijzigen gaat naar het plan-venster; Sluiten, Esc of een tik naast het venster sluit.
+// "Start met koken" in het venster opent de kookmodus (#cook-mode, recipe_view.js) erbovenop; dat is een eigen venster ernaast.
 $("#meal-recipe-edit").addEventListener("click", () => {
   const entry = mealRecipe.entry;
   $("#meal-recipe-dialog").close();
@@ -2903,7 +3006,7 @@ function offersPath(sub = "", params = {}) {
 
 // De prijsgeschiedenis van een product: de naam zoekt hem op, het id kiest hem in de lijst.
 function priceHistoryPath(store, title, productId = "") {
-  return offersPath("history", { store: store === "ah" ? "" : store, q: title || "", product: productId ? String(productId) : "" });
+  return offersPath("history", { store: offersStoreParam(store), q: title || "", product: productId ? String(productId) : "" });
 }
 
 // Waar een aankoop vandaan komt: een bestelling of kassabon heeft een eigen adres, als de app hem kan tonen.

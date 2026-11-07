@@ -66,6 +66,7 @@
         root.setAttribute("data-theme", theme);
         if (look && typeof look === "object") {
           if (look.navbarStyle === "ios" || look.navbarStyle === "android") nav = look.navbarStyle;
+          if (look.cookingMode === false) root.classList.add("no-cook-mode"); // Instellingen, Voorkeuren, Weergave
           if (Number.isInteger(look.navbarGlass)) { // dezelfde som als applyNavGlass in static/theme.js
             var glass = Math.min(100, Math.max(0, look.navbarGlass));
             root.style.setProperty("--nav-alpha", (1 - glass * 0.0085).toFixed(3));
@@ -356,6 +357,42 @@
           <button class="button button--secondary" type="button" id="meal-recipe-edit"><svg class="mdi" viewBox="0 0 24 24" aria-hidden="true" data-mdi="mdiPencilOutline"><path d="M14.06,9L15,9.94L5.92,19H5V18.08L14.06,9M17.66,3C17.41,3 17.15,3.1 16.96,3.29L15.13,5.12L18.88,8.87L20.71,7.04C21.1,6.65 21.1,6 20.71,5.63L18.37,3.29C18.17,3.09 17.92,3 17.66,3M14.06,6.19L3,17.25V21H6.75L17.81,9.94L14.06,6.19Z"/></svg><span data-i18n="plan.edit">Wijzigen</span></button>
           <button class="button" type="button" id="meal-recipe-close" data-i18n="common.close">Sluiten</button>
         </div>
+      </div>
+    </dialog>
+    <!-- De kookmodus (recipe_view.js): schermvullend, één stap tegelijk. Een eigen venster naast het recept van een maaltijd,
+         zodat het er ook bovenop kan openen. -->
+    <dialog id="cook-mode" class="product-dialog cook-mode" aria-labelledby="cook-mode-title">
+      <div class="cook-mode__inner">
+        <header class="cook-mode__head">
+          <div class="cook-mode__titles">
+            <p class="cook-mode__eyebrow" data-i18n="cook.mode">Kookmodus</p>
+            <h2 id="cook-mode-title"></h2>
+          </div>
+          <div class="cook-mode__tools">
+            <button class="button button--secondary" type="button" id="cook-mode-ingredients" aria-expanded="false" aria-controls="cook-mode-panel"><svg class="mdi" viewBox="0 0 24 24" aria-hidden="true" data-mdi="mdiFormatListChecks"><path d="M3,5H9V11H3V5M5,7V9H7V7H5M11,7H21V9H11V7M11,15H21V17H11V15M5,20L1.5,16.5L2.91,15.09L5,17.17L9.59,12.59L11,14L5,20Z"/></svg><span data-i18n="rsearch.ingredients">Ingrediënten</span></button>
+            <label class="switch-row cook__wake" data-cook-wake-row title="Je scherm gaat niet uit zolang je dit recept bekijkt. Dit toestel onthoudt je keuze." data-i18n-attr="title:cook.wake_hint" hidden><input type="checkbox" role="switch" data-cook-wake><span data-i18n="cook.wake">Scherm aan laten</span></label>
+          </div>
+          <button class="icon-button cook-mode__close" type="button" id="cook-mode-close" aria-label="Kookmodus sluiten" data-i18n-attr="aria-label:cook.close"><svg class="mdi" viewBox="0 0 24 24" aria-hidden="true" data-mdi="mdiClose"><path d="M19,6.41L17.59,5L12,10.59L6.41,5L5,6.41L10.59,12L5,17.59L6.41,19L12,13.41L17.59,19L19,17.59L13.41,12L19,6.41Z"/></svg></button>
+          <span class="cook__meter cook-mode__meter" aria-hidden="true"><i id="cook-mode-meter"></i></span>
+        </header>
+        <div class="cook-mode__body">
+          <section class="cook-mode__stage" id="cook-mode-stage" aria-labelledby="cook-mode-counter">
+            <div class="cook-mode__step" id="cook-mode-step" aria-live="polite" aria-atomic="true">
+              <p class="cook-mode__counter" id="cook-mode-counter" tabindex="-1" autofocus></p>
+              <h3 class="cook-mode__step-title" id="cook-mode-step-title" hidden></h3>
+              <p class="cook-mode__text" id="cook-mode-text"></p>
+            </div>
+            <button class="button button--secondary cook-mode__done" type="button" id="cook-mode-done" aria-pressed="false"><svg class="mdi" viewBox="0 0 24 24" aria-hidden="true" data-mdi="mdiCheck"><path d="M21,7L9,19L3.5,13.5L4.91,12.09L9,16.17L19.59,5.59L21,7Z"/></svg><span data-i18n="cook.step_done">Stap klaar</span></button>
+          </section>
+          <aside class="cook-mode__panel" id="cook-mode-panel" aria-labelledby="cook-mode-panel-title" hidden>
+            <h3 id="cook-mode-panel-title" data-i18n="rsearch.ingredients">Ingrediënten</h3>
+            <div id="cook-mode-ingredients-list"></div>
+          </aside>
+        </div>
+        <footer class="cook-mode__nav">
+          <button class="button button--secondary" type="button" id="cook-mode-prev"><svg class="mdi" viewBox="0 0 24 24" aria-hidden="true" data-mdi="mdiChevronLeft"><path d="M15.41,16.58L10.83,12L15.41,7.41L14,6L8,12L14,18L15.41,16.58Z"/></svg><span data-i18n="cook.prev">Vorige</span></button>
+          <button class="button" type="button" id="cook-mode-next"><span id="cook-mode-next-label" data-i18n="cook.next">Volgende</span><svg class="mdi" viewBox="0 0 24 24" aria-hidden="true" data-mdi="mdiChevronRight"><path d="M8.59,16.58L13.17,12L8.59,7.41L10,6L16,12L10,18L8.59,16.58Z"/></svg></button>
+        </footer>
       </div>
     </dialog>
 
@@ -776,6 +813,7 @@
           <a class="subtab" data-subtab="ah-items-picnic" hidden data-i18n="picnic.recipes.tab" href="/stores/picnic/recipes" data-nav>Recepten</a>
           <a class="subtab" data-subtab="ah-items-picnic-favorieten" hidden data-i18n="picnic.favorites.tab" href="/stores/picnic/favorites" data-nav>Favorieten</a>
           <a class="subtab" data-subtab="ah-items-picnic-bestellingen" hidden data-i18n="picnic.orders.tab" href="/stores/picnic/orders" data-nav>Bestellingen</a>
+          <a class="subtab" data-subtab="ah-items-crisp-recepten" hidden data-i18n="crisp.recipes.tab" href="/stores/crisp/recipes" data-nav>Recepten</a>
           <a class="subtab" data-subtab="ah-items-crisp-favorieten" hidden data-i18n="crisp.favorites.tab" href="/stores/crisp/favorites" data-nav>Favorieten</a>
           <a class="subtab" data-subtab="ah-items-crisp-bestellingen" hidden data-i18n="crisp.orders.tab" href="/stores/crisp/orders" data-nav>Bestellingen</a>
         </nav>
@@ -1027,6 +1065,44 @@
         </div>
         </div>
 
+        <div id="ah-items-crisp-recepten" class="subpanel">
+        <div class="box box--wide" id="crisp-recipes-view">
+          <div class="toolbar">
+            <h2 data-i18n="crisp.recipes.title">Recepten van Crisp</h2>
+            <button class="button button--secondary" id="load-crisp-recipes" type="button" data-i18n="common.load">Laden</button>
+          </div>
+          <label class="searchbar">
+            <span class="visually-hidden" data-i18n="picnic.recipes.search">Zoek in de recepten</span>
+            <svg class="searchbar__icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M9.5,3A6.5,6.5 0 0,1 16,9.5C16,11.11 15.41,12.59 14.44,13.73L14.71,14H15.5L20.5,19L19,20.5L14,15.5V14.71L13.73,14.44C12.59,15.41 11.11,16 9.5,16A6.5,6.5 0 0,1 3,9.5A6.5,6.5 0 0,1 9.5,3M9.5,5C7,5 5,7 5,9.5C5,12 7,14 9.5,14C12,14 14,12 14,9.5C14,7 12,5 9.5,5Z"/></svg>
+            <input class="input" id="crisp-recipe-filter" type="search" placeholder="Zoek in de recepten" autocomplete="off" enterkeyhint="search" disabled data-i18n-attr="placeholder:picnic.recipes.search">
+          </label>
+          <p class="muted" data-i18n="crisp.recipes.intro">Je favoriete recepten uit de Crisp-app (het hartje bij een recept). Bekijk een recept voor de ingrediënten en de bereiding, of plan het in je weekmenu; dan komt het ook in Mealie. Zoeken in alle Crisp-recepten doe je bij Recepten zoeken.</p>
+          <p class="muted" id="crisp-recipes-status"></p>
+          <div class="bulk-tools" data-bulk-tools="crisp" hidden>
+            <button class="button button--secondary" type="button" data-bulk-select="crisp" aria-pressed="false" hidden data-i18n="bulk.select">Selecteren</button>
+            <button class="button button--secondary" type="button" data-bulk-group="crisp" hidden></button>
+            <button class="button button--secondary bulk-status" type="button" data-bulk-status="crisp" hidden></button>
+          </div>
+          <div id="crisp-recipes-message"></div>
+          <div id="crisp-recipes" class="recipe-grid recipe-grid--compact"></div>
+          <div class="bulk-bar" data-bulk-bar="crisp" hidden>
+            <span class="bulk-bar__count" data-bulk-count="crisp" role="status" aria-live="polite"></span>
+            <button class="button button--secondary" type="button" data-bulk-all="crisp" data-i18n="bulk.select_all">Alles selecteren</button>
+            <button class="button button--secondary" type="button" data-bulk-clear="crisp" data-i18n="bulk.select_done">Klaar</button>
+            <button class="button" type="button" data-bulk-import="crisp" disabled></button>
+            <p class="bulk-bar__note" data-bulk-note="crisp" role="status" aria-live="polite" hidden></p>
+          </div>
+        </div>
+        <div class="box box--wide" id="crisp-recipe-view" hidden>
+          <div class="list-header">
+            <button class="icon-button" id="crisp-recipe-back" type="button" aria-label="Terug naar de recepten" data-i18n-attr="aria-label:picnic.recipes.back"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15.41,16.58L10.83,12L15.41,7.41L14,6L8,12L14,18L15.41,16.58Z"/></svg></button>
+            <h2 id="crisp-recipe-title" tabindex="-1"></h2>
+          </div>
+          <div id="crisp-recipe-message"></div>
+          <div id="crisp-recipe-body"></div>
+        </div>
+        </div>
+
         <div id="ah-items-crisp-favorieten" class="subpanel">
         <div class="box box--wide">
           <div class="toolbar">
@@ -1212,7 +1288,7 @@
           <a class="subtab" data-subtab="settings-users" data-admin-only hidden data-i18n="settings.tab.users" href="/settings/users" data-nav>Gebruikers</a>
           <a class="subtab" data-subtab="settings-audit" data-admin-only data-i18n="settings.tab.audit" href="/settings/audit" data-nav>Auditlog</a>
           <a class="subtab" data-subtab="settings-system" data-admin-only href="/settings/system" data-nav><span data-i18n="settings.tab.system">Systeem</span><span class="update-dot" id="update-dot-subtab" hidden></span></a>
-          <a class="subtab" data-subtab="settings-appearance" data-i18n="settings.tab.appearance" href="/settings/appearance" data-nav>Weergave</a>
+          <a class="subtab" data-subtab="settings-appearance" data-i18n="settings.tab.appearance" href="/settings/preferences" data-nav>Voorkeuren</a>
         </nav>
 
         <div id="settings-link" class="subpanel is-active">
@@ -1228,20 +1304,22 @@
           <div id="linking-box-body"></div>
           <div id="linking-box-message"></div>
         </div>
-        <div class="box" id="offers-sync-box">
-          <h2 data-i18n="offers.sync.title">Aanbiedingen</h2>
-          <p class="muted" data-i18n="offers.sync.intro">MealieShopper haalt elke dag de aanbiedingen van Albert Heijn, Picnic, Jumbo en Crisp op (Picnic, Jumbo en Crisp zodra ze gekoppeld zijn). Met de knop haal je ze meteen op.</p>
-          <div class="toolbar">
-            <button class="button" id="offers-sync-all" type="button" data-i18n="offers.sync.button">Aanbiedingen synchroniseren</button>
+        <div class="box fold fold--compact" id="offers-sync-box">
+          <h2 class="fold__title"><button type="button" class="fold__toggle" id="offers-sync-toggle" aria-expanded="true" aria-controls="offers-sync-body"><span data-i18n="offers.sync.title">Aanbiedingen</span><svg class="fold__chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="M7.41,8.58L12,13.17L16.59,8.58L18,10L12,16L6,10L7.41,8.58Z"/></svg></button></h2>
+          <div class="fold__body" id="offers-sync-body">
+            <p class="muted" data-i18n="offers.sync.intro">MealieShopper haalt elke dag de aanbiedingen van Albert Heijn, Picnic, Jumbo en Crisp op (Picnic, Jumbo en Crisp zodra ze gekoppeld zijn). Met de knop haal je ze meteen op.</p>
+            <div class="toolbar">
+              <button class="button" id="offers-sync-all" type="button" data-i18n="offers.sync.button">Aanbiedingen synchroniseren</button>
+            </div>
+            <div id="offers-sync-message"></div>
+            <ul class="offers-sync-list" id="offers-sync-stores"></ul>
+            <p class="muted" id="offers-sync-schedule"></p>
           </div>
-          <div id="offers-sync-message"></div>
-          <ul class="offers-sync-list" id="offers-sync-stores"></ul>
-          <p class="muted" id="offers-sync-schedule"></p>
         </div>
-        <div class="box fold" id="ai-login-box">
-          <h2 class="fold__title"><button type="button" class="fold__toggle" id="ai-login-toggle" aria-expanded="true" aria-controls="ai-login-body"><span data-i18n="aireview.title">AI-beoordeling van koppelingen</span><svg class="fold__chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="M7.41,8.58L12,13.17L16.59,8.58L18,10L12,16L6,10L7.41,8.58Z"/></svg></button></h2>
-          <div class="fold__body" id="ai-login-body">
-            <p class="muted" data-i18n="aireview.intro">Heb je een API-sleutel van Claude (Anthropic) of ChatGPT (OpenAI), dan kan een AI recepten zoeken bij de producten in de aanbieding van een winkel. Je start dat zelf met de knop Recepten zoeken met AI bij de receptvoorstellen: de AI koppelt de ingrediënten van je recepten (Mealie, Albert Heijn, Jumbo en Picnic) aan producten uit de aanbieding. Die koppelingen vervangen de koppelingen van MealieShopper voor de recepten die de AI doorzocht heeft. Het is helemaal optioneel: zonder sleutel werkt alles zoals eerst.</p>
+        <div class="box fold fold--compact" id="ai-login-box">
+          <h2 class="fold__title"><button type="button" class="fold__toggle" id="ai-login-toggle" aria-expanded="false" aria-controls="ai-login-body"><span data-i18n="aireview.title">AI-beoordeling van koppelingen</span><svg class="fold__chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="M7.41,8.58L12,13.17L16.59,8.58L18,10L12,16L6,10L7.41,8.58Z"/></svg></button></h2>
+          <div class="fold__body" id="ai-login-body" hidden>
+            <p class="muted" data-i18n="aireview.intro">Heb je een API-sleutel van Claude (Anthropic) of ChatGPT (OpenAI), dan kan een AI recepten zoeken bij de producten in de aanbieding van een winkel. Je start dat zelf met de knop Recepten zoeken met AI bij de receptvoorstellen: de AI koppelt de ingrediënten van je recepten (Mealie, Albert Heijn, Jumbo, Picnic en Crisp) aan producten uit de aanbieding. Die koppelingen vervangen de koppelingen van MealieShopper voor de recepten die de AI doorzocht heeft. Het is helemaal optioneel: zonder sleutel werkt alles zoals eerst.</p>
             <p class="muted" data-i18n="aireview.privacy">Er gaat alleen tekst van producten uit de aanbieding en van ingrediënten naar de aanbieder (geen recepttitels, namen of adressen), en alleen als je zelf op de knop drukt. Een ronde doorzoekt maximaal 120 recepten en kost geld bij de aanbieder; je ziet vooraf een schatting en na afloop het aantal gebruikte tokens. De sleutel wordt versleuteld opgeslagen en nooit meer getoond.</p>
             <form class="auth-form" id="ai-review-form" autocomplete="off">
               <label class="field">
@@ -1254,7 +1332,7 @@
               </label>
               <div class="ai-provider">
                 <h3>Claude (Anthropic)</h3>
-                <p class="muted" id="ai-status-anthropic"></p>
+                <p class="muted ai-review__status" id="ai-status-anthropic"></p>
                 <label class="field">
                   <span data-i18n="aireview.key">API-sleutel</span>
                   <input class="input" id="ai-key-anthropic" type="password" placeholder="Plak hier de sleutel" autocomplete="off" spellcheck="false" data-i18n-attr="placeholder:aireview.key_ph">
@@ -1270,7 +1348,7 @@
               </div>
               <div class="ai-provider">
                 <h3>ChatGPT (OpenAI)</h3>
-                <p class="muted" id="ai-status-openai"></p>
+                <p class="muted ai-review__status" id="ai-status-openai"></p>
                 <label class="field">
                   <span data-i18n="aireview.key">API-sleutel</span>
                   <input class="input" id="ai-key-openai" type="password" placeholder="Plak hier de sleutel" autocomplete="off" spellcheck="false" data-i18n-attr="placeholder:aireview.key_ph">
@@ -1291,7 +1369,7 @@
           </div>
           <div id="ai-review-message"></div>
         </div>
-        <div class="box fold" id="mealie-login-box">
+        <div class="box fold fold--compact" id="mealie-login-box">
           <h2 class="fold__title"><button type="button" class="fold__toggle" id="mealie-login-toggle" aria-expanded="true" aria-controls="mealie-login-body"><span data-i18n="link.mealie">Mealie</span><svg class="fold__chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="M7.41,8.58L12,13.17L16.59,8.58L18,10L12,16L6,10L7.41,8.58Z"/></svg></button></h2>
           <div class="fold__body" id="mealie-login-body">
             <p class="muted" id="mealie-source" hidden></p>
@@ -1327,7 +1405,7 @@
             </div>
           </div>
         </div>
-        <div class="box fold" id="ah-login-box">
+        <div class="box fold fold--compact" id="ah-login-box">
           <h2 class="fold__title"><button type="button" class="fold__toggle" id="ah-login-toggle" aria-expanded="true" aria-controls="ah-login-body"><span data-i18n="ahlogin.title">Albert Heijn</span><svg class="fold__chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="M7.41,8.58L12,13.17L16.59,8.58L18,10L12,16L6,10L7.41,8.58Z"/></svg></button></h2>
           <div class="fold__body" id="ah-login-body">
             <p class="muted" data-i18n="ahlogin.intro">Je logt rechtstreeks in op login.ah.nl, zodat je passkey en de AH-inlogknop gewoon werken. Dit gaat op een computer (niet op een telefoon of tablet), omdat je de browserconsole nodig hebt.</p>
@@ -1364,7 +1442,7 @@
             </div>
           </div>
         </div>
-        <div class="box fold" id="jumbo-login-box">
+        <div class="box fold fold--compact" id="jumbo-login-box">
           <h2 class="fold__title"><button type="button" class="fold__toggle" id="jumbo-login-toggle" aria-expanded="true" aria-controls="jumbo-login-body"><span data-i18n="jumbo.title">Jumbo</span><svg class="fold__chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="M7.41,8.58L12,13.17L16.59,8.58L18,10L12,16L6,10L7.41,8.58Z"/></svg></button></h2>
           <div class="fold__body" id="jumbo-login-body">
             <p class="muted" data-i18n="jumbo.intro">Jumbo heeft geen officiële koppeling. Je logt rechtstreeks in op Jumbo, in je eigen browser (op een computer, niet op een telefoon of tablet), omdat je de browserconsole nodig hebt. MealieShopper bewaart geen wachtwoord, alleen een sessie die Jumbo teruggeeft, versleuteld.</p>
@@ -1402,7 +1480,7 @@
             </div>
           </div>
         </div>
-        <div class="box fold" id="picnic-login-box">
+        <div class="box fold fold--compact" id="picnic-login-box">
           <h2 class="fold__title"><button type="button" class="fold__toggle" id="picnic-login-toggle" aria-expanded="true" aria-controls="picnic-login-body"><span data-i18n="picnic.title">Picnic</span><svg class="fold__chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="M7.41,8.58L12,13.17L16.59,8.58L18,10L12,16L6,10L7.41,8.58Z"/></svg></button></h2>
           <div class="fold__body" id="picnic-login-body">
             <p class="muted" data-i18n="picnic.intro">Picnic heeft geen officiële koppeling. MealieShopper logt in zoals de Picnic-app, met je e-mailadres en wachtwoord. Het wachtwoord wordt niet bewaard: alleen de sessie die Picnic teruggeeft, versleuteld.</p>
@@ -1451,7 +1529,7 @@
             </div>
           </div>
         </div>
-        <div class="box fold" id="crisp-login-box">
+        <div class="box fold fold--compact" id="crisp-login-box">
           <h2 class="fold__title"><button type="button" class="fold__toggle" id="crisp-login-toggle" aria-expanded="true" aria-controls="crisp-login-body"><span data-i18n="crisp.title">Crisp</span><svg class="fold__chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="M7.41,8.58L12,13.17L16.59,8.58L18,10L12,16L6,10L7.41,8.58Z"/></svg></button></h2>
           <div class="fold__body" id="crisp-login-body">
             <p class="muted" data-i18n="crisp.intro">Crisp heeft geen officiële koppeling. MealieShopper logt in zoals de Crisp-app: met je e-mailadres en een code die Crisp je mailt. Er is geen wachtwoord. MealieShopper bewaart alleen het apparaat-id waaraan Crisp je account koppelt, versleuteld.</p>
@@ -1601,6 +1679,15 @@
             </label>
             <p class="muted" data-i18n="backup.links_hint">Zonder koppelingen moet je na het terugzetten alles opnieuw koppelen. Het wachtwoord wordt nergens bewaard: raak je het kwijt, dan zijn de koppelingen in dit bestand niet meer te lezen.</p>
           </div>
+          <label class="check">
+            <input type="checkbox" id="backup-offers" checked>
+            <span data-i18n="backup.offers_label">Neem de aanbiedingen van nu mee</span>
+          </label>
+          <label class="check">
+            <input type="checkbox" id="backup-offer-history" checked>
+            <span data-i18n="backup.offer_history_label">Neem de historie van aanbiedingen mee</span>
+          </label>
+          <p class="muted" data-i18n="backup.parts_hint">Zonder de aanbiedingen wordt het bestand kleiner. Bij het terugzetten blijven de aanbiedingen die er dan staan zoals ze zijn. De aanbiedingen van nu haalt de app bij de volgende synchronisatie weer op, de historie niet.</p>
           <p class="muted" data-i18n="backup.never">Wat inlogt op MealieShopper zit er nooit in: passkeys, wachtwoorden, tweestapsverificatie, herstelcodes, uitnodigingen en de toegang van AI-assistenten (MCP). Het auditlog en de bewaarde receptafbeeldingen ook niet; die bouwen zich vanzelf weer op.</p>
           <div class="security-actions">
             <button class="button" type="button" id="backup-make" data-i18n="backup.make">Back-up maken</button>
@@ -1616,10 +1703,25 @@
             <p class="muted" id="backup-made"></p>
             <ul id="backup-summary"></ul>
             <p id="backup-links-line"></p>
+            <h4 data-i18n="backup.restore_choose">Wat zet je terug?</h4>
+            <label class="check" id="backup-restore-links-field" hidden>
+              <input type="checkbox" id="backup-restore-links" checked>
+              <span data-i18n="backup.restore_links">Zet de koppelingen terug</span>
+            </label>
+            <p class="muted" id="backup-restore-links-hint" data-i18n="backup.restore_links_hint" hidden>Daarvoor is het wachtwoord van dit bestand nodig. Wachtwoord kwijt? Vink dit uit: de koppelingen die er nu zijn, blijven dan staan.</p>
             <label class="field" id="backup-restore-passphrase-field" hidden>
               <span data-i18n="backup.restore_passphrase_label">Wachtwoord van dit bestand</span>
               <input class="input" id="backup-restore-passphrase" type="password" autocomplete="off">
             </label>
+            <label class="check" id="backup-restore-offers-field" hidden>
+              <input type="checkbox" id="backup-restore-offers" checked>
+              <span id="backup-restore-offers-text"></span>
+            </label>
+            <label class="check" id="backup-restore-offer-history-field" hidden>
+              <input type="checkbox" id="backup-restore-offer-history" checked>
+              <span id="backup-restore-offer-history-text"></span>
+            </label>
+            <p class="muted" data-i18n="backup.restore_choices_hint">Wat je uitvinkt, blijft zoals het nu is.</p>
             <div class="message error" role="alert">
               <strong data-i18n="backup.confirm_warning">Let op: wat er nu staat aan lijstjes, bestellingen, kassabonnen, aanbiedingen en instellingen wordt vervangen door de inhoud van dit bestand. Dat kan niet ongedaan worden gemaakt.</strong>
             </div>
@@ -1636,6 +1738,53 @@
           </div>
           <div id="backup-message"></div>
           <p class="muted" id="backup-timing"></p>
+        </div>
+        <div class="box" id="price-archive-box">
+          <h2 data-i18n="price_archive.title">Prijsarchief importeren</h2>
+          <p class="muted" data-i18n="price_archive.intro">Voeg historische prijzen toe aan de Prijsgeschiedenis, bijvoorbeeld het folderarchief van Albert Heijn, Jumbo, Picnic en Crisp. Wat de app zelf ophaalde blijft altijd staan, en dezelfde prijs komt er maar één keer in.</p>
+          <label class="field">
+            <span data-i18n="price_archive.file_label">Prijsarchief</span>
+            <input class="input" id="price-archive-file" type="file" accept=".zip,.gz,.tgz,.jsonl,application/zip,application/gzip">
+          </label>
+          <p class="muted" data-i18n="price_archive.formats">Kies de ZIP van het pakket zoals je hem downloadt, het .tar.gz-archief daaruit, een export van MealieShopper (ook de ZIP van een GitHub-repo), of een .jsonl-bestand (ook als .jsonl.gz) in het formaat mealieshopper-price-archive. De handleiding beschrijft het formaat.</p>
+          <div class="backup-confirm" id="price-archive-confirm" hidden>
+            <h4 data-i18n="price_archive.confirm_title">Dit komt erbij</h4>
+            <p class="muted" id="price-archive-source"></p>
+            <ul class="price-archive-stores" id="price-archive-summary"></ul>
+            <p class="muted" id="price-archive-tidied" hidden></p>
+            <p class="muted" id="price-archive-corrections" hidden></p>
+            <label class="check" id="price-archive-replace-field" hidden>
+              <input type="checkbox" id="price-archive-replace">
+              <span data-i18n="price_archive.replace_label">Vervang wat eerder uit een prijsarchief kwam</span>
+            </label>
+            <p class="muted" id="price-archive-replace-note" hidden></p>
+            <p id="price-archive-total"></p>
+            <p class="muted" id="price-archive-keeps-replace" data-i18n="price_archive.keeps_replace" hidden>Alleen wat eerder uit een prijsarchief kwam wordt vervangen; wat de app zelf ophaalde blijft staan. Verlaat je de pagina, dan gaat de import door op de server.</p>
+            <p class="muted" id="price-archive-keeps" data-i18n="price_archive.keeps">Er wordt niets vervangen of verwijderd. Verlaat je de pagina, dan gaat de import door op de server.</p>
+            <div class="security-actions">
+              <button class="button" type="button" id="price-archive-import" data-i18n="price_archive.go">Importeren</button>
+              <button class="button button--secondary" type="button" id="price-archive-discard" data-i18n="common.cancel">Annuleren</button>
+            </div>
+          </div>
+          <div class="backup-progress" id="price-archive-progress" role="status" hidden>
+            <p id="price-archive-progress-label"></p>
+            <progress id="price-archive-progress-bar" max="100"></progress>
+            <p class="muted" id="price-archive-progress-note"></p>
+          </div>
+          <div id="price-archive-message"></div>
+        </div>
+        <div class="box" id="price-export-box">
+          <h2 data-i18n="price_export.title">Prijsarchief exporteren</h2>
+          <p class="muted" data-i18n="price_export.intro">Alle aanbiedingen en prijzen als ZIP, met een bestand per winkel en maand: om te delen, bijvoorbeeld in een GitHub-repo. Je persoonlijke aanbiedingen (Bonus Box) gaan er nooit in. Een andere MealieShopper importeert de ZIP weer met Prijsarchief importeren.</p>
+          <div class="security-actions">
+            <button class="button" type="button" id="price-export-make" data-i18n="price_export.go">Exporteren</button>
+          </div>
+          <div class="backup-progress" id="price-export-progress" role="status" hidden>
+            <p id="price-export-progress-label"></p>
+            <progress id="price-export-progress-bar" max="100"></progress>
+            <p class="muted" id="price-export-progress-note"></p>
+          </div>
+          <div id="price-export-message"></div>
         </div>
         <div class="box" id="cleanup-box">
           <h2 data-i18n="system.cleanup_title">Opschonen</h2>
@@ -1682,54 +1831,87 @@
         </div>
 
         <div id="settings-appearance" class="subpanel">
-        <div class="box">
-          <h2 data-i18n="appearance.theme.title">Thema</h2>
-          <p class="muted" data-i18n="appearance.theme.help">Licht, donker, of wat je apparaat gebruikt. De knop met de maan of de zon bovenaan wisselt ook tussen licht en donker.</p>
-          <fieldset class="appearance-options" id="appearance-theme">
-            <legend class="visually-hidden" data-i18n="appearance.theme.title">Thema</legend>
-            <label class="appearance-option"><input type="radio" name="appearance-theme" value="system"><svg class="mdi" viewBox="0 0 24 24" aria-hidden="true"><path d="M23,11H18A1,1 0 0,0 17,12V21A1,1 0 0,0 18,22H23A1,1 0 0,0 24,21V12A1,1 0 0,0 23,11M23,20H18V13H23V20M20,2H2C0.89,2 0,2.89 0,4V16A2,2 0 0,0 2,18H9V20H7V22H15V20H13V18H15V16H2V4H20V9H22V4C22,2.89 21.1,2 20,2Z"/></svg><span data-i18n="appearance.theme.system">Apparaat volgen</span><svg class="mdi appearance-option__check" viewBox="0 0 24 24" aria-hidden="true"><path d="M21,7L9,19L3.5,13.5L4.91,12.09L9,16.17L19.59,5.59L21,7Z"/></svg></label>
-            <label class="appearance-option"><input type="radio" name="appearance-theme" value="light"><svg class="mdi" viewBox="0 0 24 24" aria-hidden="true"><path d="M3.55 19.09L4.96 20.5L6.76 18.71L5.34 17.29M12 6C8.69 6 6 8.69 6 12S8.69 18 12 18 18 15.31 18 12C18 8.68 15.31 6 12 6M20 13H23V11H20M17.24 18.71L19.04 20.5L20.45 19.09L18.66 17.29M20.45 5L19.04 3.6L17.24 5.39L18.66 6.81M13 1H11V4H13M6.76 5.39L4.96 3.6L3.55 5L5.34 6.81L6.76 5.39M1 13H4V11H1M13 20H11V23H13"/></svg><span data-i18n="appearance.theme.light">Licht</span><svg class="mdi appearance-option__check" viewBox="0 0 24 24" aria-hidden="true"><path d="M21,7L9,19L3.5,13.5L4.91,12.09L9,16.17L19.59,5.59L21,7Z"/></svg></label>
-            <label class="appearance-option"><input type="radio" name="appearance-theme" value="dark"><svg class="mdi" viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12A10 10 0 0 0 15 21.54A10 10 0 0 1 15 2.46A10 10 0 0 0 2 12Z"/></svg><span data-i18n="appearance.theme.dark">Donker</span><svg class="mdi appearance-option__check" viewBox="0 0 24 24" aria-hidden="true"><path d="M21,7L9,19L3.5,13.5L4.91,12.09L9,16.17L19.59,5.59L21,7Z"/></svg></label>
-          </fieldset>
-        </div>
-        <div class="box">
-          <h2 data-i18n="appearance.dark_bg.title">Achtergrond in het donkere thema</h2>
-          <p class="muted" data-i18n="appearance.dark_bg.help">Groen past bij het basilicum van MealieShopper; donkergrijs is neutraal en rustig bij elke accentkleur. Je ziet het verschil als het donkere thema aan staat.</p>
-          <fieldset class="appearance-options" id="appearance-dark-bg">
-            <legend class="visually-hidden" data-i18n="appearance.dark_bg.title">Achtergrond in het donkere thema</legend>
-            <label class="appearance-option"><input type="radio" name="appearance-dark-bg" value="green"><span class="appearance-sample appearance-sample--green" aria-hidden="true"><i></i><i></i></span><span data-i18n="appearance.dark_bg.green">Groen</span><svg class="mdi appearance-option__check" viewBox="0 0 24 24" aria-hidden="true"><path d="M21,7L9,19L3.5,13.5L4.91,12.09L9,16.17L19.59,5.59L21,7Z"/></svg></label>
-            <label class="appearance-option"><input type="radio" name="appearance-dark-bg" value="grey"><span class="appearance-sample appearance-sample--grey" aria-hidden="true"><i></i><i></i></span><span data-i18n="appearance.dark_bg.grey">Donkergrijs</span><svg class="mdi appearance-option__check" viewBox="0 0 24 24" aria-hidden="true"><path d="M21,7L9,19L3.5,13.5L4.91,12.09L9,16.17L19.59,5.59L21,7Z"/></svg></label>
-          </fieldset>
-        </div>
-        <div class="box">
-          <h2 data-i18n="appearance.accent.title">Accentkleur</h2>
-          <p class="muted" data-i18n="appearance.accent.help">De kleur van knoppen, links, de actieve tab en de focusring. Meldingen houden hun eigen kleur, zodat een fout altijd rood blijft. Een kleur die te licht of te donker is voor leesbare tekst, maakt MealieShopper een tint donkerder of lichter.</p>
-          <fieldset class="appearance-swatches" id="appearance-accent">
-            <legend class="visually-hidden" data-i18n="appearance.accent.title">Accentkleur</legend>
-            <span class="appearance-swatches__list" id="appearance-accent-list"></span>
-          </fieldset>
-          <p class="appearance-current" id="appearance-accent-current" aria-live="polite"></p>
-          <div id="appearance-message"></div>
-        </div>
-        <div class="box" id="appearance-nav-box">
-          <h2 data-i18n="appearance.nav.title">Navigatiebalk</h2>
-          <p class="muted" data-i18n="appearance.nav.hint">De balk onderaan in de geïnstalleerde app op een telefoon. Op een groter scherm, en in de browser, staat het menu bovenaan of links.</p>
-          <fieldset class="appearance-options" id="appearance-nav">
-            <legend class="visually-hidden" data-i18n="appearance.nav.style">Stijl van de navigatiebalk</legend>
-            <label class="appearance-option"><input type="radio" name="appearance-nav" value="auto"><span data-i18n="appearance.nav.auto">Automatisch</span><svg class="mdi appearance-option__check" viewBox="0 0 24 24" aria-hidden="true"><path d="M21,7L9,19L3.5,13.5L4.91,12.09L9,16.17L19.59,5.59L21,7Z"/></svg></label>
-            <label class="appearance-option"><input type="radio" name="appearance-nav" value="ios"><span class="appearance-navsample appearance-navsample--ios" aria-hidden="true"><i></i></span><span data-i18n="appearance.nav.ios">iOS-achtig</span><svg class="mdi appearance-option__check" viewBox="0 0 24 24" aria-hidden="true"><path d="M21,7L9,19L3.5,13.5L4.91,12.09L9,16.17L19.59,5.59L21,7Z"/></svg></label>
-            <label class="appearance-option"><input type="radio" name="appearance-nav" value="android"><span class="appearance-navsample appearance-navsample--android" aria-hidden="true"><i></i></span><span data-i18n="appearance.nav.android">Android-achtig</span><svg class="mdi appearance-option__check" viewBox="0 0 24 24" aria-hidden="true"><path d="M21,7L9,19L3.5,13.5L4.91,12.09L9,16.17L19.59,5.59L21,7Z"/></svg></label>
-          </fieldset>
-          <p class="appearance-current" id="appearance-nav-current" aria-live="polite"></p>
-          <div class="appearance-glass" id="appearance-glass-row">
-            <label class="appearance-glass__label" for="appearance-glass" data-i18n="appearance.glass.title">Glaseffect</label>
-            <p class="muted" id="appearance-glass-hint" data-i18n="appearance.glass.hint">0 is ondoorzichtig, hoger is doorzichtiger en meer vervaging. Hoe doorzichtiger, hoe meer een foto onder de balk de labels kan verstoren.</p>
-            <div class="appearance-glass__control">
-              <input type="range" id="appearance-glass" min="0" max="100" step="1" value="60" aria-describedby="appearance-glass-hint">
-              <output id="appearance-glass-value" for="appearance-glass">60%</output>
-            </div>
+        <div class="box fold fold--compact" id="appearance-store-box">
+          <h2 class="fold__title"><button type="button" class="fold__toggle" id="appearance-store-toggle" aria-expanded="false" aria-controls="appearance-store-body"><span data-i18n="appearance.store.title">Supermarkt</span><svg class="fold__chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="M7.41,8.58L12,13.17L16.59,8.58L18,10L12,16L6,10L7.41,8.58Z"/></svg></button></h2>
+          <div class="fold__body" id="appearance-store-body" hidden>
+            <section class="appearance-section" aria-labelledby="appearance-store-label">
+              <h3 id="appearance-store-label" data-i18n="appearance.store.label">Voorkeurssupermarkt</h3>
+              <p class="muted" data-i18n="appearance.store.help">Hiermee openen Aanbiedingen en Winkels. Standaard is dat Albert Heijn.</p>
+              <fieldset class="appearance-options" id="appearance-store">
+                <legend class="visually-hidden" data-i18n="appearance.store.label">Voorkeurssupermarkt</legend>
+                <label class="appearance-option"><input type="radio" name="appearance-store" value="ah" checked><span>Albert Heijn</span><svg class="mdi appearance-option__check" viewBox="0 0 24 24" aria-hidden="true"><path d="M21,7L9,19L3.5,13.5L4.91,12.09L9,16.17L19.59,5.59L21,7Z"/></svg></label>
+                <label class="appearance-option"><input type="radio" name="appearance-store" value="jumbo"><span>Jumbo</span><svg class="mdi appearance-option__check" viewBox="0 0 24 24" aria-hidden="true"><path d="M21,7L9,19L3.5,13.5L4.91,12.09L9,16.17L19.59,5.59L21,7Z"/></svg></label>
+                <label class="appearance-option"><input type="radio" name="appearance-store" value="picnic"><span>Picnic</span><svg class="mdi appearance-option__check" viewBox="0 0 24 24" aria-hidden="true"><path d="M21,7L9,19L3.5,13.5L4.91,12.09L9,16.17L19.59,5.59L21,7Z"/></svg></label>
+                <label class="appearance-option"><input type="radio" name="appearance-store" value="crisp"><span>Crisp</span><svg class="mdi appearance-option__check" viewBox="0 0 24 24" aria-hidden="true"><path d="M21,7L9,19L3.5,13.5L4.91,12.09L9,16.17L19.59,5.59L21,7Z"/></svg></label>
+              </fieldset>
+              <p class="appearance-current" id="appearance-store-current" aria-live="polite"></p>
+              <div id="appearance-store-message"></div>
+            </section>
           </div>
-          <div id="appearance-nav-message"></div>
+        </div>
+        <div class="box fold fold--compact" id="appearance-display-box">
+          <h2 class="fold__title"><button type="button" class="fold__toggle" id="appearance-display-toggle" aria-expanded="false" aria-controls="appearance-display-body"><span data-i18n="appearance.display.title">Weergave</span><svg class="fold__chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="M7.41,8.58L12,13.17L16.59,8.58L18,10L12,16L6,10L7.41,8.58Z"/></svg></button></h2>
+          <div class="fold__body" id="appearance-display-body" hidden>
+            <div class="appearance-setting">
+              <div class="appearance-setting__text">
+                <h3 id="appearance-cooking-label" data-i18n="appearance.cooking.title">Kookmodus</h3>
+                <p class="muted" id="appearance-cooking-help" data-i18n="appearance.cooking.help">Bij een recept: Start met koken, de voortgang, Scherm aan laten en het afvinken van ingrediënten. Uit: alleen het recept.</p>
+              </div>
+              <input type="checkbox" role="switch" class="switch" id="appearance-cooking" checked aria-labelledby="appearance-cooking-label" aria-describedby="appearance-cooking-help">
+            </div>
+            <div id="appearance-display-message"></div>
+          </div>
+        </div>
+        <div class="box fold fold--compact" id="appearance-theme-box">
+          <h2 class="fold__title"><button type="button" class="fold__toggle" id="appearance-theme-toggle" aria-expanded="false" aria-controls="appearance-theme-body"><span data-i18n="appearance.theme.title">Thema</span><svg class="fold__chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="M7.41,8.58L12,13.17L16.59,8.58L18,10L12,16L6,10L7.41,8.58Z"/></svg></button></h2>
+          <div class="fold__body" id="appearance-theme-body" hidden>
+            <section class="appearance-section" aria-labelledby="appearance-accent-title">
+              <h3 id="appearance-accent-title" data-i18n="appearance.accent.title">Accentkleur</h3>
+              <p class="muted" data-i18n="appearance.accent.help">Voor knoppen, links, de actieve tab en de focusring. Meldingen houden hun eigen kleur; een kleur die te licht of te donker is voor tekst, wordt een tint aangepast.</p>
+              <fieldset class="appearance-swatches" id="appearance-accent">
+                <legend class="visually-hidden" data-i18n="appearance.accent.title">Accentkleur</legend>
+                <span class="appearance-swatches__list" id="appearance-accent-list"></span>
+              </fieldset>
+              <p class="appearance-current" id="appearance-accent-current" aria-live="polite"></p>
+              <div id="appearance-message"></div>
+            </section>
+            <section class="appearance-section fold__section" aria-labelledby="appearance-themebg-title">
+              <h3 id="appearance-themebg-title" data-i18n="appearance.theme_bg.title">Thema & achtergrond</h3>
+              <p class="muted" data-i18n="appearance.theme.help">Licht, donker of zoals je apparaat; de maan of de zon bovenaan wisselt ook.</p>
+              <fieldset class="appearance-options" id="appearance-theme">
+                <legend class="visually-hidden" data-i18n="appearance.theme.title">Thema</legend>
+                <label class="appearance-option"><input type="radio" name="appearance-theme" value="system"><svg class="mdi" viewBox="0 0 24 24" aria-hidden="true"><path d="M23,11H18A1,1 0 0,0 17,12V21A1,1 0 0,0 18,22H23A1,1 0 0,0 24,21V12A1,1 0 0,0 23,11M23,20H18V13H23V20M20,2H2C0.89,2 0,2.89 0,4V16A2,2 0 0,0 2,18H9V20H7V22H15V20H13V18H15V16H2V4H20V9H22V4C22,2.89 21.1,2 20,2Z"/></svg><span data-i18n="appearance.theme.system">Apparaat volgen</span><svg class="mdi appearance-option__check" viewBox="0 0 24 24" aria-hidden="true"><path d="M21,7L9,19L3.5,13.5L4.91,12.09L9,16.17L19.59,5.59L21,7Z"/></svg></label>
+                <label class="appearance-option"><input type="radio" name="appearance-theme" value="light"><svg class="mdi" viewBox="0 0 24 24" aria-hidden="true"><path d="M3.55 19.09L4.96 20.5L6.76 18.71L5.34 17.29M12 6C8.69 6 6 8.69 6 12S8.69 18 12 18 18 15.31 18 12C18 8.68 15.31 6 12 6M20 13H23V11H20M17.24 18.71L19.04 20.5L20.45 19.09L18.66 17.29M20.45 5L19.04 3.6L17.24 5.39L18.66 6.81M13 1H11V4H13M6.76 5.39L4.96 3.6L3.55 5L5.34 6.81L6.76 5.39M1 13H4V11H1M13 20H11V23H13"/></svg><span data-i18n="appearance.theme.light">Licht</span><svg class="mdi appearance-option__check" viewBox="0 0 24 24" aria-hidden="true"><path d="M21,7L9,19L3.5,13.5L4.91,12.09L9,16.17L19.59,5.59L21,7Z"/></svg></label>
+                <label class="appearance-option"><input type="radio" name="appearance-theme" value="dark"><svg class="mdi" viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12A10 10 0 0 0 15 21.54A10 10 0 0 1 15 2.46A10 10 0 0 0 2 12Z"/></svg><span data-i18n="appearance.theme.dark">Donker</span><svg class="mdi appearance-option__check" viewBox="0 0 24 24" aria-hidden="true"><path d="M21,7L9,19L3.5,13.5L4.91,12.09L9,16.17L19.59,5.59L21,7Z"/></svg></label>
+              </fieldset>
+              <p class="appearance-sublabel" data-i18n="appearance.dark_bg.title">Achtergrond in het donkere thema</p>
+              <fieldset class="appearance-options" id="appearance-dark-bg">
+                <legend class="visually-hidden" data-i18n="appearance.dark_bg.title">Achtergrond in het donkere thema</legend>
+                <label class="appearance-option"><input type="radio" name="appearance-dark-bg" value="green"><span class="appearance-sample appearance-sample--green" aria-hidden="true"><i></i><i></i></span><span data-i18n="appearance.dark_bg.green">Groen</span><svg class="mdi appearance-option__check" viewBox="0 0 24 24" aria-hidden="true"><path d="M21,7L9,19L3.5,13.5L4.91,12.09L9,16.17L19.59,5.59L21,7Z"/></svg></label>
+                <label class="appearance-option"><input type="radio" name="appearance-dark-bg" value="grey"><span class="appearance-sample appearance-sample--grey" aria-hidden="true"><i></i><i></i></span><span data-i18n="appearance.dark_bg.grey">Donkergrijs</span><svg class="mdi appearance-option__check" viewBox="0 0 24 24" aria-hidden="true"><path d="M21,7L9,19L3.5,13.5L4.91,12.09L9,16.17L19.59,5.59L21,7Z"/></svg></label>
+              </fieldset>
+            </section>
+            <section class="appearance-section fold__section" id="appearance-nav-box" aria-labelledby="appearance-nav-title">
+              <h3 id="appearance-nav-title" data-i18n="appearance.nav.title">Navigatiebalk</h3>
+              <p class="muted" data-i18n="appearance.nav.hint">De balk onderaan in de geïnstalleerde app op een telefoon.</p>
+              <fieldset class="appearance-options" id="appearance-nav">
+                <legend class="visually-hidden" data-i18n="appearance.nav.style">Stijl van de navigatiebalk</legend>
+                <label class="appearance-option"><input type="radio" name="appearance-nav" value="auto"><span data-i18n="appearance.nav.auto">Automatisch</span><svg class="mdi appearance-option__check" viewBox="0 0 24 24" aria-hidden="true"><path d="M21,7L9,19L3.5,13.5L4.91,12.09L9,16.17L19.59,5.59L21,7Z"/></svg></label>
+                <label class="appearance-option"><input type="radio" name="appearance-nav" value="ios"><span class="appearance-navsample appearance-navsample--ios" aria-hidden="true"><i></i></span><span data-i18n="appearance.nav.ios">iOS-achtig</span><svg class="mdi appearance-option__check" viewBox="0 0 24 24" aria-hidden="true"><path d="M21,7L9,19L3.5,13.5L4.91,12.09L9,16.17L19.59,5.59L21,7Z"/></svg></label>
+                <label class="appearance-option"><input type="radio" name="appearance-nav" value="android"><span class="appearance-navsample appearance-navsample--android" aria-hidden="true"><i></i></span><span data-i18n="appearance.nav.android">Android-achtig</span><svg class="mdi appearance-option__check" viewBox="0 0 24 24" aria-hidden="true"><path d="M21,7L9,19L3.5,13.5L4.91,12.09L9,16.17L19.59,5.59L21,7Z"/></svg></label>
+              </fieldset>
+              <p class="appearance-current" id="appearance-nav-current" aria-live="polite"></p>
+              <div class="appearance-glass" id="appearance-glass-row">
+                <label class="appearance-glass__label" for="appearance-glass" data-i18n="appearance.glass.title">Glaseffect</label>
+                <p class="muted" id="appearance-glass-hint" data-i18n="appearance.glass.hint">0 is ondoorzichtig, hoger is doorzichtiger en meer vervaging. Hoe doorzichtiger, hoe meer een foto onder de balk de labels kan verstoren.</p>
+                <div class="appearance-glass__control">
+                  <input type="range" id="appearance-glass" min="0" max="100" step="1" value="60" aria-describedby="appearance-glass-hint">
+                  <output id="appearance-glass-value" for="appearance-glass">60%</output>
+                </div>
+              </div>
+              <div id="appearance-nav-message"></div>
+            </section>
+          </div>
         </div>
         </div>
 
@@ -1760,6 +1942,7 @@
     <script src="{{ url_for('static', filename='i18n/en.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='theme.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='app.js', v=config.ASSET_VERSION) }}"></script>
+    <script src="{{ url_for('static', filename='recipe_view.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='categories.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='users.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='ai.js', v=config.ASSET_VERSION) }}"></script>
@@ -1783,7 +1966,9 @@
     <script src="{{ url_for('static', filename='appearance.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='updates.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='system.js', v=config.ASSET_VERSION) }}"></script>
+    <script src="{{ url_for('static', filename='upload.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='backup.js', v=config.ASSET_VERSION) }}"></script>
+    <script src="{{ url_for('static', filename='price_archive.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='audit.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='onboarding.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='nav_tree.js', v=config.ASSET_VERSION) }}"></script>

@@ -21,6 +21,9 @@ const OFFER_COMPACT_ROWS = 8; // in de compacte weergave staan er per "rij" van 
 const offersState = {
   store: "ah", supported: true, offers: [], categories: [], category: "all", course: "all", recipes: [], rows: OFFER_ROWS, weekStart: "",
   personal: null, personalOnly: false, search: "", goodOnly: false, sort: "store", view: "cards",
+  // chosen: zelf een winkel gekozen (menu of adres); tot dan volgt de pagina de voorkeurssupermarkt (Instellingen, Voorkeuren).
+  // waiting: de pagina wacht nog op de koppeling van die winkel, zodat niet eerst de aanbiedingen van AH voorbijflitsen.
+  chosen: false, waiting: false,
 };
 try {
   offersState.personalOnly = localStorage.getItem(OFFERS_PERSONAL_KEY) === "1";
@@ -170,40 +173,50 @@ function offersTabActive() {
   return Boolean(document.querySelector("#offers.is-active"));
 }
 
+// Aanbiedingen opent met de voorkeurssupermarkt, tot je zelf een winkel kiest; is die (nog) niet gekoppeld, dan met AH. Wacht
+// een adres nog op een koppeling (router.pending), dan beslist dat adres. Staat de pagina niet open, dan laadt er niets: dat
+// doet showOffers bij het openen.
+function offersFollowPreferred() {
+  if (offersState.chosen || (typeof router !== "undefined" && router.pending)) return;
+  const store = defaultStoreOf(offersStores());
+  if (store === offersState.store) return;
+  if (offersTabActive()) {
+    offersSwitchStore(store, { chosen: false });
+    return;
+  }
+  offersState.store = store;
+  offersState.category = "all";
+  offersState.course = "all";
+  if (typeof offerHistoryStoreChanged === "function") offerHistoryStoreChanged();
+}
+
 // De winkelkeuze is het eerste uitklapmenu in de subtabbalk, zoals bij Winkels; met maar een winkel valt er niets te kiezen.
 function renderOffersStore() {
   const menu = $("#offers-store-menu");
   if (!menu) return;
   const available = offersStores();
-  if (!available.includes(offersState.store)) {
-    let remembered = "";
-    try {
-      remembered = localStorage.getItem("ms-offers-store") || "";
-    } catch {
-      // Zonder opslag begint de pagina bij de winkel van de planner.
-    }
-    offersState.store = [remembered, state.preferredStore].find((key) => available.includes(key)) || "ah";
-  }
+  if (!available.includes(offersState.store)) offersState.store = defaultStoreOf(available); // ontkoppeld
+  offersFollowPreferred();
   menu.hidden = available.length < 2;
   $("#offers-store-name").textContent = STORES[offersState.store].name;
   $("#offers-store-list").innerHTML = available
     .map(
       (key) =>
-        `<a class="subtab-menu__item${offersState.store === key ? " is-active" : ""}" data-store="${key}" href="${escapeHtml(offersPath("", { store: key === "ah" ? "" : key }))}" data-nav>${escapeHtml(STORES[key].name)}</a>`
+        `<a class="subtab-menu__item${offersState.store === key ? " is-active" : ""}" data-store="${key}" href="${escapeHtml(offersPath("", { store: offersStoreParam(key) }))}" data-nav>${escapeHtml(STORES[key].name)}</a>`
     )
     .join("");
   if (typeof routerRetry === "function") routerRetry();
+  // Wachtte de pagina op de koppeling van de voorkeurssupermarkt en is die nu bekend: alsnog laden (een adres dat erop wachtte,
+  // deed dat hierboven al).
+  if (offersState.waiting && preferredSupermarketKnown() && offersTabActive() && !(typeof router !== "undefined" && router.applying)) showOffers();
 }
 
-function offersSwitchStore(store) {
+// `chosen`: de gebruiker koos de winkel zelf (menu of adres); anders is het de voorkeurssupermarkt (offersFollowPreferred).
+function offersSwitchStore(store, { chosen = true } = {}) {
+  offersState.chosen = chosen;
   offersState.store = offersStores().includes(store) ? store : "ah";
   offersState.category = "all";
   offersState.course = "all";
-  try {
-    localStorage.setItem("ms-offers-store", offersState.store);
-  } catch {
-    // De keuze geldt dan alleen tot je de pagina herlaadt.
-  }
   showOffers();
   if (typeof offerHistoryStoreChanged === "function") offerHistoryStoreChanged();
   if (typeof routerSync === "function") routerSync();
@@ -742,7 +755,7 @@ function offersShowMore() {
 }
 
 // De lijst van de vorige winkel maakt plaats voor een draaiend icoon zolang de aanbiedingen van de gekozen winkel binnenkomen.
-function renderOffersLoading() {
+function renderOffersLoading(storeName = STORES[offersState.store].name) {
   $("#offers-status").textContent = "";
   $("#offers-period").hidden = true;
   $("#offers-later").hidden = true;
@@ -752,7 +765,7 @@ function renderOffersLoading() {
   $("#offers-products").setAttribute("aria-busy", "true");
   $("#offers-more").hidden = true;
   const box = $("#offers-loading");
-  box.innerHTML = `${mdiIcon(MDI_LOADING, "offers-loading__icon")}<span>${escapeHtml(t("offers.loading", { store: STORES[offersState.store].name }))}</span>`;
+  box.innerHTML = `${mdiIcon(MDI_LOADING, "offers-loading__icon")}<span>${escapeHtml(t("offers.loading", { store: storeName }))}</span>`;
   box.hidden = false;
 }
 
@@ -769,13 +782,20 @@ const offersCache = {};
 
 async function showOffers() {
   const loadId = ++offersLoadId;
+  // Is nog niet bekend of de voorkeurssupermarkt gekoppeld is, dan wachten we daarop (renderOffersStore laadt dan alsnog).
+  offersState.waiting = !offersState.chosen && !preferredSupermarketKnown();
+  renderOffersStore();
+  if (loadId !== offersLoadId) return; // renderOffersStore wisselde naar de voorkeurssupermarkt en laadde die al
+  renderOffersWeek();
+  message("#offers-message", "");
+  if (offersState.waiting) {
+    renderOffersLoading(STORES[preferredSupermarket()].name);
+    return;
+  }
   const store = offersState.store;
   const week = offersWeek().start;
   const key = `${store}|${week}`;
   offersState.weekStart = week;
-  renderOffersStore();
-  renderOffersWeek();
-  message("#offers-message", "");
   const cached = offersCache[key];
   if (cached) renderOffers(cached);
   else renderOffersLoading();
@@ -1117,6 +1137,7 @@ function renderOffersSync() {
     lines.push(t("offers.sync.last", { when: formatSyncTime(status.lastRun), trigger: t(status.lastTrigger === "scheduled" ? "offers.sync.trigger.scheduled" : "offers.sync.trigger.manual") }));
   }
   $("#offers-sync-schedule").textContent = lines.join(" ");
+  applyStoreFold("offers", false); // inklapbaar onder Instellingen > Koppelen, standaard open (app.js)
 }
 
 async function loadOffersSyncStatus() {
