@@ -33,6 +33,8 @@ COMPONENTS: list[tuple[str, str, str, str | None, str | None, str | None, str]] 
     ("totp", "integrations", "TOTP (RFC 6238)", None, None, None, "https://www.rfc-editor.org/rfc/rfc6238"),
     ("python", "server", "Python", None, "python", "PSF-2.0", "https://www.python.org"),
     ("quart", "server", "Quart", "Quart", None, "MIT", "https://quart.palletsprojects.com"),
+    ("flask", "server", "Flask", "Flask", None, "BSD-3-Clause", "https://flask.palletsprojects.com"),
+    ("werkzeug", "server", "Werkzeug", "Werkzeug", None, "BSD-3-Clause", "https://werkzeug.palletsprojects.com"),
     ("hypercorn", "server", "Hypercorn", "hypercorn", None, "MIT", "https://hypercorn.readthedocs.io"),
     ("pyjwt", "server", "PyJWT", "PyJWT", None, "MIT", "https://pyjwt.readthedocs.io"),
     ("cryptography", "server", "cryptography", "cryptography", None, "Apache-2.0 OR BSD-3-Clause", "https://cryptography.io"),

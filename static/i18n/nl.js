@@ -1136,6 +1136,8 @@ I18N.add("nl", {
   "about.desc.totp": "Tweestapsverificatie met een authenticator-app.",
   "about.desc.python": "De programmeertaal van de server.",
   "about.desc.quart": "Het webframework van de server.",
+  "about.desc.flask": "Wordt door Quart gebruikt als basis van het webframework.",
+  "about.desc.werkzeug": "Wordt door Quart en Flask gebruikt voor verzoeken, antwoorden en routes.",
   "about.desc.hypercorn": "De webserver voor de async app (ASGI).",
   "about.desc.pyjwt": "Ondertekent sessies.",
   "about.desc.cryptography": "Versleutelt opgeslagen koppelingen en controleert passkeys.",

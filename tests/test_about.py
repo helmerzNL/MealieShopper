@@ -147,6 +147,14 @@ class ComponentsTest(AppTestCase):
             if name:
                 self.assertIn(name, listed, f"{name} staat in requirements.txt maar niet bij Over")
 
+    def test_flask_and_werkzeug_are_pinned_like_the_rest(self):
+        """Quart vraagt `flask>=3.0` en `werkzeug>=3.0` zonder bovengrens: een nieuwe major mag niet ongemerkt in de image."""
+        lines = [line.strip() for line in (ROOT / "requirements.txt").read_text(encoding="utf-8").splitlines() if line.strip()]
+        for line in lines:
+            self.assertRegex(line, r"^[A-Za-z0-9_.-]+==\d+(\.\d+)+(\.post\d+)?$", line)
+        pinned = {line.split("==")[0].lower() for line in lines}
+        self.assertLessEqual({"quart", "flask", "werkzeug", "hypercorn"}, pinned)
+
     def test_vendored_assets_match_the_files_in_the_repo(self):
         data = {c["id"]: c for c in run(about.about())["components"]}
         self.assertTrue((ROOT / "static" / "vendor" / f"qrcode-{data['qrcode']['version']}.js").exists())

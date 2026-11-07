@@ -265,6 +265,8 @@ MealieShopper is an unofficial tool and is not affiliated with Mealie, Albert He
 |---|---|---|
 | [Python](https://www.python.org) | PSF-2.0 | The programming language of the server. |
 | [Quart](https://quart.palletsprojects.com) | MIT | The web framework. |
+| [Flask](https://flask.palletsprojects.com) | BSD-3-Clause | Used by Quart as the base of the web framework. |
+| [Werkzeug](https://werkzeug.palletsprojects.com) | BSD-3-Clause | Used by Quart and Flask for requests, responses and routing. |
 | [Hypercorn](https://hypercorn.readthedocs.io) | MIT | The web server in the container. |
 | [PyJWT](https://pyjwt.readthedocs.io) | MIT | Signs sessions. |
 | [cryptography](https://cryptography.io) | Apache-2.0 OR BSD-3-Clause | Encrypts stored links and verifies passkeys. |

@@ -1136,6 +1136,8 @@ I18N.add("en", {
   "about.desc.totp": "Two-step verification with an authenticator app.",
   "about.desc.python": "The programming language of the server.",
   "about.desc.quart": "The web framework of the server.",
+  "about.desc.flask": "Used by Quart as the base of the web framework.",
+  "about.desc.werkzeug": "Used by Quart and Flask for requests, responses and routing.",
   "about.desc.hypercorn": "The web server for the async app (ASGI).",
   "about.desc.pyjwt": "Signs sessions.",
   "about.desc.cryptography": "Encrypts stored links and verifies passkeys.",
