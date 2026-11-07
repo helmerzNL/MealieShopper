@@ -7,8 +7,8 @@ handler werkt. Quart annuleert de vastgehouden `receive` zelf zodra de handler k
 
 Twee uitzonderingen, zodat niets voor altijd blijft hangen:
 - Gaat de client weg terwijl het lichaam nog binnenkomt, dan gaat de melding meteen door. Het lichaam wordt dan nooit
-  compleet: de handler zou er tot `BODY_TIMEOUT` op wachten, en bij een route zonder die grens (het klaarzetten van een
-  back-up) voor altijd. Onder 3.x gaf het lezen dan een fout.
+  compleet: de handler zou er tot `BODY_TIMEOUT` op wachten, en bij het klaarzetten van een back-up tot 120 seconden
+  stilte. Onder 3.x gaf het lezen dan een fout.
 - Zodra het antwoord begint (`http.response.start`), gaat een vastgehouden of latere melding alsnog door. De handler is
   dan klaar, alleen het versturen stopt, bijvoorbeeld een gestreamde back-up naar een client die er niet meer is.
 
