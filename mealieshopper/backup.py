@@ -48,7 +48,7 @@ from cryptography.fernet import Fernet, InvalidToken
 from cryptography.hazmat.primitives.kdf.scrypt import Scrypt
 from quart import Quart, Response, jsonify, request
 
-from . import about, ah_lists, ah_orders, ah_recipes, ai_review, auth, crisp, crisp_orders, hellofresh, jumbo, jumbo_lists, jumbo_orders, marleyspoon, mealie, offers, offers_schedule, picnic, picnic_orders, price_import, prices, product_images, product_links, profile, server_settings, tasks, uploads
+from . import about, ah_lists, ah_orders, ah_recipes, ai_review, auth, crisp, crisp_orders, hellofresh, jumbo, jumbo_lists, jumbo_orders, marleyspoon, mealie, offers, offers_schedule, picnic, picnic_orders, price_import, prices, product_images, product_links, profile, server_settings, tasks, thread_db, uploads
 from .i18n import tr
 
 log = logging.getLogger(__name__)
@@ -259,21 +259,11 @@ def _quote(name: str) -> str:
     return '"' + name.replace('"', '""') + '"'
 
 
-def _thread_connect() -> sqlite3.Connection:
-    """Een eigen synchrone verbinding voor het werk in een thread (`asyncio.to_thread`), niet voor de event loop.
-
-    De tabellen bestaan dan al: wie de thread start, roept eerst `ensure_schemas` aan."""
-    auth.data_dir().mkdir(parents=True, exist_ok=True)
-    conn: sqlite3.Connection = sqlite3.connect(auth.db_path())
-    conn.row_factory = sqlite3.Row
-    return conn
-
-
 async def ensure_schemas() -> None:
     """Zorgt dat elke tabel van de gegevens bestaat (de modules maken hun tabellen pas bij het eerste gebruik).
 
     Op de event loop, voordat een fase naar zijn thread gaat: elke module maakt haar tabellen en migraties met haar eigen
-    `_connect`, dus het schema staat op een plek. De thread zelf werkt daarna alleen met `_thread_connect`.
+    `_connect`, dus het schema staat op een plek. De thread zelf werkt daarna alleen met `thread_db.connect`.
     """
     await auth.ensure_db()
     for module in SCHEMA_OWNERS:
@@ -285,7 +275,7 @@ async def ensure_schemas() -> None:
 
 def _jobs_connect() -> sqlite3.Connection:
     """De tabel van de klussen op een verbinding voor een thread (de voortgang tijdens het controleren)."""
-    conn: sqlite3.Connection = _thread_connect()
+    conn: sqlite3.Connection = thread_db.connect()
     conn.executescript(JOB_SCHEMA)
     return conn
 
@@ -409,7 +399,7 @@ def write_backup(target: Path, *, links: bool, box: Fernet | None, passphrase: s
         raise BackupError("bad_part", part=str(next(part for part in left_out if part not in OPTIONAL_PARTS))[:40])
     skipped_tables = {table for part in left_out for table in OPTIONAL_PARTS[part]}
     counts: dict[str, int] = {}
-    with closing(_thread_connect()) as conn:
+    with closing(thread_db.connect()) as conn:
         conn.execute("BEGIN")
         stored, unreadable = _stored_secrets(conn, box) if links and box else ({}, 0)
         plain = {
@@ -631,7 +621,7 @@ def check_rows(plan: Plan, progress: Callable[[int, int], None] | None = None) -
     Geeft de rijen terug zoals ze ingevoegd gaan worden (waarden ontcijferd). Niets in de echte database verandert.
     Eerst `ensure_schemas`.
     """
-    with closing(_thread_connect()) as real, closing(_schema_copy(real)) as scratch:
+    with closing(thread_db.connect()) as real, closing(_schema_copy(real)) as scratch:
         known = {table: _column_rules(real, table) for table in DATA_TABLES}
         prepared: dict[str, list[tuple[int, dict[str, Any]]]] = {}
         for step, table in enumerate(DATA_TABLES, 1):
@@ -680,7 +670,7 @@ def replace_everything(
     koppelingen heeft. Eerst `ensure_schemas`.
     """
     skipped_profiles = 0
-    conn = _thread_connect()
+    conn = thread_db.connect()
     conn.isolation_level = None  # we sturen BEGIN en COMMIT zelf
     try:
         conn.execute("PRAGMA busy_timeout = 30000")  # een lopende synchronisatie mag even afmaken

@@ -46,9 +46,10 @@ TO_THREAD_ALLOWED: dict[str, str] = {
     "uploads.py": "een stuk van een upload (tot 4 MB) naar schijf schrijven",
 }
 
-# Waar `sqlite3.connect(` mag: alleen de fases van de back-up en van het prijsarchief, die als geheel in een thread lopen. De
+# Waar `sqlite3.connect(` mag: in thread_db, de verbinding voor de fasen van de back-up en het prijsarchief, die als geheel in
+# een thread lopen, en in backup.py voor de lege kopie van het schema in het geheugen (`_schema_copy`, ook in de thread). De
 # app zelf gebruikt aiosqlite.
-SQLITE_CONNECT_ALLOWED: frozenset[str] = frozenset({"backup.py", "price_archive.py"})
+SQLITE_CONNECT_ALLOWED: frozenset[str] = frozenset({"backup.py", "thread_db.py"})
 
 # Blokkerende aanroepen die nooit direct in een `async def` mogen staan (een geneste functie of lambda telt apart: die loopt
 # in een thread of later).
@@ -74,10 +75,10 @@ OPENERS: frozenset[str] = frozenset({"open", "os.open", "os.fdopen", "io.open"})
 THREAD_ONLY: frozenset[str] = frozenset(
     {
         *(f"backup.{name}" for name in (
-            "_thread_connect", "_jobs_connect", "_job_update", "write_backup", "check_rows", "replace_everything", "read_plan",
+            "_jobs_connect", "_job_update", "write_backup", "check_rows", "replace_everything", "read_plan",
             "read_file", "_schema_copy", "unseal", "_check_staged",
         )),
-        "price_archive.apply", "price_archive._check_upload", "price_archive._thread_connect",
+        "thread_db.connect", "price_archive.apply", "price_archive._check_upload",
         "price_archive_export.write_export", "uploads._write_chunk",
     }
 )

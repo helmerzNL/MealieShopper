@@ -61,7 +61,7 @@ from typing import IO, Any, Callable, Iterator
 import aiosqlite
 from quart import Quart, Response, jsonify, request
 
-from . import audit, auth, offers, prices, tasks, uploads
+from . import audit, auth, offers, prices, tasks, thread_db, uploads
 from .price_archive_tidy import ARCHIVE_OFFERS_SQL, ARCHIVE_PRICES_SQL, Tidy
 from .i18n import tr
 
@@ -1021,20 +1021,10 @@ def remove_old_staged_files() -> None:
 async def ensure_schema() -> None:
     """De tabellen van de aanbiedingen en prijzen, zodat een lege installatie ze ook heeft (`prices._connect` maakt ze).
 
-    Op de event loop, voordat een fase naar haar thread gaat: de thread werkt daarna alleen met `_thread_connect`."""
+    Op de event loop, voordat een fase naar haar thread gaat: de thread werkt daarna alleen met `thread_db.connect`. Controleren, invoegen en
+    exporteren lezen of schrijven tot een miljoen regels in een transactie: dat is bulkwerk, zoals de fasen van de back-up."""
     async with prices._connect():
         pass
-
-
-def _thread_connect() -> sqlite3.Connection:
-    """Een eigen synchrone verbinding voor een fase in een thread (`asyncio.to_thread`), niet voor de event loop.
-
-    Controleren, invoegen en exporteren lezen of schrijven tot een miljoen regels in één transactie: dat is bulkwerk, zoals de
-    fases van de back-up (backup._thread_connect). Eerst `ensure_schema`."""
-    auth.data_dir().mkdir(parents=True, exist_ok=True)
-    conn: sqlite3.Connection = sqlite3.connect(auth.db_path())
-    conn.row_factory = sqlite3.Row
-    return conn
 
 
 async def stage(body: AsyncIterable[bytes], content_length: int | None, keep_unlinked: bool = False) -> dict[str, Any]:
@@ -1098,7 +1088,7 @@ def _check_upload(token: str, upload: Path, keep_unlinked: bool = False) -> dict
         if not upload.stat().st_size:
             raise ArchiveError("not_an_archive")
         archive = Archive(upload, directory)
-        with closing(_thread_connect()) as conn:
+        with closing(thread_db.connect()) as conn:
             plan = Plan(conn)
             replacing = Plan(conn, without_archive=True)
             tidy = Tidy(conn, keep_unlinked=keep_unlinked)
@@ -1149,7 +1139,7 @@ def apply(
     `asyncio.to_thread`, na `ensure_schema`.
     """
     started = time.monotonic()
-    conn = _thread_connect()
+    conn = thread_db.connect()
     conn.isolation_level = None  # we sturen BEGIN en COMMIT zelf
     try:
         conn.execute("PRAGMA busy_timeout = 30000")  # een lopende synchronisatie mag even afmaken

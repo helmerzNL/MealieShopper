@@ -27,8 +27,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import IO, Any, Iterable
 
-from . import about, offers
-from .price_archive import EXPORT_MANIFEST, FORMAT, FORMAT_VERSION, OFFER_COLUMNS, PRICE_COLUMNS, RowError, Today, _thread_connect, normalise_offer, normalise_price
+from . import about, offers, thread_db
+from .price_archive import EXPORT_MANIFEST, FORMAT, FORMAT_VERSION, OFFER_COLUMNS, PRICE_COLUMNS, RowError, Today, normalise_offer, normalise_price
 
 OFFER_FIELDS = tuple(column for column in OFFER_COLUMNS if column != "personal")  # altijd 0: een persoonlijke gaat er niet in
 PRICE_FIELDS = PRICE_COLUMNS
@@ -97,7 +97,7 @@ def write_export(path: Path) -> dict[str, Any]:
     bounds = Today()
     now = datetime.now(timezone.utc).replace(microsecond=0)
     stamp = (now.year, now.month, now.day, now.hour, now.minute, now.second)
-    with closing(_thread_connect()) as conn, zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as archive:
+    with closing(thread_db.connect()) as conn, zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as archive:
         writer = _Writer(archive, stamp)
         try:
             for row in _rows(conn, OFFERS_SQL, OFFER_FIELDS):
