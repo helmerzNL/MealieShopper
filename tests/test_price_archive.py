@@ -920,7 +920,7 @@ class JobAndAccessTest(ArchiveCase):
         ("post", "/api/price-archive/jobs"), ("get", "/api/price-archive/jobs/latest"), ("delete", "/api/price-archive/jobs/abc"),
         ("post", "/api/price-archive/uploads"), ("put", "/api/price-archive/uploads/" + "0" * 32),
         ("delete", "/api/price-archive/uploads/" + "0" * 32), ("post", "/api/price-archive/uploads/" + "0" * 32 + "/stage"),
-        ("post", "/api/price-archive/export"),
+        ("post", "/api/price-archive/export"), ("post", "/api/price-archive/fetch"),
     )
 
     async def test_every_route_needs_a_session(self):

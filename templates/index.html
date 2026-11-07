@@ -1746,7 +1746,16 @@
             <span data-i18n="price_archive.file_label">Prijsarchief</span>
             <input class="input" id="price-archive-file" type="file" accept=".zip,.gz,.tgz,.jsonl,application/zip,application/gzip">
           </label>
-          <p class="muted" data-i18n="price_archive.formats">Kies de ZIP van het pakket zoals je hem downloadt, het .tar.gz-archief daaruit, een export van MealieShopper (ook de ZIP van een GitHub-repo), of een .jsonl-bestand (ook als .jsonl.gz) in het formaat mealieshopper-price-archive. De handleiding beschrijft het formaat.</p>
+          <p class="muted" data-i18n="price_archive.formats">Kies de ZIP van het pakket of van de gist voor data.mealieshopper.nl zoals je hem downloadt, het .tar.gz-archief daaruit, een export van MealieShopper (ook die voor data.mealieshopper.nl en de ZIP van een GitHub-repo), of een .jsonl-bestand (ook als .jsonl.gz) in het formaat mealieshopper-price-archive. De handleiding beschrijft de formaten.</p>
+          <div class="security-actions">
+            <button class="button button--secondary" type="button" id="price-archive-fetch" data-i18n="price_archive.fetch">Aanbiedingen ophalen</button>
+          </div>
+          <p class="muted" data-i18n="price_archive.fetch_note">Of haal de gedeelde aanbiedingen en prijzen van alle winkels op van data.mealieshopper.nl. Elk bestand wordt gecontroleerd, en je ziet eerst wat erbij komt.</p>
+          <label class="check">
+            <input type="checkbox" id="price-archive-keep-unlinked">
+            <span data-i18n="price_archive.keep_unlinked_label">Ook regels bewaren die bij geen product van jou horen</span>
+          </label>
+          <p class="muted" data-i18n="price_archive.keep_unlinked_note">Standaard komen alleen folderregels erin die precies bij een product van jou horen. Met dit vinkje blijven ook de andere (behalve combi-aanbiedingen), bijvoorbeeld om alles weer te exporteren voor data.mealieshopper.nl. Zet het vinkje voordat je een bestand kiest of ophaalt.</p>
           <div class="backup-confirm" id="price-archive-confirm" hidden>
             <h4 data-i18n="price_archive.confirm_title">Dit komt erbij</h4>
             <p class="muted" id="price-archive-source"></p>
@@ -1778,7 +1787,9 @@
           <p class="muted" data-i18n="price_export.intro">Alle aanbiedingen en prijzen als ZIP, met een bestand per winkel en maand: om te delen, bijvoorbeeld in een GitHub-repo. Je persoonlijke aanbiedingen (Bonus Box) gaan er nooit in. Een andere MealieShopper importeert de ZIP weer met Prijsarchief importeren.</p>
           <div class="security-actions">
             <button class="button" type="button" id="price-export-make" data-i18n="price_export.go">Exporteren</button>
+            <button class="button button--secondary" type="button" id="price-export-site" data-i18n="price_export.site_go">Exporteren voor data.mealieshopper.nl</button>
           </div>
+          <p class="muted" data-i18n="price_export.site_note">Of als losse JSON-bestanden per winkel, met een schema per winkel: in de vorm van data.mealieshopper.nl, klaar om in te sturen in de datarepo. In de ZIP staat hoe.</p>
           <div class="backup-progress" id="price-export-progress" role="status" hidden>
             <p id="price-export-progress-label"></p>
             <progress id="price-export-progress-bar" max="100"></progress>

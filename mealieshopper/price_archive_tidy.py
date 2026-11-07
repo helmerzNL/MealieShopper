@@ -96,8 +96,14 @@ def is_group(row: dict[str, Any]) -> bool:
 
 
 def known_pack(row: dict[str, Any]) -> bool:
-    """Noemt de folder een gewicht, inhoud of aantal (één, niet "2 of 4 stuks")?"""
-    return bool(row.get("unit_size")) or size(_texts(row)) is not None
+    """Noemt de folder een gewicht, inhoud of aantal (één, niet "2 of 4 stuks")?
+
+    Zonder `description` telt ook de actietekst: een regel uit een export van de app (zoals die voor data.mealieshopper.nl)
+    heeft de foldertekst alleen nog als korte actietekst, en daar staat de verpakking dan in."""
+    if row.get("unit_size") or size(_texts(row)) is not None:
+        return True
+    label = row.get("promo_label")
+    return not row.get("description") and isinstance(label, str) and size(str(short_label(label))) is not None
 
 
 def is_archive_product(row: dict[str, Any]) -> bool:
