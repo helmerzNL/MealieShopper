@@ -76,6 +76,33 @@ class PasswordResetTest(FactoryResetCase):
         self.assertFalse((self.data / "images").exists())
         self.assertNotIn("images", await factory_reset.wipe_data(), "een tweede keer is er niets meer te verwijderen")
 
+    async def test_staged_backups_and_price_archives_go_too(self):
+        # #276: de reset haalde alleen `.restore-*` weg. Een klaargezet prijsarchief (`.price-archive-*`) bleef staan, met de
+        # gegevens van de oude installatie erin, tot iemand een nieuw archief klaarzette.
+        from mealieshopper import backup, price_archive
+
+        staged = []
+        for prefix in (backup.STAGE_PREFIX, price_archive.STAGE_PREFIX):
+            for suffix in (".part", ".upload", ".rows", ".rows.job"):  # een upload in stukken, klaargezet, en na een harde stop
+                name = f"{prefix}tok3n{suffix}"
+                (self.data / name).write_bytes(b"gegevens")
+                staged.append(name)
+        elsewhere = self.data / "export" / f"{price_archive.STAGE_PREFIX}tok3n.rows"  # alleen direct in de data-map
+        elsewhere.parent.mkdir()
+        elsewhere.write_bytes(b"van iemand anders")
+        removed = await factory_reset.wipe_data()
+        self.assertTrue(set(staged) <= set(removed), sorted(set(staged) - set(removed)))
+        self.assertEqual([name for name in self.files() if name.startswith(".")], [])
+        self.assertTrue(elsewhere.exists())
+
+    def test_every_staging_prefix_of_the_app_is_known_to_the_reset(self):
+        # Een nieuw soort klaargezette upload (een eigen STAGE_PREFIX) moet de reset ook opruimen: anders blijft hij staan.
+        prefixes = set()
+        for path in (ROOT / "mealieshopper").glob("*.py"):
+            prefixes.update(re.findall(r'^STAGE_PREFIX\s*=\s*"([^"]+)"', path.read_text(encoding="utf-8"), re.M))
+        self.assertTrue(prefixes, "geen enkel STAGE_PREFIX gevonden: is de naam veranderd?")
+        self.assertEqual(prefixes, set(factory_reset.STAGED_PREFIXES))
+
     async def test_the_image_cache_is_removed_off_the_event_loop(self):
         """Duizenden bestanden wissen houdt de event loop niet vast: shutil.rmtree loopt in een thread."""
         (self.data / "images").mkdir()

@@ -2,6 +2,16 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub; een stabiele release krijgt de teksten van alle versies sinds de vorige stabiele release.
 
+## v4.0.1
+
+### Opgelost in 4.0.1
+
+*English summary: a factory reset now also removes staged price archives (`.price-archive-*`: an unfinished chunked upload, an archive still being checked, rows waiting to be confirmed, and a `.job` left by a hard stop during an import). Since 3.14.0 it only removed staged backups (`.restore-*`), so a "fresh" installation could still hold the old installation's price data until someone staged a new archive. The reset now uses one list of staging prefixes, `factory_reset.STAGED_PREFIXES`, and a test fails when a module adds a prefix the reset does not know. Fixes [#276](https://github.com/helmerzNL/MealieShopper/issues/276).*
+
+- **Fabrieksinstellingen: ook klaargezette prijsarchieven weg** ([#276](https://github.com/helmerzNL/MealieShopper/issues/276)). De reset verwijderde de database, `secret.key`, de map `images` en klaargezette back-ups (`.restore-*`), maar niet wat het prijsarchief klaarzet (`.price-archive-*`, sinds 3.14.0). Daardoor bleven na een reset een upload in stukken die nog niet af was (`.part`), een archief dat nog gecontroleerd werd (`.upload`), prijsregels die op bevestiging wachtten (`.rows`) en, na een harde stop tijdens een import, een `.rows.job` staan, met gegevens van de oude installatie erin. Nu gebruikt `factory_reset` één lijst met voorvoegsels, `STAGED_PREFIXES` (`backup.STAGE_PREFIX` en `price_archive.STAGE_PREFIX`), en verwijdert hij alles wat daarmee begint, alleen direct in de data-map.
+- **Tests:** `test_staged_backups_and_price_archives_go_too` zet voor beide voorvoegsels een `.part`, `.upload`, `.rows` en `.rows.job` neer en controleert dat de reset ze verwijdert en teruggeeft, en dat een gelijknamig bestand in een submap blijft staan. `test_every_staging_prefix_of_the_app_is_known_to_the_reset` faalt als een module een `STAGE_PREFIX` krijgt dat niet in de lijst staat. Daarmee klopt de docstring van `uploads.py` weer.
+- **Handleiding** (NL en EN): wat de fabrieksinstellingen nog meer weghalen (de afbeeldingencache en wat klaarstaat om terug te zetten of te importeren).
+
 ## v4.0.0
 
 ### Gewijzigd en opgelost in 4.0.0

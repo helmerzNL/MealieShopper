@@ -23,7 +23,7 @@ from typing import Any
 
 from quart import Quart, jsonify, request
 
-from . import auth, auth_password
+from . import auth, auth_password, backup, price_archive
 from .i18n import tr
 
 CONFIRM_PHRASE = "RESET"
@@ -31,6 +31,11 @@ RESTART_DELAY_SECONDS = 1.5  # genoeg om het antwoord nog te laten aankomen
 
 # Wat de app in de data-map bewaart. De database kan naast het hoofdbestand een logbestand hebben (WAL/journal).
 DATA_FILES = tuple(f"auth.sqlite3{suffix}" for suffix in ("", "-wal", "-shm", "-journal")) + (auth.SECRET_FILE,)
+
+# Wat de app klaarzet naast de database: een upload in stukken (`<voorvoegsel><token>.part`, uploads.py), het bestand dat nog
+# gecontroleerd wordt en wat op bevestiging wacht (`.upload`, `.rows`, en een `.job` als het proces hard stopte). Daar staan
+# gegevens in, dus de reset haalt ze weg. Elk soort heeft zijn eigen voorvoegsel; een nieuw soort hoort hier bij (#276).
+STAGED_PREFIXES = (backup.STAGE_PREFIX, price_archive.STAGE_PREFIX)
 
 
 def restart_supported() -> bool:
@@ -65,12 +70,13 @@ def _remove_files() -> list[str]:
     if images.is_dir():
         shutil.rmtree(images, ignore_errors=True)
         removed.append("images")
-    for path in auth.data_dir().glob(".restore-*"):  # een klaargezette back-up bevat ook gegevens
-        try:
-            path.unlink()
-        except OSError:
-            continue
-        removed.append(path.name)
+    for prefix in STAGED_PREFIXES:  # klaargezette back-ups en prijsarchieven bevatten ook gegevens; alleen direct in de data-map
+        for path in sorted(auth.data_dir().glob(f"{prefix}*")):
+            try:
+                path.unlink()
+            except OSError:
+                continue
+            removed.append(path.name)
     return removed
 
 
