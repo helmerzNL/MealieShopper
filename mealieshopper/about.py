@@ -20,6 +20,7 @@ from typing import Any
 
 ROOT = Path(__file__).resolve().parent.parent
 COFFEE_URL = "https://buymeacoffee.com/flux76"
+REPO_URL = "https://github.com/helmerzNL/MealieShopper"
 
 # (id, groep, naam, pakket in pip, vaste versie, licentie, website)
 COMPONENTS: list[tuple[str, str, str, str | None, str | None, str | None, str]] = [
@@ -138,6 +139,7 @@ async def about() -> dict[str, Any]:
         **await build_info(),
         "channel": build_channel(),
         "coffeeUrl": COFFEE_URL,
+        "repoUrl": REPO_URL,
         "components": [
             {
                 "id": ident,

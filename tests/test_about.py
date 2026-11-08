@@ -167,6 +167,17 @@ class ComponentsTest(AppTestCase):
         self.assertIn('rel="noopener noreferrer"', link)
         self.assertIn('target="_blank"', link)
 
+    def test_repo_link(self):
+        """Over linkt naar de broncode op GitHub, in een nieuw tabblad en met een vertaalde tekst."""
+        self.assertEqual(run(about.about())["repoUrl"], "https://github.com/helmerzNL/MealieShopper")
+        link = re.search(r'<a[^>]*id="about-repo"[^>]*>', HTML).group(0)
+        self.assertIn('href="https://github.com/helmerzNL/MealieShopper"', link)
+        self.assertIn('rel="noopener noreferrer"', link)
+        self.assertIn('target="_blank"', link)
+        self.assertIn('data-i18n="about.repo"', HTML[HTML.index('id="about-repo"'):])
+        for lang in ("nl", "en"):
+            self.assertIn('"about.repo": "MealieShopper o', (ROOT / "static" / "i18n" / f"{lang}.js").read_text(encoding="utf-8"), lang)
+
 
 class RouteTest(AppTestCase):
     def setUp(self):
@@ -199,7 +210,8 @@ class RouteTest(AppTestCase):
 class PageTest(AppTestCase):
     def test_about_page_has_versions_components_and_coffee_in_that_order_and_sits_in_the_avatar_menu(self):
         section = HTML[HTML.index('<section id="about"'):HTML.index("</main>")]
-        self.assertLess(section.index('id="about-version"'), section.index('id="about-components"'))
+        self.assertLess(section.index('id="about-version"'), section.index('id="about-repo"'))
+        self.assertLess(section.index('id="about-repo"'), section.index('id="about-components"'))
         self.assertLess(section.index('id="about-components"'), section.index('id="about-coffee"'))
         self.assertNotIn('data-tab="about"', HTML)
         menu = HTML[HTML.index('id="user-menu-list"'):HTML.index("</div>\n\n    <main")]
