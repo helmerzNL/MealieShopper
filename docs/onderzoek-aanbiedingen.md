@@ -72,4 +72,6 @@ heeft geen AI nodig.
 - De routes zijn onofficieel en kunnen zonder bericht veranderen; de code houdt daarom rekening met ontbrekende velden.
 - Het ophalen van aanbiedingen gebeurt met de eigen koppeling van de gebruiker. Winkelvoorwaarden over geautomatiseerd
   gebruik kunnen daarop van toepassing zijn.
-- Andere winkels (Lidl, Plus, Dirk) vallen buiten dit onderzoek; er is geen officiële open bron voor hun aanbiedingen.
+- Andere winkels vallen buiten dit onderzoek; geen ervan heeft een officiële open bron voor zijn aanbiedingen. Lidl en Aldi
+  staan er sinds v4.4.0 in met hun openbare aanbiedingenpagina (zie [onderzoek-lidl.md](onderzoek-lidl.md) en
+  [onderzoek-supermarkten.md](onderzoek-supermarkten.md)); Plus, Dirk en Hoogvliet nog niet.
