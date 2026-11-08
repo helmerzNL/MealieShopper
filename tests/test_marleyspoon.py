@@ -13,7 +13,7 @@ import pytest
 
 from mealieshopper import audit, auth, hellofresh, marleyspoon, mealie  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
-from helpers import AppTestCase, db, run, served  # noqa: E402
+from helpers import AppTestCase, db, run, served, settle_audit  # noqa: E402
 
 SLUG = "710152-bulgurbowl-met-kikkererwten-en-bloemkool-met-tahin-granaatappel-en-amandelen"
 SLUG_B = "710142-butter-chicken-gehaktballen-met-jasmijnrijst-en-komkommersalade"
@@ -385,3 +385,6 @@ async def test_a_redirect_to_another_host_is_named_as_such(data_dir, respx_mock)
     respx_mock.route().mock(return_value=foreign(f"https://{marleyspoon.API_HOST}/elders"))
     with mock.patch.object(marleyspoon, "MIN_GAP", 0), pytest.raises(marleyspoon.MarleySpoonError, match="status 302"):
         await marleyspoon._send("POST", f"https://{marleyspoon.API_HOST}/graphql", marleyspoon.API_HOST)
+    # De auditregel van een niet gevolgde doorverwijzing komt uit een eigen task; die moet klaar zijn voordat de loop en de
+    # tijdelijke data-map verdwijnen (zie helpers.settle_audit).
+    await settle_audit()
