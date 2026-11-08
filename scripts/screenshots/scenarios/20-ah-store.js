@@ -299,6 +299,37 @@ const bulkRoutes = {
   },
 };
 
+// ---- de weekplanner van de AH-app (4.2) ---------------------------------------------------------------------
+// Vanaf vandaag (woensdag 28 oktober) wat in de AH-app gepland staat: Allerhande-recepten, een product, een eigen recept en
+// een notitie. Naar weekmenu zet de vier recepten in het weekmenu: drie gepland (twee nieuw in Mealie), één stond er al.
+const plannerRecipe = (id, title, image) => ({ kind: "recipe", recipeId: id, title, image, url: `https://www.example.nl/allerhande/recept/R-R${id}` });
+const ahPlanner = {
+  days: [
+    { date: "2026-10-28", items: [plannerRecipe(1201, "Pasta pesto met kerstomaatjes", DISHES.pesto)] },
+    { date: "2026-10-29", items: [plannerRecipe(1200, "Boerenkoolstamppot met rookworst", DISHES.stamppot), { kind: "product", productId: 4242, title: "Gelderse rookworst", url: "https://www.example.nl/producten/product/wi4242" }] },
+    { date: "2026-10-30", items: [{ kind: "own_recipe", recipeId: 77, title: "Oma's erwtensoep" }] },
+    { date: "2026-10-31", items: [{ kind: "note", text: "Uit eten" }] },
+    { date: "2026-11-01", items: [plannerRecipe(1205, "Curry van kikkererwten", DISHES.curry)] },
+    { date: "2026-11-02", items: [] },
+    { date: "2026-11-03", items: [plannerRecipe(1207, "Zalm met geroosterde groenten", DISHES.fish)] },
+  ],
+  incomplete: false,
+};
+const PLANNER_OUTCOME = { 1201: ["already_planned", false], 1200: ["planned", true], 1205: ["planned", false], 1207: ["planned", true] };
+
+const plannerRoutes = {
+  ...routes,
+  "/api/ah/planner": ahPlanner,
+  "/api/ah/planner/to-meal-plan": (route, request) => {
+    const items = JSON.parse(request.postData() || "{}").items || [];
+    const results = items.map(({ date, recipeId }) => {
+      const [status, imported] = PLANNER_OUTCOME[recipeId] || ["planned", false];
+      return { date, recipeId, status, imported, slug: `recept-${recipeId}`, mealieUrl: `${mealieUrl}/g/thuis/r/recept-${recipeId}` };
+    });
+    return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ results }) });
+  },
+};
+
 // Naar Winkels > Albert Heijn en daar naar het gevraagde onderdeel.
 const openStores = (subtab) => async (page) => {
   await page.click('[data-tab="ah-items"]');
@@ -328,6 +359,18 @@ async function settleOrderView(page, device) {
 }
 
 module.exports = [
+  {
+    // De weekplanner van de AH-app (4.2), na Naar weekmenu: de samenvatting boven de dagen.
+    name: "ah-planner",
+    routes: plannerRoutes,
+    run: async (page) => {
+      await openStores("ah-items-weekplanner")(page);
+      await page.waitForSelector("#ah-planner-to-meal-plan:not([disabled])");
+      await page.click("#ah-planner-to-meal-plan");
+      await page.waitForSelector("#ah-planner-message .message");
+      await scrollTo(page, "#ah-items-weekplanner .box");
+    },
+  },
   {
     name: "recipes",
     routes,

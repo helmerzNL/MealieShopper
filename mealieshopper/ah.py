@@ -1,4 +1,5 @@
 import asyncio
+import html
 import re
 import time
 import unicodedata
@@ -1384,7 +1385,11 @@ async def get_bonus_box(today: date | None = None) -> list[dict[str, Any]]:
         return await fetch(await get_user_token())
 
 
-async def _graphql(token: str, query: str, variables: dict[str, Any], what: str) -> dict[str, Any]:
+async def _graphql_partial(
+    token: str, query: str, variables: dict[str, Any], what: str
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    """Een GraphQL-vraag aan AH: `(data, errors)`. Een gedeeltelijk antwoord (fouten naast data) is geen fout; de aanroeper
+    beslist wat ermee moet. Een HTTP-fout wel: `TokenRejected` of `AhHttpError`, zoals bij `_graphql`."""
     response: httpx.Response = await _client().post(
         f"{AH_API_BASE}/graphql",
         headers=_auth_headers(token),
@@ -1395,10 +1400,19 @@ async def _graphql(token: str, query: str, variables: dict[str, Any], what: str)
         message = f"{what} mislukt ({response.status_code}): {response.text[:200]}"
         _reject_if_token(response.status_code, _body(response), token, message)
         raise AhHttpError(message, response.status_code)  # met de status, zodat een aanroeper bij 403/429 kan stoppen
-    data = response.json()
-    if data.get("errors"):
-        raise RuntimeError(f"{what} mislukt: {data['errors'][0].get('message', 'GraphQL error')}")
-    return data.get("data") or {}
+    body = response.json()
+    if not isinstance(body, dict):
+        raise RuntimeError(f"{what} mislukt: onverwacht antwoord")
+    errors = [error if isinstance(error, dict) else {"message": str(error)} for error in body.get("errors") or []]
+    data = body.get("data")
+    return (data if isinstance(data, dict) else {}), errors
+
+
+async def _graphql(token: str, query: str, variables: dict[str, Any], what: str) -> dict[str, Any]:
+    data, errors = await _graphql_partial(token, query, variables, what)
+    if errors:
+        raise RuntimeError(f"{what} mislukt: {errors[0].get('message', 'GraphQL error')}")
+    return data
 
 
 async def _get_favorite_lists_rest(token: str, product_id: int) -> list[dict[str, Any]]:
@@ -1759,6 +1773,152 @@ async def get_saved_recipe_groups() -> list[dict[str, Any]]:
             )
         )
     return await _collection_categories(await get_user_token())
+
+
+# --- De weekplanner van de AH-app ------------------------------------------------------------------------------------
+# Alleen lezen: plannen doe je in de AH-app (AH weigert het via de API). De vraag komt uit olekpuchka/albert-heijn-mcp
+# (Apache-2.0, src/ahapi/recipes.ts); introspectie staat bij AH uit, dus de veldnamen staan nergens anders. AH geeft de
+# dagen vanaf vandaag (twee weken), elk met wat erop staat: een Allerhande-recept, een eigen recept van het lid, een
+# product of een notitie. Zie docs/onderzoek-ah-weekplanner.md.
+WEEK_PLANNER_QUERY = """
+  query WeekPlanner {
+    recipeWeekPlannerOverview {
+      days {
+        date
+        items {
+          __typename
+          ... on WeekPlannerRecipeItem { recipeId recipeTitle recipe { slug } }
+          ... on WeekPlannerMemberRecipeItem { recipeId recipeTitle }
+          ... on WeekPlannerNoteItem { text }
+          ... on WeekPlannerProductItem { productId productTitle }
+        }
+      }
+    }
+  }
+"""
+PLANNER_TEXT_MAX = 500
+_PLANNER_SLUG_RE = re.compile(r"[a-z0-9][a-z0-9-]{0,200}", re.IGNORECASE)
+
+
+def _planner_text(value: Any) -> str:
+    """Een titel of notitie van de weekplanner als nette tekst: entiteiten (`&amp;`) omgezet, witruimte samengevoegd."""
+    return " ".join(html.unescape(str(value or "")).split())[:PLANNER_TEXT_MAX]
+
+
+def _planner_id(value: Any) -> int | None:
+    try:
+        number = int(value)
+    except (TypeError, ValueError):
+        return None
+    return number if 0 < number < 10**12 else None
+
+
+def planner_item(raw: Any) -> dict[str, Any]:
+    """Een item uit de weekplanner als `{kind, ...}`.
+
+    - `recipe`: een Allerhande-recept, `{recipeId, title, image, url}`;
+    - `own_recipe`: een eigen recept van het lid, `{recipeId, title}` (geen Allerhande-recept, dus niet te importeren);
+    - `product`: `{productId, title, url}`;
+    - `note`: `{text}`;
+    - `other`: wat AH niet kon oplossen (null), een soort die we niet kennen of een item zonder nummer, `{title}`. Zo valt
+      er niets stil weg.
+    """
+    if not isinstance(raw, dict):
+        return {"kind": "other", "title": ""}
+    kind = raw.get("__typename")
+    if kind == "WeekPlannerRecipeItem":
+        recipe_id = _planner_id(raw.get("recipeId"))
+        if recipe_id:
+            recipe = raw.get("recipe") if isinstance(raw.get("recipe"), dict) else {}
+            slug = str(recipe.get("slug") or "").strip()
+            url = recipe_url(recipe_id) + (f"/{slug}" if _PLANNER_SLUG_RE.fullmatch(slug) else "")
+            return {"kind": "recipe", "recipeId": recipe_id, "title": _planner_text(raw.get("recipeTitle")), "image": "", "url": url}
+    elif kind == "WeekPlannerMemberRecipeItem":
+        recipe_id = _planner_id(raw.get("recipeId"))
+        if recipe_id:
+            return {"kind": "own_recipe", "recipeId": recipe_id, "title": _planner_text(raw.get("recipeTitle"))}
+    elif kind == "WeekPlannerProductItem":
+        product_id = _planner_id(raw.get("productId"))
+        if product_id:
+            return {"kind": "product", "productId": product_id, "title": _planner_text(raw.get("productTitle")), "url": product_web_url(product_id)}
+    elif kind == "WeekPlannerNoteItem":
+        return {"kind": "note", "text": _planner_text(raw.get("text"))}
+    title = next((_planner_text(raw.get(key)) for key in ("recipeTitle", "productTitle", "text") if raw.get(key)), "")
+    return {"kind": "other", "title": title}
+
+
+def _planner_date(value: Any) -> str | None:
+    """De dag van een planneritem als JJJJ-MM-DD; AH kan er een tijd achter zetten."""
+    try:
+        return date.fromisoformat(str(value or "").strip()[:10]).isoformat()
+    except ValueError:
+        return None
+
+
+async def _planner_images(token: str, days: list[dict[str, Any]]) -> None:
+    """Zet de afbeelding (en zo nodig de titel en link) bij de recepten. Lukt dat niet, dan blijft de planning zonder."""
+    items = [item for day in days for item in day["items"] if item["kind"] == "recipe"]
+    ids = list(dict.fromkeys(item["recipeId"] for item in items))
+    if not ids:
+        return
+    try:
+        summaries = await _recipe_summaries(token, ids)
+    except Exception:  # noqa: BLE001 - alleen de plaatjes; de planning zelf is er al
+        return
+    for item in items:
+        summary = summaries.get(item["recipeId"])
+        if not summary:
+            continue
+        item["image"] = summary.get("image") or ""
+        if not item["title"]:
+            item["title"] = _planner_text(summary.get("title"))
+        if item["url"] == recipe_url(item["recipeId"]) and summary.get("url"):
+            item["url"] = summary["url"]  # de link met de naam erin, als de planner geen slug gaf
+
+
+async def get_week_planner() -> dict[str, Any]:
+    """De weekplanner van de AH-app: `{days: [{date, items}], incomplete}`, de dagen zoals AH ze geeft (vanaf vandaag).
+
+    Vraagt de AH-koppeling: zonder koppeling een LookupError met een tekst voor de gebruiker. Een dag of item dat AH niet
+    kan oplossen komt terug als null, met een fout ernaast: de rest is bruikbaar en `incomplete` is waar. Alleen fouten, of
+    alleen dagen die mislukten, is een mislukte vraag. Nog nooit gepland (null) is een lege planning. Weigert AH het token,
+    dan één keer opnieuw met een vers token.
+    """
+    if not await configured_refresh_token():
+        raise LookupError(
+            tr(
+                "AH account niet gekoppeld. De beheerder koppelt het bij Instellingen > Koppelen > Albert Heijn "
+                "om de weekplanner op te halen.",
+                "AH account not linked. The admin links it under Settings > Link > Albert Heijn "
+                "to fetch the week planner.",
+            )
+        )
+
+    async def fetch(token: str) -> dict[str, Any]:
+        data, errors = await _graphql_partial(token, WEEK_PLANNER_QUERY, {}, "AH weekplanner ophalen")
+        overview = data.get("recipeWeekPlannerOverview")
+        raw_days = overview.get("days") if isinstance(overview, dict) else None
+        if errors and (not isinstance(raw_days, list) or (raw_days and not any(isinstance(day, dict) for day in raw_days))):
+            raise RuntimeError(f"AH weekplanner ophalen mislukt: {errors[0].get('message', 'GraphQL error')}")
+        by_date: dict[str, list[dict[str, Any]]] = {}
+        for raw_day in raw_days if isinstance(raw_days, list) else []:
+            if not isinstance(raw_day, dict):
+                continue
+            day = _planner_date(raw_day.get("date"))
+            if not day:
+                continue
+            raw_items = raw_day.get("items") if isinstance(raw_day.get("items"), list) else []
+            by_date.setdefault(day, []).extend(planner_item(raw) for raw in raw_items)
+        days = [{"date": day, "items": by_date[day]} for day in sorted(by_date)]
+        await _planner_images(token, days)
+        return {"days": days, "incomplete": bool(errors)}
+
+    token = await get_user_token()
+    try:
+        return await fetch(token)
+    except TokenRejected:
+        forget_token(token)
+        return await fetch(await get_user_token())
 
 
 async def add_to_shopping_list(items: list[dict[str, Any]]) -> None:

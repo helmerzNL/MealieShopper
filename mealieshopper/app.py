@@ -12,7 +12,7 @@ import sqlite3
 import httpx
 from quart import Quart, Response, jsonify, redirect, render_template, request, send_file, send_from_directory
 
-from . import about, ah, ah_explore, ah_lists, ah_orders, ah_recipes, ai_match, ai_review, audit, auth_password, backup, crisp, crisp_orders, factory_reset, hellofresh, image_cache, jumbo, jumbo_explore, jumbo_lists, jumbo_orders, jumbo_recipes, marleyspoon, mcp_http, mealie, mealie_images, offers, offers_schedule, onboarding, picnic, picnic_explore, picnic_orders, picnic_recipes, price_archive, price_import, prices, product_images, product_links, profile, recipe_bulk, server_settings, updates, users
+from . import about, ah, ah_explore, ah_lists, ah_orders, ah_planner, ah_recipes, ai_match, ai_review, audit, auth_password, backup, crisp, crisp_orders, factory_reset, hellofresh, image_cache, jumbo, jumbo_explore, jumbo_lists, jumbo_orders, jumbo_recipes, marleyspoon, mcp_http, mealie, mealie_images, offers, offers_schedule, onboarding, picnic, picnic_explore, picnic_orders, picnic_recipes, price_archive, price_import, prices, product_images, product_links, profile, recipe_bulk, server_settings, updates, users
 from . import auth, deals, http_client, tasks
 from .body_limits import DEFAULT_MAX_BODY, SizedRequest
 from .forwarded import ForwardedHeaders
@@ -354,6 +354,35 @@ def create_app() -> Quart:
         except Exception as exc:
             app.logger.exception("AH saved recipes error")
             return jsonify({"error": str(exc) or tr("Bewaarde recepten ophalen mislukt", "Could not fetch saved recipes")}), 424
+
+    # De weekplanner van de AH-app (zie ah_planner.py): alleen lezen bij AH. *Naar weekmenu* zet de Allerhande-recepten in
+    # het weekmenu van Mealie en importeert ze zo nodig eerst. Iedereen die is ingelogd mag dat, net als plannen en
+    # importeren; daarom staan deze paden niet in auth.ADMIN_PREFIXES. Het scherm stuurt een dag per keer.
+    @app.get("/api/ah/planner")
+    async def ah_week_planner():
+        try:
+            return jsonify(await ah_planner.get())
+        except LookupError as exc:  # AH is niet gekoppeld: de tekst is van onszelf en zegt wat te doen
+            return jsonify({"error": str(exc)}), 424
+        except Exception:  # noqa: BLE001 - de fout kan het antwoord van AH bevatten: alleen in het logboek
+            app.logger.exception("AH week planner error")
+            return jsonify({"error": tr("De weekplanner ophalen bij AH is mislukt", "Could not fetch the week planner from AH")}), 424
+
+    @app.post("/api/ah/planner/to-meal-plan")
+    async def ah_week_planner_to_meal_plan():
+        try:
+            await mealie.ensure_configured()
+        except RuntimeError as exc:  # Mealie is niet gekoppeld: de tekst is van onszelf en zegt wat te doen
+            return jsonify({"error": str(exc)}), 400
+        try:
+            items = ah_planner.clean_items(await request.get_json(silent=True))
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+        try:
+            return jsonify(await ah_planner.to_meal_plan(items))
+        except Exception:  # noqa: BLE001 - het weekmenu van Mealie niet te lezen: de melding van Mealie alleen in het logboek
+            app.logger.exception("AH week planner to meal plan error")
+            return jsonify({"error": tr("Het weekmenu van Mealie lezen is mislukt", "Could not read the Mealie week menu")}), 424
 
     # Een Allerhande-recept bekijken en in Mealie zetten, met dezelfde routes als bij Jumbo, Picnic en de maaltijdboxen.
     @app.get("/api/ah/recipes/<int:recipe_id>")

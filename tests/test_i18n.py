@@ -34,6 +34,7 @@ SOURCES = {
     "crisp.js": (STATIC / "crisp.js").read_text(encoding="utf-8"),
     "product_links.js": (STATIC / "product_links.js").read_text(encoding="utf-8"),
     "mealkits.js": (STATIC / "mealkits.js").read_text(encoding="utf-8"),
+    "ah_planner.js": (STATIC / "ah_planner.js").read_text(encoding="utf-8"),
     "basket.js": (STATIC / "basket.js").read_text(encoding="utf-8"),
     "updates.js": (STATIC / "updates.js").read_text(encoding="utf-8"),
     "system.js": (STATIC / "system.js").read_text(encoding="utf-8"),
