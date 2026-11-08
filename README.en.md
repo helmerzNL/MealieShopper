@@ -253,7 +253,7 @@ MealieShopper is an unofficial tool and is not affiliated with Mealie, Albert He
 | Integration | What for |
 |---|---|
 | [Mealie](https://mealie.io) | Your recipes and week menu; imported recipes and what you plan end up here. Through the API with a token. |
-| [Albert Heijn](https://www.ah.nl) | Lists, saved recipes, products and the basket, through the **unofficial** app API of AH. AH may change it without notice; use it for personal use. |
+| [Albert Heijn](https://www.ah.nl) | Lists, saved recipes, the week planner (read only), products and the basket, through the **unofficial** app API of AH. AH may change it without notice; use it for personal use. |
 | [Allerhande](https://www.ah.nl/allerhande) | Searching and importing recipes. |
 | [Jumbo](https://www.jumbo.com) | Searching products and filling the cart, through the **unofficial** app API of Jumbo (Auth0 and GraphQL). Jumbo may change it without notice or refuse a server; use it for personal use. |
 | [Picnic](https://picnic.app) | Searching products and filling the cart, through the **unofficial** app API of Picnic. Picnic may change it without notice; use it for personal use. |

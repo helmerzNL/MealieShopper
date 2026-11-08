@@ -1277,10 +1277,10 @@ const JUMBO_SUBTABS = ["ah-items-jumbo-recepten"];
 const CRISP_SUBTABS = ["ah-items-crisp-recepten", "ah-items-crisp-favorieten", "ah-items-crisp-bestellingen"];
 
 // Winkels: per winkel de onderdelen en hun subtab, in de volgorde van de tabs. Het onderdeel is ook het stuk in het adres
-// (/stores/jumbo/lists); /stores/ah/receipts/<id> is een kassabon onder Bestellingen, /stores/ah/imported/<ref> een ingelezen
+// (/stores/jumbo/lists, /stores/ah/planner); /stores/ah/receipts/<id> is een kassabon onder Bestellingen, /stores/ah/imported/<ref> een ingelezen
 // oude bestelling (zie price_import.py en router.js). Elk subtab hoort bij één onderdeel, bij welke winkel ook.
 const STORE_SECTIONS = {
-  ah: { recipes: "ah-items-recepten", lists: "ah-items-lijstjes", orders: "ah-items-bestellingen" },
+  ah: { recipes: "ah-items-recepten", planner: "ah-items-weekplanner", lists: "ah-items-lijstjes", orders: "ah-items-bestellingen" },
   jumbo: { recipes: "ah-items-jumbo-recepten", lists: "ah-items-lijstjes", orders: "ah-items-bestellingen" },
   picnic: { recipes: "ah-items-picnic", favorites: "ah-items-picnic-favorieten", orders: "ah-items-picnic-bestellingen" },
   crisp: { recipes: "ah-items-crisp-recepten", favorites: "ah-items-crisp-favorieten", orders: "ah-items-crisp-bestellingen" },
@@ -1333,6 +1333,7 @@ function renderItemsStore() {
       button.hidden = hidden;
     });
   hide("ah-items-recepten", state.itemsStore !== "ah");
+  hide("ah-items-weekplanner", state.itemsStore !== "ah"); // de weekplanner van de AH-app (ah_planner.js)
   hide("ah-items-lijstjes", ownTabs);
   hide("ah-items-bestellingen", ownTabs);
   PICNIC_SUBTABS.forEach((subtab) => hide(subtab, !picnic));
@@ -1882,6 +1883,7 @@ function renderMealieStatus(data, { verified = false } = {}) {
   const setup = $("#mealie-setup");
   if (setup) setup.hidden = Boolean(data.configured);
   state.linkedStores.mealie = Boolean(data.configured); // Recepten zoeken zoekt dan ook in Mealie
+  if (typeof renderAhPlannerButton === "function") renderAhPlannerButton(); // Naar weekmenu (ah_planner.js) vraagt Mealie
   // Eerst de eerste dag van de week, zodat het weekmenu meteen de goede week ophaalt.
   const weekChanged = applyWeekStart(data.weekStart);
   // Het weekmenu laadt vanzelf zodra Mealie gekoppeld is; zonder koppeling vervalt wat we onthouden hadden.
@@ -2675,6 +2677,7 @@ document.querySelectorAll(".subtab[data-subtab], .subtab-menu__item[data-subtab]
     if (subtab.dataset.subtab === "settings-system" && typeof loadPriceArchive === "function") loadPriceArchive();
     if (subtab.dataset.subtab === "settings-system" && typeof loadImageCacheStatus === "function") loadImageCacheStatus();
     if (subtab.dataset.subtab === "ah-items-bestellingen" && typeof loadOrders === "function") loadOrders();
+    if (subtab.dataset.subtab === "ah-items-weekplanner" && typeof showAhPlanner === "function") showAhPlanner();
     if (subtab.dataset.subtab === "ah-items-picnic" && typeof loadPicnicRecipes === "function" && !picnicRecipes.loaded) loadPicnicRecipes();
     if (subtab.dataset.subtab === "ah-items-picnic-favorieten" && typeof loadPicnicFavorites === "function" && !picnicFavorites.loaded) loadPicnicFavorites({ refresh: false });
     if (subtab.dataset.subtab === "ah-items-picnic-bestellingen" && typeof loadPicnicOrders === "function" && !picnicOrders.loaded) loadPicnicOrders();

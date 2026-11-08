@@ -3072,6 +3072,25 @@ button.plan-recipe:focus-visible {
   }
 }
 
+/* Winkels > Albert Heijn > Weekplanner (ah_planner.js): de dagen zoals het weekmenu, zonder potlood. Wat niet meegaat naar
+   het weekmenu (eigen recept, product, notitie) heeft een grijs label. De samenvatting van Naar weekmenu houdt haar regels. */
+.ah-planner .meal__open {
+  padding-right: 8px;
+}
+
+.ah-planner__other .meal__type {
+  color: var(--muted);
+}
+
+.ah-planner__nothing {
+  margin: 0;
+  font-size: 13px;
+}
+
+#ah-planner-message .message {
+  white-space: pre-line;
+}
+
 /* Receptkaarten: op een telefoon minstens twee naast elkaar, op een groter scherm zoveel als er passen */
 .recipe-grid--compact {
   grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
