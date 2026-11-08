@@ -6,6 +6,8 @@ Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar
 
 ### Gewijzigd in 4.2.1
 
+Pull request: [#284](https://github.com/helmerzNL/MealieShopper/pull/284).
+
 *English summary: the **About** page now links to the MealieShopper repository on GitHub (https://github.com/helmerzNL/MealieShopper), with a button under the version and the description. It opens in a new tab. `/api/about` also returns the address as `repoUrl`.*
 
 - **Over: link naar MealieShopper op GitHub.** Onder het versienummer en de omschrijving staat de knop **MealieShopper op GitHub** (met het GitHub-icoon van Material Design Icons), naar [github.com/helmerzNL/MealieShopper](https://github.com/helmerzNL/MealieShopper). Hij opent in een nieuw tabblad (`target="_blank"`, `rel="noopener noreferrer"`), zoals de koffieknop. `/api/about` geeft het adres ook terug, als `repoUrl` (`about.REPO_URL`).
