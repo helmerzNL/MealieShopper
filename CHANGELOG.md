@@ -6,6 +6,8 @@ Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar
 
 ### Gewijzigd in 4.3.1
 
+Pull request: [#286](https://github.com/helmerzNL/MealieShopper/pull/286).
+
 *English summary: the two choices for loose products from the week planner of the AH app (**Loose products of a day together as one menu** and **Soup and pizza always separate**, new in 4.3.0) moved from the top of **Stores, Albert Heijn, Week planner** to **Settings, Preferences, Supermarket**, as real switches like *Cooking mode*. They still work the same: per user in the profile, on by default, the second only shown with the first on. The week planner panel links to them and its labels follow a change straight away. Nothing changed on the server.*
 
 - **De keuzes voor losse producten staan bij Voorkeuren.** *Losse producten van een dag samen als één menu* en *Soep en pizza altijd los* stonden in 4.3.0 als vinkjes bovenaan het Weekplanner-paneel. Nu staan ze bij **Instellingen, Voorkeuren**, in het blok **Supermarkt**, onder het nieuwe kopje **Weekplanner van de AH-app**. Het zijn echte schakelaars, net als de *Kookmodus*, met een korte uitleg bij elk.
