@@ -29,9 +29,13 @@ collectie, met lijsten van regels in losse JSON-bestanden en een JSON Schema per
 De namen zijn die van de gist van wolph (een nieuw volgnummer zodra een document 4 MiB zou passeren), zodat een export zijn
 documenten pad voor pad vervangt. Elk document staat er zoals de site het publiceert (twee spaties inspringen, UTF-8, een
 regeleinde aan het eind), dus de SHA-256 op de site is die van het bestand.
+
+Een adres van een folderarchief (supermarktaanbiedingen.com, voordeelmuis.nl; `ARCHIVE_URLS`) gaat niet mee naar de site: van
+zo'n regel is `url` leeg, en het schema weigert zo'n adres. De regel zelf (product, prijs, looptijd, actietekst) gaat wel mee.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import zipfile
@@ -45,6 +49,7 @@ from .price_archive import (
     EXPORT_MANIFEST, FORMAT, FORMAT_VERSION, MAX_PRICE, OFFER_COLUMNS, PRICE_COLUMNS, PRICE_SOURCES, SITE_FORMAT, RowError, Today,
     normalise_offer, normalise_price,
 )
+from .price_archive_tidy import ARCHIVE_URLS
 
 OFFER_FIELDS = tuple(column for column in OFFER_COLUMNS if column != "personal")  # altijd 0: een persoonlijke gaat er niet in
 PRICE_FIELDS = PRICE_COLUMNS
@@ -204,6 +209,9 @@ STAMP = r"^\d{4}-\d{2}-\d{2}(?:[T ].*)?$"
 # erin passen (aanbiedingen: de foldertekst en de koppeling; prijzen: de commit van de bron).
 GIST_TEXT_FIELDS = ("source_title", "description", "raw_old", "raw_now", "reason", "matched_title")
 GIST_PRICE_FIELDS = ("source_commit",)
+# Het begin van een adres van een folderarchief, als regex: zo'n adres hoort niet op de site (alleen `.` en `?` komen erin voor,
+# dus de regex werkt ook als ECMAScript-regex, zoals JSON Schema hem bedoelt).
+ARCHIVE_URL_PATTERN = "^(?:" + "|".join(re.sub(r"([.?])", r"\\\1", prefix) for prefix in ARCHIVE_URLS) + ")"
 
 
 def _text(highest: int, required: bool = False) -> dict[str, Any]:
@@ -214,9 +222,13 @@ def _text(highest: int, required: bool = False) -> dict[str, Any]:
 
 def site_schema(store: str) -> dict[str, Any]:
     """Het JSON Schema van de collectie `store` op data.mealieshopper.nl: een lijst van aanbiedingen en prijzen, met dezelfde
-    regels als de import (`normalise_offer` en `normalise_price`). Elke regel is precies één van de twee."""
+    regels als de import (`normalise_offer` en `normalise_price`). Elke regel is precies één van de twee. Een adres van een
+    folderarchief (`ARCHIVE_URLS`) weigert het: dat hoort niet op de site."""
     name = STORE_NAMES[store]
-    url = {"type": ["string", "null"], "maxLength": 2000, "pattern": r"^https://[^ ]+$"}
+    url = {
+        "type": ["string", "null"], "maxLength": 2000, "pattern": r"^https://[^ ]+$",
+        "not": {"type": "string", "pattern": ARCHIVE_URL_PATTERN},  # met type: anders zou ook null hier vallen
+    }
     amount = {"type": ["number", "null"], "minimum": 0, "maximum": MAX_PRICE}
     stamp = {"type": "string", "maxLength": 40, "pattern": STAMP}
     offer = {
@@ -290,6 +302,11 @@ def _site_https(value: Any) -> str | None:
     return value if isinstance(value, str) and value.startswith("https://") and " " not in value and len(value) <= 2000 else None
 
 
+def _site_url(value: Any) -> str | None:
+    """Het adres van een regel op de site: leeg voor een folderarchief (supermarktaanbiedingen.com, voordeelmuis.nl)."""
+    return None if isinstance(value, str) and value.startswith(ARCHIVE_URLS) else value
+
+
 class _SiteWriter:
     """Schrijft de regels per winkel, soort en jaar als JSON-lijsten van hoogstens `limit` bytes, zoals de site ze publiceert."""
 
@@ -340,10 +357,25 @@ def write_site_export(path: Path, limit: int = SITE_DOC_BYTES) -> dict[str, Any]
     """Schrijft de export voor data.mealieshopper.nl naar `path` (een ZIP) en geeft de kop terug, zoals `write_export`.
 
     Elke regel staat erin zoals de import hem zou opslaan (`normalise_offer`, `normalise_price`), met de bron van een prijs en
-    het adres van een afbeelding zoals ze waren. Als geheel voor `asyncio.to_thread`, na `price_archive.ensure_schema`."""
+    het adres van een afbeelding zoals ze waren, en zonder het adres van een folderarchief (`_site_url`). Verschilden twee
+    regels alleen in dat adres (het archief noemde dezelfde aanbieding twee keer), dan staat de regel er één keer in
+    (`merged`). Als geheel voor `asyncio.to_thread`, na `price_archive.ensure_schema`."""
     bounds = Today()
     now = datetime.now(timezone.utc).replace(microsecond=0)
     stamp = (now.year, now.month, now.day, now.hour, now.minute, now.second)
+    merged = {"offers": 0, "prices": 0}
+    seen: set[bytes] = set()  # alleen regels waarvan het adres wegviel: die zouden anders dubbel op de site staan
+
+    def duplicate(folder: str, record: dict[str, Any], original: Any) -> bool:
+        if original == record["url"]:
+            return False
+        key = hashlib.blake2b(f"{folder}\x1f{json.dumps(record, sort_keys=True)}".encode("utf-8"), digest_size=16).digest()
+        if key in seen:
+            merged[folder] += 1
+            return True
+        seen.add(key)
+        return False
+
     with closing(thread_db.connect()) as conn, zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as archive:
         writer = _SiteWriter(archive, stamp, limit)
         for row in _rows(conn, OFFERS_SQL, OFFER_FIELDS):
@@ -358,6 +390,10 @@ def write_site_export(path: Path, limit: int = SITE_DOC_BYTES) -> dict[str, Any]
                 continue
             record.pop("personal")
             record["image"] = _site_https(row["image"])
+            original = record["url"]
+            record["url"] = _site_url(original)
+            if duplicate("offers", record, original):
+                continue
             writer.write("offers", record["store"], match[1], record)
         for row in _rows(conn, PRICES_SQL, PRICE_FIELDS):
             try:
@@ -370,6 +406,10 @@ def write_site_export(path: Path, limit: int = SITE_DOC_BYTES) -> dict[str, Any]
                 continue
             record["source"] = row["source"]  # al gecontroleerd; `search` blijft `search`
             record["image"] = _site_https(row["image"])
+            original = record["url"]
+            record["url"] = _site_url(original)
+            if duplicate("prices", record, original):
+                continue
             writer.write("prices", record["store"], record["day"][:4], record)
         writer.flush()
         stores = [store for store in offers.STORES if store in writer.span]
@@ -385,6 +425,7 @@ def write_site_export(path: Path, limit: int = SITE_DOC_BYTES) -> dict[str, Any]
             "schemas": [f"schemas/{store}.schema.json" for store in stores],
             "counts": writer.counts,
             "skipped": writer.skipped,
+            "merged": merged,
         }
         info = zipfile.ZipInfo(SITE_README, date_time=stamp)
         info.compress_type = zipfile.ZIP_DEFLATED
@@ -403,10 +444,14 @@ def site_readme(header: dict[str, Any], span: dict[str, list[str]]) -> str:
             rows.append(f"| {name} (`{store}`) | {offer_count} | {price_count} | {first} | {last} |")
     table = "\n".join(rows) or "| - | 0 | 0 | | |"
     day = header["createdAt"][:10]
+    merged = sum(header.get("merged", {}).values())
+    merged_nl = (f" {merged} regels die alleen in het adres van het archief verschilden, staan er één keer in." if merged else "")
+    merged_en = (f" {merged} lines that only differed in the archive address are included once." if merged else "")
     return f"""# Export voor data.mealieshopper.nl
 
 Aanbiedingen en prijzen van supermarkten, geëxporteerd door {header["source"]} op {day}, in de vorm van
-[data.mealieshopper.nl](https://data.mealieshopper.nl). Persoonlijke aanbiedingen (Bonus Box) staan er niet in.
+[data.mealieshopper.nl](https://data.mealieshopper.nl). Persoonlijke aanbiedingen (Bonus Box) staan er niet in. Het adres van een
+folderarchief (supermarktaanbiedingen.com, voordeelmuis.nl) ook niet: van zo'n regel is `url` leeg.{merged_nl}
 
 | Collectie | Aanbiedingen | Prijzen | Van | Tot |
 | --- | ---: | ---: | --- | --- |
@@ -427,7 +472,8 @@ staat.
 ## English
 
 Supermarket offers and prices, exported by {header["source"]} on {day}, in the layout of
-[data.mealieshopper.nl](https://data.mealieshopper.nl). Personal offers (Bonus Box) are not included. To submit: put the folders
+[data.mealieshopper.nl](https://data.mealieshopper.nl). Personal offers (Bonus Box) are not included, and neither is the address
+of a leaflet archive (supermarktaanbiedingen.com, voordeelmuis.nl): such a line has an empty `url`.{merged_en} To submit: put the folders
 `data/` and `schemas/` into the data repository ({SITE_REPOSITORY}), with git or on GitHub with **Add file, Upload files** (at
 most 100 files at a time), without this file. If a store already has a zip with the same documents (such as the one from the
 gist), remove it in the same pull request. Then open a pull request and wait for the check **Inzending controleren**. To import

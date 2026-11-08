@@ -17,7 +17,7 @@ import httpx
 import jsonschema
 
 from helpers import routes  # noqa: E402
-from mealieshopper import about, price_archive, price_archive_export  # noqa: E402
+from mealieshopper import about, price_archive, price_archive_export, price_archive_tidy  # noqa: E402
 from test_price_archive import TOP, ArchiveCase, by_store, offer, price  # noqa: E402
 
 SITE = "https://data.mealieshopper.nl"
@@ -293,6 +293,10 @@ class SiteExportTest(ArchiveCase):
         self.assertNotIn("personal", melk)
         folder = documents["data/ah/offers/2013-001.json"][0]
         self.assertEqual((folder["brand"], folder["image"], folder["ended_at"]), (None, None, "2013-06-09T23:59:59+00:00"))  # zoals de import
+        # Het adres van het folderarchief gaat niet mee naar de site; de regel zelf wel, en een adres van de winkel ook.
+        self.assertEqual((folder["product_id"], folder["url"], folder["price"]), ("folder:ah0002", None, 1.39))
+        self.assertEqual(melk["url"], "https://www.ah.nl/producten/product/wi8001")
+        self.assertFalse([name for name in documents if b"supermarktaanbiedingen" in archive.read(name)])  # het schema noemt hem, om hem te weigeren
         self.assertIsNone(documents["data/picnic/offers/2026-001.json"][0]["url"])
         self.assertEqual(documents["data/ah/prices/2026-001.json"][0]["source"], "search")
         readme = archive.read("MEALIESHOPPER-EXPORT.md").decode("utf-8")
@@ -320,22 +324,35 @@ class SiteExportTest(ArchiveCase):
                 keys = {key.replace("_", "").lower() for row in data for key in row}
                 self.assertFalse([key for key in keys if any(word in key for word in SENSITIVE)])
 
-    def test_the_schema_takes_the_gist_and_refuses_what_does_not_belong(self):
+    def test_the_schema_takes_the_gist_without_its_source_address_and_refuses_what_does_not_belong(self):
         schema = jsonschema.Draft202012Validator(price_archive_export.site_schema("ah"))
-        gist = gist_offer(1, match_kind="approximate", match_score=0.9, matched_title="AH Bloemkool")
-        self.assertTrue(schema.is_valid([gist, gist_offer(2, url=None, brand=None)]))
+        gist = gist_offer(1, url=None, match_kind="approximate", match_score=0.9, matched_title="AH Bloemkool")
+        self.assertTrue(schema.is_valid([gist, gist_offer(2, url="https://www.ah.nl/producten/product/wi4183", brand=None)]))
         self.assertTrue(schema.is_valid([price(1, "ah", source="search")]))
         for label, row in [
-            ("another store", gist_offer(1, "jumbo")),
-            ("an unknown field", gist_offer(1, type="offer")),
-            ("a personal offer", gist_offer(1, personal=1)),
+            ("an address of supermarktaanbiedingen.com", gist_offer(1)),
+            ("an address of voordeelmuis.nl", gist_offer(1, url="https://www.voordeelmuis.nl/cgi-bin/v.cgi?a=d&d=3318619")),
+            ("a price from a folder archive", price(1, "ah", url="https://www.supermarktaanbiedingen.com/folders/albert_heijn/2013/1/x")),
+            ("another store", gist_offer(1, "jumbo", url=None)),
+            ("an unknown field", gist_offer(1, url=None, type="offer")),
+            ("a personal offer", gist_offer(1, url=None, personal=1)),
             ("no https", gist_offer(1, url="http://x")),
             ("a price of nothing", price(1, "ah", price=0)),
             ("an unknown source", price(1, "ah", source="order")),
-            ("half an offer and half a price", {**gist_offer(1), "day": "2013-06-03"}),
+            ("half an offer and half a price", {**gist_offer(1, url=None), "day": "2013-06-03"}),
         ]:
             with self.subTest(label):
                 self.assertFalse(schema.is_valid([row]))
+
+    def test_the_pattern_for_folder_archives_covers_every_archive_address(self):
+        pattern = re.compile(price_archive_export.ARCHIVE_URL_PATTERN)
+        for prefix in price_archive_tidy.ARCHIVE_URLS:
+            self.assertTrue(pattern.match(prefix + "x"), prefix)
+        for address in ("https://www.ah.nl/producten/product/wi4183", "https://crisp.nl/download/12/175/persbericht.pdf",
+                        "https://www.supermarktaanbiedingen.nl/folders/x", "https://wwwXsupermarktaanbiedingen.com/folders/x"):
+            self.assertIsNone(pattern.match(address), address)
+        # Alleen een escape voor . en ?: zo werkt de regex ook als ECMAScript-regex (JSON Schema).
+        self.assertEqual(set(re.findall(r"\\(.)", price_archive_export.ARCHIVE_URL_PATTERN)), {".", "?"})
 
     async def test_documents_are_split_before_the_limit(self):
         with closing(self.connect()) as conn, conn:
@@ -380,9 +397,26 @@ class SiteExportTest(ArchiveCase):
         def plain(rows):
             return sorted([row[key] for key in columns] for row in rows)
 
-        self.assertEqual(plain(self.rows("offer_history")), plain(row for row in before[0] if not row["personal"]))
+        # Alles komt terug, behalve het adres van het folderarchief: dat ging niet mee naar de site.
+        expected = [{**row, "url": None if str(row["url"] or "").startswith(price_archive_tidy.ARCHIVE_URLS) else row["url"]}
+                    for row in before[0] if not row["personal"]]
+        self.assertEqual(plain(self.rows("offer_history")), plain(expected))
         self.assertEqual(sorted((row["store"], row["source"], row["price"]) for row in self.rows("price_observations")),
                          [("ah", "archive_search", 1.39), ("picnic", "public_observed_unknown", 2.79)])
+
+    async def test_lines_that_only_differed_in_the_archive_address_go_once(self):
+        # Het archief noemde dezelfde aanbieding twee keer (twee folderpagina's); een variant (andere actietekst) blijft.
+        twice = [gist_offer(1, url=f"https://www.supermarktaanbiedingen.com/folders/albert_heijn/2013/23/p{page}") for page in (1, 2)]
+        variant = gist_offer(1, url="https://www.supermarktaanbiedingen.com/folders/albert_heijn/2013/23/p3", promo_label="Folder | Stuk 100 gram")
+        await self.run_import(plain_zip({"offers/2013-001.json": site_doc([*twice, variant])}))
+        self.assertEqual(len(self.rows("offer_history")), 3)
+        await price_archive.ensure_schema()
+        header = await asyncio.to_thread(price_archive_export.write_site_export, self.data / "export.zip")
+        rows = json.loads(zipfile.ZipFile(self.data / "export.zip").read("data/ah/offers/2013-001.json"))
+        self.assertEqual(sorted(row["promo_label"] for row in rows), ["2 voor", "Stuk 100 gram"])
+        self.assertEqual((header["merged"], header["counts"]["offers"]), ({"offers": 1, "prices": 0}, {"ah": 2}))
+        self.assertIn("1 regels die alleen in het adres van het archief verschilden",
+                      zipfile.ZipFile(self.data / "export.zip").read("MEALIESHOPPER-EXPORT.md").decode("utf-8"))
 
     async def test_the_gist_comes_out_under_the_same_names(self):
         await self.run_import(site_gist_zip())

@@ -2,6 +2,21 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub; een stabiele release krijgt de teksten van alle versies sinds de vorige stabiele release.
 
+## v4.1.1
+
+### Gewijzigd in 4.1.1
+
+Pull request: [#281](https://github.com/helmerzNL/MealieShopper/pull/281).
+
+*English summary: **Export for data.mealieshopper.nl** no longer includes the address of a leaflet archive (supermarktaanbiedingen.com, voordeelmuis.nl): such a line goes to the site with an empty `url`, the line itself (product, price, period, offer text) still goes. The JSON Schema the export writes per store (`schemas/<store>.schema.json`) refuses such an address, so the site's check rejects a submission that has one. Lines that only differed in that address (the archive listed the same offer twice) are exported once: 283 of the 33,000 from wolph's gist. Importing is unchanged: a line without an address is matched on store, product and period, so importing it again still finds it, and of two variants of one product in the same week another installation keeps one (57 lines from the gist). Pull request [#281](https://github.com/helmerzNL/MealieShopper/pull/281).*
+
+- **Exporteren voor data.mealieshopper.nl: geen adres van een folderarchief.** Op data.mealieshopper.nl horen geen bronadressen van supermarktaanbiedingen.com. Van een regel uit een folderarchief (`price_archive_tidy.ARCHIVE_URLS`: supermarktaanbiedingen.com en voordeelmuis.nl) is `url` in de export nu leeg; de regel zelf, met product, prijs, looptijd en actietekst, gaat wel mee. Een adres van de winkel zelf (zoals `www.ah.nl`) blijft staan.
+- **Het schema weigert zo'n adres.** `schemas/<winkel>.schema.json` heeft bij `url` een `not` met het begin van die adressen (`ARCHIVE_URL_PATTERN`, alleen `.` en `?` geëscapet, zodat het ook als ECMAScript-regex werkt). Een inzending met zo'n adres komt zo niet door de check **Inzending controleren** van de site; de documenten van de gist van wolph dus ook niet zonder dat het adres eruit is.
+- **Dubbele regels één keer.** Het archief noemt dezelfde aanbieding soms twee keer, op twee folderpagina's. Zonder adres zijn zulke regels gelijk; de export neemt ze één keer op (`merged` in de kop, en een zin in `MEALIESHOPPER-EXPORT.md`). Bij de gist van wolph zijn dat er 283 van de 33.000.
+- **Terug importeren blijft werken.** Een regel zonder adres herkent de import aan winkel, product en looptijd: een tweede import slaat hem over. Een regel met een `folder:`-id blijft een archiefregel voor **Vervangen**. Daardoor komt van twee varianten van hetzelfde product in dezelfde week (zoals *Pak 100 gram* en *Stuk 100 gram*) bij een andere installatie maar één binnen: bij de gist 57 regels.
+- **Handleiding** (NL en EN): de export voor de site zegt dat het adres van een folderarchief niet meegaat.
+- **Tests:** de export heeft geen adres van supermarktaanbiedingen.com meer in een document, de rondreis geeft dezelfde regels terug met een leeg adres, en het schema weigert adressen van supermarktaanbiedingen.com en voordeelmuis.nl, ook bij een prijs.
+
 ## v4.1.0
 
 ### Nieuw in 4.1.0
