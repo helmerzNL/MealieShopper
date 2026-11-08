@@ -1,6 +1,7 @@
 // Instellingen, Voorkeuren, per gebruiker, in drie inklapbare blokken (zoals onder Koppelen): Supermarkt (de
-// voorkeurssupermarkt waarmee Aanbiedingen en Winkels openen), Weergave (de kookmodus en de calorieën) en Thema (de accentkleur, het thema met
-// de achtergrond van het donkere thema, en de navigatiebalk).
+// voorkeurssupermarkt waarmee Aanbiedingen en Winkels openen, en hoe Naar weekmenu losse producten uit de weekplanner van de
+// AH-app in Mealie zet), Weergave (de kookmodus en de calorieën) en Thema (de accentkleur, het thema met de achtergrond van het
+// donkere thema, en de navigatiebalk).
 // Het toepassen en het rekenen met kleuren doet static/theme.js (window.THEME); dit bestand tekent de keuzes en bewaart ze
 // bij het profiel (PUT /api/profile/preferences). Na het inloggen zet appearanceFromProfile() de keuze van het profiel.
 // Laadt na app.js en profile.js en gebruikt daar de hulpfuncties van ($, message, jsonFetch, t, escapeHtml, state, ...).
@@ -19,6 +20,7 @@ function appearanceSignedIn() {
 // wat deze browser had, zoals voor er een menu Weergave (nu Voorkeuren) was.
 function appearanceFromProfile() {
   const auth = state.auth || {};
+  renderAppearancePlanner(); // de keuzes voor de AH-weekplanner, los van de weergave
   if (!appearanceSignedIn() || !("accent" in auth)) return;
   THEME.apply({
     theme: auth.theme,
@@ -177,8 +179,45 @@ async function appearanceSaveStore(store) {
   }
 }
 
+// De weekplanner van de AH-app (4.3): losse producten van een dag samen als één menu, en soep en pizza dan toch los. Standaard
+// aan; de tweede heeft alleen zin als de eerste aan staat. Winkels, Albert Heijn, Weekplanner (ah_planner.js) leest ze.
+function renderAppearancePlanner() {
+  const combine = $("#appearance-planner-combine");
+  if (!combine) return;
+  combine.checked = state.auth?.plannerCombine !== false;
+  $("#appearance-planner-split-meals").checked = state.auth?.plannerSplitMeals !== false;
+  $("#appearance-planner-split-row").hidden = !combine.checked;
+}
+
+// Een keuze voor de weekplanner: meteen toepassen (ook op de labels in de weekplanner) en bij het profiel bewaren. Weigert de
+// server hem, dan komt de vorige stand terug met de melding van de server.
+async function appearanceSavePlanner(key, value) {
+  const previous = { plannerCombine: state.auth?.plannerCombine !== false, plannerSplitMeals: state.auth?.plannerSplitMeals !== false };
+  const changed = () => {
+    renderAppearancePlanner();
+    if (typeof ahPlanner !== "undefined" && ahPlanner.loaded && typeof renderAhPlanner === "function") renderAhPlanner();
+  };
+  state.auth = { ...state.auth, [key]: value };
+  changed();
+  message("#appearance-planner-message", "");
+  if (!appearanceSignedIn()) return;
+  try {
+    const data = await jsonFetch("/api/profile/preferences", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ [key]: value }),
+    });
+    state.auth = { ...state.auth, plannerCombine: data.plannerCombine !== false, plannerSplitMeals: data.plannerSplitMeals !== false };
+  } catch (error) {
+    state.auth = { ...state.auth, ...previous };
+    message("#appearance-planner-message", error.message);
+  }
+  changed();
+}
+
 function renderAppearance() {
   renderAppearanceStore();
+  renderAppearancePlanner();
   if (!$("#settings-appearance") || typeof THEME === "undefined") return;
   const look = THEME.appearance();
   document.querySelectorAll('input[name="appearance-theme"]').forEach((input) => {
@@ -250,6 +289,9 @@ $("#appearance-calories").addEventListener("change", (event) => {
 $("#appearance-store").addEventListener("change", (event) => {
   if (event.target.name === "appearance-store") appearanceSaveStore(event.target.value);
 });
+
+$("#appearance-planner-combine").addEventListener("change", (event) => appearanceSavePlanner("plannerCombine", event.target.checked));
+$("#appearance-planner-split-meals").addEventListener("change", (event) => appearanceSavePlanner("plannerSplitMeals", event.target.checked));
 
 $("#appearance-theme").addEventListener("change", (event) => {
   if (event.target.name === "appearance-theme") THEME.choose(event.target.value); // het bewaren volgt via ms:appearancechange

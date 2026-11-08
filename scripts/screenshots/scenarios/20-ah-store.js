@@ -299,33 +299,47 @@ const bulkRoutes = {
   },
 };
 
-// ---- de weekplanner van de AH-app (4.2) ---------------------------------------------------------------------
-// Vanaf vandaag (woensdag 28 oktober) wat in de AH-app gepland staat: Allerhande-recepten, een product, een eigen recept en
-// een notitie. Naar weekmenu zet de vier recepten in het weekmenu: drie gepland (twee nieuw in Mealie), één stond er al.
+// ---- de weekplanner van de AH-app (4.2, losse producten 4.3) -----------------------------------------------
+// Vanaf vandaag (woensdag 28 oktober) wat in de AH-app gepland staat: Allerhande-recepten, losse producten (met `standalone`
+// voor soep en pizza, zoals de server die zet), een eigen recept en notities. Naar weekmenu (samen als menu, soep en pizza
+// los): de recepten, op donderdag een menu van drie producten, op vrijdag de soep die al in Mealie staat, en op zaterdag de
+// pizza als eigen recept. Eén recept stond er al.
 const plannerRecipe = (id, title, image) => ({ kind: "recipe", recipeId: id, title, image, url: `https://www.example.nl/allerhande/recept/R-R${id}` });
+const plannerProduct = (id, title, standalone = false) => ({ kind: "product", productId: id, title, standalone, url: `https://www.example.nl/producten/product/wi${id}` });
 const ahPlanner = {
   days: [
     { date: "2026-10-28", items: [plannerRecipe(1201, "Pasta pesto met kerstomaatjes", DISHES.pesto)] },
-    { date: "2026-10-29", items: [plannerRecipe(1200, "Boerenkoolstamppot met rookworst", DISHES.stamppot), { kind: "product", productId: 4242, title: "Gelderse rookworst", url: "https://www.example.nl/producten/product/wi4242" }] },
-    { date: "2026-10-30", items: [{ kind: "own_recipe", recipeId: 77, title: "Oma's erwtensoep" }] },
-    { date: "2026-10-31", items: [{ kind: "note", text: "Uit eten" }] },
+    {
+      date: "2026-10-29",
+      items: [plannerProduct(4101, "Kipburgers smokey 2 stuks"), plannerProduct(4102, "Krieltjes met rozemarijn"), plannerProduct(4103, "Sperziebonen")],
+    },
+    { date: "2026-10-30", items: [{ kind: "note", text: "Soep" }, plannerProduct(4201, "Chinese tomatensoep", true)] },
+    { date: "2026-10-31", items: [{ kind: "note", text: "Pizza" }, plannerProduct(4301, "Pizza margherita", true)] },
     { date: "2026-11-01", items: [plannerRecipe(1205, "Curry van kikkererwten", DISHES.curry)] },
-    { date: "2026-11-02", items: [] },
+    { date: "2026-11-02", items: [{ kind: "own_recipe", recipeId: 77, title: "Oma's erwtensoep" }] },
     { date: "2026-11-03", items: [plannerRecipe(1207, "Zalm met geroosterde groenten", DISHES.fish)] },
   ],
   incomplete: false,
 };
-const PLANNER_OUTCOME = { 1201: ["already_planned", false], 1200: ["planned", true], 1205: ["planned", false], 1207: ["planned", true] };
+const PLANNER_OUTCOME = { 1201: ["already_planned", false], 1205: ["planned", false], 1207: ["planned", true] };
 
 const plannerRoutes = {
   ...routes,
   "/api/ah/planner": ahPlanner,
   "/api/ah/planner/to-meal-plan": (route, request) => {
-    const items = JSON.parse(request.postData() || "{}").items || [];
-    const results = items.map(({ date, recipeId }) => {
+    const day = JSON.parse(request.postData() || "{}");
+    const results = (day.recipeIds || []).map((recipeId) => {
       const [status, imported] = PLANNER_OUTCOME[recipeId] || ["planned", false];
-      return { date, recipeId, status, imported, slug: `recept-${recipeId}`, mealieUrl: `${mealieUrl}/g/thuis/r/recept-${recipeId}` };
+      return { date: day.date, kind: "recipe", title: "", recipeId, status, imported, slug: `recept-${recipeId}`, mealieUrl: `${mealieUrl}/g/thuis/r/recept-${recipeId}` };
     });
+    const products = day.products || [];
+    if (products.length > 1) {
+      results.push({ date: day.date, kind: "menu", title: day.note || products.map((product) => product.title).join(", "), productIds: products.map((product) => product.productId), status: "planned", imported: true, slug: "menu", mealieUrl: `${mealieUrl}/g/thuis/r/menu` });
+    } else if (products.length) {
+      // De soep stond al in Mealie (zelfde naam); de pizza wordt een eigen recept.
+      const known = products[0].productId === 4201;
+      results.push({ date: day.date, kind: "product", title: products[0].title, productIds: [products[0].productId], status: "planned", imported: !known, slug: "product", mealieUrl: `${mealieUrl}/g/thuis/r/product` });
+    }
     return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ results }) });
   },
 };

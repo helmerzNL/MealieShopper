@@ -286,6 +286,32 @@ console.log(JSON.stringify(out));
         self.assertEqual(sorted(refused["props"]), ["--nav-alpha", "--nav-blur"], "alleen het glas van de balk")
 
 
+class PlannerPreferencesTest(unittest.TestCase):
+    """Voorkeuren, Supermarkt: hoe Naar weekmenu losse producten uit de AH-weekplanner in Mealie zet (4.3.1, eerst in de planner)."""
+
+    def test_two_real_switches_in_the_supermarket_block(self):
+        store = HTML[HTML.index('id="appearance-store-box"'):HTML.index('id="appearance-display-box"')]
+        self.assertIn('<section class="appearance-section fold__section" aria-labelledby="appearance-planner-title">', store)
+        for name in ("combine", "split-meals"):
+            switch = re.search(rf'<input type="checkbox" role="switch" class="switch" id="appearance-planner-{name}"[^>]*>', store).group(0)
+            self.assertIn(" checked", switch, "standaard aan")
+            self.assertIn(f'aria-labelledby="appearance-planner-{name}-label"', switch)
+            self.assertIn(f'aria-describedby="appearance-planner-{name}-help"', switch)
+        self.assertIn('<div class="appearance-setting" id="appearance-planner-split-row">', store)
+        self.assertLess(store.index("appearance-planner-combine"), store.index("appearance-planner-split-row"))
+        self.assertIn('<div id="appearance-planner-message"></div>', store)
+
+    def test_the_switches_are_saved_in_the_profile(self):
+        script = (STATIC / "appearance.js").read_text(encoding="utf-8")
+        self.assertIn('appearanceSavePlanner("plannerCombine", event.target.checked)', script)
+        self.assertIn('appearanceSavePlanner("plannerSplitMeals", event.target.checked)', script)
+        save = script[script.index("async function appearanceSavePlanner"):script.index("function renderAppearance()")]
+        self.assertIn('"/api/profile/preferences"', save)
+        self.assertIn("state.auth = { ...state.auth, ...previous };", save, "een weigering zet de vorige stand terug")
+        self.assertIn("renderAhPlanner()", save, "de labels in de weekplanner volgen meteen")
+        self.assertIn('$("#appearance-planner-split-row").hidden = !combine.checked;', script, "soep en pizza los alleen met de eerste aan")
+
+
 class AppearanceMarkupTest(unittest.TestCase):
     def panel(self):
         start = HTML.index('<div id="settings-appearance"')

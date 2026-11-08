@@ -94,13 +94,27 @@ class WeekPlannerMarkupTest(unittest.TestCase):
         self.assertIn('if (subtab.dataset.subtab === "ah-items-weekplanner" && typeof showAhPlanner === "function") showAhPlanner();', script)
         self.assertLess(HTML.index("filename='recipe_search.js'"), HTML.index("filename='ah_planner.js'"))
 
-    def test_only_allerhande_recipes_go_to_the_week_menu(self):
+    def test_recipes_and_products_go_to_the_week_menu_one_day_at_a_time(self):
         planner = (ROOT / "static" / "ah_planner.js").read_text(encoding="utf-8")
         self.assertIn('day.items.filter((item) => item.kind === "recipe")', planner)
+        self.assertIn('day.items.filter((item) => item.kind === "product")', planner)
         self.assertIn('"/api/ah/planner/to-meal-plan"', planner)
-        # Een dag per verzoek, en daarna het weekmenu vernieuwen.
+        # Een dag per verzoek, met de keuzes van de gebruiker, en daarna het weekmenu vernieuwen.
         self.assertIn("for (const [index, day] of days.entries())", planner)
+        self.assertIn("body: JSON.stringify(day)", planner)
+        self.assertIn("...options,", planner)
         self.assertIn("refreshMealPlanAfterChange(", planner)
+
+    def test_the_choices_for_loose_products_live_in_the_preferences(self):
+        # Samen als één menu, en soep en pizza dan toch los (4.3.0) staan sinds 4.3.1 bij Instellingen, Voorkeuren, Supermarkt
+        # (test_appearance.py); het paneel leest ze alleen en wijst ernaar.
+        panel = HTML[HTML.index('id="ah-items-weekplanner"'):HTML.index('id="ah-items-lijstjes"')]
+        self.assertNotIn("ah-planner-combine", panel)
+        self.assertNotIn("ah-planner-split-meals", panel)
+        self.assertIn('<a href="/settings/preferences" data-route data-i18n="ah.planner.settings_link">', panel)
+        planner = (ROOT / "static" / "ah_planner.js").read_text(encoding="utf-8")
+        self.assertIn("return { combine: state.auth?.plannerCombine !== false, splitMeals: state.auth?.plannerSplitMeals !== false };", planner)
+        self.assertNotIn('"/api/profile/preferences"', planner, "bewaren doet appearance.js")
 
 
 class OverviewMarkupTest(unittest.TestCase):

@@ -379,9 +379,9 @@ def create_app() -> Quart:
             app.logger.exception("AH saved recipes error")
             return jsonify({"error": str(exc) or tr("Bewaarde recepten ophalen mislukt", "Could not fetch saved recipes")}), 424
 
-    # De weekplanner van de AH-app (zie ah_planner.py): alleen lezen bij AH. *Naar weekmenu* zet de Allerhande-recepten in
-    # het weekmenu van Mealie en importeert ze zo nodig eerst. Iedereen die is ingelogd mag dat, net als plannen en
-    # importeren; daarom staan deze paden niet in auth.ADMIN_PREFIXES. Het scherm stuurt een dag per keer.
+    # De weekplanner van de AH-app (zie ah_planner.py): alleen lezen bij AH. *Naar weekmenu* zet de Allerhande-recepten en
+    # de losse producten (als bestaand recept, eigen recept of menu) in het weekmenu van Mealie. Iedereen die is ingelogd mag
+    # dat, net als plannen en importeren; daarom staan deze paden niet in auth.ADMIN_PREFIXES. Het scherm stuurt een dag per keer.
     @app.get("/api/ah/planner")
     async def ah_week_planner():
         try:
@@ -399,11 +399,11 @@ def create_app() -> Quart:
         except RuntimeError as exc:  # Mealie is niet gekoppeld: de tekst is van onszelf en zegt wat te doen
             return jsonify({"error": str(exc)}), 400
         try:
-            items = ah_planner.clean_items(await request.get_json(silent=True))
+            day = ah_planner.clean_day(await request.get_json(silent=True))
         except ValueError as exc:
             return jsonify({"error": str(exc)}), 400
         try:
-            return jsonify(await ah_planner.to_meal_plan(items))
+            return jsonify(await ah_planner.to_meal_plan(day))
         except Exception:  # noqa: BLE001 - het weekmenu van Mealie niet te lezen: de melding van Mealie alleen in het logboek
             app.logger.exception("AH week planner to meal plan error")
             return jsonify({"error": tr("Het weekmenu van Mealie lezen is mislukt", "Could not read the Mealie week menu")}), 424

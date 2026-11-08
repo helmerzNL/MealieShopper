@@ -8682,6 +8682,16 @@ html.is-standalone body {
   font-size: 16px;
 }
 
+/* Een schakelaar binnen een onderdeel (Supermarkt, Weekplanner van de AH-app): een kleinere kop en wat ruimte ertussen. */
+.fold--compact .fold__body h4 {
+  margin: 0 0 2px;
+  font-size: 15px;
+}
+
+.appearance-section .appearance-setting {
+  margin-top: 12px;
+}
+
 .appearance-section > .muted,
 .appearance-setting .muted {
   margin: 0;
