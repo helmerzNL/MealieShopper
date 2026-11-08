@@ -21,7 +21,7 @@ import respx  # noqa: E402
 
 from mealieshopper import audit, auth, http_client, mcp, oauth, tasks  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
-from helpers import AppTestCase, db  # noqa: E402
+from helpers import AppTestCase, db, settle_audit  # noqa: E402
 
 
 # Wat een respx-route teruggeeft: een vast antwoord of een functie die er een maakt.
@@ -56,8 +56,8 @@ class AuditTestCase(AppTestCase):
                     else:
                         router.route(url=route_url).mock(return_value=answer)
                 response: httpx.Response = await http_client.client("test", follow_redirects=follow_redirects).request(method, url, **kwargs)
-                for _ in range(3):
-                    await asyncio.sleep(0)  # de controle op een niet gevolgde doorverwijzing loopt als eigen task
+                # Een niet gevolgde doorverwijzing logt `audit` als eigen task: wacht tot die regel echt geschreven is.
+                await settle_audit()
                 return response
         finally:
             await http_client.aclose_all()
@@ -239,6 +239,17 @@ class HttpxOutboundTest(AuditTestCase):
         (entry,) = await self.entries()
         self.assertEqual((entry["service"], entry["status"], entry["url"]), ("marleyspoon", 302, start))
         self.assertNotIn("redirects", entry["detail"])
+
+    async def test_fetch_waits_until_the_redirect_line_is_written(self) -> None:
+        # De regel van een niet gevolgde doorverwijzing komt uit een eigen task (`audit-redirect`); `fetch` wacht daar echt op
+        # (`settle_audit`), in plaats van een paar rondjes van de loop te hopen dat het schrijven klaar is.
+        start: str = "https://www.jumbo.com/api/graphql"
+        response: httpx.Response = await self.fetch("GET", start, {start: httpx.Response(301, headers={"Location": "https://www.jumbo.com/elders"})}, follow_redirects=False)
+        self.assertEqual(response.status_code, 301)
+        self.assertEqual([name for name in tasks.running() if name.startswith("audit-")], [])
+        entry: dict[str, Any]
+        (entry,) = await self.entries()
+        self.assertEqual((entry["service"], entry["status"]), ("jumbo", 301))
 
     async def test_httpx_binary_responses_are_not_read(self) -> None:
         url: str = "https://www.ah.nl/image.png"
