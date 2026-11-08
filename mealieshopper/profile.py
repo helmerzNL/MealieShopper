@@ -48,6 +48,8 @@ CREATE TABLE IF NOT EXISTS user_profiles (
   navbar_glass INTEGER NOT NULL DEFAULT 60,
   cooking_mode INTEGER NOT NULL DEFAULT 1,
   preferred_store TEXT NOT NULL DEFAULT 'ah',
+  planner_combine INTEGER NOT NULL DEFAULT 1,
+  planner_split_meals INTEGER NOT NULL DEFAULT 1,
   updated_at TEXT NOT NULL
 );
 """
@@ -62,6 +64,9 @@ _ADDED_COLUMNS = {
     "navbar_glass": "INTEGER NOT NULL DEFAULT 60",
     "cooking_mode": "INTEGER NOT NULL DEFAULT 1",  # Start met koken en het afvinken bij een recept (3.14.0); standaard aan
     "preferred_store": "TEXT NOT NULL DEFAULT 'ah'",  # de voorkeurssupermarkt (3.20.0); standaard Albert Heijn
+    # De weekplanner van de AH-app (4.3.0): losse producten van een dag samen als één menu, en soep en pizza dan toch los.
+    "planner_combine": "INTEGER NOT NULL DEFAULT 1",
+    "planner_split_meals": "INTEGER NOT NULL DEFAULT 1",
 }
 
 
@@ -135,7 +140,8 @@ async def get(user_id: str) -> dict[str, Any]:
         row = await auth.fetchone(
             conn,
             "SELECT display_name, avatar IS NOT NULL AS has_avatar, avatar_version, prefer_organic, theme, dark_background, accent, "
-            "navbar_style, navbar_glass, cooking_mode, preferred_store FROM user_profiles WHERE user_id = ?",
+            "navbar_style, navbar_glass, cooking_mode, preferred_store, planner_combine, planner_split_meals "
+            "FROM user_profiles WHERE user_id = ?",
             (user_id,),
         )
     if not row:
@@ -143,7 +149,7 @@ async def get(user_id: str) -> dict[str, Any]:
             "displayName": "", "hasAvatar": False, "avatarVersion": 0, "preferOrganic": False,
             "theme": None, "darkBackground": DARK_BACKGROUNDS[0], "accent": "",
             "navbarStyle": NAVBAR_STYLES[0], "navbarGlass": NAVBAR_GLASS_DEFAULT, "cookingMode": True,
-            "preferredStore": PREFERRED_STORES[0],
+            "preferredStore": PREFERRED_STORES[0], "plannerCombine": True, "plannerSplitMeals": True,
         }
     return {
         "displayName": row["display_name"],
@@ -157,6 +163,8 @@ async def get(user_id: str) -> dict[str, Any]:
         "navbarGlass": clean_navbar_glass(row["navbar_glass"]),
         "cookingMode": row["cooking_mode"] != 0,  # alleen een echte 0 zet hem uit
         "preferredStore": clean_preferred_store(row["preferred_store"]),
+        "plannerCombine": row["planner_combine"] != 0,  # alleen een echte 0 zet hem uit
+        "plannerSplitMeals": row["planner_split_meals"] != 0,
     }
 
 
@@ -202,6 +210,8 @@ async def set_appearance(
     navbar_glass: int | None = None,
     cooking_mode: bool | None = None,
     preferred_store: str | None = None,
+    planner_combine: bool | None = None,
+    planner_split_meals: bool | None = None,
 ) -> None:
     """De weergave en de voorkeurssupermarkt van één gebruiker; alleen wat is meegegeven verandert. De waarden zijn al
     gecontroleerd (zie de route)."""
@@ -213,6 +223,8 @@ async def set_appearance(
         "navbar_glass": navbar_glass,
         "cooking_mode": None if cooking_mode is None else int(bool(cooking_mode)),
         "preferred_store": preferred_store,
+        "planner_combine": None if planner_combine is None else int(bool(planner_combine)),
+        "planner_split_meals": None if planner_split_meals is None else int(bool(planner_split_meals)),
     }
     fields = {column: value for column, value in given.items() if value is not None}
     if fields:
@@ -255,6 +267,12 @@ def parse_preferences(body: dict[str, Any]) -> dict[str, Any]:
         if body["preferredStore"] not in PREFERRED_STORES:
             raise ValueError(tr("preferredStore moet ah, jumbo, picnic of crisp zijn.", "preferredStore must be ah, jumbo, picnic or crisp."))
         wanted["preferred_store"] = body["preferredStore"]
+    # De weekplanner van de AH-app: hoe Naar weekmenu losse producten in Mealie zet (zie ah_planner.py).
+    for key, column in (("plannerCombine", "planner_combine"), ("plannerSplitMeals", "planner_split_meals")):
+        if key in body:
+            if not isinstance(body[key], bool):
+                raise ValueError(tr(f"{key} moet waar of onwaar zijn.", f"{key} must be true or false."))
+            wanted[column] = body[key]
     if not wanted:
         raise ValueError(tr("Geen voorkeur ontvangen.", "No preference received."))
     return wanted
@@ -317,7 +335,8 @@ def register_routes(app: Quart) -> None:
     async def profile_preferences_put():
         # Los van PUT /api/profile, zodat een schakelaar de displaynaam niet meestuurt (en dus niet leegmaakt).
         # Alleen wat in het verzoek staat verandert: *Liever biologisch*, de weergave (theme, darkBackground, accent,
-        # navbarStyle, navbarGlass, cookingMode) en de voorkeurssupermarkt (preferredStore).
+        # navbarStyle, navbarGlass, cookingMode), de voorkeurssupermarkt (preferredStore) en de AH-weekplanner
+        # (plannerCombine, plannerSplitMeals).
         body = await request.get_json(silent=True)
         if not isinstance(body, dict):
             body = {}

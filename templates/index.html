@@ -864,7 +864,11 @@
             <button class="button button--secondary" id="load-ah-planner" type="button" data-i18n="ah.planner.refresh">Ophalen bij AH</button>
             <button class="button" id="ah-planner-to-meal-plan" type="button" disabled data-i18n="ah.planner.to_meal_plan">Naar weekmenu</button>
           </div>
-          <p class="muted" id="ah-planner-intro" data-i18n="ah.planner.intro">Wat je in de weekplanner van de AH-app hebt gepland, vanaf vandaag. MealieShopper leest alleen mee: plannen doe je in de AH-app. Naar weekmenu zet de Allerhande-recepten op dezelfde dag in het weekmenu en importeert ze eerst in Mealie als ze daar nog niet staan. Eigen recepten, producten en notities gaan niet mee.</p>
+          <p class="muted" id="ah-planner-intro" data-i18n="ah.planner.intro">Wat je in de weekplanner van de AH-app hebt gepland, vanaf vandaag. MealieShopper leest alleen mee: plannen doe je in de AH-app. Naar weekmenu zet alles op dezelfde dag in het weekmenu: Allerhande-recepten (zo nodig eerst geïmporteerd in Mealie) en losse producten, als het recept met die naam in Mealie, als eigen recept of samen als menu. Eigen AH-recepten gaan niet mee.</p>
+          <div class="ah-planner__options">
+            <label class="switch-row"><input type="checkbox" role="switch" id="ah-planner-combine" checked><span data-i18n="ah.planner.combine">Losse producten van een dag samen als één menu</span></label>
+            <label class="switch-row" id="ah-planner-split-row"><input type="checkbox" role="switch" id="ah-planner-split-meals" checked><span data-i18n="ah.planner.split_meals">Soep en pizza altijd los</span></label>
+          </div>
           <p class="muted" id="ah-planner-status" role="status" aria-live="polite"></p>
           <div id="ah-planner-message"></div>
           <div id="ah-planner-days" class="day-grid"></div>

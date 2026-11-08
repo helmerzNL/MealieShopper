@@ -2,6 +2,39 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub; een stabiele release krijgt de teksten van alle versies sinds de vorige stabiele release.
 
+## v4.3.0
+
+### Nieuw in 4.3.0
+
+Pull request: [#285](https://github.com/helmerzNL/MealieShopper/pull/285).
+
+*English summary: **To week menu** in **Stores, Albert Heijn, Week planner** now also copies the loose products from the week planner of the AH app. A product that already has a recipe with the same name in Mealie (case, accents and punctuation do not count, a leading "AH" may be missing) goes in as that recipe. MealieShopper makes a recipe in Mealie of the other products, with the products as ingredients and the picture from AH. Two new switches, kept per user in the profile and on by default: **Loose products of a day together as one menu** makes the products of a day one menu, named after the first note of that day ("Pizza") or after the products; **Soup and pizza always separate** (only shown with the first on) still gives soup and pizza a recipe of their own, while meat, vegetables, potatoes, rice and pasta go together in the menu. With the first off every product becomes a recipe of its own. A recipe or menu made of the same products before is found again by its source and reused, and nothing is planned twice on a day. Each product shows beforehand what will happen to it. Your own AH recipes are still not copied, and a note only as the name of a menu.*
+
+- **Losse producten naar het weekmenu.** Tot nu toe zette *Naar weekmenu* alleen Allerhande-recepten in het weekmenu. Nu gaan ook de losse producten uit de AH-planner mee, per dag en als diner:
+  - **Bestaat al in Mealie:** heet een recept in Mealie al zoals het product (hoofdletters, accenten en leestekens tellen niet mee, en *AH* vooraan mag ontbreken), dan komt dat recept op die dag. Bijvoorbeeld de *Padifood Chinese tomatensoep*.
+  - **Anders maakt MealieShopper een recept in Mealie.** Elk product staat er als ingrediënt in, met de naam zoals AH hem geeft, en met het plaatje van AH. Weigert Mealie het plaatje, dan volgt één nieuwe poging zonder.
+  - **Herkend en niet dubbel:** een recept of menu dat MealieShopper eerder van dezelfde producten maakte, wordt teruggevonden aan zijn bron (de productlink, of voor een menu de productlink met `#menu-` en de productnummers) en hergebruikt. Staat het die dag al in het weekmenu, dan komt het er niet nog een keer bij.
+- **Twee schakelaars in het Weekplanner-paneel**, per gebruiker bewaard in het profiel en standaard aan:
+  - **Losse producten van een dag samen als één menu.** De producten van een dag worden één menu. De eerste notitie van die dag wordt de naam ("Pizza"), anders de productnamen ("A, B en C"). Staat deze uit, dan wordt elk product een eigen recept, met de productnaam als naam.
+  - **Soep en pizza altijd los** (alleen te zien als de eerste aan staat). Soep en pizza krijgen dan toch een eigen recept; vlees, groente, aardappelen, rijst en pasta gaan samen in het menu. Wat soep of pizza is, beslist een patroon op de productnaam (`ah_planner.standalone`): "tomatensoep" en "pizza's" wel, "soepgroente", "soepballetjes", "pizzadeeg" en "pizzasaus" niet.
+- **Vooraf zichtbaar.** Bij elk product staat wat *Naar weekmenu* ermee doet: als eigen recept (of het recept met die naam in Mealie), of in het menu van die dag. Bij de notitie die de naam van het menu wordt, staat dat ook. `GET /api/ah/planner` geeft daarvoor `standalone` bij elk product. De status telt recepten en producten, en de samenvatting telt maaltijden.
+- **Het mandje.** Een ingrediënt van zo'n recept heet precies zoals het product. *Weekmenu naar mandje* zoekt daarop, en AH's exacte titel komt bovenaan, dus bijna altijd is dat product het eerste voorstel. Een vaste koppeling is er niet.
+- **API.** `POST /api/ah/planner/to-meal-plan` neemt nu één dag: `{date, recipeIds, products: [{productId, title}], note, combine, splitMeals}`, met hooguit 20 recepten en 20 producten. Elk resultaat heeft `kind` (`recipe`, `product` of `menu`) en `title`. Het oude lichaam met `items` geeft een 400. Het scherm stuurde al een dag per verzoek.
+- **Profiel.** Twee nieuwe kolommen in `user_profiles`: `planner_combine` en `planner_split_meals`. Een oudere database krijgt ze bij het openen, en de back-up neemt ze mee. Ze staan in `PUT /api/profile/preferences` als `plannerCombine` en `plannerSplitMeals`.
+- **Handleiding** (NL en EN), met een nieuwe screenshot, en `docs/onderzoek-ah-weekplanner.md`: de losse producten, de schakelaars en het besluit.
+- **Tests:** `tests/test_ah_planner.py` dekt:
+  - de nieuwe invoer per dag
+  - soep en pizza herkennen
+  - een naam herkennen, ook zonder *AH* vooraan
+  - een menu van drie producten: de naam, de bron, de ingrediënten en het plaatje
+  - elk product apart
+  - de voorbeelddagen: soep die al in Mealie staat, een andere soep apart, de pizza apart, en een notitie als menunaam met de soep apart
+  - hergebruik via de bron, niets dubbel plannen
+  - productgegevens of zoeken in Mealie die niet lukken
+  - de nieuwe poging zonder plaatje, en geen nieuwe poging bij een fout van Mealie zelf
+  - de route
+
+  `tests/test_profile.py` test de twee voorkeuren, en `tests/test_ah_items_ui.py` de schakelaars en wat het scherm verstuurt.
 ## v4.2.1
 
 ### Gewijzigd in 4.2.1
