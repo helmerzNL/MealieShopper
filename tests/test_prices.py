@@ -1211,5 +1211,70 @@ class IngredientKindTest(PricesCase):
         row = await self.preview("kaas", found)
         self.assertEqual([c["productId"] for c in row["candidates"]], ["milner", "blok"])
 
+class CatalogueTest(PricesCase):
+    """De catalogus (`prices._catalogue`): de gekoppelde bonregels en de namen van alle producten blijven bewaard tot een tabel
+    eronder verandert, door welke verbinding ook. Triggers op die tabellen hogen de versie op."""
+
+    async def observe(self, day, product_id, title, price):
+        await prices.record("ah", [{"id": product_id, "title": title, "price": price, "unitSize": "500 g", "brand": "AH"}], now=f"{day}T08:00:00+00:00")
+
+    async def found(self, query):
+        return [p["productId"] for p in (await self.history(query=query))["products"]]
+
+    async def test_the_catalogue_is_kept_until_a_table_under_it_changes(self):
+        await self.observe("2026-05-01", "1", "AH Pindakaas", 2.99)
+        self.assertEqual(await self.found("pindakaas"), ["1"])
+        with mock.patch.object(prices, "_known_products", wraps=prices._known_products) as built:
+            self.assertEqual(await self.found("pindakaas"), ["1"])
+            self.assertEqual(built.call_count, 0, "niets veranderd: de bewaarde catalogus")
+            # Een andere verbinding, direct in SQLite: de trigger ziet het toch.
+            with closing(db(price_import)) as conn, conn:
+                conn.execute(
+                    "INSERT INTO imported_purchases (store, order_ref, position, day, title, quantity, paid, regular, order_total, imported_at) "
+                    "VALUES ('ah', 'M1', 0, '2026-07-15', 'AH Hagelslag', 1, 1.99, NULL, 1.99, 'x')"
+                )
+            self.assertEqual(await self.found("hagelslag"), ["import:ah hagelslag"])
+            self.assertEqual(built.call_count, 1)
+            with closing(db(price_import)) as conn, conn:
+                conn.execute("UPDATE imported_purchases SET title = 'AH Hagelslag puur' WHERE order_ref = 'M1'")
+            self.assertEqual(await self.found("puur"), ["import:ah hagelslag puur"], "ook een wijziging op zijn plek")
+            with closing(db(price_import)) as conn, conn:
+                conn.execute("DELETE FROM imported_purchases")
+            self.assertEqual(await self.found("hagelslag"), [])
+            self.assertEqual(built.call_count, 3)
+            # Een nieuwe dag bouwt hem ook opnieuw (wat "vandaag" is, telt mee in de bonregels).
+            await prices.history("ah", "pindakaas", 50, today="2026-10-21")
+            self.assertEqual(built.call_count, 4)
+
+    async def test_a_table_created_later_gets_its_triggers_and_counts(self):
+        await self.observe("2026-05-01", "1", "AH Pindakaas", 2.99)
+        self.assertEqual(await self.found("pindakaas"), ["1"])
+        with closing(db(ah_orders)) as conn, conn:
+            for op in ("insert", "update", "delete"):
+                conn.execute(f"DROP TRIGGER IF EXISTS catalogue_ah_receipt_items_{op}")
+        # Zonder triggers op de bonregels: de volgende aanvraag maakt ze aan en bouwt de catalogus opnieuw.
+        self.ah_receipt("R1", "2026-06-10T10:00:00", (1, "AH PINDAKAAS", 2, 2.79, 5.58))
+        product = next(p for p in (await self.history(query="pindakaas"))["products"] if p["productId"] == "1")
+        self.assertEqual([purchase["source"] for purchase in product["purchases"]], ["receipt"])
+        with closing(db(ah_orders)) as conn:
+            names = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type = 'trigger' AND name LIKE 'catalogue%'")}
+        self.assertLessEqual({f"catalogue_ah_receipt_items_{op}" for op in ("insert", "update", "delete")}, names)
+        self.assertEqual(prices.CATALOGUE_TABLES - {"crisp_order_items", "crisp_orders", "jumbo_order_items", "jumbo_orders", "picnic_order_items", "picnic_orders"},
+                         {"offer_history", "offers", "price_observations", "imported_purchases", "ah_receipts", "ah_receipt_items", "ah_receipt_products",
+                          "product_links", "ah_orders", "ah_order_items"})
+
+    async def test_a_new_database_does_not_reuse_a_version_from_the_cache(self):
+        await self.observe("2026-05-01", "1", "AH Pindakaas", 2.99)
+        self.assertEqual(await self.found("pindakaas"), ["1"])
+        with closing(db(price_import)) as conn, conn:
+            token, version = conn.execute("SELECT token, version FROM catalogue_changes").fetchone()
+            # Een teruggezette of nieuwe database met dezelfde versie: het token verschilt, dus geen oude catalogus.
+            conn.execute("DELETE FROM catalogue_changes")
+            conn.execute("INSERT INTO catalogue_changes (id, token, version) VALUES (1, 'anders', ?)", (version,))
+            conn.execute("DELETE FROM price_observations")
+        self.assertEqual(await self.found("pindakaas"), [])
+        self.assertEqual(len(token), 16)
+
+
 if __name__ == "__main__":
     unittest.main()

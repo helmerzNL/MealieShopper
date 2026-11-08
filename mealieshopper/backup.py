@@ -99,6 +99,7 @@ EXCLUDED_TABLES = frozenset({
     "ah_receipt_products",  # koppeling artikelnummer -> product, zoekt de volgende synchronisatie van de bonnen opnieuw op
     "image_cache",  # cache van winkelfoto's op schijf (image_cache.py), opnieuw op te bouwen
     "price_archive_jobs",  # de import van een prijsarchief die loopt (price_archive.py): tijdelijke staat
+    "catalogue_changes",  # de versie van de catalogus van de prijzen (prices._catalogue_version): bijhouden, niet bewaren
 })
 
 # Opgeslagen koppelingen (versleuteld in app_settings) en bij welke koppeling ze horen.

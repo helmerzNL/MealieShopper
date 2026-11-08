@@ -2,6 +2,17 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub; een stabiele release krijgt de teksten van alle versies sinds de vorige stabiele release.
 
+## v4.1.5
+
+### Sneller in 4.1.5
+
+*English summary: The **Price history** answers a search in about 70 milliseconds instead of 2 to 3 seconds. Every search built the catalogue of the store again: all receipt lines linked to their products (twice, once more for looking up receipt names) and the names and pack sizes of every product from the offers, saved prices, orders and receipts (300,000 names with the production data). The catalogue is now kept per store and day until something under it changes. SQLite triggers on the tables it reads (`prices.CATALOGUE_TABLES`) raise a version in `catalogue_changes` on every insert, update and delete, whichever code or connection writes, so a sync, an import or a link of your own is in the next search. The first search after such a change, or on a new day, builds it again once (about 1 second on a laptop). The offers list uses the same catalogue for its price verdict. Results are the same to the byte. Bulk writes to those tables cost about 15 to 30 percent more because of the triggers (100,000 offer rows: 0.52 to 0.60 seconds).*
+
+- **De catalogus blijft bewaard.** `prices.history` bouwde bij elke zoekopdracht de catalogus van de winkel opnieuw op: alle bonregels gekoppeld aan hun product (`_receipt_rows`, en voor het opzoeken van namen op de bon nog een keer) en de namen en verpakkingen van elk product uit de aanbiedingen, de bewaarde prijzen, de bestellingen en de bonnen (`_known_products`, met de productiedata 300.000 namen). Nu bewaart `prices._catalogue` hem per winkel en dag. De zoekterm filtert daarna (`_candidates`). Met de productiedata: van 2,2 seconden naar 0,06 seconden per zoekopdracht, met dezelfde uitkomst tot op de byte (acht zoekopdrachten, alleen eerder gekocht, en het oordeel bij de aanbiedingen van AH en Jumbo).
+- **Een wijziging is er meteen.** Triggers op de tabellen onder de catalogus (`prices.CATALOGUE_TABLES`: de aanbiedingen en hun geschiedenis, de bewaarde prijzen, de bestellingen van alle winkels, de kassabonnen, de koppelingen van bonregels, de ingelezen aankopen en je eigen koppelingen) hogen bij elke toevoeging, wijziging en verwijdering de versie in `catalogue_changes` op, welke code of verbinding ook schrijft. Ontbreekt een trigger (de eerste keer, of een tabel die later is aangemaakt of opnieuw opgebouwd), dan maakt de volgende zoekopdracht hem aan en hoogt hij de versie zelf op. Een willekeurig `token` per database voorkomt dat een nieuwe of teruggezette database een oude catalogus krijgt. `catalogue_changes` gaat niet mee in de back-up.
+- **Wat het kost.** De eerste zoekopdracht na een wijziging of op een nieuwe dag bouwt de catalogus een keer opnieuw op (op een laptop ongeveer een seconde). Schrijven in die tabellen in bulk kost door de triggers 15 tot 30 procent meer (100.000 aanbiedingsregels: van 0,52 naar 0,60 seconden). Het oordeel bij de aanbiedingen (`/api/offers`) gebruikt dezelfde catalogus.
+- **Tests:** `CatalogueTest` in `tests/test_prices.py`: bewaard zolang er niets verandert, opnieuw na een toevoeging, wijziging of verwijdering door een andere verbinding en op een nieuwe dag, triggers op een tabel die later is aangemaakt, en een nieuwe database met dezelfde versie.
+
 ## v4.1.4
 
 ### Opgelost in 4.1.4
