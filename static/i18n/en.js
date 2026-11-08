@@ -1192,6 +1192,7 @@ I18N.add("en", {
   "about.title": "About MealieShopper",
   "about.version_label": "Version",
   "about.tagline": "MealieShopper plans your week menu in Mealie and puts the ingredients in your Albert Heijn basket, and lets you search, save and import recipes.",
+  "about.repo": "MealieShopper on GitHub",
   "about.components_title": "Components and integrations",
   "about.components_intro": "This is what MealieShopper uses. The parts are open source and used under their own licence.",
   "about.group.integrations": "Integrations",

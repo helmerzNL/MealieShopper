@@ -521,7 +521,7 @@ Rechtsboven staat je **avatar** met een uitklapmenu. Op een klein scherm opent d
 
 ### Over en updates
 
-Onder **Over** (in het avatar-menu, op een telefoon onder **Meer**) zie je welke versie en commit er draait en welke componenten de app gebruikt.
+Onder **Over** (in het avatar-menu, op een telefoon onder **Meer**) zie je welke versie en commit er draait en welke componenten de app gebruikt. Met **MealieShopper op GitHub** open je de broncode, de releases en de issues van de app in een nieuw tabblad.
 
 <img src="screenshots/nl/about.png" alt="Over: versie, commit en de gebruikte componenten" width="900">
 

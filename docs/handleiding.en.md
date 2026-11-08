@@ -521,7 +521,7 @@ At the top right is your **avatar** with a drop-down menu. On a small screen the
 
 ### About and updates
 
-Under **About** (in the avatar menu, on a phone under **More**) you see which version and commit is running and which components the app uses.
+Under **About** (in the avatar menu, on a phone under **More**) you see which version and commit is running and which components the app uses. **MealieShopper on GitHub** opens the app's source code, releases and issues in a new tab.
 
 <img src="screenshots/en/about.png" alt="About: version, commit and the components used" width="900">
 

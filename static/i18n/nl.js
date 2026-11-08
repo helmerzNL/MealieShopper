@@ -1192,6 +1192,7 @@ I18N.add("nl", {
   "about.title": "Over MealieShopper",
   "about.version_label": "Versie",
   "about.tagline": "MealieShopper plant je weekmenu in Mealie en zet de ingrediënten in je Albert Heijn-mandje, en laat je recepten zoeken, bewaren en importeren.",
+  "about.repo": "MealieShopper op GitHub",
   "about.components_title": "Componenten en integraties",
   "about.components_intro": "Dit gebruikt MealieShopper. De onderdelen zijn open source en worden gebruikt onder hun eigen licentie.",
   "about.group.integrations": "Integraties",

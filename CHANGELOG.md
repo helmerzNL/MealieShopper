@@ -35,6 +35,17 @@ Pull request: [#285](https://github.com/helmerzNL/MealieShopper/pull/285).
   - de route
 
   `tests/test_profile.py` test de twee voorkeuren, en `tests/test_ah_items_ui.py` de schakelaars en wat het scherm verstuurt.
+## v4.2.1
+
+### Gewijzigd in 4.2.1
+
+Pull request: [#284](https://github.com/helmerzNL/MealieShopper/pull/284).
+
+*English summary: the **About** page now links to the MealieShopper repository on GitHub (https://github.com/helmerzNL/MealieShopper), with a button under the version and the description. It opens in a new tab. `/api/about` also returns the address as `repoUrl`.*
+
+- **Over: link naar MealieShopper op GitHub.** Onder het versienummer en de omschrijving staat de knop **MealieShopper op GitHub** (met het GitHub-icoon van Material Design Icons), naar [github.com/helmerzNL/MealieShopper](https://github.com/helmerzNL/MealieShopper). Hij opent in een nieuw tabblad (`target="_blank"`, `rel="noopener noreferrer"`), zoals de koffieknop. `/api/about` geeft het adres ook terug, als `repoUrl` (`about.REPO_URL`).
+- **Handleiding** (NL en EN): bij Over en updates staat de knop naar GitHub, en de screenshot van Over (`docs/screenshots/nl/about.png` en `en/about.png`) is opnieuw gemaakt.
+- **Tests:** `test_repo_link` controleert het adres in de API en op de pagina, het nieuwe tabblad en de vertaling in het Nederlands en Engels; de volgordetest zet de knop tussen de versie en de componenten.
 
 ## v4.2.0
 
