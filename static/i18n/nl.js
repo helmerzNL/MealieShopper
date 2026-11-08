@@ -112,6 +112,7 @@ I18N.add("nl", {
   "offers.history.item.bought.other": "{count} keer gekocht",
   "offers.history.now": "Nu in de aanbieding",
   "offers.history.not_now": "Nu niet in de aanbieding",
+  "offers.history.upcoming": "Vanaf {date} in de aanbieding",
   "offers.history.open": "Bekijk bij {store}",
   "offers.history.stat.times": "Keer in de aanbieding",
   "offers.history.stat.lowest": "Laagste actieprijs",

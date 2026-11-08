@@ -208,3 +208,20 @@ console.log(JSON.stringify({known: state.weekStartKnown, requests: requests.filt
         self.assertTrue(result['known'])
         self.assertEqual(len(result['requests']), 1)
 
+    def test_the_product_in_the_address_is_pinned_from_the_first_request(self) -> None:
+        # Een link van een aanbieding: /offers/history?q=<naam>&product=<id>. Elke aanvraag noemt het product (pin), ook de eerste
+        # die het openen van het subtab doet; een adres zonder product laat het los.
+        result: dict = self.run_script("""
+routerApply('http://localhost/offers/history?q=milk&product=second'); await settle();
+const linked = requests.filter(path => path.startsWith('/api/prices/history'));
+requests.length = 0;
+routerApply('http://localhost/offers/history?q=milk'); await settle();
+console.log(JSON.stringify({linked, plain: requests.filter(path => path.startsWith('/api/prices/history')), pin: offerHistory.pin,
+  selected: offerHistory.selected}));
+""")
+        self.assertTrue(result['linked'])
+        self.assertTrue(all('pin=second' in path for path in result['linked']), result['linked'])
+        self.assertTrue(result['plain'])
+        self.assertFalse(any('pin=' in path for path in result['plain']))
+        self.assertEqual(result['pin'], '')
+

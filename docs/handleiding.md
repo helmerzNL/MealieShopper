@@ -95,7 +95,7 @@ Elke aanbieding is een kaart met het plaatje bovenaan. Linksboven op het plaatje
 
 <img src="screenshots/nl/compare.png" alt="Vergelijk verpakkingen bij rundergehakt: de filters, bovenaan dat 1000 g per kilo € 1,00 goedkoper is, en de verpakkingen met hun kiloprijs van goedkoop naar duur" width="900">
 
-De **Prijsgeschiedenis** toont per product wanneer het in de aanbieding was, de gewone prijs door de tijd en wat je zelf betaalde, uit je bestellingen en kassabonnen. Zo zie je ook een gewone prijs die vlak voor een aanbieding omhoog ging.
+De **Prijsgeschiedenis** toont per product wanneer het in de aanbieding was, de gewone prijs door de tijd en wat je zelf betaalde, uit je bestellingen en kassabonnen. Zo zie je ook een gewone prijs die vlak voor een aanbieding omhoog ging. Kom je er via een aanbieding, een bestelling of een kassabon, dan staat dat product bovenaan, ook als de naam anders is dan in de geschiedenis. Een aanbieding die nog moet beginnen (de bonus van volgende week) staat erbij als *Vanaf 9 nov in de aanbieding*, met de prijs en de actie. In de geschiedenis telt hij pas mee als hij begint.
 
 <img src="screenshots/nl/price-history.png" alt="De Prijsgeschiedenis van rundergehakt: kerngetallen, een grafiek met de aanbiedingen als balken, de gewone prijs als trap en je aankopen als stippen, en de tabel met aanbiedingen" width="900">
 

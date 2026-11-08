@@ -13,8 +13,10 @@ const OFFER_HISTORY_DAY = 86400000;
 const OFFER_HISTORY_LABEL_HEIGHT = 14;
 const OFFER_HISTORY_CHAR_WIDTH = 7; // een schatting voor de vette prijstekst van 12 px; ruim genomen, zodat labels elkaar niet raken
 const OFFER_HISTORY_BOUGHT_KEY = "ms-offers-history-bought";
-// `pinned`: het product is gekozen (met een klik of uit het adres) en hoort dus in het adres (router.js).
-const offerHistory = { query: "", bought: false, products: [], total: 0, selected: "", pinned: false, loadId: 0, timer: 0, loadedStore: "", unsynced: null };
+// `pinned`: het product is gekozen (met een klik of uit het adres) en hoort dus in het adres (router.js). `pin`: het product-id
+// uit het adres (een link van een aanbieding of bon). De server zet het altijd bovenaan de lijst, ook als de naam niet past of
+// als het alleen een aanbieding heeft die nog moet beginnen; een nieuwe zoekterm laat het los.
+const offerHistory = { query: "", bought: false, products: [], total: 0, selected: "", pinned: false, pin: "", loadId: 0, timer: 0, loadedStore: "", unsynced: null };
 
 function offerHistoryKey(product) {
   return `${product.store}:${product.productId}`;
@@ -57,6 +59,17 @@ function offerHistoryBarTitle(episode) {
 }
 
 // De actietekst van een periode; een persoonlijke aanbieding (AH: de Bonus Box) staat erbij als zodanig.
+// Een aanbieding die nog moet beginnen (prices._upcoming): "Vanaf 9 nov. in de aanbieding", met `full` ook de prijs en het label.
+function offerHistoryUpcomingText(upcoming, full = false) {
+  const day = offerHistoryDay(upcoming.validFrom);
+  const text = t("offers.history.upcoming", { date: day === null ? "" : offerHistoryDayText(day) });
+  if (!full) return text;
+  const price = typeof upcoming.price === "number" ? offerHistoryPrice(upcoming.price) : "";
+  // "Bonus Box 15% korting" noemt de Bonus Box al: dan niet nog eens ervoor.
+  const badge = upcoming.personal && !String(upcoming.promoLabel || "").includes(t("offers.personal.badge")) ? t("offers.personal.badge") : "";
+  return [text, price, badge, upcoming.promoLabel].filter(Boolean).join(" · ");
+}
+
 function offerHistoryLabel(episode) {
   return [episode.personal ? t("offers.personal.badge") : "", episode.promoLabel].filter(Boolean).join(" · ");
 }
@@ -320,8 +333,9 @@ function offerHistoryDetail(product) {
       : "";
     return `<tr><td>${escapeHtml(day === null ? "" : offerHistoryDayText(day, true))}</td><td>${escapeHtml(offerHistoryPrice(point.price))}</td><td>${escapeHtml(point.unitSize || "")}</td><td>${source}</td></tr>`;
   }).join("");
-  const status = product.onOfferNow ? "offers.history.now"
-    : ((product.observed || []).length && !(product.episodes || []).length ? "offers.history.no_confirmed_offer" : "offers.history.not_now");
+  const status = product.onOfferNow ? t("offers.history.now")
+    : product.upcoming ? offerHistoryUpcomingText(product.upcoming, true)
+    : t((product.observed || []).length && !(product.episodes || []).length ? "offers.history.no_confirmed_offer" : "offers.history.not_now");
   const link = product.url
     ? `<a href="${escapeHtml(product.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(t("offers.history.open", { store: STORES[product.store].name }))}</a>`
     : "";
@@ -331,7 +345,7 @@ function offerHistoryDetail(product) {
       <div>
         <h3>${escapeHtml(product.title)}</h3>
         ${meta ? `<p class="muted">${escapeHtml(meta)}</p>` : ""}
-        <p class="${product.onOfferNow ? "bonus" : "muted"}">${escapeHtml(t(status))}${link ? ` · ${link}` : ""}</p>
+        <p class="${product.onOfferNow || product.upcoming ? "bonus" : "muted"}">${escapeHtml(status)}${link ? ` · ${link}` : ""}</p>
         ${product.regularPerUnit ? `<button class="link-button" type="button" data-compare="${escapeHtml(product.productId)}" data-store="${escapeHtml(product.store)}">${escapeHtml(t("offers.compare.open"))}</button>` : ""}
       </div>
     </div>
@@ -408,7 +422,7 @@ function renderOfferHistory() {
       return `<li><a class="ohc-item${key === offerHistory.selected ? " is-active" : ""}" data-key="${escapeHtml(key)}" href="${escapeHtml(href)}" data-nav${key === offerHistory.selected ? ' aria-current="true"' : ""}>
         <strong>${escapeHtml(product.title)}</strong>
         ${meta ? `<small>${escapeHtml(meta)}</small>` : ""}
-        <small>${escapeHtml(tn("offers.history.item.times", product.timesOnOffer || 0))}${escapeHtml(lowest)}${escapeHtml(bought)}${escapeHtml(observed)}${product.onOfferNow ? ` · <span class="bonus">${escapeHtml(t("offers.history.now"))}</span>` : ""}</small>
+        <small>${escapeHtml(tn("offers.history.item.times", product.timesOnOffer || 0))}${escapeHtml(lowest)}${escapeHtml(bought)}${escapeHtml(observed)}${product.onOfferNow ? ` · <span class="bonus">${escapeHtml(t("offers.history.now"))}</span>` : product.upcoming ? ` · <span class="bonus">${escapeHtml(offerHistoryUpcomingText(product.upcoming))}</span>` : ""}</small>
       </a></li>`;
     })
     .join("");
@@ -441,6 +455,7 @@ async function loadOfferHistory() {
   try {
     const params = new URLSearchParams({ store, q: query, limit: String(OFFER_HISTORY_LIMIT) });
     if (bought) params.set("bought", "1");
+    if (offerHistory.pin) params.set("pin", offerHistory.pin);
     const data = await jsonFetch(`/api/prices/history?${params}`);
     if (loadId !== offerHistory.loadId) return;
     offerHistory.bought = bought;
@@ -472,6 +487,7 @@ function offerHistoryStoreChanged() {
 
 $("#offers-history-search").addEventListener("input", () => {
   offerHistory.pinned = false; // een nieuwe zoekterm: het gekozen product hoort niet meer in het adres
+  offerHistory.pin = "";
   clearTimeout(offerHistory.timer);
   offerHistory.timer = setTimeout(loadOfferHistory, 250);
 });

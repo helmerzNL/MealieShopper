@@ -153,7 +153,11 @@ function routerApplyStores(parts) {
 function routerApplyOffers(sub, params) {
   const wanted = params.get("store") || "";
   offersState.chosen = OFFERS_STORES.includes(wanted);
-  if (sub === "history") $("#offers-history-search").value = params.get("q") || "";
+  if (sub === "history") {
+    // Voor het openen van het subtab: dat laadt de lijst al, met het product uit het adres erin.
+    $("#offers-history-search").value = params.get("q") || "";
+    offerHistory.pin = params.get("product") || "";
+  }
   showPanel("offers", routerTab("offers"));
   routerOpenSubtab(ROUTE_SUBTABS.offers[sub] || "offers-items");
   if (offersState.chosen) {

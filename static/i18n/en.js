@@ -112,6 +112,7 @@ I18N.add("en", {
   "offers.history.item.bought.other": "bought {count} times",
   "offers.history.now": "On offer now",
   "offers.history.not_now": "Not on offer now",
+  "offers.history.upcoming": "On offer from {date}",
   "offers.history.open": "View at {store}",
   "offers.history.stat.times": "Times on offer",
   "offers.history.stat.lowest": "Lowest offer price",

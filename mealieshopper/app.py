@@ -90,7 +90,7 @@ def _ah_proxy_cookie(headers: Iterable[str]) -> str | None:
 
 def create_app() -> Quart:
     app = Quart(__name__, template_folder="../templates", static_folder="../static")
-    app.config["ASSET_VERSION"] = environ.get("MEALIESHOPPER_ASSET_VERSION", "20261108-2")
+    app.config["ASSET_VERSION"] = environ.get("MEALIESHOPPER_ASSET_VERSION", "20261108-3")
     # Quart bewaart statische bestanden standaard 12 uur in de browser (Flask niet). Met 0 vraagt de browser elke keer na of het
     # bestand veranderd is (ETag, 304), zoals voorheen. None helpt niet: dan valt de browser terug op zijn eigen schatting.
     app.config["SEND_FILE_MAX_AGE_DEFAULT"] = 0
@@ -664,13 +664,15 @@ def create_app() -> Quart:
 
     @app.get("/api/prices/history")
     async def prices_history():
-        # ?bought=1: alleen de producten die je minstens één keer kocht.
+        # ?bought=1: alleen de producten die je minstens één keer kocht. ?pin=<id>: dat product staat er altijd in (een link van een
+        # aanbieding of bon naar de prijsgeschiedenis), ?product=<id>: alleen dat product (de hover bij een aanbieding).
         bought = (request.args.get("bought") or "").strip().lower() in {"1", "true", "yes"}
         return await offers_action(
             # Namen op de bon die bij de zoekterm passen en nog bij geen product horen, zoekt dit meteen op bij AH (zuinig: zie
             # ah_orders.resolve_receipt_names).
             lambda: prices.history(request.args.get("store") or None, request.args.get("q") or "", request.args.get("limit") or 50, bought=bought,
-                                   lookup=ah_orders.resolve_receipt_names, product=request.args.get("product") or None),
+                                   lookup=ah_orders.resolve_receipt_names, product=request.args.get("product") or None,
+                                   pin=request.args.get("pin") or None),
             tr("Prijsgeschiedenis laden mislukt", "Loading the price history failed"),
         )
 

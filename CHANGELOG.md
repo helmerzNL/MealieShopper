@@ -2,6 +2,17 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub; een stabiele release krijgt de teksten van alle versies sinds de vorige stabiele release.
 
+## v4.1.4
+
+### Opgelost in 4.1.4
+
+*English summary: Opening the **Price history** from an offer showed nothing for an offer of next week, and looked the product up by name only. The link names the product by id (`product=`), but the page searched with the name, so a product whose name differs in the history, or that only has an offer yet to start, was not there. On a Sunday with a week that starts on Sunday, the offers page shows next week's bonus, so every card had this. The page now sends the product from the address along (`pin`): the server puts it at the top, also when the name does not match or with **Only bought before** on. An offer that has yet to start (it only enters the history when it starts) now makes a product findable and shows as *On offer from 9 Nov* with its price and deal, in the list and above the product.*
+
+- **De link van een aanbieding noemt het product op id.** `/offers/history?q=<naam>&product=<id>` zocht alleen op de naam. Het id koos daarna een product uit de uitkomst. Paste de naam niet, of had het product alleen een aanbieding die nog moet beginnen, dan bleef de lijst leeg. Nu stuurt de pagina het id mee als `pin` (`GET /api/prices/history?...&pin=<id>`): dat product staat er altijd in, bovenaan, ook als de naam niet past of **Alleen eerder gekocht** aan staat. De andere producten met die naam staan eronder, dus klikken door de lijst werkt zoals voorheen. Een nieuwe zoekterm laat het product los. Het adres zet `pin` voordat het subtab opent, zodat ook de eerste aanvraag het product noemt (dat ging in 4.1.2 na het openen).
+- **Een aanbieding die nog moet beginnen, staat in de prijsgeschiedenis.** De bonus van volgende week komt pas in `offer_history` als hij begint (`offers._started`), en daar blijft het bij. De prijsgeschiedenis vindt een product nu ook aan zo'n aanbieding uit de lokale kopie (`offers`), en geeft hem mee als `upcoming` (looptijd, prijs, prijs ervoor, actie, Bonus Box). Op het scherm: *Vanaf 9 nov in de aanbieding* in de lijst, en boven het product met de prijs en de actie. Op een zondag met een week die op zondag begint, toont Aanbiedingen al de bonus van volgende week. Daar gold dit voor elke kaart.
+- **Handleiding** (NL en EN): de prijsgeschiedenis vanaf een link, en de aanbieding die nog moet beginnen.
+- **Tests:** in `tests/test_prices.py` een aanbieding van volgende week die alleen zo te vinden is, `pin` bovenaan (ook bij een andere naam en met alleen eerder gekocht) en een onbekend id dat niets doet. In `tests/test_history_stores_js.py` dat elke aanvraag van een link het product noemt en een adres zonder product het loslaat.
+
 ## v4.1.3
 
 ### Sneller in 4.1.3

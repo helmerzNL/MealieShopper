@@ -95,7 +95,7 @@ Every offer is a card with the photo on top. Top left on the photo is the discou
 
 <img src="screenshots/en/compare.png" alt="Compare pack sizes for minced beef: the filters, at the top that 1000 g is €1.00 cheaper per kilo, and the packs with their price per kilo from cheap to expensive" width="900">
 
-The **Price history** shows per product when it was on offer, the regular price over time and what you paid yourself, from your orders and receipts. That way you also see a regular price that went up just before an offer.
+The **Price history** shows per product when it was on offer, the regular price over time and what you paid yourself, from your orders and receipts. That way you also see a regular price that went up just before an offer. If you get there from an offer, an order or a receipt, that product is at the top, also when its name differs from the one in the history. An offer that has yet to start (next week's bonus) is shown as *On offer from 9 Nov*, with the price and the deal. It only counts in the history once it starts.
 
 <img src="screenshots/en/price-history.png" alt="The Price history of minced beef: key figures, a chart with the offers as bars, the regular price as steps and your purchases as dots, and the table of offers" width="900">
 

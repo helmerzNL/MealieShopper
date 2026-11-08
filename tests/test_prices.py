@@ -666,6 +666,27 @@ class VerdictTest(PricesCase):
         )
         self.assertEqual(await history_points(wanted=()), {})
 
+    async def test_an_upcoming_offer_makes_a_product_findable_and_a_pinned_product_is_always_first(self):
+        # De bonus van volgende week staat pas in offer_history als hij begint; de prijsgeschiedenis toont hem wel, als `upcoming`.
+        await self.sync_offer(
+            "2026-10-19T05:00:00+00:00",
+            offer("7", "Dr. Oetker Casa di mama pizza salame extra piccante", 3.65, 4.29, "Bonus Box 15% korting", validFrom="2099-01-05",
+                  validUntil="2099-01-11", unitSize="415 g", brand="Dr. Oetker"),
+        )
+        await self.observe("2026-05-01", "1", "AH Pindakaas", 2.99)
+        found = (await prices.history("ah", "casa di mama salame", 50, today=TODAY))["products"]
+        self.assertEqual([p["productId"] for p in found], ["7"])
+        self.assertEqual((found[0]["title"], found[0]["unitSize"], found[0]["onOfferNow"], found[0]["timesOnOffer"]),
+                         ("Dr. Oetker Casa di mama pizza salame extra piccante", "415 g", False, 0))
+        self.assertEqual(found[0]["upcoming"], {"validFrom": "2099-01-05", "validUntil": "2099-01-11", "price": 3.65, "priceBefore": 4.29,
+                                                "promoLabel": "Bonus Box 15% korting", "personal": False})
+        # Een link noemt het product op id: dat staat er altijd in, bovenaan, ook als de naam niet past of je het nooit kocht.
+        pinned = await prices.history("ah", "pindakaas", 50, today=TODAY, pin="7")
+        self.assertEqual(([p["productId"] for p in pinned["products"]], pinned["total"]), (["7", "1"], 2))
+        self.assertEqual([p["productId"] for p in (await prices.history("ah", "", 50, today=TODAY, bought=True, pin="7"))["products"]], ["7"])
+        self.assertEqual([p["productId"] for p in (await prices.history("ah", "pindakaas", 50, today=TODAY, pin="999"))["products"]], ["1"])
+        self.assertIsNone((await prices.history("ah", "pindakaas", 50, today=TODAY))["products"][0]["upcoming"])
+
     async def test_one_product_by_id_with_only_bought_follows_the_purchases(self):
         await self.observe("2026-05-01", "1", "AH Pindakaas", 2.99)
         await self.observe("2026-05-01", "2", "AH Hagelslag", 1.99)
