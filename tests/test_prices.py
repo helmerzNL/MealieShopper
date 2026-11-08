@@ -45,11 +45,12 @@ class PricesCase(AppTestCase):
         return next(p for p in (await self.history(**kwargs))["products"] if p["productId"] == product_id)
 
 
-async def history_points(store: str = "ah") -> dict[str, list[tuple[str, float]]]:
-    """`prices._history_points` zoals `_annotate` hem aanroept: met de bonregels van `_areceipt_rows` erbij, op dezelfde verbinding."""
+async def history_points(store: str = "ah", wanted: tuple[str, ...] = ("1",)) -> dict[str, list[tuple[str, float]]]:
+    """`prices._history_points` zoals `_annotate` hem aanroept: met de bonregels van `_areceipt_rows` erbij, op dezelfde verbinding,
+    voor de producten in `wanted` (bij `_annotate` de ids van de aanbiedingen)."""
 
     async def points(conn):
-        return await prices._history_points(conn, store, TODAY, await prices._receipt_rows(conn, store, TODAY))
+        return await prices._history_points(conn, store, TODAY, await prices._receipt_rows(conn, store, TODAY), wanted)
 
     return (await in_db(prices._connect, points))[0]
 
@@ -467,7 +468,7 @@ class PublicObservedPriceTest(PricesCase):
 
         self.assertEqual((await in_db(prices._connect, regulars))[0], {})
         self.assertEqual(measured, set())
-        self.assertEqual((await history_points("picnic"))["milk"], [("2026-10-01", 0.79)])
+        self.assertEqual((await history_points("picnic", ("milk",)))["milk"], [("2026-10-01", 0.79)])
         self.assertEqual(await prices.regular_before("picnic", ["milk"], TODAY), {})
         current: dict = offer("milk", "Halfvolle melk", price=0.69, before=None)
         await prices._annotate("picnic", [current], TODAY)
@@ -650,6 +651,20 @@ class VerdictTest(PricesCase):
             )
         points = (await history_points())["1"]
         self.assertEqual(points, [("2026-05-01", 2.99), ("2026-06-10", 2.79), ("2026-07-15", 2.59)])
+
+    async def test_history_points_only_for_the_wanted_products(self):
+        # `_annotate` vraagt alleen de producten van de aanbiedingen op: de rest van de geschiedenis wordt niet gelezen.
+        await self.sync_offer("2026-01-05T05:00:00+00:00", offer("2", "AH Hagelslag", 1.49, 1.99, "nu 1,49", validFrom="2026-01-05", validUntil="2026-01-11"))
+        await self.sync_offer("2026-01-11T23:00:00+00:00")
+        await self.observe("2026-05-01", "1", "AH Pindakaas", 2.99)
+        await self.observe("2026-05-02", "2", "AH Hagelslag", 1.99)
+        await self.ah_order(101, "delivered", "2026-07-07", order_item(2, "AH Hagelslag", 1.89))
+        self.assertEqual(await history_points(wanted=("1",)), {"1": [("2026-05-01", 2.99)]})
+        self.assertEqual(
+            await history_points(wanted=("1", "2", "3")),
+            {"1": [("2026-05-01", 2.99)], "2": [("2026-01-05", 1.49), ("2026-05-02", 1.99), ("2026-07-07", 1.89)]},
+        )
+        self.assertEqual(await history_points(wanted=()), {})
 
     async def test_one_product_by_id_with_only_bought_follows_the_purchases(self):
         await self.observe("2026-05-01", "1", "AH Pindakaas", 2.99)

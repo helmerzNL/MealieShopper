@@ -23,6 +23,7 @@ bij de winkel naar hetzelfde product in andere maten). Ideeën en testgevallen v
 """
 from __future__ import annotations
 
+import json
 import logging
 import re
 from collections.abc import AsyncIterator, Awaitable
@@ -1071,14 +1072,26 @@ async def annotate(store: str, items: list[dict[str, Any]], today: str | None = 
     return items
 
 
+# De producten van `_history_points` als een parameter: een JSON-lijst die SQLite met json_each uitpakt. Zo past een lijst van
+# honderden ids in een enkele `?`, ook boven de grens van het aantal parameters.
+_WANTED_SQL = "product_id IN (SELECT value FROM json_each(?))"
+
+
 async def _history_points(
-    conn: aiosqlite.Connection, store: str, today: str, receipts: list[dict[str, Any]]
+    conn: aiosqlite.Connection, store: str, today: str, receipts: list[dict[str, Any]], wanted: Iterable[str]
 ) -> dict[str, list[tuple[str, float]]]:
-    """Per product de (dag, effectieve prijs per stuk) uit alles wat de app bewaart: de afgesloten aanbiedingen (op hun begindag, wat
-    een stuk met de actie kostte), de bewaarde gewone prijzen en de aankopen (wat je per stuk betaalde, gratis telt niet). De lopende
-    aanbieding zelf staat er niet in: die is wat we vergelijken. Gesorteerd op dag. `receipts` zijn de bonregels en ingelezen
-    aankopen van `_receipt_rows`."""
+    """Per product uit `wanted` de (dag, effectieve prijs per stuk) uit alles wat de app bewaart: de afgesloten aanbiedingen (op hun
+    begindag, wat een stuk met de actie kostte), de bewaarde gewone prijzen en de aankopen (wat je per stuk betaalde, gratis telt
+    niet). De lopende aanbieding zelf staat er niet in: die is wat we vergelijken. Gesorteerd op dag. `receipts` zijn de bonregels
+    en ingelezen aankopen van `_receipt_rows`.
+
+    Alleen de gevraagde producten: de aanbiedingen van een week zijn er een paar honderd, de geschiedenis van een winkel heeft er
+    tienduizenden, en de actietekst van elke afgesloten periode lezen (`_episode_effective`) kost per regel tijd."""
+    ids = {str(product_id) for product_id in wanted if product_id}
     points: dict[str, list[tuple[str, float]]] = {}
+    if not ids:
+        return points
+    selected = json.dumps(sorted(ids))
 
     def add(product_id: Any, day: Any, price: Any) -> None:
         value = _number(price)
@@ -1086,16 +1099,20 @@ async def _history_points(
             points.setdefault(str(product_id), []).append((str(day)[:10], value))
 
     for row in await conn.execute_fetchall(
-        "SELECT * FROM offer_history WHERE store = ? AND ended_at IS NOT NULL ORDER BY product_id, first_seen, id", (store,)
+        f"SELECT * FROM offer_history WHERE store = ? AND ended_at IS NOT NULL AND {_WANTED_SQL} ORDER BY product_id, first_seen, id",
+        (store, selected),
     ):
         add(row["product_id"], offers._episode_span(row)["start"], _episode_effective(row))
-    for row in await conn.execute_fetchall("SELECT product_id, day, price FROM price_observations WHERE store = ?", (store,)):
+    for row in await conn.execute_fetchall(
+        f"SELECT product_id, day, price FROM price_observations WHERE store = ? AND {_WANTED_SQL}", (store, selected)
+    ):
         add(row["product_id"], row["day"], row["price"])
     for sql in _purchase_sources(await _tables(conn), store):
-        for row in await conn.execute_fetchall(f"SELECT product_id, day, paid FROM ({sql}) WHERE paid > 0"):
+        for row in await conn.execute_fetchall(f"SELECT product_id, day, paid FROM ({sql}) WHERE paid > 0 AND {_WANTED_SQL}", (selected,)):
             add(row["product_id"], row["day"], row["paid"])
     for row in receipts:
-        add(row["product_id"], row["day"], row["paid"])
+        if str(row["product_id"]) in ids:
+            add(row["product_id"], row["day"], row["paid"])
     return {product_id: sorted(found) for product_id, found in points.items()}
 
 
@@ -1191,6 +1208,7 @@ async def _annotate(store: str, items: list[dict[str, Any]], today: str) -> None
     measured: set[str] = set()  # producten met een gemeten gewone prijs (bewaard of betaald), niet alleen de claim van de winkel
     episodes: dict[str, list[Any]] = {}
     latest: dict[str, Any] = {}
+    ids = sorted({str(offer.get("id")) for offer in items})  # alleen de geschiedenis van deze producten telt, zie _WANTED_SQL
     async with _connect() as conn:
         regulars = await _regulars_between(conn, store, since30, today, measured=measured)
         for row in await conn.execute_fetchall(
@@ -1199,13 +1217,14 @@ async def _annotate(store: str, items: list[dict[str, Any]], today: str) -> None
         ):
             latest[row["product_id"]] = row
         for row in await conn.execute_fetchall(
-            "SELECT * FROM offer_history WHERE store = ? AND COALESCE(valid_until, substr(last_seen, 1, 10)) >= ? ORDER BY product_id, first_seen, id",
-            (store, since_year),
+            f"SELECT * FROM offer_history WHERE store = ? AND COALESCE(valid_until, substr(last_seen, 1, 10)) >= ? AND {_WANTED_SQL} "
+            "ORDER BY product_id, first_seen, id",
+            (store, since_year, json.dumps(ids)),
         ):
             episodes.setdefault(row["product_id"], []).append(row)
         try:
             receipts = await _receipt_rows(conn, store, today)
-            points = await _history_points(conn, store, today, receipts)
+            points = await _history_points(conn, store, today, receipts, ids)
         except Exception:  # noqa: BLE001 - de ladder is een extraatje: zonder blijven het oordeel en de badge staan
             log.exception("Prijslabels: de geschiedenis van %s kon niet worden gelezen", store)
             points = {}

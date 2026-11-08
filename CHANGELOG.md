@@ -2,6 +2,19 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub; een stabiele release krijgt de teksten van alle versies sinds de vorige stabiele release.
 
+## v4.1.3
+
+### Sneller in 4.1.3
+
+*English summary: The **Offers** page opens faster. With the production data (138,000 offer periods, 696 AH offers this week) the server worked out the price verdict over the whole history of the store on every request: 2.7 seconds of computing on a laptop, about 10 seconds on the home server, and the rest of the app waited because it ran on the event loop. It now reads the history of only the offered products (AH 2.7 to 0.7 seconds, Jumbo 1.3 to 0.05 seconds, the same result to the byte), keeps the list per ETag on the server, so a second browser or device gets it at once, and computes requests that arrive together only once. The page itself asked for the list three times when it opened: twice for the same week and once more when the first day of the week arrived from Mealie. It now waits for that day (at most three seconds) and asks once.*
+
+- **Het prijsoordeel alleen voor de aanbiedingen.** `prices.annotate` las bij elke aanvraag van `/api/offers` de hele geschiedenis van de winkel en rekende voor elke afgesloten periode de actietekst uit (`_episode_effective`), ook van producten die deze week niet in de aanbieding zijn. `_history_points` en de perioden van het afgelopen jaar lezen nu alleen de producten van de aanbiedingen (`product_id IN (SELECT value FROM json_each(?))`). Met de productiedata: AH van 2,7 naar 0,7 seconden, Jumbo van 1,3 naar 0,05 seconden, met precies dezelfde uitkomst voor alle winkels en beide weken.
+- **Namen vouwen zonder omweg.** `ah_lists._fold` (kleine letters, zonder accenten) slaat de Unicode-normalisatie over voor een naam in ASCII, waar die niets verandert. Het koppelen van de kassabonregels vouwt er per keer tienduizenden. De uitkomst is gelijk voor alle 59.000 namen uit de productiedata.
+- **De lijst blijft op de server per ETag.** `response_cache.py` bewaart per winkel en week de laatste lijst met zijn ETag. Een tweede browser, een ander apparaat of een lege browsercache krijgt dezelfde lijst meteen, en aanvragen die tegelijk binnenkomen, wachten op dezelfde berekening. De lijst is nooit verser of ouder dan wat de browser al met een 304 hield: een nieuwe synchronisatie, een nieuwe dag, een nieuwe gewone prijs of een nieuwe versie geeft een andere ETag. Een fout wordt niet bewaard.
+- **De pagina vraagt de lijst een keer op.** Bij het openen vroegen het scherm en het subtab de lijst allebei op, en daarna nog een keer zodra de eerste dag van de week uit Mealie binnen was (een week die op zondag begint, hoort op zondag al bij de volgende bonusweek). Nu wacht de pagina op die dag (`state.weekStartKnown`, hooguit drie seconden) en wacht een tweede aanvraag voor dezelfde winkel en week op de eerste (`offersRequest`).
+- **Gemeten** op een kopie van de productiedata, zonder browsercache: de lijst kwam na 10 seconden (productie), nu na 0,7 seconden bij de eerste aanvraag en 15 milliseconden daarna.
+- **Tests:** `tests/test_response_cache.py` (bewaren, vernieuwen, samen wachten, een wachtende die weggaat, geen fout bewaren, de oudste eruit), de route in `tests/test_offers.py` (drie aanvragen tegelijk: een berekening, een nieuwe synchronisatie: opnieuw), `_history_points` alleen voor de gevraagde producten in `tests/test_prices.py`, en het wachten op de weekstart en een enkele aanvraag in `tests/test_history_stores_js.py`.
+
 ## v4.1.2
 
 ### Opgelost in 4.1.2

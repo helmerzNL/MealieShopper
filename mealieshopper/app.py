@@ -17,6 +17,7 @@ from . import auth, deals, http_client, tasks
 from .body_limits import DEFAULT_MAX_BODY, SizedRequest
 from .forwarded import ForwardedHeaders
 from .keep_running import FinishAfterDisconnect
+from .response_cache import ResponseCache
 from .i18n import tr
 
 
@@ -89,7 +90,7 @@ def _ah_proxy_cookie(headers: Iterable[str]) -> str | None:
 
 def create_app() -> Quart:
     app = Quart(__name__, template_folder="../templates", static_folder="../static")
-    app.config["ASSET_VERSION"] = environ.get("MEALIESHOPPER_ASSET_VERSION", "20261108-1")
+    app.config["ASSET_VERSION"] = environ.get("MEALIESHOPPER_ASSET_VERSION", "20261108-2")
     # Quart bewaart statische bestanden standaard 12 uur in de browser (Flask niet). Met 0 vraagt de browser elke keer na of het
     # bestand veranderd is (ETag, 304), zoals voorheen. None helpt niet: dan valt de browser terug op zijn eigen schatting.
     app.config["SEND_FILE_MAX_AGE_DEFAULT"] = 0
@@ -609,6 +610,8 @@ def create_app() -> Quart:
 
     # --- aanbiedingen en receptvoorstellen: lezen uit de lokale kopie, vernieuwen op verzoek ----------------
 
+    offers_cache = ResponseCache()
+
     async def offers_action(action: Callable[[], Any], error_text: str) -> Response | tuple[Response, int]:
         try:
             result: Any = action()
@@ -643,7 +646,11 @@ def create_app() -> Quart:
             await prices.annotate(data["store"], data["offers"])  # het oordeel bij elke aanbieding (#178), een fout laat de lijst staan
             return data
 
-        response = await offers_action(load_with_verdicts, tr("Aanbiedingen laden mislukt", "Loading the offers failed"))
+        # Dezelfde ETag is dezelfde lijst: een tweede browser of apparaat, en aanvragen die tegelijk binnenkomen, krijgen de lijst die
+        # er al ligt of op komst is, in plaats van het prijsoordeel opnieuw uit te rekenen (response_cache.py).
+        response = await offers_action(
+            lambda: offers_cache.get((store, week), etag, load_with_verdicts), tr("Aanbiedingen laden mislukt", "Loading the offers failed")
+        )
         if isinstance(response, Response) and response.status_code == 200:
             response.headers.update(headers)
         return response

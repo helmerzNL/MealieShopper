@@ -12,7 +12,7 @@ import httpx
 
 os.environ.setdefault("MEALIESHOPPER_DATA_DIR", tempfile.mkdtemp())
 
-from mealieshopper import ah, ah_recipes, auth, offers  # noqa: E402
+from mealieshopper import ah, ah_recipes, auth, offers, prices  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
 from helpers import AppTestCase, db, returned, routes, run, served  # noqa: E402
 
@@ -869,7 +869,7 @@ class OffersTabMarkupTest(AppTestCase):
         self.assertIn('const MDI_LOADING = "M12,4V2A10,10 0 0,0 2,12H4A8,8 0 0,1 12,4Z";', app_js, "het officiële MDI-icoon, geen eigen tekening")
         self.assertIn('<div id="offers-loading" class="offers-loading" role="status" aria-live="polite" hidden></div>', html)
         body = script[script.index("async function showOffers()"):script.index("function offerRecipeCard")]
-        self.assertLess(body.index("renderOffersLoading()"), body.index("await jsonFetch"), "de laadstand staat er al voordat er iets wordt opgehaald")
+        self.assertLess(body.index("renderOffersLoading()"), body.index("await offersRequest"), "de laadstand staat er al voordat er iets wordt opgehaald")
         # Een traag antwoord van de vorige winkel wordt genegeerd, ook bij een fout; en wisselt renderOffersStore naar de
         # voorkeurssupermarkt, dan laadt die zelf en stopt deze aanvraag.
         self.assertEqual(body.count("loadId !== offersLoadId"), 3)
@@ -1408,6 +1408,36 @@ class OffersRoutesTest(TempDataDirTest):
         with mock.patch.object(offers.about, "version", return_value="9.9.9"):
             self.assertTrue((await offers.signature("ah")).endswith("9.9.9"))
         self.assertEqual((await self.client.get("/api/offers?store=lidl", headers={"If-None-Match": etag})).status_code, 400)
+
+    async def test_the_server_keeps_the_list_per_etag_and_computes_concurrent_requests_once(self):
+        # Het prijsoordeel is het dure deel: met dezelfde ETag rekent de server het niet opnieuw uit, ook niet voor een tweede
+        # browser zonder If-None-Match of voor aanvragen die tegelijk binnenkomen.
+        fetched = [{"id": "1", "title": "AH Kipfilet", "price": 3.0, "priceBefore": 4.0, "promoLabel": "Bonus"}]
+        with mock.patch.dict(offers.FETCHERS, {"ah": lambda: returned(fetched)}):
+            await self.client.post("/api/offers/sync", json={"store": "ah"})
+        real_annotate = prices.annotate
+        with mock.patch.object(prices, "annotate", side_effect=real_annotate) as annotate:
+            first, second, third = await asyncio.gather(*(self.client.get("/api/offers?store=ah") for _ in range(3)))
+            self.assertEqual({first.status_code, second.status_code, third.status_code}, {200})
+            self.assertEqual(first.get_json(), second.get_json())
+            self.assertEqual(annotate.call_count, 1, "drie aanvragen tegelijk: een berekening")
+            later = await self.client.get("/api/offers?store=ah")
+            self.assertEqual((later.get_json(), later.headers["ETag"]), (first.get_json(), first.headers["ETag"]))
+            self.assertEqual(annotate.call_count, 1, "dezelfde ETag: de bewaarde lijst")
+            await self.client.get("/api/offers?store=jumbo")
+            self.assertEqual(annotate.call_count, 2, "een andere winkel is een andere sleutel")
+            with mock.patch.object(offers, "_now", return_value="2030-01-01T05:00:00+00:00"), mock.patch.dict(offers.FETCHERS, {"ah": lambda: returned(fetched)}):
+                await offers.sync("ah")
+            renewed = await self.client.get("/api/offers?store=ah")
+            self.assertNotEqual(renewed.headers["ETag"], first.headers["ETag"])
+            self.assertEqual(annotate.call_count, 3, "een nieuwe synchronisatie: opnieuw uitrekenen")
+
+    async def test_a_failed_offers_load_is_not_kept(self):
+        with mock.patch.object(offers, "load", new_callable=mock.AsyncMock, side_effect=RuntimeError("stuk")) as load:
+            self.assertEqual((await self.client.get("/api/offers?store=ah")).status_code, 424)
+            self.assertEqual((await self.client.get("/api/offers?store=ah")).status_code, 424)
+            self.assertEqual(load.call_count, 2, "een fout wordt niet bewaard: de volgende aanvraag probeert het opnieuw")
+        self.assertEqual((await self.client.get("/api/offers?store=ah")).status_code, 200)
 
     async def test_the_recipes_subtab_is_hidden_unless_switched_on(self):
         import re

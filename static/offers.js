@@ -148,6 +148,16 @@ function offersWeekStartChanged() {
   else renderOffersWeek();
 }
 
+// Zolang niet bekend is op welke dag de week begint, wacht de pagina (showOffers). Is het niet binnen een paar seconden bekend,
+// dan laadt hij toch, met maandag: een trage of kapotte Mealie-status mag de aanbiedingen niet tegenhouden.
+const OFFERS_WEEK_START_WAIT = 3000;
+
+function offersWeekStartKnown() {
+  clearTimeout(offersState.weekStartTimer);
+  offersState.weekStartTimer = 0;
+  if (offersState.waitingWeek && offersTabActive()) showOffers();
+}
+
 function renderOffersWeek() {
   const offset = offersWeekOffset();
   const week = offersWeek();
@@ -786,6 +796,19 @@ let offersLoadId = 0;
 // we op de achtergrond of er iets veranderd is; alleen bij een andere lijst wordt het scherm vernieuwd. De browser doet hetzelfde met een ETag (304).
 const offersCache = {};
 
+// De aanvraag die nog loopt, per winkel en week. Opent de pagina, dan vragen het openen van het scherm en het openen van het subtab
+// allebei de lijst op; de tweede wacht dan op het antwoord van de eerste in plaats van hem nog eens op te vragen.
+let offersFetch = null;
+
+function offersRequest(key, url) {
+  if (offersFetch && offersFetch.key === key) return offersFetch.promise;
+  const promise = jsonFetch(url).finally(() => {
+    if (offersFetch && offersFetch.promise === promise) offersFetch = null;
+  });
+  offersFetch = { key, promise };
+  return promise;
+}
+
 async function showOffers() {
   const loadId = ++offersLoadId;
   // In de prijsgeschiedenis alleen de winkelkeuze: de aanbiedingen van de week horen daar niet, en een winkel zonder
@@ -805,6 +828,13 @@ async function showOffers() {
     renderOffersLoading(STORES[preferredSupermarket()].name);
     return;
   }
+  // En op de eerste dag van de week (offersWeekStartKnown laadt dan alsnog), anders vraagt de pagina eerst de verkeerde week op.
+  offersState.waitingWeek = !state.weekStartKnown;
+  if (offersState.waitingWeek) {
+    renderOffersLoading();
+    if (!offersState.weekStartTimer) offersState.weekStartTimer = setTimeout(weekStartSettled, OFFERS_WEEK_START_WAIT);
+    return;
+  }
   const store = offersState.store;
   const week = offersWeek().start;
   const key = `${store}|${week}`;
@@ -813,7 +843,7 @@ async function showOffers() {
   if (cached) renderOffers(cached);
   else renderOffersLoading();
   try {
-    const data = await jsonFetch(`/api/offers?store=${encodeURIComponent(store)}&week=${encodeURIComponent(week)}`);
+    const data = await offersRequest(key, `/api/offers?store=${encodeURIComponent(store)}&week=${encodeURIComponent(week)}`);
     if (loadId !== offersLoadId) return;
     endOffersLoading();
     if (!cached || JSON.stringify(cached) !== JSON.stringify(data)) renderOffers(data);

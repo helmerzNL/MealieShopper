@@ -1,6 +1,7 @@
 const state = {
   weekOffset: 0,
   firstDayOfWeek: 1, // waar de week begint, zoals Mealie telt (0 = zondag, 1 = maandag); komt uit /api/mealie/status
+  weekStartKnown: false, // het antwoord van /api/mealie/status is binnen (of mislukt): tot dan is de week een gok, zie weekStartSettled
   entries: null,
   planAutoLoaded: false, // het weekmenu is na het koppelen van Mealie eenmaal vanzelf geladen
   auth: null,
@@ -1927,7 +1928,17 @@ async function refreshMealieStatus() {
     renderMealieStatus(await jsonFetch("/api/mealie/status"));
   } catch (error) {
     message("#mealie-status", error.message);
+  } finally {
+    weekStartSettled();
   }
+}
+
+// De eerste dag van de week is bekend (of het opvragen mislukte en maandag blijft). Aanbiedingen wacht daarop bij het openen: een
+// week die op zondag begint, hoort op zondag al bij de volgende bonusweek, en anders laadt de pagina eerst de verkeerde week.
+function weekStartSettled() {
+  if (state.weekStartKnown) return;
+  state.weekStartKnown = true;
+  if (typeof offersWeekStartKnown === "function") offersWeekStartKnown();
 }
 
 async function checkMealieConnection() {

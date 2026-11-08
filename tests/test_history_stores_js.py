@@ -25,7 +25,9 @@ class HistoryStoreNavigationTest(unittest.TestCase):
 const OFFERS_STORES = ['ah', 'picnic', 'jumbo', 'crisp'];
 const OFFER_HISTORY_LIMIT = 30;
 const STORES = Object.fromEntries(OFFERS_STORES.map(store => [store, {name: store}]));
-const state = {linkedStores: {picnic: true, jumbo: true, crisp: false}, storeStatusKnown: {}, auth: {preferredStore: 'ah'}};
+const state = {linkedStores: {picnic: true, jumbo: true, crisp: false}, storeStatusKnown: {}, auth: {preferredStore: 'ah'}, weekStartKnown: true};
+let offersFetch = null;
+const OFFERS_WEEK_START_WAIT = 10;
 const offersState = {store: 'ah'};
 const offerHistory = {query: '', selected: '', pinned: false, products: [], loadId: 0};
 let activeSubtab = 'offers-items';
@@ -89,10 +91,10 @@ async function jsonFetch(path) {
 }
 const settle = () => new Promise(resolve => setImmediate(resolve));
 '''
-        script: str = prelude + functions('app.js', ('routerQuery', 'offersPath', 'preferredSupermarket', 'preferredSupermarketKnown', 'defaultStoreOf',
+        script: str = prelude + functions('app.js', ('routerQuery', 'offersPath', 'weekStartSettled', 'preferredSupermarket', 'preferredSupermarketKnown', 'defaultStoreOf',
                                                      'linkedStoreKeys', 'offersStoreParam'))
         script += functions('offers.js', ('offersHistoryActive', 'offersTabActive', 'offersStores', 'offersFollowPreferred', 'renderOffersStore',
-                                           'offersSwitchStore', 'showOffers'))
+                                           'offersSwitchStore', 'offersRequest', 'offersWeekStartKnown', 'showOffers'))
         script += functions('offers_history.js', ('loadOfferHistory', 'offerHistoryStoreChanged')) + router + tab_handlers
         script += '\n(async () => {\n' + scenario + '\n})().catch(error => {console.error(error); process.exit(1);});'
         result: subprocess.CompletedProcess = subprocess.run(['node', '-e', script], capture_output=True, text=True)
@@ -182,3 +184,27 @@ console.log(JSON.stringify({crisp, jumbo}));
                                            'offers-history': '/offers/history?store=crisp'})
         self.assertEqual(result['jumbo'], {'offers-items': '/offers?store=jumbo', 'offers-suggestions': '/offers/recipes?store=jumbo',
                                            'offers-history': '/offers/history?store=jumbo'})
+
+    def test_offers_wait_for_the_week_start_and_ask_for_one_list(self) -> None:
+        # Opent de pagina, dan vragen het scherm en het subtab allebei de lijst op, en de eerste dag van de week (uit Mealie) is nog
+        # niet binnen. Eerst geen aanvraag, daarna een, voor de goede week.
+        result: dict = self.run_script("""
+state.weekStartKnown = false; activePanel = 'offers';
+showOffers(); showOffers(); await settle();
+const waiting = requests.filter(path => path.startsWith('/api/offers?')).length;
+weekStartSettled(); showOffers(); await settle();
+const loaded = requests.filter(path => path.startsWith('/api/offers?')).length;
+console.log(JSON.stringify({waiting, loaded, known: state.weekStartKnown}));
+""")
+        self.assertEqual(result, {'waiting': 0, 'loaded': 1, 'known': True})
+
+    def test_a_slow_week_start_does_not_hold_the_offers_back(self) -> None:
+        result: dict = self.run_script("""
+state.weekStartKnown = false; activePanel = 'offers';
+showOffers(); await settle();
+await new Promise(resolve => setTimeout(resolve, 50)); await settle();
+console.log(JSON.stringify({known: state.weekStartKnown, requests: requests.filter(path => path.startsWith('/api/offers?'))}));
+""")
+        self.assertTrue(result['known'])
+        self.assertEqual(len(result['requests']), 1)
+
