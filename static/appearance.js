@@ -1,5 +1,5 @@
 // Instellingen, Voorkeuren, per gebruiker, in drie inklapbare blokken (zoals onder Koppelen): Supermarkt (de
-// voorkeurssupermarkt waarmee Aanbiedingen en Winkels openen), Weergave (de kookmodus) en Thema (de accentkleur, het thema met
+// voorkeurssupermarkt waarmee Aanbiedingen en Winkels openen), Weergave (de kookmodus en de calorieën) en Thema (de accentkleur, het thema met
 // de achtergrond van het donkere thema, en de navigatiebalk).
 // Het toepassen en het rekenen met kleuren doet static/theme.js (window.THEME); dit bestand tekent de keuzes en bewaart ze
 // bij het profiel (PUT /api/profile/preferences). Na het inloggen zet appearanceFromProfile() de keuze van het profiel.
@@ -27,6 +27,7 @@ function appearanceFromProfile() {
     navbarStyle: auth.navbarStyle,
     navbarGlass: auth.navbarGlass,
     cookingMode: auth.cookingMode,
+    showCalories: auth.showCalories,
   });
   renderAppearance();
 }
@@ -50,6 +51,7 @@ async function appearanceSave(change, { previous = null, target = "#appearance-m
       navbarStyle: data.navbarStyle,
       navbarGlass: data.navbarGlass,
       cookingMode: data.cookingMode,
+      showCalories: data.showCalories,
       preferredStore: data.preferredStore,
     };
   } catch (error) {
@@ -189,6 +191,8 @@ function renderAppearance() {
   renderAppearanceNav(look);
   const cooking = $("#appearance-cooking");
   if (cooking) cooking.checked = look.cookingMode !== false;
+  const calories = $("#appearance-calories");
+  if (calories) calories.checked = look.showCalories !== false;
 }
 
 // ---- De blokken klappen in en uit. De keuze blijft in deze browser (ms-fold-appearance-<naam>); zonder keuze staan ze
@@ -234,6 +238,13 @@ $("#appearance-cooking").addEventListener("change", (event) => {
   const previous = { cookingMode: THEME.appearance().cookingMode };
   THEME.apply({ cookingMode: event.target.checked });
   appearanceSave({ cookingMode: event.target.checked }, { previous, target: "#appearance-display-message" });
+});
+
+// Calorieën tonen (issue #283): uit verbergt de kcal bij recepten en maaltijden, de voedingswaarden en het filter erop.
+$("#appearance-calories").addEventListener("change", (event) => {
+  const previous = { showCalories: THEME.appearance().showCalories };
+  THEME.apply({ showCalories: event.target.checked });
+  appearanceSave({ showCalories: event.target.checked }, { previous, target: "#appearance-display-message" });
 });
 
 $("#appearance-store").addEventListener("change", (event) => {

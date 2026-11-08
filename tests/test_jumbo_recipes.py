@@ -94,6 +94,23 @@ class RecipeTest(TempDataDirTest):
         self.assertEqual((recipe["tip"], recipe["image"], recipe["url"]), ("Ook lekker met venkel.", "https://img/700001.jpg", "https://www.jumbo.com/recepten/romige-pasta-met-tomaat-700001"))
         self.assertEqual((recipe["rating"], recipe["ratingCount"]), (4.5, 40))
 
+    def test_nutrition_per_portion_with_keys_and_salt_as_sodium(self):
+        recipe = jumbo_recipes.parse_recipe(RECIPE, "700001")
+        self.assertEqual(recipe["nutrition"], [
+            {"key": "calories", "quantity": 699, "unit": "kcal"}, {"key": "proteinContent", "quantity": 24, "unit": "g"},
+            {"key": "fatContent", "quantity": 37, "unit": "g"}, {"key": "carbohydrateContent", "quantity": 65, "unit": "g"},
+        ])
+        values = jumbo_recipes.nutrition_values([
+            {"name": "Energie", "quantity": 2092, "unit": "kJ"}, {"name": "waarvan verzadigd", "quantity": 4, "unit": "g"},
+            {"name": "Waarvan suikers", "quantity": 7, "unit": "g"}, {"name": "Zout", "quantity": 1.5, "unit": "g"},
+            {"name": "Onbekend", "quantity": 1, "unit": "g"}, "rommel", {"name": "Vet", "quantity": None, "unit": "g"},
+        ])
+        self.assertAlmostEqual(values.pop("calories"), 500, places=0)
+        # 1,5 g zout is 600 mg natrium, niet 1500 mg (zoals Mealie "1.5 g" natrium zou bewaren).
+        self.assertEqual(values, {"saturatedFatContent": 4, "sugarContent": 7, "sodiumContent": 600})
+        both = jumbo_recipes.nutrition_values([{"name": "Zout", "quantity": 1, "unit": "g"}, {"name": "Natrium", "quantity": 380, "unit": "mg"}])
+        self.assertEqual(both, {"sodiumContent": 380}, "natrium van Jumbo zelf gaat voor")
+
     def test_an_unknown_recipe_is_an_error(self):
         for raw in (None, {}, {"title": 5}):
             with self.assertRaises(RuntimeError):
