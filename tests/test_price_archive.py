@@ -590,6 +590,24 @@ class TidyTest(ArchiveCase):
         self.assertIsNotNone(by_id["folder:ah0002"]["price"])  # een aantal stuks telt als verpakking
         self.assertEqual(summary["tidied"]["unknownPack"], 1)
 
+    async def test_an_uncertain_link_becomes_its_own_folder_product(self):
+        # Met keep_unlinked komt een onzekere koppeling erin, maar niet bij het product waar het archief hem op woorden aan hing:
+        # "AH Goudse oude kaas 48" uit 2009 hoort niet bij "AH Oude kaas L".
+        uncertain = dict(product_id="579426", title="AH Oude kaas L", brand="AH", unit_size="400 g", price=None, price_before=None,
+                         match_kind="approximate", promo_label="Folder | Van de versafdeling | bron: oud=11.50, actie=5.75 | koppeling onzeker: AH Oude kaas L")
+        summary, rows = await self.import_ah(
+            offer(1, source_title="AH Goudse oude kaas 48", **uncertain),
+            offer(2, source_title="AH goudse  oude kaas 48", valid_from="2009-07-06", valid_until="2009-07-12", **uncertain),
+            offer(3, source_title=None, **uncertain),
+        )
+        self.assertEqual((summary["tidied"]["detached"], summary["tidied"]["uncertain"]), (2, 1), "zonder naam uit de folder: eruit")
+        self.assertNotIn("579426", {row["product_id"] for row in rows})
+        detached = [row for row in rows if row["url"].startswith(FOLDER)]
+        self.assertEqual(len({row["product_id"] for row in detached}), 1, "dezelfde naam in de folder: hetzelfde product")
+        self.assertTrue(detached[0]["product_id"].startswith("folder:"))
+        self.assertEqual({row["title"] for row in detached}, {"Folder: AH Goudse oude kaas 48", "Folder: AH goudse  oude kaas 48"})
+        self.assertEqual({(row["brand"], row["unit_size"], row["promo_label"]) for row in detached}, {("Folderarchief", None, "Van de versafdeling")})
+
     async def test_own_format_lines_are_tidied_by_their_title(self):
         summary, _ = (await self.run_import(own([
             {"type": "offer", **{k: v for k, v in offer(1, "jumbo", title="Folder: Alle Ajax").items() if k != "source_title"}},

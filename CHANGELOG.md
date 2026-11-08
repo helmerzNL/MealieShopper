@@ -2,6 +2,17 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub; een stabiele release krijgt de teksten van alle versies sinds de vorige stabiele release.
 
+## v4.1.6
+
+### Gewijzigd in 4.1.6
+
+*English summary: With **Also keep lines that belong to none of your products** (`keep_unlinked`), a line the archive linked to a product by words (*koppeling onzeker*) no longer attaches to that product. It comes in as a leaflet product of its own, named after the leaflet (*Folder: AH Goudse oude kaas 48*), so "AH Oude kaas L" no longer gets an offer from 2009 without a price that stretched its chart over 17 empty years. The importer now also reads a folder `observations/` as prices: the Picnic and Crisp gists for data.mealieshopper.nl put their 44,128 and 43 price observations there, and before this they were refused as a damaged archive.*
+
+- **Een onzekere koppeling wordt een eigen folderproduct.** Met **Ook regels bewaren die bij geen product van jou horen** hing een regel die het archief op woorden aan een product koppelde, aan dat product: "AH Goudse oude kaas 48" uit een folder van 2009 stond bij "AH Oude kaas L", zonder prijs, en rekte de grafiek van dat product op tot 2009. Nu maakt `price_archive_tidy.detach` er een eigen folderproduct van: id uit de winkel en de naam in de folder (`source_title`), titel *Folder: <naam>*, zonder merk, verpakking, categorie of foto van het product. Elke keer dat dezelfde naam in de folder stond, komt bij hetzelfde folderproduct. Zonder naam uit de folder blijft de regel weg. In de samenvatting telt hij als `detached`. Zonder het vinkje blijft een onzekere koppeling weg, zoals voorheen.
+- **`observations/` is een map met prijzen.** De gists van Picnic en Crisp zetten hun prijsmetingen (zonder bekende actie, met extra bronvelden) in `observations/` in plaats van `prices/`. De importer weigerde die als beschadigd archief (`data-site-manifest.json: documents`). Nu leest hij ze als prijzen (`SITE_KINDS`). Met de gists: 44.123 Picnic-prijzen erbij (4 stonden er al op die dag), waarvan 668 exact bij je eigen Picnic-producten, en 43 van Crisp.
+- **Handleiding** (NL en EN): de onzekere koppeling met het vinkje, en de map `observations/`.
+- **Tests:** een onzekere koppeling met het vinkje (twee regels met dezelfde naam bij één folderproduct, een regel zonder naam eruit) in `tests/test_price_archive.py`. Een gist met `observations/` van Picnic en Crisp in `tests/test_price_archive_site.py`.
+
 ## v4.1.5
 
 ### Sneller in 4.1.5

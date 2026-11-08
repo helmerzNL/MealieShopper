@@ -16,14 +16,17 @@ aanbieding met een product-id `folder:…`, dus nog bij geen echt product):
 Een prijs uit een archief zonder product (`folder:…`, de Picnic- en Crisp-prijzen) komt er net zo alleen in als hij exact bij
 een product van jou hoort (`Tidy.price`).
 
-Met `keep_unlinked` (voor een eigen archief) blijven ongekoppelde regels en prijzen als eigen product staan, net als onzekere
-koppelingen; een ongekoppelde folderregel zonder gewicht, inhoud of aantal krijgt dan geen prijs.
+Met `keep_unlinked` (voor een eigen archief) blijven ongekoppelde regels en prijzen als eigen product staan. Een onzekere
+koppeling komt er dan ook in, maar los van het product waar het archief hem aan hing: als eigen folderproduct met de naam uit
+de folder (`detach`). Zo staat er geen "AH Goudse oude kaas 48" uit 2009 bij "AH Oude kaas L". Een ongekoppelde folderregel
+zonder gewicht, inhoud of aantal krijgt geen prijs.
 
 De koppeling en het lezen van verpakkingen komen uit `import_archive.py` van wolph, in het pakket met zijn folderarchief
 (`fold`, `size`, `match_product` en `catalogue_from`).
 """
 from __future__ import annotations
 
+import hashlib
 import re
 import sqlite3
 import unicodedata
@@ -118,6 +121,25 @@ def is_archive_line(row: dict[str, Any]) -> bool:
 def is_uncertain(row: dict[str, Any]) -> bool:
     """Een koppeling op woorden (al gemaakt in het archief): verpakking of variant staat niet vast."""
     return row.get("match_kind") == "approximate" or "koppeling onzeker" in str(row.get("promo_label") or "")
+
+
+# Het product van een losgemaakte onzekere koppeling: per winkel en foldernaam een, zodat elke keer dat dezelfde regel in de
+# folder stond bij hetzelfde product komt. Het voorvoegsel houdt hem apart van de id's die het archief zelf maakt.
+DETACHED_PREFIX = "folder:"
+FOLDER_BRAND = "Folderarchief"
+
+
+def detach(row: dict[str, Any]) -> dict[str, Any] | None:
+    """Een onzekere koppeling als eigen folderproduct: het id komt uit de naam in de folder (`source_title`), de titel wordt
+    "Folder: <naam>", zonder merk van de winkel, verpakking, categorie of plaatje van het product waar het archief hem aan hing
+    (die horen bij dat product, niet bij de folderregel). None zonder naam uit de folder: de titel is dan die van het product."""
+    title = str(row.get("source_title") or "").strip()
+    if not title:
+        return None
+    key = f"detached|{row.get('store')}|{fold(title)}"
+    product_id = DETACHED_PREFIX + hashlib.sha256(key.encode("utf-8")).hexdigest()[:24]
+    return {**row, "product_id": product_id, "title": f"Folder: {title}", "brand": FOLDER_BRAND, "unit_size": None, "category": None,
+            "image": "", "match_kind": None}
 
 
 def short_label(label: Any) -> Any:
@@ -225,7 +247,8 @@ class Tidy:
         self.keep_unlinked = keep_unlinked
         # exact: de app koppelde de regel aan een product van jou; linkedByArchive: het archief koppelde hem al aan een product.
         # pricesExact en pricesUnlinked: hetzelfde voor prijzen uit een archief (Picnic, Crisp).
-        self.stats = {"exact": 0, "linkedByArchive": 0, "unlinked": 0, "uncertain": 0, "groups": 0, "unknownPack": 0,
+        # detached: een onzekere koppeling, met keep_unlinked los van het product gezet (`detach`).
+        self.stats = {"exact": 0, "linkedByArchive": 0, "unlinked": 0, "uncertain": 0, "detached": 0, "groups": 0, "unknownPack": 0,
                       "pricesExact": 0, "pricesUnlinked": 0}
 
     def offer(self, row: dict[str, Any]) -> dict[str, Any] | None:
@@ -239,10 +262,14 @@ class Tidy:
         if is_group(row):
             self.stats["groups"] += 1
             return None
-        if not is_archive_product(row):  # het archief koppelde de regel al aan een product
-            if is_uncertain(row) and not self.keep_unlinked:
+        if not is_archive_product(row) and is_uncertain(row):  # het archief koppelde de regel op woorden aan een product
+            detached = detach(row) if self.keep_unlinked else None
+            if detached is None:
                 self.stats["uncertain"] += 1
                 return None
+            self.stats["detached"] += 1
+            row = detached  # verder als folderregel: exact koppelen aan een product van jou, of als eigen product
+        if not is_archive_product(row):  # het archief koppelde de regel al exact aan een product
             self.stats["linkedByArchive"] += 1
         elif self.linker.link(row):
             self.stats["exact"] += 1

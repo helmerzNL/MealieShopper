@@ -107,6 +107,21 @@ class SiteGistTest(ArchiveCase):
         self.assertEqual(rows["4183"]["title"], "AH Bloemkool")
         self.assertEqual(rows["folder:ah0001"]["promo_label"], "2 voor")  # opgeschoond, zoals elke folderregel
 
+    async def test_observations_of_picnic_and_crisp_are_read_as_prices(self):
+        # De gists van Picnic en Crisp zetten hun prijsmetingen in `observations/` (zonder bekende actie), met extra bronvelden.
+        packages = {
+            "picnic": {"observations/2022-001.json": site_doc([price(1, price_kind="observed", source_product_id="90002810"), price(2)])},
+            "crisp": {"observations/2021-001.json": site_doc([price(3, "crisp", day="2021-10-19", seen_at="2021-10-19T00:00:00+00:00")])},
+        }
+        summary, job = await self.run_import(site_gist_zip(packages))
+        self.assertEqual((summary["lines"], job["summary"]["prices"]), (3, 3))
+        self.assertEqual(
+            sorted((row["store"], row["product_id"], row["source"]) for row in self.rows("price_observations")),
+            [("crisp", "folder:crispp0003", "public_press_release"), ("picnic", "folder:picnicp0001", "public_observed_unknown"),
+             ("picnic", "folder:picnicp0002", "public_observed_unknown")],
+        )
+        self.assertEqual(price_archive.site_document("picnic/observations/2022-001.json"), ("price", "picnic"))
+
     async def test_without_the_folder_above_and_a_second_time(self):
         await self.run_import(site_gist_zip(top=""))
         again = (await self.stage(site_gist_zip())).get_json()
