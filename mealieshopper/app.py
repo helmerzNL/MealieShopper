@@ -12,7 +12,7 @@ import sqlite3
 import httpx
 from quart import Quart, Response, jsonify, redirect, render_template, request, send_file, send_from_directory
 
-from . import about, ah, ah_explore, ah_lists, ah_orders, ah_planner, ah_recipes, ai_match, ai_review, audit, auth_password, backup, crisp, crisp_orders, factory_reset, hellofresh, image_cache, jumbo, jumbo_explore, jumbo_lists, jumbo_orders, jumbo_recipes, marleyspoon, mcp_http, mealie, mealie_images, offers, offers_schedule, onboarding, picnic, picnic_explore, picnic_orders, picnic_recipes, price_archive, price_import, prices, product_images, product_links, profile, recipe_bulk, server_settings, updates, users
+from . import about, ah, ah_explore, ah_lists, ah_orders, ah_planner, ah_recipes, ai_match, ai_review, audit, auth_password, backup, crisp, crisp_orders, factory_reset, hellofresh, image_cache, jumbo, jumbo_explore, jumbo_lists, jumbo_orders, jumbo_recipes, marleyspoon, mcp_http, mealie, mealie_images, offers, offers_schedule, onboarding, picnic, picnic_explore, picnic_orders, picnic_recipes, price_archive, price_import, prices, product_images, product_links, profile, recipe_bulk, recipe_nutrition, server_settings, updates, users
 from . import auth, deals, http_client, tasks
 from .body_limits import DEFAULT_MAX_BODY, SizedRequest
 from .forwarded import ForwardedHeaders
@@ -247,8 +247,9 @@ def create_app() -> Quart:
 
     @app.get("/api/mealplan/options")
     async def mealplan_options():
-        async def options() -> dict[str, list[str]]:
-            return {"entryTypes": await mealie.entry_types()}
+        async def options() -> dict[str, Any]:
+            # `recipeScale`: of het venster het aantal porties mag laten kiezen (Mealie 3.29 of nieuwer).
+            return {"entryTypes": await mealie.entry_types(), "recipeScale": await mealie.supports_recipe_scale()}
 
         return await mealie_action(options, tr("Mealie niet bereikbaar", "Mealie is not reachable"))
 
@@ -273,10 +274,33 @@ def create_app() -> Quart:
 
     @app.get("/api/mealie/recipes")
     async def mealie_recipes_search():
-        return await mealie_action(
-            lambda: mealie.search_recipes(request.args.get("q"), request.args.get("page") or 1),
-            tr("Zoeken in Mealie mislukt", "Searching Mealie failed"),
-        )
+        async def found() -> dict[str, Any]:
+            # Met een grens op de calorieën (issue #283) zoekt de cache van recipe_nutrition.py, anders Mealie zelf.
+            kcal_min, kcal_max = recipe_nutrition.kcal_range(request.args.get("kcalMin"), request.args.get("kcalMax"))
+            if kcal_min is None and kcal_max is None:
+                return await mealie.search_recipes(request.args.get("q"), request.args.get("page") or 1)
+            return await recipe_nutrition.search(request.args.get("q"), kcal_min, kcal_max, request.args.get("page") or 1)
+
+        return await mealie_action(found, tr("Zoeken in Mealie mislukt", "Searching Mealie failed"))
+
+    # Voedingswaarden van oude AH-recepten in Mealie aanvullen (alleen de beheerder: het pad staat in auth.ADMIN_PATHS).
+    @app.get("/api/mealie/nutrition/backfill")
+    async def mealie_nutrition_backfill_status():
+        return jsonify(recipe_nutrition.backfill_progress())
+
+    @app.post("/api/mealie/nutrition/backfill")
+    async def mealie_nutrition_backfill_start():
+        async def start() -> dict[str, Any]:
+            await mealie.ensure_configured()
+            return recipe_nutrition.start_backfill()
+
+        if recipe_nutrition.backfill_progress().get("state") == "running":
+            return jsonify({"error": tr("Het aanvullen loopt al.", "Filling in is already running.")}), 409
+        return await mealie_action(start, tr("Aanvullen starten mislukt", "Could not start filling in"), 202)
+
+    @app.delete("/api/mealie/nutrition/backfill")
+    async def mealie_nutrition_backfill_stop():
+        return jsonify(recipe_nutrition.stop_backfill())
 
     @app.get("/api/mealie/recipes/<slug>")
     async def mealie_recipe_detail(slug: str):

@@ -153,6 +153,14 @@ class AllerhandeRecipeTest(ReuseTestCase):
             "ingredients": [{"line": "300 g pasta"}, {"line": "1 potje pesto"}], "steps": ["Kook de pasta."], "nutrition": [],
         })
 
+    async def test_detail_has_the_nutrition_per_person(self):
+        ld = dict(self.LD, nutrition={"@type": "NutritionInformation", "calories": "490 kcal", "sodiumContent": "200 mg"})
+        with mock.patch.object(ah, "get_recipe_jsonld", return_value=ld):
+            answer = await self.client.get("/api/ah/recipes/1199999")
+        self.assertEqual(answer.get_json()["nutrition"], [
+            {"key": "calories", "quantity": 490, "unit": "kcal"}, {"key": "sodiumContent", "quantity": 200, "unit": "mg"},
+        ])
+
     async def test_errors_do_not_leak_the_answer_of_ah(self):
         with mock.patch.object(ah, "get_recipe_jsonld", side_effect=RuntimeError("AH zei: geheim")):
             answer = await self.client.get("/api/ah/recipes/1199999")

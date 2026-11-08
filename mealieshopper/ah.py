@@ -13,7 +13,7 @@ from urllib.parse import unquote, urlencode, urlparse
 
 import httpx
 
-from . import auth, deals, http_client, tasks
+from . import auth, deals, http_client, nutrition, tasks
 from .i18n import tr
 from .packs import (  # noqa: F401 - blijft hier bereikbaar voor bestaande aanroepers
     LARGE_PACK_COUNT,
@@ -154,9 +154,25 @@ RECIPE_SUMMARIES_QUERIES = (
 """,
 )
 
+# De voedingswaarden van een recept (`recipe.nutritions`, per persoon, elk `{name value unit}`): veld van AH -> veld van
+# schema.org en Mealie (zie nutrition.py). Op 8 november 2026 opgezocht met het anonieme token; de zoekresultaten
+# (`RecipeSummary`) hebben ze niet.
+AH_NUTRITION = {
+    "energy": "calories",
+    "protein": "proteinContent",
+    "fat": "fatContent",
+    "saturatedFat": "saturatedFatContent",
+    "carbohydrates": "carbohydrateContent",
+    "sugar": "sugarContent",
+    "fibers": "fiberContent",
+    "sodium": "sodiumContent",
+}
+_RECIPE_NUTRITIONS = "nutritions {\n" + "".join(f"        {name} {{ value unit }}\n" for name in AH_NUTRITION) + "      }"
+
 # Receptdetails voor het importeren in Mealie. De laatste variant bevat alleen velden
-# waarvan bekend is dat ze werken; de eerdere voegen portie en afbeelding toe en
-# proberen beide vormen van `preparation.steps`.
+# waarvan bekend is dat ze werken; de eerdere voegen portie, afbeelding en (de eerste)
+# voedingswaarden toe en proberen beide vormen van `preparation.steps`. Kent AH een veld
+# niet meer, dan valt `_graphql_variants` terug op de volgende variant.
 RECIPE_DETAIL_QUERIES = tuple(
     """
   query Recipe($id: Int!) {
@@ -176,6 +192,7 @@ RECIPE_DETAIL_QUERIES = tuple(
   }
 """ % (extra, steps)
     for extra, steps in (
+        ("ovenTime\n      waitTime\n      servings { number }\n      images { url }\n      " + _RECIPE_NUTRITIONS, " { text }"),
         ("ovenTime\n      waitTime\n      servings { number }\n      images { url }", " { text }"),
         ("ovenTime\n      waitTime\n      servings { number }\n      images { url }", ""),
         ("", ""),
@@ -2281,7 +2298,24 @@ async def get_recipe_jsonld(recipe_id: int) -> dict[str, Any]:
         ld["cookTime"] = iso
     if iso := _iso_minutes(sum(int(t) for t in times if isinstance(t, (int, float)))):
         ld["totalTime"] = iso
+    if block := nutrition.schema(recipe_nutrition(recipe.get("nutritions"))):
+        ld["nutrition"] = block
     return ld
+
+
+def recipe_nutrition(raw: Any) -> dict[str, float]:
+    """De voedingswaarden uit `recipe.nutritions` van AH (per persoon) als getallen in de eenheden van nutrition.py: energie
+    in kcal, natrium in mg. Een veld zonder waarde of met een eenheid die niet past, valt weg."""
+    if not isinstance(raw, dict):
+        return {}
+    found: dict[str, float] = {}
+    for name, key in AH_NUTRITION.items():
+        item = raw.get(name)
+        if isinstance(item, dict):
+            amount = nutrition.convert(key, item.get("value"), item.get("unit"))
+            if amount is not None and not (key == "calories" and amount <= 0):
+                found[key] = amount
+    return found
 
 
 def recipe_url(recipe_id: int) -> str:
@@ -2305,5 +2339,5 @@ async def recipe_detail(recipe_id: int) -> dict[str, Any]:
         "url": ld.get("url") or recipe_url(recipe_id),
         "ingredients": [{"line": line} for line in ld.get("recipeIngredient") or []],
         "steps": [step["text"] for step in ld.get("recipeInstructions") or [] if isinstance(step, dict) and step.get("text")],
-        "nutrition": [],
+        "nutrition": nutrition.items(ld.get("nutrition")),
     }

@@ -75,12 +75,40 @@ class RecipeJsonLdTest(unittest.TestCase):
         self.assertEqual(sent_json(post.calls.last)["variables"], {"id": 1234})
         json.dumps(ld)  # serialiseerbaar voor Mealie
 
+    def test_nutrition_per_person_goes_along_as_schema_org(self):
+        n = lambda value, unit: {"value": value, "unit": unit}  # noqa: E731
+        recipe = dict(RECIPE, nutritions={
+            "energy": n(490, "kcal"), "protein": n(27, "g"), "fat": n(23, "g"), "saturatedFat": n(8, "g"),
+            "carbohydrates": n(41, "g"), "sugar": n(6, "g"), "fibers": None, "sodium": n(200, "mg"),
+        })
+        ld, post = self.build([graphql_ok(recipe)])
+        self.assertIn("nutritions {", sent_json(post.calls.last)["query"])
+        self.assertEqual(ld["nutrition"], {
+            "@type": "NutritionInformation", "calories": "490 kcal", "proteinContent": "27 g", "fatContent": "23 g",
+            "saturatedFatContent": "8 g", "carbohydrateContent": "41 g", "sugarContent": "6 g", "sodiumContent": "200 mg",
+        })
+
+    def test_nutrition_in_other_units_is_converted_and_an_empty_block_is_left_out(self):
+        self.assertEqual(ah.recipe_nutrition({"energy": {"value": 2092, "unit": "kJ"}, "sodium": {"value": 0.2, "unit": "g"}}),
+                         {"calories": 2092 / 4.184, "sodiumContent": 200.0})
+        self.assertEqual(ah.recipe_nutrition({"energy": {"value": 0, "unit": "kcal"}, "fat": {"value": None, "unit": "g"}}), {})
+        self.assertEqual(ah.recipe_nutrition(None), {})
+        ld, _ = self.build([graphql_ok(dict(RECIPE, nutritions=None))])
+        self.assertNotIn("nutrition", ld)
+
+    def test_without_the_nutrition_field_the_import_still_works(self):
+        ld, post = self.build([graphql_error('Cannot query field "nutritions" on type "Recipe".'), graphql_ok(RECIPE)])
+        self.assertEqual(post.call_count, 2)
+        self.assertNotIn("nutritions", sent_json(post.calls.last)["query"])
+        self.assertNotIn("nutrition", ld)
+        self.assertEqual(ld["recipeYield"], "4 personen")
+
     def test_falls_back_to_simpler_query_and_string_steps(self):
         minimal = dict(RECIPE, preparation={"steps": ["Kook.", "Stamp."]})
         for key in ("servings", "images", "ovenTime", "waitTime"):
             minimal.pop(key)
-        ld, post = self.build([graphql_error("Unknown field"), graphql_error("Unknown field"), graphql_ok(minimal)])
-        self.assertEqual(post.call_count, 3)
+        ld, post = self.build([graphql_error("Unknown field")] * 3 + [graphql_ok(minimal)])
+        self.assertEqual(post.call_count, 4)
         self.assertEqual([step["text"] for step in ld["recipeInstructions"]], ["Kook.", "Stamp."])
         self.assertNotIn("image", ld)
         self.assertNotIn("recipeYield", ld)

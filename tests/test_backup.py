@@ -20,7 +20,7 @@ from werkzeug.exceptions import RequestTimeout
 
 os.environ["PASSKEY_AUTH_ENABLED"] = "false"
 
-from mealieshopper import audit, auth, auth_password, backup, factory_reset, image_cache, mealie, mealie_images, oauth, price_archive, prices, profile, tasks, uploads  # noqa: E402
+from mealieshopper import audit, auth, auth_password, backup, factory_reset, image_cache, mealie, mealie_images, oauth, price_archive, prices, profile, recipe_nutrition, tasks, uploads  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
 from helpers import AppClient, db, ReadResponse, run_aside  # noqa: E402
 
@@ -251,6 +251,8 @@ class ClassificationTest(BackupCase):
         async with oauth._connect():  # oauth en mealie_images maken hun tabellen bij de eerste verbinding
             pass
         async with mealie_images._connect():
+            pass
+        async with recipe_nutrition._connect():
             pass
 
     async def test_every_table_is_either_in_the_backup_or_left_out_on_purpose(self) -> None:
