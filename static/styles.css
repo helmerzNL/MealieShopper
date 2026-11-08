@@ -3091,18 +3091,6 @@ button.plan-recipe:focus-visible {
   white-space: pre-line;
 }
 
-/* De twee keuzes voor losse producten (samen als menu, soep en pizza los) naast elkaar, op een telefoon onder elkaar. */
-.ah-planner__options {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0 24px;
-  margin: 4px 0 8px;
-}
-
-.ah-planner__options input {
-  flex: none; /* een lange tekst drukt het vinkje anders kleiner op een telefoon */
-}
-
 /* Receptkaarten: op een telefoon minstens twee naast elkaar, op een groter scherm zoveel als er passen */
 .recipe-grid--compact {
   grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
@@ -8607,6 +8595,16 @@ html.is-standalone body {
 .fold--compact .fold__body h3 {
   margin: 0 0 2px;
   font-size: 16px;
+}
+
+/* Een schakelaar binnen een onderdeel (Supermarkt, Weekplanner van de AH-app): een kleinere kop en wat ruimte ertussen. */
+.fold--compact .fold__body h4 {
+  margin: 0 0 2px;
+  font-size: 15px;
+}
+
+.appearance-section .appearance-setting {
+  margin-top: 12px;
 }
 
 .appearance-section > .muted,

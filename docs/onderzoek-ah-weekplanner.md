@@ -44,7 +44,9 @@ Wat er gebouwd is:
   - Een eigen recept heeft de productlink als bron, een menu de productlink met het kleinste nummer en `#menu-` met alle
     nummers (zoals Crisp een fragment gebruikt). Zo vindt `find_recipe_summary_by_source` een recept of menu van dezelfde
     producten terug, en maakt een volgende week niets dubbel.
-  - De twee keuzes staan per gebruiker in het profiel (`planner_combine`, `planner_split_meals`).
+  - De twee keuzes staan per gebruiker in het profiel (`planner_combine`, `planner_split_meals`). Ze stonden in 4.3.0 als
+    vinkjes in het Weekplanner-paneel; sinds 4.3.1 zijn het schakelaars bij Instellingen, Voorkeuren, Supermarkt (`appearance.js`),
+    en wijst het paneel ernaar.
   - In het mandje zoekt MealieShopper een ingrediënt op de productnaam; `ah.rank_search_results` zet een exacte titel
     bovenaan. Een vaste koppeling aan het product is er niet: `product_links` is voor kassabonnen.
 - **Een dag per verzoek.** Een import duurt een paar seconden en `RESPONSE_TIMEOUT` is 120 seconden. Het scherm stuurt
