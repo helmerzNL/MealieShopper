@@ -2,6 +2,27 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub; een stabiele release krijgt de teksten van alle versies sinds de vorige stabiele release.
 
+## v4.3.1
+
+### Gewijzigd in 4.3.1
+
+Pull request: [#286](https://github.com/helmerzNL/MealieShopper/pull/286).
+
+*English summary: the two choices for loose products from the week planner of the AH app (**Loose products of a day together as one menu** and **Soup and pizza always separate**, new in 4.3.0) moved from the top of **Stores, Albert Heijn, Week planner** to **Settings, Preferences, Supermarket**, as real switches like *Cooking mode*. They still work the same: per user in the profile, on by default, the second only shown with the first on. The week planner panel links to them and its labels follow a change straight away. Nothing changed on the server.*
+
+- **De keuzes voor losse producten staan bij Voorkeuren.** *Losse producten van een dag samen als één menu* en *Soep en pizza altijd los* stonden in 4.3.0 als vinkjes bovenaan het Weekplanner-paneel. Nu staan ze bij **Instellingen, Voorkeuren**, in het blok **Supermarkt**, onder het nieuwe kopje **Weekplanner van de AH-app**. Het zijn echte schakelaars, net als de *Kookmodus*, met een korte uitleg bij elk.
+  - De werking is gelijk: ze worden per gebruiker in het profiel bewaard, staan standaard aan, en de tweede is alleen te zien als de eerste aan staat.
+  - Weigert de server een keuze, dan springt de schakelaar terug, met de melding van de server eronder.
+  - De labels in de weekplanner volgen een wijziging meteen.
+- **Het Weekplanner-paneel** heeft in plaats van de vinkjes een link: *Hoe losse producten meegaan, stel je in bij Voorkeuren, Supermarkt.*
+- **Handleiding** (NL en EN):
+  - bij *Voorkeuren, Supermarkt* een punt *Weekplanner van de AH-app*
+  - bij de weekplanner de nieuwe plek van de schakelaars
+  - de screenshots van de weekplanner en van Voorkeuren zijn opnieuw gemaakt
+- **Tests:**
+  - `tests/test_appearance.py`: de twee schakelaars in het blok Supermarkt (standaard aan, met een label en een uitleg) en het bewaren met terugzetten bij een weigering
+  - `tests/test_ah_items_ui.py`: het paneel heeft geen vinkjes meer, wel de link
+
 ## v4.3.0
 
 ### Nieuw in 4.3.0

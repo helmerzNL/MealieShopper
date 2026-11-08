@@ -105,16 +105,16 @@ class WeekPlannerMarkupTest(unittest.TestCase):
         self.assertIn("...options,", planner)
         self.assertIn("refreshMealPlanAfterChange(", planner)
 
-    def test_the_two_choices_for_loose_products(self):
-        # Samen als één menu, en soep en pizza dan toch los (4.3.0): bewaard in het profiel, standaard aan.
+    def test_the_choices_for_loose_products_live_in_the_preferences(self):
+        # Samen als één menu, en soep en pizza dan toch los (4.3.0) staan sinds 4.3.1 bij Instellingen, Voorkeuren, Supermarkt
+        # (test_appearance.py); het paneel leest ze alleen en wijst ernaar.
         panel = HTML[HTML.index('id="ah-items-weekplanner"'):HTML.index('id="ah-items-lijstjes"')]
-        self.assertIn('<input type="checkbox" role="switch" id="ah-planner-combine" checked>', panel)
-        self.assertIn('id="ah-planner-split-row"><input type="checkbox" role="switch" id="ah-planner-split-meals" checked>', panel)
+        self.assertNotIn("ah-planner-combine", panel)
+        self.assertNotIn("ah-planner-split-meals", panel)
+        self.assertIn('<a href="/settings/preferences" data-route data-i18n="ah.planner.settings_link">', panel)
         planner = (ROOT / "static" / "ah_planner.js").read_text(encoding="utf-8")
-        self.assertIn('saveAhPlannerOption("plannerCombine", event.target.checked)', planner)
-        self.assertIn('saveAhPlannerOption("plannerSplitMeals", event.target.checked)', planner)
-        self.assertIn('$("#ah-planner-split-row").hidden = !options.combine;', planner)
-        self.assertIn('"/api/profile/preferences"', planner)
+        self.assertIn("return { combine: state.auth?.plannerCombine !== false, splitMeals: state.auth?.plannerSplitMeals !== false };", planner)
+        self.assertNotIn('"/api/profile/preferences"', planner, "bewaren doet appearance.js")
 
 
 class OverviewMarkupTest(unittest.TestCase):

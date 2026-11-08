@@ -1,7 +1,8 @@
 // Winkels > Albert Heijn > Weekplanner: wat in de weekplanner van de AH-app staat (alleen lezen, plannen doe je in de AH-app),
 // en *Naar weekmenu*, dat het per dag in het weekmenu van Mealie zet: de Allerhande-recepten (zo nodig eerst geïmporteerd)
 // en de losse producten, als het recept met die naam in Mealie, als eigen recept of samen als menu (4.3.0). Eigen AH-recepten
-// gaan niet mee, een notitie alleen als naam van een menu. Zie mealieshopper/ah_planner.py.
+// gaan niet mee, een notitie alleen als naam van een menu. Hoe losse producten meegaan, kies je bij Instellingen, Voorkeuren,
+// Supermarkt (appearance.js); hier worden die keuzes alleen gelezen. Zie mealieshopper/ah_planner.py.
 // Laadt na app.js en recipe_search.js en gebruikt daar de hulpfuncties van ($, message, jsonFetch, setBusy, t, tn, ...).
 
 const AH_PLANNER_HOST = { prefix: "ah-planner-recipe", list: "#ah-planner-view", detail: "#ah-planner-recipe-view", known: () => ahPlannerRecipes() };
@@ -13,8 +14,8 @@ function ahPlannerRecipes() {
   return (ahPlanner.data?.days || []).flatMap((day) => day.items.filter((item) => item.kind === "recipe").map((item) => ({ id: item.recipeId, title: item.title })));
 }
 
-// De twee keuzes van de gebruiker (bewaard in het profiel, standaard aan): losse producten van een dag samen als één menu,
-// en soep en pizza dan toch los.
+// De twee keuzes van de gebruiker (bewaard in het profiel, standaard aan, in te stellen bij Voorkeuren, Supermarkt): losse
+// producten van een dag samen als één menu, en soep en pizza dan toch los.
 function ahPlannerOptions() {
   return { combine: state.auth?.plannerCombine !== false, splitMeals: state.auth?.plannerSplitMeals !== false };
 }
@@ -90,18 +91,11 @@ function renderAhPlannerDay(day, today, options) {
         </article>`;
 }
 
-function renderAhPlannerOptions(options = ahPlannerOptions()) {
-  $("#ah-planner-combine").checked = options.combine;
-  $("#ah-planner-split-meals").checked = options.splitMeals;
-  $("#ah-planner-split-row").hidden = !options.combine; // soep en pizza los heeft alleen zin als producten samen een menu worden
-}
-
 function renderAhPlanner() {
   const data = ahPlanner.data;
   const days = data?.days || [];
   const options = ahPlannerOptions();
   const today = localIsoDate(new Date());
-  renderAhPlannerOptions(options);
   $("#ah-planner-days").innerHTML = days.map((day) => renderAhPlannerDay(day, today, options)).join("");
   renderAhPlannerButton();
   if (!ahPlanner.loaded || !data) return;
@@ -120,24 +114,6 @@ function renderAhPlannerButton() {
   const reason = !state.linkedStores.mealie ? t("ah.planner.needs_mealie") : !ahPlannerDaysToSend().length ? t("ah.planner.nothing_to_copy") : "";
   button.disabled = ahPlanner.busy || Boolean(reason);
   button.title = reason;
-}
-
-// Een keuze bewaren in het profiel, zoals *Liever biologisch* (savePreferOrganic in app.js). Lukt dat niet, dan geldt de keuze
-// alleen nu en zegt een melding waarom.
-async function saveAhPlannerOption(key, value) {
-  state.auth = { ...state.auth, [key]: value };
-  renderAhPlanner();
-  try {
-    const data = await jsonFetch("/api/profile/preferences", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ [key]: value }),
-    });
-    state.auth = { ...state.auth, plannerCombine: data.plannerCombine !== false, plannerSplitMeals: data.plannerSplitMeals !== false };
-  } catch (error) {
-    message("#ah-planner-message", t("ah.planner.options_save_failed", { error: error.message }), "error");
-  }
-  renderAhPlannerOptions();
 }
 
 async function loadAhPlanner() {
@@ -164,9 +140,8 @@ async function loadAhPlanner() {
 }
 
 function showAhPlanner() {
-  renderAhPlannerOptions(); // de keuzes uit het profiel, ook terwijl de planner nog laadt
   if (!ahPlanner.loaded) loadAhPlanner();
-  else renderAhPlanner(); // Mealie kan intussen gekoppeld zijn, of de keuzes zijn op een ander scherm veranderd
+  else renderAhPlanner(); // Mealie kan intussen gekoppeld zijn, of de keuzes zijn bij Voorkeuren veranderd
 }
 
 // De uitkomst van *Naar weekmenu* in één zin, met daaronder wat niet lukte.
@@ -227,8 +202,6 @@ async function ahPlannerToMealPlan() {
 
 $("#load-ah-planner").addEventListener("click", () => loadAhPlanner());
 $("#ah-planner-to-meal-plan").addEventListener("click", ahPlannerToMealPlan);
-$("#ah-planner-combine").addEventListener("change", (event) => saveAhPlannerOption("plannerCombine", event.target.checked));
-$("#ah-planner-split-meals").addEventListener("change", (event) => saveAhPlannerOption("plannerSplitMeals", event.target.checked));
 $("#ah-planner-days").addEventListener("click", (event) => {
   const open = event.target.closest("[data-store-open]");
   if (open) openStoreRecipe("ah", open.dataset.storeOpen.split(":", 2)[1], AH_PLANNER_HOST);
