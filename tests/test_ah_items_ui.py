@@ -94,13 +94,27 @@ class WeekPlannerMarkupTest(unittest.TestCase):
         self.assertIn('if (subtab.dataset.subtab === "ah-items-weekplanner" && typeof showAhPlanner === "function") showAhPlanner();', script)
         self.assertLess(HTML.index("filename='recipe_search.js'"), HTML.index("filename='ah_planner.js'"))
 
-    def test_only_allerhande_recipes_go_to_the_week_menu(self):
+    def test_recipes_and_products_go_to_the_week_menu_one_day_at_a_time(self):
         planner = (ROOT / "static" / "ah_planner.js").read_text(encoding="utf-8")
         self.assertIn('day.items.filter((item) => item.kind === "recipe")', planner)
+        self.assertIn('day.items.filter((item) => item.kind === "product")', planner)
         self.assertIn('"/api/ah/planner/to-meal-plan"', planner)
-        # Een dag per verzoek, en daarna het weekmenu vernieuwen.
+        # Een dag per verzoek, met de keuzes van de gebruiker, en daarna het weekmenu vernieuwen.
         self.assertIn("for (const [index, day] of days.entries())", planner)
+        self.assertIn("body: JSON.stringify(day)", planner)
+        self.assertIn("...options,", planner)
         self.assertIn("refreshMealPlanAfterChange(", planner)
+
+    def test_the_two_choices_for_loose_products(self):
+        # Samen als één menu, en soep en pizza dan toch los (4.3.0): bewaard in het profiel, standaard aan.
+        panel = HTML[HTML.index('id="ah-items-weekplanner"'):HTML.index('id="ah-items-lijstjes"')]
+        self.assertIn('<input type="checkbox" role="switch" id="ah-planner-combine" checked>', panel)
+        self.assertIn('id="ah-planner-split-row"><input type="checkbox" role="switch" id="ah-planner-split-meals" checked>', panel)
+        planner = (ROOT / "static" / "ah_planner.js").read_text(encoding="utf-8")
+        self.assertIn('saveAhPlannerOption("plannerCombine", event.target.checked)', planner)
+        self.assertIn('saveAhPlannerOption("plannerSplitMeals", event.target.checked)', planner)
+        self.assertIn('$("#ah-planner-split-row").hidden = !options.combine;', planner)
+        self.assertIn('"/api/profile/preferences"', planner)
 
 
 class OverviewMarkupTest(unittest.TestCase):
