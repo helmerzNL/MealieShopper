@@ -6,6 +6,8 @@ Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar
 
 ### Nieuw in 4.3.0
 
+Pull request: [#285](https://github.com/helmerzNL/MealieShopper/pull/285).
+
 *English summary: **To week menu** in **Stores, Albert Heijn, Week planner** now also copies the loose products from the week planner of the AH app. A product that already has a recipe with the same name in Mealie (case, accents and punctuation do not count, a leading "AH" may be missing) goes in as that recipe. MealieShopper makes a recipe in Mealie of the other products, with the products as ingredients and the picture from AH. Two new switches, kept per user in the profile and on by default: **Loose products of a day together as one menu** makes the products of a day one menu, named after the first note of that day ("Pizza") or after the products; **Soup and pizza always separate** (only shown with the first on) still gives soup and pizza a recipe of their own, while meat, vegetables, potatoes, rice and pasta go together in the menu. With the first off every product becomes a recipe of its own. A recipe or menu made of the same products before is found again by its source and reused, and nothing is planned twice on a day. Each product shows beforehand what will happen to it. Your own AH recipes are still not copied, and a note only as the name of a menu.*
 
 - **Losse producten naar het weekmenu.** Tot nu toe zette *Naar weekmenu* alleen Allerhande-recepten in het weekmenu. Nu gaan ook de losse producten uit de AH-planner mee, per dag en als diner:
