@@ -123,19 +123,14 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='styles.css', v=config.ASSET_VERSION) }}">
   </head>
   <body>
-    <svg class="flag-sprite" width="0" height="0" aria-hidden="true" focusable="false">
-      <defs>
-        <symbol id="flag-nl" viewBox="0 0 28 20" preserveAspectRatio="xMidYMid slice"><rect width="28" height="7" fill="#AE1C28"/><rect y="7" width="28" height="6" fill="#fff"/><rect y="13" width="28" height="7" fill="#21468B"/></symbol>
-        <symbol id="flag-gb" viewBox="0 0 60 30" preserveAspectRatio="xMidYMid slice"><clipPath id="flag-gb-a"><path d="M0,0 v30 h60 v-30 z"/></clipPath><clipPath id="flag-gb-b"><path d="M30,15 h30 v15 z v15 h-30 z h-30 v-15 z v-15 h30 z"/></clipPath><g clip-path="url(#flag-gb-a)"><path d="M0,0 v30 h60 v-30 z" fill="#012169"/><path d="M0,0 L60,30 M60,0 L0,30" stroke="#fff" stroke-width="6"/><path d="M0,0 L60,30 M60,0 L0,30" clip-path="url(#flag-gb-b)" stroke="#C8102E" stroke-width="4"/><path d="M30,0 v30 M0,15 h60" stroke="#fff" stroke-width="10"/><path d="M30,0 v30 M0,15 h60" stroke="#C8102E" stroke-width="6"/></g></symbol>
-      </defs>
-    </svg>
     <section id="auth-gate" class="auth-gate" hidden>
       <div class="auth-card">
         <div class="switches"><div class="lang-switch" role="group" aria-label="Taal" data-i18n-attr="aria-label:lang.switch">
-          <button type="button" class="lang-switch__button" data-lang="nl" lang="nl" title="Nederlands" aria-label="Nederlands" aria-pressed="true"><svg class="flag" viewBox="0 0 28 20" aria-hidden="true" focusable="false"><use href="#flag-nl"/></svg></button>
-          <button type="button" class="lang-switch__button" data-lang="en" lang="en" title="English" aria-label="English" aria-pressed="false"><svg class="flag" viewBox="0 0 28 20" aria-hidden="true" focusable="false"><use href="#flag-gb"/></svg></button>
+          <button type="button" class="lang-switch__button" data-lang="nl" lang="nl" title="Nederlands" aria-label="Nederlands" aria-pressed="true"><span class="lang-switch__code" aria-hidden="true">NL</span></button>
+          <button type="button" class="lang-switch__button" data-lang="en" lang="en" title="English" aria-label="English" aria-pressed="false"><span class="lang-switch__code" aria-hidden="true">EN</span></button>
         </div><button type="button" class="theme-toggle" data-theme-toggle title="Donkere modus" aria-label="Donkere modus" aria-pressed="false" data-i18n-attr="title:theme.dark;aria-label:theme.dark"><svg class="theme-toggle__icon theme-toggle__icon--moon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path fill="currentColor" d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5z"/></svg><svg class="theme-toggle__icon theme-toggle__icon--sun" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="4.5" fill="currentColor"/><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M12 2.5v2.5M12 19v2.5M2.5 12H5M19 12h2.5M5.3 5.3l1.8 1.8M16.9 16.9l1.8 1.8M5.3 18.7l1.8-1.8M16.9 7.1l1.8-1.8"/></svg></button></div>
         <img class="brand-mark brand-mark--large" src="{{ url_for('static', filename='brand/mark.svg') }}" alt="" width="64" height="64">
+        <p class="auth-card__tagline" data-i18n="brand.tagline">Van recept naar geregeld.</p>
         <h2 id="auth-title" data-i18n="gate.title.login">Inloggen</h2>
         <p id="auth-description" class="muted"></p>
         <div id="auth-message" role="alert"></div>
@@ -169,8 +164,8 @@
     <section id="invite-gate" class="auth-gate" hidden>
       <div class="auth-card">
         <div class="switches"><div class="lang-switch" role="group" aria-label="Taal" data-i18n-attr="aria-label:lang.switch">
-          <button type="button" class="lang-switch__button" data-lang="nl" lang="nl" title="Nederlands" aria-label="Nederlands" aria-pressed="true"><svg class="flag" viewBox="0 0 28 20" aria-hidden="true" focusable="false"><use href="#flag-nl"/></svg></button>
-          <button type="button" class="lang-switch__button" data-lang="en" lang="en" title="English" aria-label="English" aria-pressed="false"><svg class="flag" viewBox="0 0 28 20" aria-hidden="true" focusable="false"><use href="#flag-gb"/></svg></button>
+          <button type="button" class="lang-switch__button" data-lang="nl" lang="nl" title="Nederlands" aria-label="Nederlands" aria-pressed="true"><span class="lang-switch__code" aria-hidden="true">NL</span></button>
+          <button type="button" class="lang-switch__button" data-lang="en" lang="en" title="English" aria-label="English" aria-pressed="false"><span class="lang-switch__code" aria-hidden="true">EN</span></button>
         </div><button type="button" class="theme-toggle" data-theme-toggle title="Donkere modus" aria-label="Donkere modus" aria-pressed="false" data-i18n-attr="title:theme.dark;aria-label:theme.dark"><svg class="theme-toggle__icon theme-toggle__icon--moon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path fill="currentColor" d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5z"/></svg><svg class="theme-toggle__icon theme-toggle__icon--sun" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="4.5" fill="currentColor"/><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M12 2.5v2.5M12 19v2.5M2.5 12H5M19 12h2.5M5.3 5.3l1.8 1.8M16.9 16.9l1.8 1.8M5.3 18.7l1.8-1.8M16.9 7.1l1.8-1.8"/></svg></button></div>
         <img class="brand-mark brand-mark--large" src="{{ url_for('static', filename='brand/mark.svg') }}" alt="" width="64" height="64">
         <h2 id="invite-title" tabindex="-1"></h2>
@@ -482,8 +477,8 @@
             <h2 id="ob-title" tabindex="-1"></h2>
           </div>
           <div class="switches"><div class="lang-switch" role="group" aria-label="Taal" data-i18n-attr="aria-label:lang.switch">
-          <button type="button" class="lang-switch__button" data-lang="nl" lang="nl" title="Nederlands" aria-label="Nederlands" aria-pressed="true"><svg class="flag" viewBox="0 0 28 20" aria-hidden="true" focusable="false"><use href="#flag-nl"/></svg></button>
-          <button type="button" class="lang-switch__button" data-lang="en" lang="en" title="English" aria-label="English" aria-pressed="false"><svg class="flag" viewBox="0 0 28 20" aria-hidden="true" focusable="false"><use href="#flag-gb"/></svg></button>
+          <button type="button" class="lang-switch__button" data-lang="nl" lang="nl" title="Nederlands" aria-label="Nederlands" aria-pressed="true"><span class="lang-switch__code" aria-hidden="true">NL</span></button>
+          <button type="button" class="lang-switch__button" data-lang="en" lang="en" title="English" aria-label="English" aria-pressed="false"><span class="lang-switch__code" aria-hidden="true">EN</span></button>
         </div><button type="button" class="theme-toggle" data-theme-toggle title="Donkere modus" aria-label="Donkere modus" aria-pressed="false" data-i18n-attr="title:theme.dark;aria-label:theme.dark"><svg class="theme-toggle__icon theme-toggle__icon--moon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path fill="currentColor" d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5z"/></svg><svg class="theme-toggle__icon theme-toggle__icon--sun" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="4.5" fill="currentColor"/><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M12 2.5v2.5M12 19v2.5M2.5 12H5M19 12h2.5M5.3 5.3l1.8 1.8M16.9 16.9l1.8 1.8M5.3 18.7l1.8-1.8M16.9 7.1l1.8-1.8"/></svg></button></div>
         </header>
         <ol class="ob-progress" id="ob-progress" aria-label="Voortgang" data-i18n-attr="aria-label:ob.progress_label"></ol>
@@ -501,13 +496,8 @@
               <h1 class="wordmark">Mealie<span>Shopper</span></h1>
               {% if build_channel == "beta" %}<span class="beta-badge" id="beta-badge" title="Dit is een beta-versie: hij kan nog fouten bevatten." data-i18n-attr="title:brand.beta_title">beta</span>{% endif %}
             </div>
-            <p data-i18n="brand.tagline">Van recept naar geregeld.</p>
           </div>
         </a>
-        <div class="switches"><div class="lang-switch" role="group" aria-label="Taal" data-i18n-attr="aria-label:lang.switch">
-          <button type="button" class="lang-switch__button" data-lang="nl" lang="nl" title="Nederlands" aria-label="Nederlands" aria-pressed="true"><svg class="flag" viewBox="0 0 28 20" aria-hidden="true" focusable="false"><use href="#flag-nl"/></svg></button>
-          <button type="button" class="lang-switch__button" data-lang="en" lang="en" title="English" aria-label="English" aria-pressed="false"><svg class="flag" viewBox="0 0 28 20" aria-hidden="true" focusable="false"><use href="#flag-gb"/></svg></button>
-        </div><button type="button" class="theme-toggle" data-theme-toggle title="Donkere modus" aria-label="Donkere modus" aria-pressed="false" data-i18n-attr="title:theme.dark;aria-label:theme.dark"><svg class="theme-toggle__icon theme-toggle__icon--moon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path fill="currentColor" d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5z"/></svg><svg class="theme-toggle__icon theme-toggle__icon--sun" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="4.5" fill="currentColor"/><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M12 2.5v2.5M12 19v2.5M2.5 12H5M19 12h2.5M5.3 5.3l1.8 1.8M16.9 16.9l1.8 1.8M5.3 18.7l1.8-1.8M16.9 7.1l1.8-1.8"/></svg></button></div>
         <div class="user-menu" id="user-menu" hidden>
           <button type="button" class="user-menu__button" id="user-menu-button" aria-haspopup="true" aria-expanded="false" aria-controls="user-menu-list" data-user-menu-trigger>
             <span class="avatar" data-avatar aria-hidden="true"></span>
@@ -528,6 +518,9 @@
       <a role="menuitem" class="user-menu__item" data-user-action="profile" href="/profile" data-nav><svg class="user-menu__icon" viewBox="0 0 24 24" aria-hidden="true" data-mdi="mdiAccountCircleOutline"><path d="M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2M7.07,18.28C7.5,17.38 10.12,16.5 12,16.5C13.88,16.5 16.5,17.38 16.93,18.28C15.57,19.36 13.86,20 12,20C10.14,20 8.43,19.36 7.07,18.28M18.36,16.83C16.93,15.09 13.46,14.5 12,14.5C10.54,14.5 7.07,15.09 5.64,16.83C4.62,15.5 4,13.82 4,12C4,7.59 7.59,4 12,4C16.41,4 20,7.59 20,12C20,13.82 19.38,15.5 18.36,16.83M12,6C10.06,6 8.5,7.56 8.5,9.5C8.5,11.44 10.06,13 12,13C13.94,13 15.5,11.44 15.5,9.5C15.5,7.56 13.94,6 12,6M12,11A1.5,1.5 0 0,1 10.5,9.5A1.5,1.5 0 0,1 12,8A1.5,1.5 0 0,1 13.5,9.5A1.5,1.5 0 0,1 12,11Z"/></svg><span data-i18n="user.profile">Profiel</span></a>
       <a role="menuitem" class="user-menu__item" data-user-action="settings" href="/settings" data-nav><svg class="user-menu__icon" viewBox="0 0 24 24" aria-hidden="true" data-mdi="mdiCogOutline"><path d="M12,8A4,4 0 0,1 16,12A4,4 0 0,1 12,16A4,4 0 0,1 8,12A4,4 0 0,1 12,8M12,10A2,2 0 0,0 10,12A2,2 0 0,0 12,14A2,2 0 0,0 14,12A2,2 0 0,0 12,10M10,22C9.75,22 9.54,21.82 9.5,21.58L9.13,18.93C8.5,18.68 7.96,18.34 7.44,17.94L4.95,18.95C4.73,19.03 4.46,18.95 4.34,18.73L2.34,15.27C2.21,15.05 2.27,14.78 2.46,14.63L4.57,12.97L4.5,12L4.57,11L2.46,9.37C2.27,9.22 2.21,8.95 2.34,8.73L4.34,5.27C4.46,5.05 4.73,4.96 4.95,5.05L7.44,6.05C7.96,5.66 8.5,5.32 9.13,5.07L9.5,2.42C9.54,2.18 9.75,2 10,2H14C14.25,2 14.46,2.18 14.5,2.42L14.87,5.07C15.5,5.32 16.04,5.66 16.56,6.05L19.05,5.05C19.27,4.96 19.54,5.05 19.66,5.27L21.66,8.73C21.79,8.95 21.73,9.22 21.54,9.37L19.43,11L19.5,12L19.43,13L21.54,14.63C21.73,14.78 21.79,15.05 21.66,15.27L19.66,18.73C19.54,18.95 19.27,19.04 19.05,18.95L16.56,17.95C16.04,18.34 15.5,18.68 14.87,18.93L14.5,21.58C14.46,21.82 14.25,22 14,22H10M11.25,4L10.88,6.61C9.68,6.86 8.62,7.5 7.85,8.39L5.44,7.35L4.69,8.65L6.8,10.2C6.4,11.37 6.4,12.64 6.8,13.8L4.68,15.36L5.43,16.66L7.86,15.62C8.63,16.5 9.68,17.14 10.87,17.38L11.24,20H12.76L13.13,17.39C14.32,17.14 15.37,16.5 16.14,15.62L18.57,16.66L19.32,15.36L17.2,13.81C17.6,12.64 17.6,11.37 17.2,10.2L19.31,8.65L18.56,7.35L16.15,8.39C15.38,7.5 14.32,6.86 13.12,6.62L12.75,4H11.25Z"/></svg><span data-i18n="user.settings">Instellingen</span><span class="update-dot" id="update-dot-settings" hidden></span></a>
       <a role="menuitem" class="user-menu__item" data-user-action="about" href="/about" data-nav><svg class="user-menu__icon" viewBox="0 0 24 24" aria-hidden="true" data-mdi="mdiInformationOutline"><path d="M11,9H13V7H11M12,20C7.59,20 4,16.41 4,12C4,7.59 7.59,4 12,4C16.41,4 20,7.59 20,12C20,16.41 16.41,20 12,20M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2M11,17H13V11H11V17Z"/></svg><span data-i18n="user.about">Over</span></a>
+      <div class="user-menu__separator" role="separator"></div>
+      <button type="button" role="menuitem" class="user-menu__item" data-user-action="theme"><svg class="user-menu__icon" viewBox="0 0 24 24" aria-hidden="true" data-mdi="mdiThemeLightDark"><path d="M7.5,2C5.71,3.15 4.5,5.18 4.5,7.5C4.5,9.82 5.71,11.85 7.53,13C4.46,13 2,10.54 2,7.5A5.5,5.5 0 0,1 7.5,2M19.07,3.5L20.5,4.93L4.93,20.5L3.5,19.07L19.07,3.5M12.89,5.93L11.41,5L9.97,6L10.39,4.3L9,3.24L10.75,3.12L11.33,1.47L12,3.1L13.73,3.13L12.38,4.26L12.89,5.93M9.59,9.54L8.43,8.81L7.31,9.59L7.65,8.27L6.56,7.44L7.92,7.35L8.37,6.06L8.88,7.33L10.24,7.36L9.19,8.23L9.59,9.54M19,13.5A5.5,5.5 0 0,1 13.5,19C12.28,19 11.15,18.6 10.24,17.93L17.93,10.24C18.6,11.15 19,12.28 19,13.5M14.6,20.08L17.37,18.93L17.13,22.28L14.6,20.08M18.93,17.38L20.08,14.61L22.28,17.15L18.93,17.38M20.08,12.42L18.94,9.64L22.28,9.88L20.08,12.42M9.63,18.93L12.4,20.08L9.87,22.27L9.63,18.93Z"/></svg><span id="user-menu-theme">Donkere modus</span></button>
+      <button type="button" role="menuitem" class="user-menu__item" data-user-action="lang"><svg class="user-menu__icon" viewBox="0 0 24 24" aria-hidden="true" data-mdi="mdiTranslate"><path d="M12.87,15.07L10.33,12.56L10.36,12.53C12.1,10.59 13.34,8.36 14.07,6H17V4H10V2H8V4H1V6H12.17C11.5,7.92 10.44,9.75 9,11.35C8.07,10.32 7.3,9.19 6.69,8H4.69C5.42,9.63 6.42,11.17 7.67,12.56L2.58,17.58L4,19L9,14L12.11,17.11L12.87,15.07M18.5,10H16.5L12,22H14L15.12,19H19.87L21,22H23L18.5,10M15.88,17L17.5,12.67L19.12,17H15.88Z"/></svg><span id="user-menu-lang" lang="en">English</span></button>
       <div class="user-menu__separator" id="auth-logout-separator" role="separator"></div>
       <button type="button" role="menuitem" class="user-menu__item" id="auth-logout"><svg class="user-menu__icon" viewBox="0 0 24 24" aria-hidden="true" data-mdi="mdiLogout"><path d="M17 7L15.59 8.41L18.17 11H8V13H18.17L15.59 15.58L17 17L22 12M4 5H12V3H4C2.9 3 2 3.9 2 5V19C2 20.1 2.9 21 4 21H12V19H4V5Z"/></svg><span data-i18n="auth.logout">Uitloggen</span></button>
     </div>
@@ -590,14 +583,17 @@
           <button class="button inline-button" id="open-mealie-setup" type="button" data-admin-only data-i18n="mealie.link">Mealie koppelen</button>
           <span data-regular-only hidden data-i18n="plan.mealie_ask_admin">Vraag de beheerder om Mealie te koppelen.</span>
         </div>
-        <div class="toolbar">
-          <button class="icon-button" id="prev-week" aria-label="Vorige week" data-i18n-attr="aria-label:plan.prev_week">&lsaquo;</button>
-          <div class="week-label">
-            <strong id="week-range"></strong>
-            <span id="week-offset"></span>
+        <div class="page-head">
+          <h2 class="page-title page-title--tree" data-i18n="nav.plan">Weekmenu</h2>
+          <div class="toolbar">
+            <button class="icon-button" id="prev-week" aria-label="Vorige week" data-i18n-attr="aria-label:plan.prev_week">&lsaquo;</button>
+            <div class="week-label">
+              <strong id="week-range"></strong>
+              <span id="week-offset"></span>
+            </div>
+            <button class="icon-button" id="next-week" aria-label="Volgende week" data-i18n-attr="aria-label:plan.next_week">&rsaquo;</button>
+            <button class="icon-button" id="load-plan" type="button" aria-label="Weekmenu synchroniseren" title="Weekmenu synchroniseren" data-i18n-attr="aria-label:plan.sync;title:plan.sync"><svg viewBox="0 0 24 24" aria-hidden="true" data-mdi="mdiSync"><path d="M12,18A6,6 0 0,1 6,12C6,11 6.25,10.03 6.7,9.2L5.24,7.74C4.46,8.97 4,10.43 4,12A8,8 0 0,0 12,20V23L16,19L12,15M12,4V1L8,5L12,9V6A6,6 0 0,1 18,12C18,13 17.75,13.97 17.3,14.8L18.76,16.26C19.54,15.03 20,13.57 20,12A8,8 0 0,0 12,4Z"/></svg></button>
           </div>
-          <button class="icon-button" id="next-week" aria-label="Volgende week" data-i18n-attr="aria-label:plan.next_week">&rsaquo;</button>
-          <button class="icon-button" id="load-plan" type="button" aria-label="Weekmenu synchroniseren" title="Weekmenu synchroniseren" data-i18n-attr="aria-label:plan.sync;title:plan.sync"><svg viewBox="0 0 24 24" aria-hidden="true" data-mdi="mdiSync"><path d="M12,18A6,6 0 0,1 6,12C6,11 6.25,10.03 6.7,9.2L5.24,7.74C4.46,8.97 4,10.43 4,12A8,8 0 0,0 12,20V23L16,19L12,15M12,4V1L8,5L12,9V6A6,6 0 0,1 18,12C18,13 17.75,13.97 17.3,14.8L18.76,16.26C19.54,15.03 20,13.57 20,12A8,8 0 0,0 12,4Z"/></svg></button>
         </div>
         <div id="planner-message"></div>
         <div id="meal-days" class="day-grid"></div>
@@ -607,6 +603,7 @@
 
       <div id="search" class="subpanel">
         <div id="search-main">
+          <h2 class="page-title page-title--tree" data-i18n="nav.search">Recepten zoeken</h2>
           <form class="form-row" id="search-form">
             <input class="input" id="recipe-query" type="search" placeholder="Zoek een recept in Mealie of bij AH, Jumbo, Picnic, HelloFresh en Marley Spoon..." autocomplete="off" enterkeyhint="search" data-i18n-attr="placeholder:search.placeholder">
             <button class="button" type="submit" data-i18n="search.submit">Zoeken</button>
@@ -724,6 +721,7 @@
           </div>
         </nav>
         <div class="box box--wide" id="mealkits-view">
+          <h2 data-i18n="nav.mealkits">Maaltijdboxen</h2>
           <p class="muted" id="mealkits-intro">De openbare weekmenu's van HelloFresh Nederland. Bekijk een recept, of plan het in je weekmenu; dan komt het ook in Mealie. Er is geen account of koppeling nodig.</p>
           <div class="toolbar" id="mealkits-weeks">
             <button class="icon-button" id="mealkits-previous" type="button" aria-label="Vorige week" data-i18n-attr="aria-label:mealkits.previous"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15.41,16.58L10.83,12L15.41,7.41L14,6L8,12L14,18L15.41,16.58Z"/></svg></button>
@@ -774,7 +772,7 @@
             <button class="subtab subtab-menu__toggle subtab-menu__toggle--select" id="offers-store-toggle" type="button" aria-haspopup="true" aria-expanded="false" aria-controls="offers-store-list" aria-label="Supermarkt" data-i18n-attr="aria-label:cart.store"><span id="offers-store-name">Albert Heijn</span><svg class="subtab-menu__chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="M7.41,8.58L12,13.17L16.59,8.58L18,10L12,16L6,10L7.41,8.58Z"/></svg></button>
             <div class="subtab-menu__list" id="offers-store-list" hidden></div>
           </div>
-          <a class="subtab is-active" data-subtab="offers-items" data-i18n="offers.tab.offers" href="/offers" data-nav>Aanbiedingen</a>
+          <a class="subtab is-active" data-subtab="offers-items" data-i18n="offers.tab.offers" href="/offers" data-nav>Overzicht</a>
           <a class="subtab" data-subtab="offers-suggestions" data-i18n="offers.tab.recipes"{% if not offers_recipes_visible %} hidden{% endif %} href="/offers/recipes" data-nav>Recepten</a>
           <a class="subtab" data-subtab="offers-history" data-i18n="offers.tab.history" href="/offers/history" data-nav>Prijsgeschiedenis</a>
         </nav>
@@ -1302,6 +1300,7 @@
       </section>
 
       <section id="profile" class="panel">
+        <h2 class="page-title" data-i18n="user.profile">Profiel</h2>
         <nav class="subtabs" aria-label="Profiel" data-i18n-attr="aria-label:profile.nav">
           <a class="subtab is-active" data-subtab="profile-general" data-i18n="profile.tab.general" href="/profile" data-nav>Algemeen</a>
           <a class="subtab" data-subtab="profile-security" data-i18n="settings.tab.security" href="/profile/security" data-nav>Beveiliging</a>
@@ -1435,6 +1434,7 @@
       </section>
 
       <section id="settings" class="panel">
+        <h2 class="page-title" data-i18n="user.settings">Instellingen</h2>
         <nav class="subtabs" aria-label="Instellingen" data-i18n-attr="aria-label:settings.nav">
           <a class="subtab is-active" data-subtab="settings-link" data-admin-only data-i18n="settings.tab.link" href="/settings" data-nav>Koppelen</a>
           <a class="subtab" data-subtab="settings-users" data-admin-only hidden data-i18n="settings.tab.users" href="/settings/users" data-nav>Gebruikers</a>
@@ -2060,6 +2060,15 @@
               </div>
               <input type="checkbox" role="switch" class="switch" id="appearance-calories" checked aria-labelledby="appearance-calories-label" aria-describedby="appearance-calories-help">
             </div>
+            <section class="appearance-section fold__section" aria-labelledby="appearance-lang-title">
+              <h3 id="appearance-lang-title" data-i18n="appearance.lang.title">Taal</h3>
+              <p class="muted" data-i18n="appearance.lang.help">Voor de hele app, op dit apparaat. Wisselen kan ook in het menu onder je naam (op een telefoon: Meer).</p>
+              <fieldset class="appearance-options" id="appearance-lang">
+                <legend class="visually-hidden" data-i18n="appearance.lang.title">Taal</legend>
+                <label class="appearance-option"><input type="radio" name="appearance-lang" value="nl"><span lang="nl">Nederlands</span><svg class="mdi appearance-option__check" viewBox="0 0 24 24" aria-hidden="true"><path d="M21,7L9,19L3.5,13.5L4.91,12.09L9,16.17L19.59,5.59L21,7Z"/></svg></label>
+                <label class="appearance-option"><input type="radio" name="appearance-lang" value="en"><span lang="en">English</span><svg class="mdi appearance-option__check" viewBox="0 0 24 24" aria-hidden="true"><path d="M21,7L9,19L3.5,13.5L4.91,12.09L9,16.17L19.59,5.59L21,7Z"/></svg></label>
+              </fieldset>
+            </section>
             <div id="appearance-display-message"></div>
           </div>
         </div>
@@ -2078,7 +2087,7 @@
             </section>
             <section class="appearance-section fold__section" aria-labelledby="appearance-themebg-title">
               <h3 id="appearance-themebg-title" data-i18n="appearance.theme_bg.title">Thema & achtergrond</h3>
-              <p class="muted" data-i18n="appearance.theme.help">Licht, donker of zoals je apparaat; de maan of de zon bovenaan wisselt ook.</p>
+              <p class="muted" data-i18n="appearance.theme.help">Licht, donker of zoals je apparaat. Wisselen tussen licht en donker kan ook in het menu onder je naam (op een telefoon: Meer).</p>
               <fieldset class="appearance-options" id="appearance-theme">
                 <legend class="visually-hidden" data-i18n="appearance.theme.title">Thema</legend>
                 <label class="appearance-option"><input type="radio" name="appearance-theme" value="system"><svg class="mdi" viewBox="0 0 24 24" aria-hidden="true"><path d="M23,11H18A1,1 0 0,0 17,12V21A1,1 0 0,0 18,22H23A1,1 0 0,0 24,21V12A1,1 0 0,0 23,11M23,20H18V13H23V20M20,2H2C0.89,2 0,2.89 0,4V16A2,2 0 0,0 2,18H9V20H7V22H15V20H13V18H15V16H2V4H20V9H22V4C22,2.89 21.1,2 20,2Z"/></svg><span data-i18n="appearance.theme.system">Apparaat volgen</span><svg class="mdi appearance-option__check" viewBox="0 0 24 24" aria-hidden="true"><path d="M21,7L9,19L3.5,13.5L4.91,12.09L9,16.17L19.59,5.59L21,7Z"/></svg></label>

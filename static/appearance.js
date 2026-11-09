@@ -218,6 +218,10 @@ async function appearanceSavePlanner(key, value) {
 function renderAppearance() {
   renderAppearanceStore();
   renderAppearancePlanner();
+  // De taal is een keuze van deze browser (static/i18n.js), niet van het profiel; de rondjes volgen wat er nu aan staat.
+  document.querySelectorAll('input[name="appearance-lang"]').forEach((input) => {
+    input.checked = input.value === I18N.lang();
+  });
   if (!$("#settings-appearance") || typeof THEME === "undefined") return;
   const look = THEME.appearance();
   document.querySelectorAll('input[name="appearance-theme"]').forEach((input) => {
@@ -297,6 +301,12 @@ $("#appearance-theme").addEventListener("change", (event) => {
   if (event.target.name === "appearance-theme") THEME.choose(event.target.value); // het bewaren volgt via ms:appearancechange
 });
 
+// Geen data-lang op de rondjes: die zou i18n.js als knop behandelen (aria-pressed). setLang vuurt ms:languagechange, en dan
+// tekent renderAppearance de keuze opnieuw.
+$("#appearance-lang").addEventListener("change", (event) => {
+  if (event.target.name === "appearance-lang") I18N.setLang(event.target.value);
+});
+
 $("#appearance-dark-bg").addEventListener("change", (event) => {
   if (event.target.name !== "appearance-dark-bg") return;
   THEME.apply({ darkBackground: event.target.value });
@@ -341,7 +351,7 @@ $("#appearance-glass").addEventListener("change", (event) => {
   appearanceSave({ navbarGlass: THEME.appearance().navbarGlass }, { previous, target: "#appearance-nav-message" });
 });
 
-// Het thema (ook met de knop bovenaan) bij het profiel bewaren.
+// Het thema (ook via het menu onder je naam) bij het profiel bewaren.
 window.addEventListener("ms:appearancechange", (event) => {
   renderAppearance();
   if (event.detail?.theme) appearanceSave({ theme: event.detail.theme });

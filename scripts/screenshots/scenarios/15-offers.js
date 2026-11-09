@@ -1,7 +1,7 @@
 // Het tabblad Aanbiedingen: de AH Bonus van de week van het weekmenu, met de weekkeuze, de looptijd van de bonusweek, wat er al
 // voor later bekend is, de categorieën en de producten met hun prijs per eenheid en oordeel. Daarnaast de Prijsgeschiedenis en
 // Vergelijk verpakkingen.
-const { svg, product, perUnit, WEEK } = require("../demo");
+const { svg, product, perUnit, WEEK, openSubtab } = require("../demo");
 
 // De taal van de pagina staat in de cookie ms_lang; teksten die normaal van de server komen volgen die.
 async function lang(request) {
@@ -331,7 +331,7 @@ module.exports = [
     routes: { "/api/offers*": offersAnswer, "/api/prices/history*": historyAnswer },
     run: async (page, { device }) => {
       await page.click('[data-tab="offers"]');
-      await page.click('.subtab[data-subtab="offers-history"]');
+      await openSubtab(page, "offers-history");
       await page.waitForSelector("#offers-history-chart svg");
       await page.evaluate(() => document.activeElement && document.activeElement.blur());
       // De grafiek met daarboven de laatste kerngetallen.

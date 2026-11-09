@@ -12,9 +12,9 @@ ORDERS = (ROOT / "static" / "orders.js").read_text(encoding="utf-8")
 
 
 def desktop_css() -> str:
-    """Het blok met het zijmenu op een groot scherm."""
-    start = CSS.index("@media (min-width: 1024px) {\n  .topbar__inner,")
-    end = CSS.index("@media (min-width: 1024px) and (prefers-reduced-motion: reduce)")
+    """Het blok met het zijmenu, vanaf 860 px (sinds 4.7.0; daarvoor 1024 px)."""
+    start = CSS.index("@media (min-width: 860px) {\n  .topbar__inner,")
+    end = CSS.index("@media (min-width: 860px) and (prefers-reduced-motion: reduce)")
     return CSS[start:end]
 
 
@@ -49,6 +49,37 @@ class NavTreeTest(unittest.TestCase):
             TREE,
         )
         self.assertIn('root.classList.toggle("nav-tree", fits)', TREE)
+
+    def test_the_menu_starts_at_860px_and_only_the_open_section_shows_its_tree(self):
+        # 860 px is het breekpunt van App-Guidance (navigation.md); de CSS en het script gebruiken hetzelfde getal.
+        self.assertIn('const NAV_TREE_WIDE = "(min-width: 860px)";', TREE)
+        self.assertNotIn("1024", TREE)
+        desktop = desktop_css()
+        self.assertIn("html.nav-tree:not(.nav-collapsed) .tab:not(.is-active) + .tab-tree {\n    display: none;", desktop)
+        # De titel van Weekmenu en Recepten zoeken staat er alleen als de boom de subtabbalk vervangt.
+        self.assertIn("html.nav-tree:not(.nav-collapsed) .page-title--tree {\n    display: block;", desktop)
+        self.assertRegex(CSS, r"\n\.page-title--tree \{\n  display: none;")
+        for key in ("nav.plan", "nav.search"):
+            self.assertIn(f'<h2 class="page-title page-title--tree" data-i18n="{key}">', HTML)
+
+    def test_subtab_bars_are_one_scrolling_row_on_a_phone(self):
+        # Winkels (winkelkeuze plus vier tabbladen) en Instellingen liepen op een telefoon over twee of drie regels.
+        start = CSS.index("@media (max-width: 640px) {\n  .subtabs {")
+        phone = CSS[start:CSS.index("\n}\n", start)]
+        for needle in ("flex-wrap: nowrap;", "overflow-x: auto;", ".subtabs .subtab {\n    white-space: nowrap;",
+                       '.subtabs:has(.subtab-menu__toggle[aria-expanded="true"]) {\n    overflow: visible;'):
+            self.assertIn(needle, phone)
+        app = (ROOT / "static" / "app.js").read_text(encoding="utf-8")
+        self.assertIn('if (bar && bar.scrollWidth > bar.clientWidth) subtab.scrollIntoView({ block: "nearest", inline: "center" });', app)
+
+    def test_the_panel_animation_leaves_no_transform_behind(self):
+        # Met fill-mode both bleef de transform van rise-in actief: dan is het paneel het bevattende blok voor position: fixed,
+        # en stond de filterlade van Aanbiedingen naast het zijmenu half in beeld (en opengeklapt op de verkeerde plek).
+        self.assertIn(".subpanel.is-active {\n  display: block;\n  animation: rise-in 0.28s var(--ease) backwards;", CSS)
+
+    def test_the_offers_subtab_is_called_overview_not_offers_again(self):
+        # Onder Aanbiedingen stond "Aanbiedingen" nog een keer.
+        self.assertIn('data-subtab="offers-items" data-i18n="offers.tab.offers" href="/offers" data-nav>Overzicht</a>', HTML)
 
     def test_a_bar_with_a_store_menu_keeps_that_menu(self):
         self.assertIn(

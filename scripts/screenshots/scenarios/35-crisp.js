@@ -1,5 +1,5 @@
 // Crisp: het mandje (tabblad Mandje), Winkels > Crisp (recepten, favorieten en bestellingen) en het koppelen met een code per mail.
-const { product, DISHES } = require("../demo");
+const { product, DISHES, openSubtab, openBasket } = require("../demo");
 
 // Tijdstippen met de Nederlandse winteroffset (de klok gaat op 25 oktober 2026 terug).
 const at = (day, time) => `${day}T${time}:00+01:00`;
@@ -11,7 +11,7 @@ async function openCrisp(page, subtab) {
   await page.click("#items-store-toggle");
   await page.click('#items-store-list [data-store="crisp"]');
   await page.waitForTimeout(600);
-  await page.click(`[data-subtab="${subtab}"]`);
+  await openSubtab(page, subtab);
   await page.waitForTimeout(700);
 }
 
@@ -75,9 +75,7 @@ module.exports = [
     name: "basket-crisp",
     routes: { "/api/crisp/cart": crispCart },
     run: async (page, { device }) => {
-      await page.click('[data-tab="basket"]');
-      await page.waitForSelector("#basket-store");
-      await page.selectOption("#basket-store", "crisp");
+      await openBasket(page, "crisp");
       await page.waitForSelector("#basket-content .basket-line");
       // Op het bureaublad omhoog scrollen tot het bedrag en het minimum in beeld zijn.
       if (device === "desktop") {

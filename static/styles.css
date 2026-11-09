@@ -66,7 +66,6 @@
   --topbar-bg: rgba(255, 255, 255, 0.96);
   --gate-bg: rgba(245, 247, 246, 0.96);
   --code-on-message: rgba(255, 255, 255, 0.7);
-  --flag-ring: rgba(24, 37, 30, 0.25);
   --shadow-ink: 24, 37, 30; /* rgb-waarden voor schaduwen */
 
   /* Diepte en verfijning: drie schaduwniveaus, een focushalo, een rand voor het hoverniveau en het glas van de balk bovenaan */
@@ -129,7 +128,6 @@
   --topbar-bg: rgba(15, 22, 19, 0.96);
   --gate-bg: rgba(15, 22, 19, 0.96);
   --code-on-message: rgba(0, 0, 0, 0.3);
-  --flag-ring: rgba(255, 255, 255, 0.35);
   --shadow-ink: 0, 0, 0;
 
   --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.35);
@@ -326,6 +324,13 @@ select:focus-visible {
   margin: 0 auto 14px;
 }
 
+/* De slogan staat alleen hier, onder het beeldmerk (sinds 4.7.0 niet meer in de kop van elk scherm). */
+.auth-card > .auth-card__tagline {
+  margin: -6px 0 14px;
+  color: var(--muted);
+  font-size: 14px;
+}
+
 .auth-card > h2,
 .auth-card > p {
   text-align: center;
@@ -422,12 +427,6 @@ h2 {
   text-transform: uppercase;
 }
 
-.topbar p {
-  margin-top: 1px;
-  color: var(--muted);
-  font-size: 13px;
-}
-
 .shell {
   max-width: 1120px;
   margin: 0 auto;
@@ -459,6 +458,59 @@ h2 {
 
 .subtabs {
   margin-bottom: 20px;
+}
+
+/* Op een telefoon is een subtabbalk één regel die horizontaal scrolt, in plaats van twee of drie regels (Winkels met de
+   winkelkeuze en vier tabbladen, Instellingen). Het gekozen tabblad scrolt in beeld (app.js). Staat de winkelkeuze open, dan
+   scrolt de balk even niet: anders knipt de balk de lijst eronder af. */
+@media (max-width: 640px) {
+  .subtabs {
+    flex-wrap: nowrap;
+    max-width: 100%;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scrollbar-width: none;
+  }
+
+  .subtabs::-webkit-scrollbar {
+    display: none;
+  }
+
+  .subtabs > * {
+    flex: none;
+  }
+
+  .subtabs .subtab {
+    white-space: nowrap;
+  }
+
+  .subtabs:has(.subtab-menu__toggle[aria-expanded="true"]) {
+    overflow: visible;
+  }
+}
+
+/* De titel van een scherm (sinds 4.7.0). Bij Weekmenu en Recepten zoeken staat hij er alleen als het zijmenu de
+   subtabbalk vervangt (page-title--tree, zie de regels vanaf 860 px): anders zegt het segment erboven al waar je bent. */
+.page-title {
+  margin: 0 0 16px;
+  font-size: 24px;
+}
+
+.page-title--tree {
+  display: none;
+}
+
+/* Weekmenu: de titel en de weeknavigatie in één rij. */
+.page-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px 24px;
+}
+
+.page-head > .page-title {
+  margin: 0;
 }
 
 .tab,
@@ -643,10 +695,13 @@ a.subtab-menu__item[hidden] {
   display: none;
 }
 
+/* backwards, niet both: na afloop is er niets meer van de animatie over. Met both bleef de transform actief, en dan is het
+   paneel het bevattende blok voor alles met position: fixed erin; de filterlade van Aanbiedingen stond daardoor naast de
+   zijbalk half in beeld, en opengeklapt op de verkeerde plek. De eindstand is de gewone stand, dus het ziet er hetzelfde uit. */
 .panel.is-active,
 .subpanel.is-active {
   display: block;
-  animation: rise-in 0.28s var(--ease) both;
+  animation: rise-in 0.28s var(--ease) backwards;
 }
 
 @keyframes rise-in {
@@ -2613,10 +2668,6 @@ select.input {
     padding: 6px 12px 6px 16px;
   }
 
-  .topbar p {
-    display: none;
-  }
-
   .topbar .brand-mark {
     width: 34px;
     height: 34px;
@@ -4328,14 +4379,9 @@ body.has-onboarding {
   fill: currentColor;
 }
 
-/* Taalkiezer met vlaggen (nl en en) */
-.flag-sprite {
-  position: absolute;
-  width: 0;
-  height: 0;
-  overflow: hidden;
-}
-
+/* Taalkiezer (NL en EN) en de knop voor donker en licht: alleen nog op de inlogpagina, de uitnodiging en in de installatiehulp.
+   In de app staan taal en thema in het menu onder je naam en bij Instellingen, Voorkeuren (sinds 4.7.0). De taal is tekst, geen
+   vlag: een vlag staat voor een land, niet voor een taal. */
 .switches {
   display: flex;
   flex: none;
@@ -4350,7 +4396,7 @@ body.has-onboarding {
   gap: 2px;
 }
 
-/* Knop voor donker en licht, naast de vlaggen: de maan in het lichte thema, de zon in het donkere */
+/* Knop voor donker en licht, naast de taalkiezer: de maan in het lichte thema, de zon in het donkere */
 .theme-toggle {
   display: grid;
   place-items: center;
@@ -4389,38 +4435,32 @@ body.has-onboarding {
   min-width: 44px;
   min-height: 44px;
   padding: 0;
-  border: 0;
+  border: 1px solid transparent;
   border-radius: var(--radius-control);
   background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
   cursor: pointer;
+  transition: color 0.15s var(--ease), background-color 0.15s var(--ease), border-color 0.15s var(--ease);
 }
 
-.lang-switch__button .flag {
-  display: block;
-  width: 30px;
-  height: 21px;
-  border-radius: 4px;
-  box-shadow: 0 0 0 1px var(--flag-ring);
-  opacity: 0.55;
-  transition: opacity 0.15s ease, box-shadow 0.15s ease;
+.lang-switch__button:hover {
+  color: var(--primary-strong);
 }
 
-.lang-switch__button:hover .flag {
-  opacity: 0.9;
-}
-
-.lang-switch__button.is-active .flag {
-  opacity: 1;
-  box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--primary);
+/* De gekozen taal: het selectievlak met zijn rand, zoals een actief segment; de kleur is niet het enige signaal (aria-pressed). */
+.lang-switch__button.is-active {
+  border-color: var(--selection-border);
+  background: var(--selection);
+  color: var(--primary-strong);
 }
 
 .auth-card .switches {
   margin: -8px -8px 4px 0;
   justify-content: flex-end;
-}
-
-.topbar__inner .switches + .user-menu {
-  margin-left: 8px;
 }
 
 .onboarding__head .switches {
@@ -4430,13 +4470,13 @@ body.has-onboarding {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .lang-switch__button .flag {
+  .lang-switch__button {
     transition: none;
   }
 }
 
 /* De geinstalleerde app (html.is-standalone, zie de kop van de pagina). De pagina veert niet mee als je bovenaan naar
-   beneden sleept (of onderaan naar boven): zonder die rubberband blijft de titelbalk met de vlaggen en de themaknop aan de
+   beneden sleept (of onderaan naar boven): zonder die rubberband blijft de titelbalk aan de
    bovenkant plakken, en Android ververst de pagina niet onder je duim. Scrollen gaat gewoon; knijp- en dubbeltikzoom niet,
    zoals in een native app (de viewport zet het script in de kop). Lijsten en vensters met een eigen scroll houden hun
    overscroll-behavior: contain. In de browser verandert er niets: daar blijven zoomen en verversen werken. */
@@ -6462,13 +6502,13 @@ html.is-standalone body {
   font-weight: 500;
 }
 
-/* Navigatiemenu links op een groot scherm. Het blijft een nav met dezelfde knoppen: onder 1024px staat het zoals altijd
-   boven de pagina (of als onderste menubalk in de app), en de knop om in te klappen is er dan niet. */
+/* Navigatiemenu links vanaf 860 px (sinds 4.7.0, eerder 1024 px; 860 is het breekpunt van App-Guidance, navigation.md). Het
+   blijft een nav met dezelfde knoppen: daaronder staat het zoals altijd boven de pagina (of als onderste menubalk in de app), en de knop om in te klappen is er dan niet. */
 .tabs__toggle {
   display: none;
 }
 
-@media (min-width: 1024px) {
+@media (min-width: 860px) {
   .topbar__inner,
   .shell {
     max-width: 1360px;
@@ -6586,6 +6626,16 @@ html.is-standalone body {
     padding: 2px 0 6px 40px;
   }
 
+  /* Alleen onder het onderdeel dat open is: met alle subtabs van alle onderdelen werd het menu een lange lijst. */
+  html.nav-tree:not(.nav-collapsed) .tab:not(.is-active) + .tab-tree {
+    display: none;
+  }
+
+  /* De subtabbalk is weg, dus de titel zegt waar je bent. */
+  html.nav-tree:not(.nav-collapsed) .page-title--tree {
+    display: block;
+  }
+
   .tab-tree__item {
     position: relative;
     display: flex;
@@ -6628,7 +6678,7 @@ html.is-standalone body {
   }
 }
 
-@media (min-width: 1024px) and (prefers-reduced-motion: reduce) {
+@media (min-width: 860px) and (prefers-reduced-motion: reduce) {
   .shell > .tabs,
   .tabs__toggle-icon {
     transition: none;
