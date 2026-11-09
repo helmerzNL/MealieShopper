@@ -1447,9 +1447,10 @@ async def _annotate(store: str, items: list[dict[str, Any]], today: str) -> None
         try:
             catalogue = await _catalogue(conn, store, today)
             points = await _history_points(conn, store, today, catalogue.receipts, ids)
+            bought_ids = await _bought(conn, store, today, catalogue.receipts)  # voor het filter Eerder gekocht
         except Exception:  # noqa: BLE001 - de ladder is een extraatje: zonder blijven het oordeel en de badge staan
             log.exception("Prijslabels: de geschiedenis van %s kon niet worden gelezen", store)
-            catalogue, points = None, {}
+            catalogue, points, bought_ids = None, {}, set()
     # De folderacties voor de hele lijn (per stuk), zonder de weken waarin het product zelf in de aanbieding was: ze tellen mee als
     # keer in de aanbieding en als prijs van het jaar (offer_ranking.year_low). Voor een product dat nog niet in de catalogus staat
     # (de aanbieding van deze week is zijn eerste spoor) zoekt de app op de naam van de aanbieding.
@@ -1526,6 +1527,7 @@ async def _annotate(store: str, items: list[dict[str, Any]], today: str) -> None
         offer["priceLabel"] = price_label(effective, [(day, price) for day, price, _ in points.get(product_id, [])], today)
         offer["yearLow"] = offer_ranking.year_low(effective, points.get(product_id, []), today)
         offer["family"] = offer_ranking.family_of(fams, store, offer.get("title"), offer.get("brand"))
+        offer["bought"] = product_id in bought_ids
         verdict["cheaperPack"] = None
         mine_unit = offer["unitPricePer"]
         base = base_title(offer.get("title"))

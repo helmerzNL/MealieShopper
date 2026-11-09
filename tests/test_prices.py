@@ -620,6 +620,11 @@ class VerdictTest(PricesCase):
         self.assertEqual(offer_now["verdict"]["cheaperPack"]["productId"], "1000")
         self.assertFalse(family["unknownPacks"])
 
+    async def test_bought_says_whether_you_bought_the_product_before(self):
+        await self.ah_order(101, "delivered", "2026-10-07", order_item(1, "AH Penne", 0.89))
+        found = await self.annotate(deal("1", "AH Penne", 0.79, 1.19, "nu 0,79"), deal("2", "AH Rijst", 1.80, 2.00))
+        self.assertEqual((found["1"]["bought"], found["2"]["bought"]), (True, False))
+
     async def test_the_price_signature_changes_with_the_catalogue(self):
         before = await prices.signature("ah")
         with closing(db(prices)) as conn, conn:
