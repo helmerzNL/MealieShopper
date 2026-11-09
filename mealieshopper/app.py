@@ -12,7 +12,7 @@ import sqlite3
 import httpx
 from quart import Quart, Response, jsonify, redirect, render_template, request, send_file, send_from_directory
 
-from . import about, ah, ah_explore, ah_lists, ah_orders, ah_recipes, ai_match, ai_review, audit, auth_password, backup, crisp, crisp_orders, factory_reset, hellofresh, image_cache, jumbo, jumbo_explore, jumbo_lists, jumbo_orders, jumbo_recipes, marleyspoon, mcp_http, mealie, mealie_images, offers, offers_schedule, onboarding, picnic, picnic_explore, picnic_orders, picnic_recipes, price_archive, price_import, prices, product_images, product_links, profile, recipe_bulk, server_settings, updates, users
+from . import about, ah, ah_explore, ah_lists, ah_orders, ah_planner, ah_recipes, ai_match, ai_review, audit, auth_password, backup, crisp, crisp_orders, factory_reset, hellofresh, image_cache, jumbo, jumbo_explore, jumbo_lists, jumbo_orders, jumbo_recipes, marleyspoon, mcp_http, mealie, mealie_images, offers, offers_schedule, onboarding, picnic, picnic_explore, picnic_orders, picnic_recipes, price_archive, price_import, prices, product_images, product_links, profile, recipe_bulk, recipe_nutrition, server_settings, updates, users
 from . import auth, deals, http_client, tasks
 from . import assets
 from .body_limits import DEFAULT_MAX_BODY, SizedRequest
@@ -252,8 +252,9 @@ def create_app() -> Quart:
 
     @app.get("/api/mealplan/options")
     async def mealplan_options():
-        async def options() -> dict[str, list[str]]:
-            return {"entryTypes": await mealie.entry_types()}
+        async def options() -> dict[str, Any]:
+            # `recipeScale`: of het venster het aantal porties mag laten kiezen (Mealie 3.29 of nieuwer).
+            return {"entryTypes": await mealie.entry_types(), "recipeScale": await mealie.supports_recipe_scale()}
 
         return await mealie_action(options, tr("Mealie niet bereikbaar", "Mealie is not reachable"))
 
@@ -278,10 +279,33 @@ def create_app() -> Quart:
 
     @app.get("/api/mealie/recipes")
     async def mealie_recipes_search():
-        return await mealie_action(
-            lambda: mealie.search_recipes(request.args.get("q"), request.args.get("page") or 1),
-            tr("Zoeken in Mealie mislukt", "Searching Mealie failed"),
-        )
+        async def found() -> dict[str, Any]:
+            # Met een grens op de calorieën (issue #283) zoekt de cache van recipe_nutrition.py, anders Mealie zelf.
+            kcal_min, kcal_max = recipe_nutrition.kcal_range(request.args.get("kcalMin"), request.args.get("kcalMax"))
+            if kcal_min is None and kcal_max is None:
+                return await mealie.search_recipes(request.args.get("q"), request.args.get("page") or 1)
+            return await recipe_nutrition.search(request.args.get("q"), kcal_min, kcal_max, request.args.get("page") or 1)
+
+        return await mealie_action(found, tr("Zoeken in Mealie mislukt", "Searching Mealie failed"))
+
+    # Voedingswaarden van oude AH-recepten in Mealie aanvullen (alleen de beheerder: het pad staat in auth.ADMIN_PATHS).
+    @app.get("/api/mealie/nutrition/backfill")
+    async def mealie_nutrition_backfill_status():
+        return jsonify(recipe_nutrition.backfill_progress())
+
+    @app.post("/api/mealie/nutrition/backfill")
+    async def mealie_nutrition_backfill_start():
+        async def start() -> dict[str, Any]:
+            await mealie.ensure_configured()
+            return recipe_nutrition.start_backfill()
+
+        if recipe_nutrition.backfill_progress().get("state") == "running":
+            return jsonify({"error": tr("Het aanvullen loopt al.", "Filling in is already running.")}), 409
+        return await mealie_action(start, tr("Aanvullen starten mislukt", "Could not start filling in"), 202)
+
+    @app.delete("/api/mealie/nutrition/backfill")
+    async def mealie_nutrition_backfill_stop():
+        return jsonify(recipe_nutrition.stop_backfill())
 
     @app.get("/api/mealie/recipes/<slug>")
     async def mealie_recipe_detail(slug: str):
@@ -359,6 +383,35 @@ def create_app() -> Quart:
         except Exception as exc:
             app.logger.exception("AH saved recipes error")
             return jsonify({"error": str(exc) or tr("Bewaarde recepten ophalen mislukt", "Could not fetch saved recipes")}), 424
+
+    # De weekplanner van de AH-app (zie ah_planner.py): alleen lezen bij AH. *Naar weekmenu* zet de Allerhande-recepten en
+    # de losse producten (als bestaand recept, eigen recept of menu) in het weekmenu van Mealie. Iedereen die is ingelogd mag
+    # dat, net als plannen en importeren; daarom staan deze paden niet in auth.ADMIN_PREFIXES. Het scherm stuurt een dag per keer.
+    @app.get("/api/ah/planner")
+    async def ah_week_planner():
+        try:
+            return jsonify(await ah_planner.get())
+        except LookupError as exc:  # AH is niet gekoppeld: de tekst is van onszelf en zegt wat te doen
+            return jsonify({"error": str(exc)}), 424
+        except Exception:  # noqa: BLE001 - de fout kan het antwoord van AH bevatten: alleen in het logboek
+            app.logger.exception("AH week planner error")
+            return jsonify({"error": tr("De weekplanner ophalen bij AH is mislukt", "Could not fetch the week planner from AH")}), 424
+
+    @app.post("/api/ah/planner/to-meal-plan")
+    async def ah_week_planner_to_meal_plan():
+        try:
+            await mealie.ensure_configured()
+        except RuntimeError as exc:  # Mealie is niet gekoppeld: de tekst is van onszelf en zegt wat te doen
+            return jsonify({"error": str(exc)}), 400
+        try:
+            day = ah_planner.clean_day(await request.get_json(silent=True))
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+        try:
+            return jsonify(await ah_planner.to_meal_plan(day))
+        except Exception:  # noqa: BLE001 - het weekmenu van Mealie niet te lezen: de melding van Mealie alleen in het logboek
+            app.logger.exception("AH week planner to meal plan error")
+            return jsonify({"error": tr("Het weekmenu van Mealie lezen is mislukt", "Could not read the Mealie week menu")}), 424
 
     # Een Allerhande-recept bekijken en in Mealie zetten, met dezelfde routes als bij Jumbo, Picnic en de maaltijdboxen.
     @app.get("/api/ah/recipes/<int:recipe_id>")
@@ -765,8 +818,8 @@ def create_app() -> Quart:
         # Doet één zoekopdracht bij de winkel, in dezelfde vorm voor elke winkel (prices.link_candidates).
         try:
             return jsonify(await prices.link_candidates(request.args.get("store"), request.args.get("q") or ""))
-        except ValueError:
-            return jsonify({"error": tr("Onbekende winkel (kies ah, picnic, jumbo of crisp)", "Unknown store (choose ah, picnic, jumbo or crisp)")}), 400
+        except ValueError as exc:  # een onbekende winkel, of een winkel met alleen aanbiedingen (Lidl, Aldi): de tekst is van onszelf
+            return jsonify({"error": str(exc)}), 400
         except Exception:  # noqa: BLE001 - de winkel gaf een fout: niet gekoppeld, of niet bereikbaar
             app.logger.exception("Zoeken om te koppelen mislukt")
             return jsonify({"error": tr("Zoeken mislukt", "Search failed")}), 424

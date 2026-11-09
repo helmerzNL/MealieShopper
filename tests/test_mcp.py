@@ -14,7 +14,7 @@ from urllib.parse import parse_qs, urlsplit
 
 os.environ["PASSKEY_AUTH_ENABLED"] = "false"
 
-from mealieshopper import ah, ah_lists, ah_recipes, auth, auth_password, crisp, image_cache, mcp, mealie, oauth, picnic, picnic_recipes  # noqa: E402
+from mealieshopper import ah, ah_lists, ah_recipes, auth, auth_password, crisp, image_cache, mcp, mealie, oauth, picnic, picnic_recipes, recipe_nutrition  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
 from helpers import AppTestCase, db, returned, run  # noqa: E402
 
@@ -578,7 +578,7 @@ class OfferReviewToolsTest(McpTestCase):
         self.assertEqual((await self.data("review_offer_matches", {"store": "ah"}))["total"], 2)
 
     async def test_bad_input_is_a_readable_error(self):
-        for name, args in (("review_offer_matches", {"store": "lidl"}), ("report_offer_mismatch", {"store": "ah", "ingredient": "kipfilet"}),
+        for name, args in (("review_offer_matches", {"store": "nope"}), ("report_offer_mismatch", {"store": "ah", "ingredient": "kipfilet"}),
                            ("report_offer_mismatch", {"store": "ah", "ingredient": "kipfilet", "offer_id": "999"})):
             self.assertTrue((await self.call(self.token, name, args))["isError"], name)
 
@@ -715,7 +715,7 @@ class ToolsTest(McpTestCase):
     async def test_week_menu(self):
         entries = [
             {"id": 5, "date": "2026-10-20", "entryType": "dinner", "recipe": {"name": "Pasta", "slug": "pasta"}, "recipeDetail": {"recipeIngredient": [{"display": "400 g  spaghetti"}, {"note": "peper"}, {}]},
-             "servings": {"scale": 2.0, "base": 2, "planned": 4}},
+             "servings": {"scale": 2.0, "base": 2, "planned": 4}, "kcal": {"perServing": 490, "total": 1960}},
             {"id": 4, "date": "2026-10-19", "entryType": "dinner", "title": "Restjes", "text": "Van  zondag", "recipe": None, "recipeDetail": None},
         ]
         with mock.patch.object(mealie, "get_meal_plan_with_recipes", new_callable=mock.AsyncMock, return_value=entries) as plan, mock.patch.object(mealie, "mealie_url", new_callable=mock.AsyncMock, return_value="https://mealie.example"), \
@@ -728,6 +728,8 @@ class ToolsTest(McpTestCase):
         self.assertEqual(data["meals"][1]["ingredients"], ["400 g spaghetti", "peper"])
         # De porties uit de planner van Mealie (issue #159); een notitie heeft er geen.
         self.assertEqual([m["servings"] for m in data["meals"]], [None, 4])
+        # De calorieën per persoon en voor de porties samen (issue #283).
+        self.assertEqual([(m["kcalPerServing"], m["kcalTotal"]) for m in data["meals"]], [(None, None), (490, 1960)])
         # Het id is nodig om een maaltijd met remove_planned_meal weg te halen.
         self.assertEqual([(m["id"], m["note"]) for m in data["meals"]], [(4, "Van zondag"), (5, None)])
 
@@ -738,8 +740,34 @@ class ToolsTest(McpTestCase):
                 mock.patch.object(mealie, "group_slug", new_callable=mock.AsyncMock, return_value="home"):
             data = await self.data("search_mealie_recipes", {"query": "pasta", "limit": 5})
         search.assert_called_once_with("pasta", 1, 5)
-        self.assertEqual(data["recipes"], [{"slug": "pasta", "name": "Pasta", "minutes": 20, "portions": 4, "tags": ["Snel"], "url": "https://mealie.example/g/home/r/pasta"}])
+        self.assertEqual(data["recipes"], [{"slug": "pasta", "name": "Pasta", "minutes": 20, "portions": 4, "kcalPerServing": None, "tags": ["Snel"], "url": "https://mealie.example/g/home/r/pasta"}])
+        self.assertNotIn("withoutKcal", data)
         self.assertTrue((await self.call(self.token, "search_mealie_recipes", {"query": " "}))["isError"])
+
+    async def test_search_mealie_recipes_on_kcal_per_person(self):
+        # Issue #283: een AI vraagt om recepten met hoogstens x kcal per persoon, met of zonder zoekterm.
+        card = {"id": "pasta", "slug": "pasta", "recipeId": "r1", "name": "Pasta", "image": None, "minutes": 20, "portions": 4, "rating": None, "tags": [], "kcal": 490}
+        found = {"recipes": [card], "total": 1, "page": 1, "more": False, "withoutKcal": 2, "indexing": None}
+        with mock.patch.object(recipe_nutrition, "search", new_callable=mock.AsyncMock, return_value=found) as search, \
+                mock.patch.object(mealie, "search_recipes", new_callable=mock.AsyncMock, side_effect=AssertionError("met een grens zoekt de cache")), \
+                mock.patch.object(mealie, "mealie_url", new_callable=mock.AsyncMock, return_value="https://mealie.example"), \
+                mock.patch.object(mealie, "group_slug", new_callable=mock.AsyncMock, return_value="home"):
+            data = await self.data("search_mealie_recipes", {"kcal_max": 600, "limit": 5})
+            await self.data("search_mealie_recipes", {"query": "pasta", "kcal_min": 700, "kcal_max": 400})
+            busy = {**found, "indexing": {"done": 12, "total": 80}}
+            search.return_value = busy
+            still = await self.data("search_mealie_recipes", {"kcal_min": 300})
+            bad = await self.call(self.token, "search_mealie_recipes", {"kcal_max": "veel"})
+        self.assertEqual(search.call_args_list[0].args, ("", None, 600, 1, 5))
+        self.assertEqual(search.call_args_list[1].args[:3], ("pasta", 400, 700), "omgedraaide grenzen")
+        self.assertEqual(search.call_args_list[0].kwargs["wait"], mcp.MCP_KCAL_WAIT)
+        self.assertEqual((data["recipes"][0]["kcalPerServing"], data["withoutKcal"]), (490, 2))
+        self.assertIn("geen calorieën", data["note"])
+        self.assertIn("12 van 80", still["note"])
+        self.assertTrue(bad["isError"])
+        schema = mcp.TOOLS["search_mealie_recipes"]["inputSchema"]
+        self.assertEqual(set(schema["properties"]), {"query", "kcal_min", "kcal_max", "limit"})
+        self.assertNotIn("query", schema.get("required", []))
 
     async def test_plan_meal(self):
         created = {"id": 12, "date": "2026-11-03", "entryType": "dinner", "recipe": {"name": "Pasta", "slug": "pasta"}}
@@ -751,6 +779,24 @@ class ToolsTest(McpTestCase):
         self.assertEqual(create.call_args_list[0].args[0], {"date": "2026-11-03", "entryType": "dinner", "title": "", "text": "", "recipeSlug": "pasta"})
         self.assertEqual(create.call_args_list[1].args[0], {"date": "2026-11-04", "entryType": "lunch", "title": "Uit eten", "text": "Bij oma"})
         self.assertEqual(note["id"], 12)
+
+    async def test_plan_meal_with_servings(self):
+        created = {"id": 13, "date": "2026-11-03", "entryType": "dinner", "recipe": {"name": "Pasta", "slug": "pasta"}, "recipeScale": 0.5}
+        with mock.patch.object(mealie, "create_meal_plan_entry", new_callable=mock.AsyncMock, return_value=created) as create, \
+                mock.patch.object(mealie, "get_recipe", new_callable=mock.AsyncMock, return_value={"id": "r1", "slug": "pasta", "recipeServings": 4}), \
+                mock.patch.object(mealie, "mealie_url", new_callable=mock.AsyncMock, return_value="https://mealie.example"), \
+                mock.patch.object(mealie, "group_slug", new_callable=mock.AsyncMock, return_value="home"):
+            data = await self.data("plan_meal", {"date": "2026-11-03", "recipe_slug": "pasta", "servings": 2})
+            note = await self.call(self.token, "plan_meal", {"date": "2026-11-03", "title": "Uit eten", "servings": 2})
+        self.assertEqual(create.call_args.args[0]["recipeScale"], 0.5, "2 van de 4 porties")
+        self.assertEqual(data["servings"], 2)
+        self.assertTrue(note["isError"])
+        with mock.patch.object(mealie, "create_meal_plan_entry", new_callable=mock.AsyncMock) as create, \
+                mock.patch.object(mealie, "get_recipe", new_callable=mock.AsyncMock, return_value={"id": "r1", "slug": "pasta"}):
+            unknown = await self.call(self.token, "plan_meal", {"date": "2026-11-03", "recipe_slug": "pasta", "servings": 2})
+        self.assertTrue(unknown["isError"])
+        self.assertIn("porties", self.text(unknown))
+        create.assert_not_called()
 
     async def test_plan_meal_validates_before_writing(self):
         with mock.patch.object(mealie, "create_meal_plan_entry", new_callable=mock.AsyncMock) as create:

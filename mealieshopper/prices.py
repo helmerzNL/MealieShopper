@@ -524,7 +524,7 @@ async def link_candidates(store: Any, query: Any, limit: int = LINK_SEARCH_LIMIT
     """De producten van een winkel om een regel aan te koppelen (#238): een zoekopdracht bij die winkel, in één vorm voor alle
     winkels ({"productId", "title", "brand", "unitSize", "image", "price"}). Zoals elke zoekopdracht bewaart hij de normale prijs
     van wat hij vindt (`recorded`), dus het gekozen product staat daarna ook in de Prijsgeschiedenis."""
-    key = offers._valid_store(store)
+    key = _shop_store(store)
     term = " ".join(str(query or "").split())[:product_links.MAX_NAME_CHARS]
     if not term:
         return {"store": key, "query": "", "products": []}
@@ -1155,7 +1155,7 @@ def base_title(title: Any) -> str:
     return " ".join(word for word in re.findall(r"[a-z0-9]+", text) if word not in _PACK_WORDS)
 
 
-_STORE_WORDS = frozenset({"ah", "jumbo", "picnic", "crisp"})
+_STORE_WORDS = frozenset({"ah", "jumbo", "picnic", "crisp", "lidl", "aldi"})
 
 # Woorden die zeggen dat een product biologisch is (#218). Ze horen niet bij de soort: "AH Biologisch rundergehakt" is
 # rundergehakt, net als "AH Rundergehakt".
@@ -1728,10 +1728,25 @@ async def fill_regular_prices_nightly() -> dict[str, int] | None:
     return {"lines": lines} if lines else None
 
 
+def _shop_store(store: Any) -> str:
+    """Een winkel waar we kunnen zoeken. Lidl en Aldi hebben geen webwinkel (`offers.OFFER_ONLY_STORES`): daar kan het niet."""
+    key = offers._valid_store(store)
+    if key not in offers.SHOP_STORES:
+        name = offers.STORE_NAMES.get(key, key)
+        raise ValueError(tr(
+            f"Bij {name} kan MealieShopper niet zoeken: van die winkel zijn er alleen de aanbiedingen",
+            f"MealieShopper cannot search at {name}: that store only has its offers",
+        ))
+    return key
+
+
 def _search_function(store: str) -> Callable[..., Awaitable[list[dict[str, Any]]]]:
     from . import crisp, jumbo, picnic  # pylint: disable=import-outside-toplevel - alleen nodig bij het vergelijken
 
-    return {"ah": ah.search_products, "jumbo": jumbo.search_products, "picnic": picnic.search_products, "crisp": crisp.search_products}[store]
+    found = {"ah": ah.search_products, "jumbo": jumbo.search_products, "picnic": picnic.search_products, "crisp": crisp.search_products}.get(store)
+    if found is None:
+        raise ValueError(tr("Bij deze winkel kan MealieShopper niet zoeken", "MealieShopper cannot search at this store"))
+    return found
 
 
 def _search_query(title: Any) -> str:
@@ -1782,7 +1797,7 @@ async def compare(store: Any, product_id: Any) -> dict[str, Any]:
     `_same_kind`; daarop filtert het venster standaard), `sameBrand` of het merk gelijk is, `cheaper` of het per eenheid goedkoper is dan
     het gekozen product, en `rank` (0 tot 1) waar het tussen de rest staat, voor de kleur. De gevonden prijzen worden ook bewaard.
     """
-    store = offers._valid_store(store)
+    store = _shop_store(store)
     product_id = str(product_id or "").strip()
     product = await _known_product(store, product_id) if product_id else None
     if not product:

@@ -66,10 +66,11 @@ Een weekmenu plannen in Mealie is fijn, maar daarna begint het overtypen: elk in
 
 - **Weekmenu naar je mandje**: één knop zoekt voor elk ingrediënt uit je weekmenu de beste producten bij Albert Heijn, Picnic, Jumbo of Crisp, rekent de porties en verpakkingen uit en telt hetzelfde ingrediënt uit meerdere recepten op. Je controleert alles eerst in een lijst; pas na je bevestiging gaat het in je mandje, en bestellen doe je zelf.
 - **Het weekmenu plannen**: zet een recept of een notitie op een dag, verplaats of verwijder een maaltijd, of laat Mealie met **Verras me** kiezen. Elke wijziging gaat meteen naar Mealie.
-- **Aanbiedingen en receptvoorstellen**: de aanbiedingen van Albert Heijn (ook je persoonlijke Bonus Box), Picnic, Jumbo en Crisp, per week en elke dag bijgewerkt, met recepten waarvan ingrediënten in de aanbieding zijn.
+- **Aanbiedingen en receptvoorstellen**: de aanbiedingen van Albert Heijn (ook je persoonlijke Bonus Box), Picnic, Jumbo en Crisp, en zonder account ook die van Lidl en Aldi, per week en elke dag bijgewerkt, met recepten waarvan ingrediënten in de aanbieding zijn.
 - **Is het echt een aanbieding?**: bij elke aanbieding de prijs per kilo, liter of stuk en een oordeel tegen de gewone prijs van de laatste 30 dagen. De **Prijsgeschiedenis** toont per product de aanbiedingen, de gewone prijs en wat je zelf betaalde, en **Vergelijk verpakkingen** wijst de goedkoopste verpakking aan. Openbare historische prijzen met onbekende actiestatus staan apart als **Waargenomen prijzen**, met hun bronnen. Ze tellen niet als gewone prijzen. Historische folderprijzen, zoals het archief van Albert Heijn en Jumbo sinds 2009, importeert de beheerder onder **Instellingen, Systeem**.
 - **Recepten zoeken en importeren**: zoek tegelijk in Mealie, bij Albert Heijn, Jumbo, Picnic en Crisp en in de menu's van HelloFresh en Marley Spoon, bekijk een recept en plan het met één klik in, of importeer een recept via een link. Je bewaarde AH-recepten, je Jumbo-receptenlijsten en je favoriete Crisp-recepten zet je ook in één keer in Mealie.
 - **Koken met een recept**: een recept staat in een kookweergave met de ingrediënten naast de genummerde stappen; vink af wat klaar is en zie welke stap nu aan de beurt is. **Start met koken** toont schermvullend één stap tegelijk, en met **Scherm aan laten** gaat je scherm intussen niet uit.
+- **Calorieën**: de kcal per persoon en de voedingswaarden bij een recept en een geplande maaltijd, met het totaal voor de porties die je plant. Kies bij het inplannen het aantal porties (4 wordt 2), zoek op een minimum en maximum aan kcal, ook via je AI-assistent; recepten van Albert Heijn krijgen hun voedingswaarden mee naar Mealie.
 - **Je winkels op één plek**: je mandje, lijstjes, bewaarde recepten, favorieten, bestellingen en AH-kassabonnen, in een eigen kopie die je doorzoekt ("wanneer kocht ik voor het laatst koffie?"), ook als de winkel even niet meewerkt. Een product op een bon dat de app niet herkent, koppel je zelf aan een product van de winkel; daarna herkent hij het wel.
 - **AI-assistenten**: een MCP-server, zodat Claude, ChatGPT of Copilot je weekmenu, recepten en lijstjes kan bekijken, een maaltijd kan plannen en een recept in Mealie kan importeren; inloggen met OAuth, met je eigen account.
 - **Voor het hele huishouden**: inloggen met een passkey, of met een wachtwoord en tweestapsverificatie; huisgenoten nodig je uit met een link, en alleen de beheerder koppelt Mealie en de winkels. Iedereen kiest zelf een voorkeurssupermarkt, waarmee Aanbiedingen en Winkels openen.
@@ -238,6 +239,7 @@ flowchart LR
     B -->|API-token| M[Mealie]
     B -->|onofficiële app-API| S[Albert Heijn, Picnic,<br/>Jumbo en Crisp]
     B -->|openbare menu's| K[HelloFresh en<br/>Marley Spoon]
+    B -->|openbare aanbiedingenpagina| L[Lidl en Aldi]
 ```
 
 | Onderdeel | Doel | Gegevens |
@@ -245,19 +247,22 @@ flowchart LR
 | `mealieshopper` | De container: de Quart-app onder Hypercorn met de interface, de API, de MCP-server en de dagelijkse taak voor de aanbiedingen | `/data` (`auth.sqlite3` en `secret.key`) |
 | Mealie | Je recepten en weekmenu; draait apart en wordt niet meegeleverd | in Mealie zelf |
 | Albert Heijn, Picnic, Jumbo, Crisp | Producten, mandjes, lijstjes, bestellingen en aanbiedingen | wat MealieShopper bewaart, staat in `auth.sqlite3` |
+| Lidl, Aldi | De aanbiedingen van de week (geen webwinkel, dus geen mandje) | wat MealieShopper bewaart, staat in `auth.sqlite3` |
 
-MealieShopper is een onofficieel hulpmiddel en heeft geen band met Mealie, Albert Heijn, Picnic, Jumbo of Crisp.
+MealieShopper is een onofficieel hulpmiddel en heeft geen band met Mealie, Albert Heijn, Picnic, Jumbo, Crisp, Lidl of Aldi.
 
 **Integraties**
 
 | Integratie | Waarvoor |
 |---|---|
 | [Mealie](https://mealie.io) | Je recepten en weekmenu; geïmporteerde recepten en wat je plant komen hier terecht. Via de API met een token. |
-| [Albert Heijn](https://www.ah.nl) | Lijstjes, bewaarde recepten, producten en het winkelmandje, via de **niet-officiële** app-API van AH. AH kan die zonder bericht wijzigen; gebruik het voor persoonlijk gebruik. |
+| [Albert Heijn](https://www.ah.nl) | Lijstjes, bewaarde recepten, de weekplanner (alleen lezen), producten en het winkelmandje, via de **niet-officiële** app-API van AH. AH kan die zonder bericht wijzigen; gebruik het voor persoonlijk gebruik. |
 | [Allerhande](https://www.ah.nl/allerhande) | Recepten zoeken en importeren. |
 | [Jumbo](https://www.jumbo.com) | Producten zoeken en het winkelmandje vullen, via de **niet-officiële** app-API van Jumbo (Auth0 en GraphQL). Jumbo kan die zonder bericht wijzigen of een server weigeren; gebruik het voor persoonlijk gebruik. |
 | [Picnic](https://picnic.app) | Producten zoeken en het winkelmandje vullen, via de **niet-officiële** app-API van Picnic. Picnic kan die zonder bericht wijzigen; gebruik het voor persoonlijk gebruik. |
 | [Crisp](https://crisp.nl) | Producten zoeken, het winkelmandje vullen en aanpassen, recepten, favorieten, bestellingen en aanbiedingen, via de **niet-officiële** app-API van Crisp. Crisp kan die zonder bericht wijzigen; gebruik het voor persoonlijk gebruik. |
+| [Lidl](https://www.lidl.nl) | De aanbiedingen van de week, van de openbare aanbiedingenpagina; geen account. Lidl verkoopt geen boodschappen online, dus er is geen mandje. Lidl kan de pagina zonder bericht wijzigen. |
+| [Aldi](https://www.aldi.nl) | De aanbiedingen van de week, van de openbare aanbiedingenpagina; geen account. Aldi verkoopt geen boodschappen online, dus er is geen mandje. Aldi kan de pagina zonder bericht wijzigen. |
 | [WebAuthn](https://www.w3.org/TR/webauthn-2/) | Inloggen met een passkey. |
 | [TOTP (RFC 6238)](https://www.rfc-editor.org/rfc/rfc6238) | Tweestapsverificatie met een authenticator-app. |
 | [MCP](https://modelcontextprotocol.io) en [OAuth 2.1](https://datatracker.ietf.org/doc/draft-ietf-oauth-v2-1/) | De koppeling met AI-assistenten zoals Claude, ChatGPT en Copilot. |

@@ -128,6 +128,8 @@ const t = (key, values = {}) => key + ' ' + JSON.stringify(values);
 const tn = (key, count) => key + ' ' + count;
 const I18N = {locale: () => 'nl-NL', formatNumber: String};
 const STORES = {ah: {name: 'Albert Heijn'}};
+const storeDisplayName = (key) => STORES[key].name;
+const offersOnlyStore = () => false;
 const $ = () => ({clientWidth: 640});
 const storeImage = (url) => url;
 const offerPerUnitText = () => '';

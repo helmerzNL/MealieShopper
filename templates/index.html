@@ -410,6 +410,12 @@
               <input class="input" id="plan-recipe-query" type="search" placeholder="Zoek in je recepten in Mealie..." aria-label="Zoek in je recepten in Mealie..." autocomplete="off" enterkeyhint="search" data-i18n-attr="placeholder:plan.recipe_search;aria-label:plan.recipe_search">
               <button class="button button--secondary" type="button" id="plan-surprise"><svg class="mdi" viewBox="0 0 24 24" aria-hidden="true" data-mdi="mdiDice5Outline"><path d="M19 5V19H5V5H19M19 3H5C3.9 3 3 3.9 3 5V19C3 20.1 3.9 21 5 21H19C20.1 21 21 20.1 21 19V5C21 3.9 20.1 3 19 3M7.5 6C6.7 6 6 6.7 6 7.5S6.7 9 7.5 9 9 8.3 9 7.5 8.3 6 7.5 6M16.5 15C15.7 15 15 15.7 15 16.5C15 17.3 15.7 18 16.5 18C17.3 18 18 17.3 18 16.5C18 15.7 17.3 15 16.5 15M16.5 6C15.7 6 15 6.7 15 7.5S15.7 9 16.5 9C17.3 9 18 8.3 18 7.5S17.3 6 16.5 6M12 10.5C11.2 10.5 10.5 11.2 10.5 12S11.2 13.5 12 13.5 13.5 12.8 13.5 12 12.8 10.5 12 10.5M7.5 15C6.7 15 6 15.7 6 16.5C6 17.3 6.7 18 7.5 18S9 17.3 9 16.5C9 15.7 8.3 15 7.5 15Z"/></svg><span data-i18n="plan.surprise">Verras me</span></button>
             </div>
+            <div class="kcal-filter" role="group" aria-labelledby="plan-kcal-label">
+              <span class="kcal-filter__label" id="plan-kcal-label" data-i18n="kcal.filter">Kcal per persoon</span>
+              <input class="input kcal-filter__input" id="plan-kcal-min" type="number" inputmode="numeric" min="0" max="5000" step="50" placeholder="min." aria-label="Minimaal aantal kcal per persoon" autocomplete="off" data-i18n-attr="placeholder:kcal.min;aria-label:kcal.min_label">
+              <span class="kcal-filter__dash" aria-hidden="true">–</span>
+              <input class="input kcal-filter__input" id="plan-kcal-max" type="number" inputmode="numeric" min="0" max="5000" step="50" placeholder="max." aria-label="Maximaal aantal kcal per persoon" autocomplete="off" data-i18n-attr="placeholder:kcal.max;aria-label:kcal.max_label">
+            </div>
             <ul id="plan-recipe-results" class="plan-recipe-results"></ul>
           </div>
         </div>
@@ -564,6 +570,13 @@
             <input class="input" id="recipe-query" type="search" placeholder="Zoek een recept in Mealie of bij AH, Jumbo, Picnic, HelloFresh en Marley Spoon..." autocomplete="off" enterkeyhint="search" data-i18n-attr="placeholder:search.placeholder">
             <button class="button" type="submit" data-i18n="search.submit">Zoeken</button>
           </form>
+          <div class="kcal-filter kcal-filter--search" role="group" aria-labelledby="search-kcal-label">
+            <span class="kcal-filter__label" id="search-kcal-label" data-i18n="kcal.filter">Kcal per persoon</span>
+            <input class="input kcal-filter__input" id="search-kcal-min" form="search-form" type="number" inputmode="numeric" min="0" max="5000" step="50" placeholder="min." aria-label="Minimaal aantal kcal per persoon" autocomplete="off" data-i18n-attr="placeholder:kcal.min;aria-label:kcal.min_label">
+            <span class="kcal-filter__dash" aria-hidden="true">–</span>
+            <input class="input kcal-filter__input" id="search-kcal-max" form="search-form" type="number" inputmode="numeric" min="0" max="5000" step="50" placeholder="max." aria-label="Maximaal aantal kcal per persoon" autocomplete="off" data-i18n-attr="placeholder:kcal.max;aria-label:kcal.max_label">
+            <span class="muted kcal-filter__note" data-i18n="kcal.search_note">Alleen je recepten in Mealie; de winkels geven geen calorieën in hun zoekresultaten.</span>
+          </div>
           <p class="muted" data-i18n="search.intro">Zoekt tegelijk in je eigen recepten in Mealie, bij Albert Heijn, bij Jumbo, Picnic en Crisp zodra die gekoppeld zijn, en in de menu's van HelloFresh en Marley Spoon van deze week en de komende weken (daar is geen koppeling voor nodig). Bekijk een recept voor de ingrediënten en de bereiding, of plan het in je weekmenu; een recept van een winkel komt dan ook in Mealie.</p>
           <div id="search-message"></div>
           <div id="search-sections">
@@ -696,6 +709,7 @@
           </div>
           <p class="offers-period" id="offers-period" hidden></p>
           <p class="muted" id="offers-status"></p>
+          <p class="muted offers-note" id="offers-note" hidden></p>
           <p class="muted offers-later" id="offers-later" hidden><span id="offers-later-text"></span> <button class="link-button link-button--inline" id="offers-later-show" type="button" data-i18n="offers.later.show">Bekijk de week erna</button></p>
           <div id="offers-message"></div>
           <div class="offers-layout">
@@ -839,6 +853,7 @@
             <div class="subtab-menu__list" id="items-store-list" hidden></div>
           </div>
           <a class="subtab is-active" data-subtab="ah-items-recepten" data-i18n="ah.tab.recipes" href="/stores/ah/recipes" data-nav>Recepten</a>
+          <a class="subtab" data-subtab="ah-items-weekplanner" data-i18n="ah.tab.planner" href="/stores/ah/planner" data-nav>Weekplanner</a>
           <a class="subtab" data-subtab="ah-items-jumbo-recepten" hidden data-i18n="jumbo.favorites.tab" href="/stores/jumbo/recipes" data-nav>Recepten</a>
           <a class="subtab" data-subtab="ah-items-lijstjes" data-i18n="ah.tab.lists" href="/stores/ah/lists" data-nav>Lijstjes</a>
           <a class="subtab" data-subtab="ah-items-bestellingen" data-i18n="ah.tab.orders" href="/stores/ah/orders" data-nav>Bestellingen</a>
@@ -885,6 +900,29 @@
           </div>
           <div id="ah-recipe-message"></div>
           <div id="ah-recipe-body"></div>
+        </div>
+        </div>
+
+        <div id="ah-items-weekplanner" class="subpanel">
+        <div class="box box--wide ah-planner" id="ah-planner-view">
+          <div class="toolbar">
+            <h2 data-i18n="ah.planner.title">Weekplanner uit de AH-app</h2>
+            <button class="button button--secondary" id="load-ah-planner" type="button" data-i18n="ah.planner.refresh">Ophalen bij AH</button>
+            <button class="button" id="ah-planner-to-meal-plan" type="button" disabled data-i18n="ah.planner.to_meal_plan">Naar weekmenu</button>
+          </div>
+          <p class="muted" id="ah-planner-intro" data-i18n="ah.planner.intro">Wat je in de weekplanner van de AH-app hebt gepland, vanaf vandaag. MealieShopper leest alleen mee: plannen doe je in de AH-app. Naar weekmenu zet alles op dezelfde dag in het weekmenu: Allerhande-recepten (zo nodig eerst geïmporteerd in Mealie) en losse producten, als het recept met die naam in Mealie, als eigen recept of samen als menu. Eigen AH-recepten gaan niet mee.</p>
+          <p class="muted ah-planner__settings"><a href="/settings/preferences" data-route data-i18n="ah.planner.settings_link">Hoe losse producten meegaan, stel je in bij Voorkeuren, Supermarkt.</a></p>
+          <p class="muted" id="ah-planner-status" role="status" aria-live="polite"></p>
+          <div id="ah-planner-message"></div>
+          <div id="ah-planner-days" class="day-grid"></div>
+        </div>
+        <div class="box box--wide" id="ah-planner-recipe-view" hidden>
+          <div class="list-header">
+            <button class="icon-button" id="ah-planner-recipe-back" type="button" aria-label="Terug naar de weekplanner" data-i18n-attr="aria-label:ah.planner.back"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15.41,16.58L10.83,12L15.41,7.41L14,6L8,12L14,18L15.41,16.58Z"/></svg></button>
+            <h2 id="ah-planner-recipe-title" tabindex="-1"></h2>
+          </div>
+          <div id="ah-planner-recipe-message"></div>
+          <div id="ah-planner-recipe-body"></div>
         </div>
         </div>
 
@@ -1339,7 +1377,7 @@
         <div class="box fold fold--compact" id="offers-sync-box">
           <h2 class="fold__title"><button type="button" class="fold__toggle" id="offers-sync-toggle" aria-expanded="true" aria-controls="offers-sync-body"><span data-i18n="offers.sync.title">Aanbiedingen</span><svg class="fold__chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="M7.41,8.58L12,13.17L16.59,8.58L18,10L12,16L6,10L7.41,8.58Z"/></svg></button></h2>
           <div class="fold__body" id="offers-sync-body">
-            <p class="muted" data-i18n="offers.sync.intro">MealieShopper haalt elke dag de aanbiedingen van Albert Heijn, Picnic, Jumbo en Crisp op (Picnic, Jumbo en Crisp zodra ze gekoppeld zijn). Met de knop haal je ze meteen op.</p>
+            <p class="muted" data-i18n="offers.sync.intro">MealieShopper haalt elke dag de aanbiedingen van Albert Heijn, Picnic, Jumbo, Crisp, Lidl en Aldi op (Picnic, Jumbo en Crisp zodra ze gekoppeld zijn; Lidl en Aldi zonder koppeling). Met de knop haal je ze meteen op.</p>
             <div class="toolbar">
               <button class="button" id="offers-sync-all" type="button" data-i18n="offers.sync.button">Aanbiedingen synchroniseren</button>
             </div>
@@ -1435,6 +1473,15 @@
             <p class="muted" data-i18n="mealie.week_start_note">Het weekmenu (en de MCP-tool get_week_menu) begint op deze dag. Standaard volgt MealieShopper de eerste dag die je in Mealie bij je huishouden instelt; daar staat die standaard op zondag. Aanbiedingen houdt de bonusweek van maandag t/m zondag.</p>
             <div id="mealie-week-start-message"></div>
             </div>
+            <section class="fold__section mealie-nutrition" aria-labelledby="mealie-nutrition-title">
+              <h3 id="mealie-nutrition-title" data-i18n="mealie.nutrition.title">Voedingswaarden van AH-recepten aanvullen</h3>
+              <p class="muted" data-i18n="mealie.nutrition.help">Recepten die je vóór versie 4.4.1 uit Allerhande importeerde, hebben in Mealie geen voedingswaarden. Dit haalt ze bij Albert Heijn op en zet ze in Mealie: alleen bij recepten met een Allerhande-bronlink en zonder calorieën, en wat er al staat, blijft staan.</p>
+              <div class="toolbar">
+                <button class="button button--secondary" id="mealie-nutrition-start" type="button" data-i18n="mealie.nutrition.start">Voedingswaarden aanvullen</button>
+                <button class="button button--secondary" id="mealie-nutrition-stop" type="button" hidden data-i18n="mealie.nutrition.stop">Stoppen</button>
+              </div>
+              <div id="mealie-nutrition-message" role="status"></div>
+            </section>
           </div>
         </div>
         <div class="box fold fold--compact" id="ah-login-box">
@@ -1644,6 +1691,9 @@
               <option value="ah" data-i18n="audit.service.ah">Albert Heijn</option>
               <option value="picnic" data-i18n="audit.service.picnic">Picnic</option>
               <option value="jumbo" data-i18n="audit.service.jumbo">Jumbo</option>
+              <option value="crisp" data-i18n="audit.service.crisp">Crisp</option>
+              <option value="lidl" data-i18n="audit.service.lidl">Lidl</option>
+              <option value="aldi" data-i18n="audit.service.aldi">Aldi</option>
               <option value="hellofresh" data-i18n="audit.service.hellofresh">HelloFresh</option>
               <option value="marleyspoon" data-i18n="audit.service.marleyspoon">Marley Spoon</option>
               <option value="mcp" data-i18n="audit.service.mcp">AI-assistenten (MCP)</option>
@@ -1890,6 +1940,25 @@
               <p class="appearance-current" id="appearance-store-current" aria-live="polite"></p>
               <div id="appearance-store-message"></div>
             </section>
+            <section class="appearance-section fold__section" aria-labelledby="appearance-planner-title">
+              <h3 id="appearance-planner-title" data-i18n="appearance.planner.title">Weekplanner van de AH-app</h3>
+              <p class="muted" data-i18n="appearance.planner.help">Wat Naar weekmenu doet met losse producten uit de weekplanner. Een product dat al als recept in Mealie staat, gaat altijd als dat recept.</p>
+              <div class="appearance-setting">
+                <div class="appearance-setting__text">
+                  <h4 id="appearance-planner-combine-label" data-i18n="appearance.planner.combine">Losse producten van een dag samen als één menu</h4>
+                  <p class="muted" id="appearance-planner-combine-help" data-i18n="appearance.planner.combine_help">De producten van een dag worden één recept in Mealie, met de eerste notitie van die dag als naam. Uit: elk product een eigen recept.</p>
+                </div>
+                <input type="checkbox" role="switch" class="switch" id="appearance-planner-combine" checked aria-labelledby="appearance-planner-combine-label" aria-describedby="appearance-planner-combine-help">
+              </div>
+              <div class="appearance-setting" id="appearance-planner-split-row">
+                <div class="appearance-setting__text">
+                  <h4 id="appearance-planner-split-meals-label" data-i18n="appearance.planner.split">Soep en pizza altijd los</h4>
+                  <p class="muted" id="appearance-planner-split-meals-help" data-i18n="appearance.planner.split_help">Soep en pizza krijgen toch een eigen recept; vlees, groente, aardappelen, rijst en pasta gaan samen in het menu.</p>
+                </div>
+                <input type="checkbox" role="switch" class="switch" id="appearance-planner-split-meals" checked aria-labelledby="appearance-planner-split-meals-label" aria-describedby="appearance-planner-split-meals-help">
+              </div>
+              <div id="appearance-planner-message"></div>
+            </section>
           </div>
         </div>
         <div class="box fold fold--compact" id="appearance-display-box">
@@ -1901,6 +1970,13 @@
                 <p class="muted" id="appearance-cooking-help" data-i18n="appearance.cooking.help">Bij een recept: Start met koken, de voortgang, Scherm aan laten en het afvinken van ingrediënten. Uit: alleen het recept.</p>
               </div>
               <input type="checkbox" role="switch" class="switch" id="appearance-cooking" checked aria-labelledby="appearance-cooking-label" aria-describedby="appearance-cooking-help">
+            </div>
+            <div class="appearance-setting fold__section">
+              <div class="appearance-setting__text">
+                <h3 id="appearance-calories-label" data-i18n="appearance.calories.title">Calorieën tonen</h3>
+                <p class="muted" id="appearance-calories-help" data-i18n="appearance.calories.help">Bij recepten en maaltijden de kcal per persoon en de voedingswaarden, en zoeken op calorieën. Uit: geen calorieën.</p>
+              </div>
+              <input type="checkbox" role="switch" class="switch" id="appearance-calories" checked aria-labelledby="appearance-calories-label" aria-describedby="appearance-calories-help">
             </div>
             <div id="appearance-display-message"></div>
           </div>
@@ -1965,6 +2041,7 @@
           <h2 data-i18n="about.title">Over MealieShopper</h2>
           <p class="about-version"><span class="muted" data-i18n="about.version_label">Versie</span> <strong id="about-version">-</strong></p>
           <p class="muted" data-i18n="about.tagline">MealieShopper plant je weekmenu in Mealie en zet de ingrediënten in je Albert Heijn-mandje, en laat je recepten zoeken, bewaren en importeren.</p>
+          <a class="button button--secondary about-repo" id="about-repo" href="https://github.com/helmerzNL/MealieShopper" target="_blank" rel="noopener noreferrer"><svg viewBox="0 0 24 24" aria-hidden="true" data-mdi="mdiGithub"><path d="M12,2A10,10 0 0,0 2,12C2,16.42 4.87,20.17 8.84,21.5C9.34,21.58 9.5,21.27 9.5,21C9.5,20.77 9.5,20.14 9.5,19.31C6.73,19.91 6.14,17.97 6.14,17.97C5.68,16.81 5.03,16.5 5.03,16.5C4.12,15.88 5.1,15.9 5.1,15.9C6.1,15.97 6.63,16.93 6.63,16.93C7.5,18.45 8.97,18 9.54,17.76C9.63,17.11 9.89,16.67 10.17,16.42C7.95,16.17 5.62,15.31 5.62,11.5C5.62,10.39 6,9.5 6.65,8.79C6.55,8.54 6.2,7.5 6.75,6.15C6.75,6.15 7.59,5.88 9.5,7.17C10.29,6.95 11.15,6.84 12,6.84C12.85,6.84 13.71,6.95 14.5,7.17C16.41,5.88 17.25,6.15 17.25,6.15C17.8,7.5 17.45,8.54 17.35,8.79C18,9.5 18.38,10.39 18.38,11.5C18.38,15.32 16.04,16.16 13.81,16.41C14.17,16.72 14.5,17.33 14.5,18.26C14.5,19.6 14.5,20.68 14.5,21C14.5,21.27 14.66,21.59 15.17,21.5C19.14,20.16 22,16.42 22,12A10,10 0 0,0 12,2Z"/></svg><span data-i18n="about.repo">MealieShopper op GitHub</span></a>
         </div>
         <div class="box box--wide about-box">
           <h2 data-i18n="about.components_title">Componenten en integraties</h2>
@@ -2001,6 +2078,7 @@
     <script src="{{ url_for('static', filename='crisp.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='product_links.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='mealkits.js', v=config.ASSET_VERSION) }}"></script>
+    <script src="{{ url_for('static', filename='ah_planner.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='basket.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='offers.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='ai_review.js', v=config.ASSET_VERSION) }}"></script>

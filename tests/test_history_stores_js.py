@@ -25,6 +25,10 @@ class HistoryStoreNavigationTest(unittest.TestCase):
 const OFFERS_STORES = ['ah', 'picnic', 'jumbo', 'crisp'];
 const OFFER_HISTORY_LIMIT = 30;
 const STORES = Object.fromEntries(OFFERS_STORES.map(store => [store, {name: store}]));
+const OFFER_ONLY_STORES = {};
+const offersOnlyStore = key => Object.hasOwn(OFFER_ONLY_STORES, key);
+const storeWithoutLink = key => key === 'ah' || offersOnlyStore(key);
+const storeDisplayName = key => STORES[key]?.name || key;
 const state = {linkedStores: {picnic: true, jumbo: true, crisp: false}, storeStatusKnown: {}, auth: {preferredStore: 'ah'}, weekStartKnown: true};
 let offersFetch = null;
 const OFFERS_WEEK_START_WAIT = 10;

@@ -110,7 +110,8 @@ function $(selector) {
 // Een productfoto van een winkel via de eigen cache (/api/images/<token>, zie image_cache.py): de server haalt hem een keer op
 // en serveert hem daarna van schijf, zodat de browser niet bij de winkel hotlinkt. Een adres van een andere host (Mealie, een
 // maaltijdbox) blijft zoals het is. Het token is het adres in URL-veilige base64 zonder "=".
-const STORE_IMAGE_HOSTS = [/(^|\.)static\.ah\.nl$/, /(^|\.)jumbo\.com$/, /\.picnicinternational\.com$/, /(^|\.)crispapp\.nl$/];
+// Lidl en Aldi: alleen de hosts van hun productfoto's (de server controleert ook het pad, zie image_cache.store_for).
+const STORE_IMAGE_HOSTS = [/(^|\.)static\.ah\.nl$/, /(^|\.)jumbo\.com$/, /\.picnicinternational\.com$/, /(^|\.)crispapp\.nl$/, /^www\.lidl\.nl$/, /^imgproxy-retcat\.assets\.schwarz$/, /^s7g10\.scene7\.com$/];
 
 function storeImage(url) {
   if (!url) return url;
@@ -614,6 +615,72 @@ function mealServings(entry) {
   return servings.scale && servings.scale !== 1 ? t("plan.scale", { n: I18N.formatNumber(servings.scale) }) : "";
 }
 
+// ---- Calorieën (issue #283): per portie (per persoon), uit Mealie of de winkel, en voor de geplande porties samen. Elke
+// waarde staat in een eigen <span class="kcal">, zodat Calorieën tonen (html.no-calories, zie theme.js) ze kan verbergen; de
+// punt ervoor komt dan uit CSS (kcal--after), zodat er geen losse punt blijft staan.
+function kcalSpan(key, kcal, after = false) {
+  if (!kcal) return "";
+  return `<span class="kcal${after ? " kcal--after" : ""}">${escapeHtml(t(key, { kcal: I18N.formatNumber(Math.round(kcal)) }))}</span>`;
+}
+
+// Een regel met feiten ("4 porties · 30 min") als HTML, met daarachter de calorieën (`[sleutel, kcal]`, lege vallen weg).
+function factsWithKcal(parts, kcals = []) {
+  const text = escapeHtml(parts.filter(Boolean).join(" \u00b7 "));
+  const shown = kcals.filter(([, value]) => value);
+  return text + shown.map(([key, value], index) => kcalSpan(key, value, Boolean(text) || index > 0)).join("");
+}
+
+// De kcal per portie van een recept: `kcal` uit Mealie, anders de energie uit de voedingswaarden van de winkel.
+function recipeKcal(recipe) {
+  const value = recipe?.kcal ?? (recipe?.nutrition || []).find((item) => item?.key === "calories")?.quantity;
+  return Number(value) > 0 ? Number(value) : null;
+}
+
+// De namen van de voedingswaarden (de velden van schema.org, zie mealieshopper/nutrition.py).
+const NUTRITION_LABELS = {
+  calories: "nutrition.calories",
+  proteinContent: "nutrition.proteinContent",
+  fatContent: "nutrition.fatContent",
+  saturatedFatContent: "nutrition.saturatedFatContent",
+  unsaturatedFatContent: "nutrition.unsaturatedFatContent",
+  transFatContent: "nutrition.transFatContent",
+  carbohydrateContent: "nutrition.carbohydrateContent",
+  sugarContent: "nutrition.sugarContent",
+  fiberContent: "nutrition.fiberContent",
+  sodiumContent: "nutrition.sodiumContent",
+  cholesterolContent: "nutrition.cholesterolContent",
+};
+
+// "Per portie: Energie 490 kcal · Eiwit 27 g ..." onder een recept; verborgen als Calorieën tonen uit staat.
+function nutritionLine(items) {
+  const parts = (items || [])
+    .filter((item) => item && item.quantity != null)
+    .map((item) => `${NUTRITION_LABELS[item.key] ? t(NUTRITION_LABELS[item.key]) : item.name || item.key || ""} ${I18N.formatNumber(item.quantity)} ${item.unit || ""}`.trim());
+  return parts.length ? `<p class="muted nutrition-facts">${escapeHtml(t("rsearch.nutrition", { values: parts.join(" \u00b7 ") }))}</p>` : "";
+}
+
+// Of de calorieën te zien zijn (Instellingen, Voorkeuren, Weergave); zonder theme.js (in de tests) wel.
+function caloriesShown() {
+  return typeof THEME === "undefined" || THEME.appearance().showCalories !== false;
+}
+
+// De grenzen van een filter op calorieën uit twee velden: `kcalMin=..&kcalMax=..` voor de zoekroute, of "" zonder filter.
+function kcalQuery(minInput, maxInput) {
+  if (!caloriesShown()) return "";
+  const params = [];
+  for (const [name, input] of [["kcalMin", minInput], ["kcalMax", maxInput]]) {
+    const value = String(input?.value ?? "").trim();
+    if (value !== "" && Number.isFinite(Number(value))) params.push(`${name}=${encodeURIComponent(Math.max(0, Math.round(Number(value))))}`);
+  }
+  return params.join("&");
+}
+
+// Wat er bij een zoekopdracht op calorieën nog bij hoort: de cache vult zich nog, of recepten zonder kcal vielen weg.
+function kcalSearchNote(answer) {
+  if (answer?.indexing) return t("kcal.indexing", { done: I18N.formatNumber(answer.indexing.done), total: I18N.formatNumber(answer.indexing.total) });
+  return answer?.withoutKcal ? tn("kcal.without", answer.withoutKcal) : "";
+}
+
 // De volgorde van de maaltijden op een dag, zoals Mealie ze ook toont.
 const MEAL_ORDER = ["breakfast", "lunch", "dinner", "side", "snack", "drink", "dessert"];
 
@@ -623,13 +690,13 @@ function mealName(entry) {
 
 function renderMeal(entry) {
   const note = !entry.recipe && !entry.recipeId;
-  const facts = [
-    mealServings(entry),
-    entry.recipeDetail ? tn("plan.ingredients_count", (entry.recipeDetail.recipeIngredient || []).length) : "",
-  ].filter(Boolean).join(" · ");
+  const facts = factsWithKcal(
+    [mealServings(entry), entry.recipeDetail ? tn("plan.ingredients_count", (entry.recipeDetail.recipeIngredient || []).length) : ""],
+    [["kcal.per_serving", entry.kcal?.perServing]],
+  );
   const detail = note
     ? entry.text ? `<small class="meal__note">${escapeHtml(entry.text)}</small>` : ""
-    : facts ? `<small>${escapeHtml(facts)}</small>` : "";
+    : facts ? `<small>${facts}</small>` : "";
   const content = `
       ${entry.imageUrl ? `<img class="meal__image" src="${escapeHtml(entry.imageUrl)}" alt="" width="64" height="64" loading="lazy" data-hide-on-error>` : ""}
       <span class="meal__text">
@@ -665,7 +732,8 @@ function renderMealRecipeBody(entry) {
   const recipe = cookRecipeFromMealie(detail, slug ? `mealie:${slug}` : `plan:${entry.id}`, mealName(entry));
   return `
     ${description ? `<p class="meal-recipe__description">${escapeHtml(description)}</p>` : ""}
-    ${renderCookView(recipe, { headingLevel: 4, noIngredients: t("rsearch.no_ingredients_mealie"), noSteps: t("rsearch.no_steps_mealie") })}`;
+    ${renderCookView(recipe, { headingLevel: 4, noIngredients: t("rsearch.no_ingredients_mealie"), noSteps: t("rsearch.no_steps_mealie") })}
+    ${nutritionLine(entry.nutrition)}`;
 }
 
 function openMealRecipe(entry) {
@@ -673,9 +741,14 @@ function openMealRecipe(entry) {
   const dialog = $("#meal-recipe-dialog");
   $("#meal-recipe-type").textContent = `${mealLabel(entry.entryType)} · ${formatDate(entry.date)}`;
   $("#meal-recipe-title").textContent = mealName(entry);
-  const facts = [mealServings(entry), entry.recipeMinutes ? t("rsearch.minutes", { count: entry.recipeMinutes }) : ""].filter(Boolean);
-  $("#meal-recipe-facts").textContent = facts.join(" · ");
-  $("#meal-recipe-facts").hidden = !facts.length;
+  // Het totaal alleen als het iets toevoegt: bij één portie is het gelijk aan de kcal per portie.
+  const total = entry.kcal?.total && entry.kcal.total !== entry.kcal.perServing ? entry.kcal.total : null;
+  const facts = factsWithKcal(
+    [mealServings(entry), entry.recipeMinutes ? t("rsearch.minutes", { count: entry.recipeMinutes }) : ""],
+    [["kcal.per_serving", entry.kcal?.perServing], ["kcal.total", total]],
+  );
+  $("#meal-recipe-facts").innerHTML = facts;
+  $("#meal-recipe-facts").hidden = !facts;
   const image = $("#meal-recipe-image");
   image.hidden = !entry.imageUrl;
   if (entry.imageUrl) image.src = entry.imageUrl;
@@ -700,13 +773,24 @@ function renderMealPlan(entries) {
   const dates = [...new Set([...getWeekBounds(state.weekOffset).days, ...Object.keys(byDay)])].sort();
   const today = localIsoDate(new Date());
   const rank = (entry) => (MEAL_ORDER.indexOf(entry.entryType) + 1 || MEAL_ORDER.length + 1);
+  // Toevoegen: op een lege dag de enige handeling, dus een volle knop onderaan; op een dag met maaltijden een kleine "+" in de
+  // kop, zodat de dag niet twee keer zo hoog wordt. Het aria-label noemt de dag in beide gevallen.
+  const addButton = (date, compact) => {
+    const label = escapeHtml(t("plan.add_on", { day: formatDate(date) }));
+    return compact
+      ? `<button class="day-card__add day-card__add--compact" type="button" data-plan-add="${date}" aria-label="${label}" title="${escapeHtml(t("plan.add"))}">${mdiIcon(MDI_PLUS, "")}</button>`
+      : `<button class="day-card__add" type="button" data-plan-add="${date}" aria-label="${label}">${mdiIcon(MDI_PLUS, "")}<span>${escapeHtml(t("plan.add"))}</span></button>`;
+  };
   $("#meal-days").innerHTML = dates
     .map(
       (date) => `
         <article class="day-card${date === today ? " day-card--today" : ""}${byDay[date] ? "" : " day-card--empty"}">
-          <h3>${escapeHtml(formatDate(date))}${date === today ? `<span class="day-card__today">${escapeHtml(t("plan.today"))}</span>` : ""}</h3>
+          <div class="day-card__head">
+            <h3>${escapeHtml(formatDate(date))}${date === today ? `<span class="day-card__today">${escapeHtml(t("plan.today"))}</span>` : ""}</h3>
+            ${byDay[date] ? addButton(date, true) : ""}
+          </div>
           ${(byDay[date] || []).sort((a, b) => rank(a) - rank(b)).map(renderMeal).join("")}
-          <button class="day-card__add" type="button" data-plan-add="${date}" aria-label="${escapeHtml(t("plan.add_on", { day: formatDate(date) }))}">${mdiIcon(MDI_PLUS, "")}<span>${escapeHtml(t("plan.add"))}</span></button>
+          ${byDay[date] ? "" : addButton(date, false)}
         </article>
       `
     )
@@ -865,13 +949,20 @@ async function loadMealPlan({ force = false } = {}) {
 // (zie mealie.py); MealieShopper bewaart zelf geen planning. Daarna wordt de week opnieuw opgehaald.
 const PLAN_BASE_TYPES = ["breakfast", "lunch", "dinner", "side"];
 const MDI_DICE = "M19 5V19H5V5H19M19 3H5C3.9 3 3 3.9 3 5V19C3 20.1 3.9 21 5 21H19C20.1 21 21 20.1 21 19V5C21 3.9 20.1 3 19 3M7.5 6C6.7 6 6 6.7 6 7.5S6.7 9 7.5 9 9 8.3 9 7.5 8.3 6 7.5 6M16.5 15C15.7 15 15 15.7 15 16.5C15 17.3 15.7 18 16.5 18C17.3 18 18 17.3 18 16.5C18 15.7 17.3 15 16.5 15M16.5 6C15.7 6 15 6.7 15 7.5S15.7 9 16.5 9C17.3 9 18 8.3 18 7.5S17.3 6 16.5 6M12 10.5C11.2 10.5 10.5 11.2 10.5 12S11.2 13.5 12 13.5 13.5 12.8 13.5 12 12.8 10.5 12 10.5M7.5 15C6.7 15 6 15.7 6 16.5C6 17.3 6.7 18 7.5 18S9 17.3 9 16.5C9 15.7 8.3 15 7.5 15Z";
-const planDialog = { entry: null, recipe: null, results: [], types: null, searchTimer: 0, searchSeq: 0, target: null };
+// `servings`: het aantal porties in het venster; `servingsTouched`: of iemand het veranderde (dan gaat het mee naar Mealie).
+// `scaleSupported`: of de gekoppelde Mealie porties per maaltijd kent (recipeScale, vanaf 3.29).
+const planDialog = {
+  entry: null, recipe: null, results: [], types: null, searchTimer: 0, searchSeq: 0, target: null,
+  servings: null, servingsTouched: false, scaleSupported: false,
+};
 
 // De maaltijden die de gekoppelde Mealie kent (snack, drank en dessert pas vanaf Mealie 3.7); bij een fout de vier vaste.
 async function loadPlanTypes() {
   if (planDialog.types) return planDialog.types;
   try {
-    planDialog.types = (await jsonFetch("/api/mealplan/options")).entryTypes || PLAN_BASE_TYPES;
+    const options = await jsonFetch("/api/mealplan/options");
+    planDialog.types = options.entryTypes || PLAN_BASE_TYPES;
+    planDialog.scaleSupported = Boolean(options.recipeScale);
     return planDialog.types;
   } catch {
     return PLAN_BASE_TYPES;
@@ -904,9 +995,53 @@ function renderPlanKind() {
 }
 
 function planRecipeRow(recipe) {
-  const meta = [recipe.minutes ? t("rsearch.minutes", { count: recipe.minutes }) : "", ...(recipe.tags || [])].filter(Boolean).join(" · ");
+  const meta = factsWithKcal([recipe.minutes ? t("rsearch.minutes", { count: recipe.minutes }) : "", ...(recipe.tags || [])], [["kcal.per_serving", recipeKcal(recipe)]]);
   return `${recipe.image ? `<img src="${escapeHtml(recipe.image)}" alt="" width="48" height="48" loading="lazy" data-hide-on-error>` : `<span class="plan-recipe__placeholder" aria-hidden="true">${mdiIcon(MDI_PLUS, "")}</span>`}
-    <span class="plan-recipe__text"><strong>${escapeHtml(recipe.name || recipe.slug)}</strong>${meta ? `<small>${escapeHtml(meta)}</small>` : ""}</span>`;
+    <span class="plan-recipe__text"><strong>${escapeHtml(recipe.name || recipe.slug)}</strong>${meta ? `<small>${meta}</small>` : ""}</span>`;
+}
+
+// De porties van het gekozen recept (de basis), of 0 als Mealie of de winkel die niet weet.
+function planBase(recipe) {
+  const base = Number(recipe?.portions);
+  return Number.isFinite(base) && base > 0 ? base : 0;
+}
+
+// Porties kiezen (issue #283): alleen als Mealie het kent en de porties van het recept bekend zijn. Mealie bewaart de keuze
+// als schaal van het recept (recipeScale); per persoon blijven de kcal gelijk, het totaal rekent mee.
+function planServingsHtml(recipe) {
+  const base = planBase(recipe);
+  if (!planDialog.scaleSupported || !base) return "";
+  const max = Math.min(99, Math.floor(base * 20));
+  return `<div class="plan-servings">
+      <span class="plan-servings__label" id="plan-servings-label">${escapeHtml(t("plan.servings_label"))}</span>
+      <div class="qty">
+        <button type="button" class="qty__step" data-servings-step="-1" aria-label="${escapeHtml(t("plan.servings_less"))}">${mdiIcon(MDI_MINUS)}</button>
+        <input class="qty__input" id="plan-servings" type="number" inputmode="numeric" min="1" max="${max}" step="1" value="${escapeHtml(planDialog.servings || base)}" aria-labelledby="plan-servings-label">
+        <button type="button" class="qty__step" data-servings-step="1" aria-label="${escapeHtml(t("plan.servings_more"))}">${mdiIcon(MDI_PLUS)}</button>
+      </div>
+      <span class="plan-servings__kcal" id="plan-servings-kcal">${planServingsKcal(recipe)}</span>
+    </div>`;
+}
+
+function planServingsKcal(recipe) {
+  const kcal = recipeKcal(recipe);
+  const count = planDialog.servings || planBase(recipe);
+  return kcal ? factsWithKcal([], [["kcal.per_serving", kcal], ["kcal.total", count > 1 ? kcal * count : null]]) : "";
+}
+
+// Een ander aantal porties: alleen het veld en de kcal ernaast bijwerken, zodat de focus in het veld blijft.
+function setPlanServings(value) {
+  const recipe = planDialog.recipe;
+  const base = planBase(recipe);
+  if (!base) return;
+  const max = Math.min(99, Math.floor(base * 20));
+  const count = Math.min(max, Math.max(1, Math.round(Number(value) || base)));
+  planDialog.servings = count;
+  planDialog.servingsTouched = true;
+  const input = $("#plan-servings");
+  if (input && Number(input.value) !== count) input.value = count;
+  const kcal = $("#plan-servings-kcal");
+  if (kcal) kcal.innerHTML = planServingsKcal(recipe);
 }
 
 function renderPlanRecipe() {
@@ -915,9 +1050,18 @@ function renderPlanRecipe() {
   $("#plan-recipe-picker").hidden = Boolean(chosen);
   $("#plan-recipe-chosen").innerHTML = chosen
     ? `<div class="plan-recipe plan-recipe--chosen">${planRecipeRow(chosen)}</div>
-       <button class="link-button" type="button" id="plan-recipe-change">${escapeHtml(t("plan.other_recipe"))}</button>`
+       <button class="link-button" type="button" id="plan-recipe-change">${escapeHtml(t("plan.other_recipe"))}</button>
+       ${planServingsHtml(chosen)}`
     : "";
   $("#plan-surprise").hidden = Boolean(planDialog.entry);
+}
+
+// Een (ander) recept gekozen: de porties beginnen bij die van het recept, of bij wat er voor deze maaltijd gepland stond.
+function choosePlanRecipe(recipe, planned = null) {
+  planDialog.recipe = recipe;
+  planDialog.servings = Number(planned) > 0 ? Math.round(Number(planned)) : planBase(recipe) || null;
+  planDialog.servingsTouched = false;
+  renderPlanRecipe();
 }
 
 function renderPlanResults() {
@@ -927,16 +1071,27 @@ function renderPlanResults() {
 }
 
 // Zoeken in de recepten van Mealie; zonder zoekterm de recepten op naam. Een ouder antwoord overschrijft een nieuwer niet.
+// Met een grens op de calorieën (kcal per persoon, issue #283) zoekt de server in zijn cache; leest die de recepten nog in,
+// dan zoekt het venster na twee seconden opnieuw.
 async function searchPlanRecipes() {
   const query = $("#plan-recipe-query").value.trim();
+  const kcal = kcalQuery($("#plan-kcal-min"), $("#plan-kcal-max"));
   const seq = ++planDialog.searchSeq;
+  clearTimeout(planDialog.searchTimer);
   message("#plan-message", "");
   try {
-    const data = await jsonFetch(`/api/mealie/recipes?q=${encodeURIComponent(query)}`);
+    const data = await jsonFetch(`/api/mealie/recipes?q=${encodeURIComponent(query)}${kcal ? `&${kcal}` : ""}`);
     if (seq !== planDialog.searchSeq) return;
     planDialog.results = data.recipes || [];
     renderPlanResults();
-    if (!planDialog.results.length) message("#plan-message", query ? t("rsearch.none", { query }) : t("plan.no_recipes"), "success");
+    const note = kcal ? kcalSearchNote(data) : "";
+    if (!planDialog.results.length) {
+      const none = kcal ? t("kcal.none") : query ? t("rsearch.none", { query }) : t("plan.no_recipes");
+      message("#plan-message", [none, note].filter(Boolean).join(" "), "success");
+    } else if (note) {
+      message("#plan-message", note, "success");
+    }
+    if (kcal && data.indexing && $("#plan-dialog").open) planDialog.searchTimer = setTimeout(searchPlanRecipes, 2000);
   } catch (error) {
     if (seq === planDialog.searchSeq) message("#plan-message", error.message);
   }
@@ -947,8 +1102,7 @@ async function completePlanRecipe(recipe) {
   try {
     const detail = await jsonFetch(`/api/mealie/recipes/${encodeURIComponent(recipe.slug)}`);
     if (planDialog.recipe !== recipe) return;
-    planDialog.recipe = { slug: detail.slug, recipeId: detail.recipeId, name: detail.name, image: detail.image, minutes: detail.minutes, tags: detail.tags };
-    renderPlanRecipe();
+    choosePlanRecipe({ slug: detail.slug, recipeId: detail.recipeId, name: detail.name, image: detail.image, minutes: detail.minutes, tags: detail.tags, portions: detail.portions, kcal: detail.kcal });
   } catch (error) {
     if (planDialog.recipe === recipe) message("#plan-message", error.message);
   }
@@ -960,8 +1114,12 @@ function openPlanDialog({ date = "", entry = null, recipe = null, target = null 
   planDialog.target = target;
   planDialog.results = [];
   planDialog.recipe = entry
-    ? entry.recipe ? { slug: entry.recipe.slug, recipeId: entry.recipeId || entry.recipe.id, name: mealName(entry), image: entry.imageUrl } : null
+    ? entry.recipe
+      ? { slug: entry.recipe.slug, recipeId: entry.recipeId || entry.recipe.id, name: mealName(entry), image: entry.imageUrl, portions: entry.servings?.base, kcal: entry.kcal?.perServing }
+      : null
     : recipe;
+  planDialog.servings = entry?.servings?.planned ? Math.round(entry.servings.planned) : planBase(planDialog.recipe) || null;
+  planDialog.servingsTouched = false;
   $("#plan-dialog-title").textContent = t(entry ? "plan.edit_title" : "plan.add_title");
   $("#plan-date").value = entry?.date || date || localIsoDate(new Date());
   $("#plan-title").value = entry && !entry.recipe ? entry.title || "" : "";
@@ -976,7 +1134,9 @@ function openPlanDialog({ date = "", entry = null, recipe = null, target = null 
   setPlanKind(entry && !entry.recipe && !entry.recipeId ? "note" : "recipe");
   if (!$("#plan-dialog").open) $("#plan-dialog").showModal();
   loadPlanTypes().then((types) => {
-    if ($("#plan-dialog").open && planDialog.entry === entry) renderPlanTypes(types, $("#plan-type").value || current);
+    if (!$("#plan-dialog").open || planDialog.entry !== entry) return;
+    renderPlanTypes(types, $("#plan-type").value || current);
+    if (planDialog.recipe && planDialog.scaleSupported && !$("#plan-servings")) renderPlanRecipe(); // nu weten we of porties kunnen
   });
   if (recipe?.slug && !recipe.name) completePlanRecipe(recipe);
 }
@@ -1027,6 +1187,9 @@ async function savePlanEntry(event) {
     }
     if (recipe.recipeId) body.recipeId = recipe.recipeId;
     else if (recipe.slug) body.recipeSlug = recipe.slug;
+    // De gekozen porties als schaal van het recept (Mealie 3.29+); niet aangeraakt, dan blijft wat Mealie had.
+    const base = planBase(recipe);
+    if (planDialog.servingsTouched && planDialog.scaleSupported && base && planDialog.servings) body.recipeScale = planDialog.servings / base;
     // Was het een notitie, dan gaan titel en tekst weg; anders blijft wat er in Mealie bij staat.
     if (entry && !entry.recipe && !entry.recipeId) Object.assign(body, { title: "", text: "" });
   }
@@ -1179,6 +1342,27 @@ const STORES = {
   crisp: { name: "Crisp", api: "crisp", linked: "crisp", button: "plan.add_cart_crisp", ready: "cart.ready_crisp" },
 };
 
+// Winkels zonder webwinkel: van hen zijn er alleen de aanbiedingen, zonder koppeling, mandje of zoeken (offers.OFFER_ONLY_STORES).
+// Ze staan bewust niet in STORES: die lijst voedt het mandje, Winkels en de voorkeurssupermarkt.
+const OFFER_ONLY_STORES = {
+  lidl: { name: "Lidl" },
+  aldi: { name: "Aldi" },
+};
+
+// De naam van een winkel, ook van een winkel met alleen aanbiedingen.
+function storeDisplayName(key) {
+  return (STORES[key] || OFFER_ONLY_STORES[key])?.name || key;
+}
+
+function offersOnlyStore(key) {
+  return Object.hasOwn(OFFER_ONLY_STORES, key);
+}
+
+// Een winkel die zonder koppeling te kiezen is bij Aanbiedingen: AH (de Bonus werkt zonder inlog) en de winkels met alleen aanbiedingen.
+function storeWithoutLink(key) {
+  return key === "ah" || offersOnlyStore(key);
+}
+
 function currentStore() {
   return STORES[state.store] || STORES.ah;
 }
@@ -1278,10 +1462,10 @@ const JUMBO_SUBTABS = ["ah-items-jumbo-recepten"];
 const CRISP_SUBTABS = ["ah-items-crisp-recepten", "ah-items-crisp-favorieten", "ah-items-crisp-bestellingen"];
 
 // Winkels: per winkel de onderdelen en hun subtab, in de volgorde van de tabs. Het onderdeel is ook het stuk in het adres
-// (/stores/jumbo/lists); /stores/ah/receipts/<id> is een kassabon onder Bestellingen, /stores/ah/imported/<ref> een ingelezen
+// (/stores/jumbo/lists, /stores/ah/planner); /stores/ah/receipts/<id> is een kassabon onder Bestellingen, /stores/ah/imported/<ref> een ingelezen
 // oude bestelling (zie price_import.py en router.js). Elk subtab hoort bij één onderdeel, bij welke winkel ook.
 const STORE_SECTIONS = {
-  ah: { recipes: "ah-items-recepten", lists: "ah-items-lijstjes", orders: "ah-items-bestellingen" },
+  ah: { recipes: "ah-items-recepten", planner: "ah-items-weekplanner", lists: "ah-items-lijstjes", orders: "ah-items-bestellingen" },
   jumbo: { recipes: "ah-items-jumbo-recepten", lists: "ah-items-lijstjes", orders: "ah-items-bestellingen" },
   picnic: { recipes: "ah-items-picnic", favorites: "ah-items-picnic-favorieten", orders: "ah-items-picnic-bestellingen" },
   crisp: { recipes: "ah-items-crisp-recepten", favorites: "ah-items-crisp-favorieten", orders: "ah-items-crisp-bestellingen" },
@@ -1334,6 +1518,7 @@ function renderItemsStore() {
       button.hidden = hidden;
     });
   hide("ah-items-recepten", state.itemsStore !== "ah");
+  hide("ah-items-weekplanner", state.itemsStore !== "ah"); // de weekplanner van de AH-app (ah_planner.js)
   hide("ah-items-lijstjes", ownTabs);
   hide("ah-items-bestellingen", ownTabs);
   PICNIC_SUBTABS.forEach((subtab) => hide(subtab, !picnic));
@@ -1526,14 +1711,14 @@ function renderCartReview(rows) {
   const doubts = rows.filter((row) => row.candidates.length && row.candidates[0].doubt).length;
   $("#cart-result").innerHTML = `
     <div class="box cart-review">
-      <div class="toolbar">
-        <h2>${escapeHtml(t("cart.review_title"))}</h2>
-        <button class="button" id="confirm-cart"></button>
-        <button class="button button--secondary" id="cancel-cart">${escapeHtml(t("common.cancel"))}</button>
-      </div>
+      <h2>${escapeHtml(t("cart.review_title"))}</h2>
       <p class="muted">${escapeHtml(doubts ? tn("cart.doubts", doubts) : t("cart.review_intro"))}</p>
       ${missingCount ? `<p class="muted" id="review-missing-hint">${escapeHtml(tn("cart.missing_hint", missingCount))}</p>` : ""}
       <div class="review-list">${rows.map((row, index) => reviewRowHtml(row, index)).join("")}</div>
+      <div class="cart-review__actions">
+        <button class="button" id="confirm-cart"></button>
+        <button class="button button--secondary" id="cancel-cart">${escapeHtml(t("common.cancel"))}</button>
+      </div>
     </div>
   `;
 
@@ -1667,6 +1852,8 @@ function renderCartReview(rows) {
         "afterbegin",
         `<div class="message error">${escapeHtml(error.message)}</div>`
       );
+      // De knop staat in de balk onderaan; de melding staat boven de lijst en moet dus in beeld komen.
+      $("#cart-result .message.error").scrollIntoView({ block: "center" });
       updateConfirm();
     }
   });
@@ -1726,13 +1913,20 @@ function recipeCardActions(open, plan) {
 
 // Inplannen bij een recept dat al in Mealie staat.
 function planButtonAttrs(recipe) {
-  return `data-plan-slug="${escapeHtml(recipe.slug || recipe.id)}" data-plan-id="${escapeHtml(recipe.recipeId || "")}" data-plan-name="${escapeHtml(recipe.name || "")}" data-plan-image="${escapeHtml(recipe.image || "")}"`;
+  return `data-plan-slug="${escapeHtml(recipe.slug || recipe.id)}" data-plan-id="${escapeHtml(recipe.recipeId || "")}" data-plan-name="${escapeHtml(recipe.name || "")}" data-plan-image="${escapeHtml(recipe.image || "")}"${planExtraAttrs(recipe)}`;
+}
+
+// De porties en de kcal per portie, voor het porties-veld in de plan-dialoog (issue #283); leeg als ze onbekend zijn.
+function planExtraAttrs(recipe) {
+  const portions = Number(recipe?.portions);
+  const kcal = recipeKcal(recipe);
+  return `${portions > 0 ? ` data-plan-portions="${escapeHtml(portions)}"` : ""}${kcal ? ` data-plan-kcal="${escapeHtml(Math.round(kcal))}"` : ""}`;
 }
 
 // Inplannen bij een recept van een winkel of maaltijdbox: de plan-dialoog zet het eerst in Mealie, of gebruikt het recept
 // dat er al staat (zelfde bron).
-function planSourceAttrs(store, id, name, image) {
-  return `data-plan-source="${escapeHtml(`${store}:${id}`)}" data-plan-name="${escapeHtml(name || "")}" data-plan-image="${escapeHtml(image || "")}"`;
+function planSourceAttrs(store, id, name, image, recipe = null) {
+  return `data-plan-source="${escapeHtml(`${store}:${id}`)}" data-plan-name="${escapeHtml(name || "")}" data-plan-image="${escapeHtml(image || "")}"${planExtraAttrs(recipe)}`;
 }
 
 // Het nummer van een Allerhande-recept: het id, of anders uit de link (R-R123).
@@ -1879,10 +2073,62 @@ async function saveWeekStart(event) {
   await refreshMealieStatus();
 }
 
+// ---- Voedingswaarden van oude AH-recepten aanvullen (Instellingen, Koppelen, Mealie; alleen de beheerder, issue #283). De
+// server werkt de recepten een voor een af (recipe_nutrition.py); zolang dat loopt, vraagt de pagina elke twee seconden de stand.
+let nutritionBackfillTimer = 0;
+
+function renderNutritionBackfill(status) {
+  const running = status?.state === "running";
+  $("#mealie-nutrition-start").hidden = running;
+  $("#mealie-nutrition-stop").hidden = !running;
+  const counts = {};
+  for (const key of ["checked", "total", "updated", "skipped", "failed"]) counts[key] = I18N.formatNumber(Number(status?.[key]) || 0);
+  const texts = {
+    running: t("mealie.nutrition.running", counts),
+    done: t("mealie.nutrition.done", counts),
+    stopped: [t("mealie.nutrition.stopped", counts), status?.error || ""].filter(Boolean).join(" "),
+    error: t("mealie.nutrition.error", { ...counts, error: status?.error || "" }),
+  };
+  message("#mealie-nutrition-message", texts[status?.state] || "", status?.state === "error" ? "error" : "success");
+  clearTimeout(nutritionBackfillTimer);
+  if (running) nutritionBackfillTimer = setTimeout(pollNutritionBackfill, 2000);
+}
+
+async function pollNutritionBackfill() {
+  try {
+    renderNutritionBackfill(await jsonFetch("/api/mealie/nutrition/backfill"));
+  } catch (error) {
+    message("#mealie-nutrition-message", error.message);
+  }
+}
+
+async function startNutritionBackfill(event) {
+  const button = event.currentTarget;
+  setBusy(button, true);
+  try {
+    // Loopt het al (bijvoorbeeld gestart voor het herladen van de pagina), dan alleen de stand tonen.
+    const current = await jsonFetch("/api/mealie/nutrition/backfill");
+    renderNutritionBackfill(current.state === "running" ? current : await jsonFetch("/api/mealie/nutrition/backfill", { method: "POST" }));
+  } catch (error) {
+    message("#mealie-nutrition-message", error.message);
+  } finally {
+    setBusy(button, false);
+  }
+}
+
+async function stopNutritionBackfill() {
+  try {
+    renderNutritionBackfill(await jsonFetch("/api/mealie/nutrition/backfill", { method: "DELETE" }));
+  } catch (error) {
+    message("#mealie-nutrition-message", error.message);
+  }
+}
+
 function renderMealieStatus(data, { verified = false } = {}) {
   const setup = $("#mealie-setup");
   if (setup) setup.hidden = Boolean(data.configured);
   state.linkedStores.mealie = Boolean(data.configured); // Recepten zoeken zoekt dan ook in Mealie
+  if (typeof renderAhPlannerButton === "function") renderAhPlannerButton(); // Naar weekmenu (ah_planner.js) vraagt Mealie
   // Eerst de eerste dag van de week, zodat het weekmenu meteen de goede week ophaalt.
   const weekChanged = applyWeekStart(data.weekStart);
   // Het weekmenu laadt vanzelf zodra Mealie gekoppeld is; zonder koppeling vervalt wat we onthouden hadden.
@@ -2687,6 +2933,7 @@ document.querySelectorAll(".subtab[data-subtab], .subtab-menu__item[data-subtab]
     if (subtab.dataset.subtab === "settings-system" && typeof loadPriceArchive === "function") loadPriceArchive();
     if (subtab.dataset.subtab === "settings-system" && typeof loadImageCacheStatus === "function") loadImageCacheStatus();
     if (subtab.dataset.subtab === "ah-items-bestellingen" && typeof loadOrders === "function") loadOrders();
+    if (subtab.dataset.subtab === "ah-items-weekplanner" && typeof showAhPlanner === "function") showAhPlanner();
     if (subtab.dataset.subtab === "ah-items-picnic" && typeof loadPicnicRecipes === "function" && !picnicRecipes.loaded) loadPicnicRecipes();
     if (subtab.dataset.subtab === "ah-items-picnic-favorieten" && typeof loadPicnicFavorites === "function" && !picnicFavorites.loaded) loadPicnicFavorites({ refresh: false });
     if (subtab.dataset.subtab === "ah-items-picnic-bestellingen" && typeof loadPicnicOrders === "function" && !picnicOrders.loaded) loadPicnicOrders();
@@ -2807,9 +3054,10 @@ document.addEventListener("click", (event) => {
   if (!button) return;
   const data = button.dataset;
   const [store, ...rest] = (data.planSource || "").split(":");
+  const extra = { portions: Number(data.planPortions) || null, kcal: Number(data.planKcal) || null };
   const recipe = data.planSource
-    ? { source: { store, id: rest.join(":") }, name: data.planName || "", image: data.planImage || "" }
-    : { slug: data.planSlug, recipeId: data.planId || "", name: data.planName || "", image: data.planImage || "" };
+    ? { source: { store, id: rest.join(":") }, name: data.planName || "", image: data.planImage || "", ...extra }
+    : { slug: data.planSlug, recipeId: data.planId || "", name: data.planName || "", image: data.planImage || "", ...extra };
   const target =
     button.closest(".message")?.parentElement ||
     button.closest(".recipe-card")?.querySelector(".recipe-import-result") ||
@@ -2849,16 +3097,32 @@ $("#plan-recipe-query").addEventListener("keydown", (event) => {
 $("#plan-recipe-results").addEventListener("click", (event) => {
   const pick = event.target.closest("[data-plan-pick]");
   if (!pick) return;
-  planDialog.recipe = planDialog.results[Number(pick.dataset.planPick)] || null;
   message("#plan-message", "");
-  renderPlanRecipe();
+  choosePlanRecipe(planDialog.results[Number(pick.dataset.planPick)] || null);
 });
 $("#plan-recipe-chosen").addEventListener("click", (event) => {
+  const step = event.target.closest("[data-servings-step]");
+  if (step) return setPlanServings((planDialog.servings || planBase(planDialog.recipe)) + Number(step.dataset.servingsStep));
   if (!event.target.closest("#plan-recipe-change")) return;
   planDialog.recipe = null;
   renderPlanRecipe();
   $("#plan-recipe-query").focus();
   if (!planDialog.results.length) searchPlanRecipes();
+});
+$("#plan-recipe-chosen").addEventListener("change", (event) => {
+  if (event.target.id === "plan-servings") setPlanServings(event.target.value);
+});
+// Het filter op calorieën (kcal per persoon) in de receptkiezer: zoeken zodra je stopt met typen.
+["#plan-kcal-min", "#plan-kcal-max"].forEach((selector) => {
+  $(selector).addEventListener("input", () => {
+    clearTimeout(planDialog.searchTimer);
+    planDialog.searchTimer = setTimeout(searchPlanRecipes, 400);
+  });
+  $(selector).addEventListener("keydown", (event) => {
+    if (event.key !== "Enter") return;
+    event.preventDefault();
+    searchPlanRecipes();
+  });
 });
 $("#import-form").addEventListener("submit", async (event) => {
   event.preventDefault();
@@ -2886,6 +3150,8 @@ $("#mealie-form").addEventListener("submit", linkMealie);
 $("#check-mealie").addEventListener("click", checkMealieConnection);
 $("#mealie-unlink").addEventListener("click", unlinkMealie);
 $("#mealie-week-start").addEventListener("change", saveWeekStart);
+$("#mealie-nutrition-start").addEventListener("click", startNutritionBackfill);
+$("#mealie-nutrition-stop").addEventListener("click", stopNutritionBackfill);
 $("#open-mealie-setup").addEventListener("click", () => {
   openSettings();
   state.storeFold.mealie = true;

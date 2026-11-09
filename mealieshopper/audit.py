@@ -62,6 +62,9 @@ SERVICE_DOMAINS: dict[str, tuple[str, ...]] = {
     "picnic": ("picnicinternational.com",),
     "jumbo": ("jumbo.com",),
     "crisp": ("crispapp.nl",),
+    # Lidl en Aldi: de aanbiedingenpagina en de productfoto's. scene7.com is het gedeelde CDN van Adobe, dus alleen de host van Aldi.
+    "lidl": ("lidl.nl", "imgproxy-retcat.assets.schwarz"),
+    "aldi": ("aldi.nl", "s7g10.scene7.com"),
     "hellofresh": ("hellofresh.nl",),
     "marleyspoon": ("marleyspoon.nl", "marleyspoon.com"),
 }

@@ -335,7 +335,7 @@ class SearchTest(AiMatchCase):
             with self.assertRaises(ValueError):
                 await ai_match.start("ah")
             with self.assertRaises(ValueError):
-                await ai_match.plan("lidl")
+                await ai_match.plan("nope")
         self.assertFalse(route.called)
 
 
@@ -425,7 +425,7 @@ class RoutesTest(AiMatchCase):
         self.assertEqual((await self.admin.get("/api/offers/ai")).get_json()["search"]["state"], "done", "ook in de AI-instellingen, voor de pagina na een herlading")
         recipes = (await self.admin.get("/api/offers/recipes?store=ah")).get_json()
         self.assertEqual(recipes["ai"]["searched"], 2)
-        self.assertEqual((await self.admin.get("/api/offers/ai/search/plan?store=lidl")).status_code, 400)
+        self.assertEqual((await self.admin.get("/api/offers/ai/search/plan?store=nope")).status_code, 400)
         await ai_review.save({"clear": ["anthropic"]})
         self.assertEqual((await self.admin.post("/api/offers/ai/search", json={"store": "ah"})).status_code, 400)
 

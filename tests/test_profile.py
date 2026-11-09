@@ -122,6 +122,18 @@ class ProfileTest(AppTestCase):
         self.assertFalse((await self.client.get("/api/auth/status")).get_json()["cookingMode"], "een weigering verandert niets")
         self.assertTrue((await self.client.put("/api/profile/preferences", json={"cookingMode": True})).get_json()["cookingMode"])
 
+    async def test_calories_are_shown_by_default_and_can_be_hidden(self):
+        # Issue #283: iedere gebruiker kiest zelf of hij de calorieën bij een recept (en het filter erop) ziet.
+        self.assertTrue((await self.client.get("/api/auth/status")).get_json()["showCalories"], "standaard aan")
+        reply = await self.client.put("/api/profile/preferences", json={"showCalories": False})
+        self.assertEqual((reply.status_code, reply.get_json()["showCalories"]), (200, False))
+        await self.client.put("/api/profile/preferences", json={"cookingMode": False})
+        self.assertFalse((await self.client.get("/api/auth/status")).get_json()["showCalories"], "een andere voorkeur laat hem staan")
+        for bad in ({"showCalories": 0}, {"showCalories": "nee"}, {"showCalories": None}):
+            self.assertEqual((await self.client.put("/api/profile/preferences", json=bad)).status_code, 400, bad)
+        self.assertFalse((await self.client.get("/api/profile")).get_json()["showCalories"], "een weigering verandert niets")
+        self.assertTrue((await self.client.put("/api/profile/preferences", json={"showCalories": True})).get_json()["showCalories"])
+
     async def test_preferred_store_is_albert_heijn_until_another_is_chosen(self):
         self.assertEqual((await self.client.get("/api/auth/status")).get_json()["preferredStore"], "ah", "standaard Albert Heijn")
         for store in ("jumbo", "picnic", "crisp", "ah", "jumbo"):
@@ -134,6 +146,24 @@ class ProfileTest(AppTestCase):
             self.assertEqual((await self.client.put("/api/profile/preferences", json=bad)).status_code, 400, bad)
         self.assertEqual((await self.client.get("/api/auth/status")).get_json()["preferredStore"], "jumbo", "een weigering verandert niets")
         self.assertEqual((await self.client.get("/api/profile")).get_json()["preferredStore"], "jumbo")
+
+    async def test_week_planner_options_are_on_by_default_and_can_be_switched(self):
+        # De weekplanner van de AH-app (4.3.0): losse producten samen als één menu, en soep en pizza dan toch los.
+        status = (await self.client.get("/api/auth/status")).get_json()
+        self.assertEqual((status["plannerCombine"], status["plannerSplitMeals"]), (True, True), "standaard allebei aan")
+        reply = await self.client.put("/api/profile/preferences", json={"plannerSplitMeals": False})
+        self.assertEqual((reply.status_code, reply.get_json()["plannerCombine"], reply.get_json()["plannerSplitMeals"]), (200, True, False))
+        reply = await self.client.put("/api/profile/preferences", json={"plannerCombine": False})
+        self.assertEqual((reply.get_json()["plannerCombine"], reply.get_json()["plannerSplitMeals"]), (False, False), "de ander blijft staan")
+        await self.client.put("/api/profile/preferences", json={"cookingMode": False})
+        status = (await self.client.get("/api/auth/status")).get_json()
+        self.assertEqual((status["plannerCombine"], status["plannerSplitMeals"]), (False, False), "een andere voorkeur laat ze staan")
+        for bad in ({"plannerCombine": 1}, {"plannerCombine": "ja"}, {"plannerSplitMeals": None}, {"plannerCombine": True, "plannerSplitMeals": 0}):
+            self.assertEqual((await self.client.put("/api/profile/preferences", json=bad)).status_code, 400, bad)
+        status = (await self.client.get("/api/auth/status")).get_json()
+        self.assertEqual((status["plannerCombine"], status["plannerSplitMeals"]), (False, False), "een weigering verandert niets")
+        reply = await self.client.put("/api/profile/preferences", json={"plannerCombine": True, "plannerSplitMeals": True})
+        self.assertEqual((reply.get_json()["plannerCombine"], reply.get_json()["plannerSplitMeals"]), (True, True))
 
     def test_a_bad_stored_value_counts_as_no_choice(self):
         run(profile.set_display_name("owner", "x"))
@@ -160,6 +190,7 @@ class ProfileTest(AppTestCase):
         self.assertEqual((run(profile.get("owner"))["preferOrganic"], run(profile.get("owner"))["displayName"]), (True, "Oud"))
         self.assertEqual((run(profile.get("owner"))["theme"], run(profile.get("owner"))["accent"]), (None, ""), "en de kolommen van de weergave")
         self.assertEqual(run(profile.get("owner"))["preferredStore"], "ah", "en de voorkeurssupermarkt")
+        self.assertEqual((run(profile.get("owner"))["plannerCombine"], run(profile.get("owner"))["plannerSplitMeals"]), (True, True), "en de weekplanner")
         run(profile.set_appearance("owner", accent="#b0213f"))
         self.assertEqual((run(profile.get("owner"))["accent"], run(profile.get("owner"))["darkBackground"]), ("#b0213f", "green"))
 

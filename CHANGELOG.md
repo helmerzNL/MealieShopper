@@ -2,9 +2,9 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub; een stabiele release krijgt de teksten van alle versies sinds de vorige stabiele release.
 
-## v4.2.0
+## v4.6.0
 
-### Nieuw in 4.2.0
+### Nieuw in 4.6.0
 
 *English summary: The **Offers** page gets a filter sidebar, sorts the best offers first, merges the packs of one product into one card and shows the full price history in a panel when you point at a card. **Best first** is the new default order: an offer whose price is the lowest of the past twelve months comes on top. That lowest comes from four sources (the product's earlier offers, the leaflet offers for the whole range per item, your purchases and the tracked regular prices), this week's offer itself does not count, and the app only makes the claim once it has followed the product for a year. Minced beef of 300, 500 and 1000 grams are three products with three prices: the card view now shows such a pack family as one card with a row per pack, the cheapest per unit marked, and an offer that is pricier per unit than another pack is not on top. The sidebar filters on brand, bought before, lowest price in a year, rarely on offer, minimum discount and price per unit, remembered per store. A hover on a card opens a 640 px panel with the key figures, the chart with its range buttons, the last eight purchases and pack buttons. `/api/offers` for 447 AH offers: 1.6 s cold, 8 ms from the cache.*
 
@@ -14,7 +14,7 @@ Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar
 - **Popup met de prijsgeschiedenis.** Wijs met de muis een kaart of een regel aan (op minstens 900 pixels breed), dan staat na een korte pauze naast de kaart een paneel van 640 pixels met de foto, de kerncijfers, de grafiek met de knoppen voor 1 jaar, 3 jaar en alles, de laatste acht aankopen en een link naar de volledige prijsgeschiedenis. Is er naast de kaart minder ruimte, dan wordt het paneel smaller (minstens 420 pixels) of staat het eronder. Bij een verpakkingsfamilie wissel je met knoppen van verpakking zonder het paneel te sluiten. Het blijft staan zolang de muis op de kaart of het paneel staat en verdwijnt bij Escape of scrollen. Zonder muis opent een tik op het plaatje hetzelfde als venster. De prijsgeschiedenis is daarvoor in stukken gedeeld (`offerHistoryHead`, `offerHistoryStats`, `offerHistoryChartBlock`, `offerHistoryPurchasesTable`), die de pagina **Prijsgeschiedenis** ook gebruikt.
 - **Keer in de aanbieding telt de folderacties mee** op de aanbiedingenpagina (*n× dit jaar*), zoals in de prijsgeschiedenis sinds 4.1.10.
 
-### Verbeterd in 4.2.0
+### Verbeterd in 4.6.0
 
 - **De lijst ververst na een deploy en na een nieuwe prijsgeschiedenis.** De `ETag` van `/api/offers` had alleen de versie: twee builds van dezelfde versie gaven dezelfde `ETag`, en een browser hield na een deploy de oude lijst vast (`304`) zonder de nieuwe velden. Nu zit de commit van de build erin (`about.build_commit`) en de versie van de catalogus van de prijsgeschiedenis (`prices.signature`), zodat een nieuwe aankoop of een geimporteerd archief ook de aanbiedingen opnieuw laat rekenen.
 - **De catalogus warmt op bij de start en na de synchronisatie.** Gemeten met de productiedata, 447 AH-aanbiedingen: `/api/offers` kostte 1,6 seconde lokaal en 4,5 seconde op de server bij de eerste aanvraag, waarvan ruim twee seconden het opbouwen van de catalogus van de prijsgeschiedenis (de lijnindex van het folderarchief en de bekende producten). Die bouwt `prices.warm_catalogues` nu alvast bij het starten van de app en na elke synchronisatie van de aanbiedingen, zodat de eerste bezoeker er niet op wacht. Daarna 8 milliseconden uit de cache.
@@ -24,15 +24,192 @@ Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar
 - **Popup:** een mislukte aanvraag van de prijsgeschiedenis blijft niet hangen op *laden* en wordt bij de volgende hover opnieuw geprobeerd, de popup wisselt niet meer van verpakking terwijl de muis van een verpakkingsregel naar de popup gaat, en zonder hover-popup (ook een venster smaller dan 900 pixels met een muis) opent een tik op het plaatje het venster.
 - **De filters volgen de winkel** bij elke wissel, ook via de voorkeurssupermarkt of een ontkoppelde winkel: de filters van de ene winkel stonden anders even op de andere en overschreven die.
 
-### Verwijderd in 4.2.0
+### Verwijderd in 4.6.0
 
 - De hover-zoom met het grote plaatje en het kleine prijsverloop van een jaar (`offerSparkline`) is vervangen door de popup met de volledige prijsgeschiedenis.
 
-### Tests in 4.2.0
+### Tests in 4.6.0
 
 - `tests/test_offer_ranking.py` voor `year_low` (de vier bronnen, de dekking van een jaar, een halve cent telt als gelijk) en de families (de sleutel, de goedkoopste per eenheid, gemengde eenheden, een lege merknaam, een verpakking zonder recente prijs). In `tests/test_prices.py` de echte route: `yearLow` uit observaties, folderweken en aankopen (ook *1+1 gratis*), `bought`, `family`, en de signature die met de catalogus verandert. In `tests/test_offers.py` de `ETag` met de versie en de commit.
 - `tests/test_offers_scan_js.py` draait `offers.js` in Node: de volgorde van *Beste eerst*, de regel *laagste in een jaar*, de families in de kaarten, de verpakkingsregels, de filters (stapelen, de familieregel, de merktelling, een merk dat deze week ontbreekt), de plek en de breedte van de popup en de inhoud ervan. `tests/test_history_chart_js.py` controleert dat de prijsgeschiedenis uit dezelfde stukken bestaat als de popup, en de aankopentabel met een limiet.
 - In `tests/test_reported_bugs.py` de wens van 2026-11-09 ("ik wil veel meer filters hier, daarnaast wil ik de beste aanbiedingen bovenaan"): de laagste van het jaar via de echte route en de filters die stapelen.
+
+## v4.5.0
+
+### Nieuw in 4.5.0
+
+Pull request: [#290](https://github.com/helmerzNL/MealieShopper/pull/290).
+
+*English summary: MealieShopper now shows the offers of **Lidl** and **Aldi**, without an account. Neither sells groceries online, so there is no basket, search or link: the offers come from their public offers pages (lidl.nl and aldi.nl, pages their `robots.txt` allows), once per sync, with MealieShopper's own User-Agent. They are in the store menu of **Offers** for everyone, in the daily sync, the price history of the offers, the recipe suggestions, the AI features for the offers, the MCP tools for offers and price history, and the price archive export and import. Lidl Plus prices count as the offer when there is no regular offer, labelled "-31% met Lidl Plus". Non-food and plants are left out. Compare pack sizes, Import old purchases, product links and the preferred supermarket stay with the stores that have an online shop. When a percentage label is one cent off the store's own price (rounding), the store's price now wins for every store. The research into Lidl and the other Dutch supermarkets (Plus, Hoogvliet, Dirk, Spar and more) is in `docs/onderzoek-lidl.md` and `docs/onderzoek-supermarkten.md`. Reload the page once after updating.*
+
+- **Lidl en Aldi bij Aanbiedingen.** Lidl en Aldi verkopen geen boodschappen online, dus een mandje vullen kan niet. Hun aanbiedingen van de week kan MealieShopper wel tonen, zonder account:
+  - **Waar ze vandaan komen:** de openbare aanbiedingenpagina van Lidl (`/c/aanbiedingen/a10008785`, met per product een blok JSON in `data-grid-data`) en van Aldi (`aanbiedingen.html`, met de aanbiedingen in `__NEXT_DATA__` onder `apiData`). Beide pagina's staan in `robots.txt` toegestaan. De zoek-API van Lidl (`*search?q=*`) niet, en die gebruikt MealieShopper dus ook niet. Per synchronisatie gaat er één verzoek naar elke winkel, met de naam MealieShopper in de User-Agent.
+  - **Waar ze staan:** in het winkelmenu van **Aanbiedingen**, voor iedereen en zonder koppeling, zoals de bonus van AH. Verder in de dagelijkse synchronisatie en de knop onder **Instellingen, Koppelen**, de Prijsgeschiedenis van de aanbiedingen, de receptvoorstellen, de AI-functies bij de aanbiedingen, de MCP-tools voor aanbiedingen en prijsgeschiedenis, en het prijsarchief (exporteren en importeren).
+  - **Uitleg erbij:** boven de lijst staat dat het de aanbiedingen in de winkels zijn, zonder mandje of koppeling. Bij Lidl staat er ook wat "met Lidl Plus" betekent.
+  - **Fouten:** geeft een winkel een andere pagina dan verwacht, of geen aanbiedingen, dan blijft de vorige kopie staan en noemt de synchronisatie de fout, net als bij de andere winkels. Ook een 403 of 429, of een doorverwijzing naar een andere host, geeft een fout.
+- **Lidl:**
+  - **Welke aanbieding telt:** een gewone aanbieding (een prijs met een einddatum) gaat voor. Heeft een product alleen een vaste prijs, maar wel een prijs met de gratis app *Lidl Plus*, dan is die de aanbieding, met het label *-31% met Lidl Plus* en de gewone prijs als oude prijs. Een vaste prijs zonder actie is geen aanbieding.
+  - **Looptijd:** van de eerste dag in de winkel (`storeStartDate`) tot de laatste dag van de prijs, in Nederlandse tijd.
+  - **Wat wegvalt:** non-food en planten (`NonFood` en `P+F`). Een merk "-" is geen merk.
+  - **Regio's:** Lidl heeft zes prijsregio's; MealieShopper leest de prijzen die de pagina toont (regio 1).
+- **Aldi:**
+  - **Periodes:** een actieperiode komt uit `promotionPrices`, met de datums in Nederlandse tijd. Zonder die lijst telt de huidige prijs als die een label of een oude prijs heeft (*OP=OP* loopt soms door), en anders alleen binnen de periode van haar groep in de folder. Rond de wissel van de week staat daar al de gewone prijs van na de actie.
+  - **"2 VOOR":** de prijs is dan die voor twee. Bij *2 VOOR* met een prijs van 3,00 wordt het 1,50 per stuk met het label *2 voor 3,00*. Het lege label *-- Select option --* valt weg.
+  - **Wat wegvalt:** producten die alleen in groepen met non-food staan, zoals speelgoed, kleding, wintersport, elektronica en kerstverlichting. Huishouden en drogisterij blijven, net als bij de andere winkels.
+  - **Foto's en links:** de foto's komen verkleind (500 bij 500), en de link gaat naar de productpagina op aldi.nl.
+- **Wat bij Lidl en Aldi niet kan:** het mandje, zoeken en **Vergelijk verpakkingen** (de knop staat er niet). Ook **Oude aankopen importeren** en zelf koppelen kunnen daar niet: er zijn geen bestellingen. De API antwoordt met 400 en een uitleg (`prices.compare`, `link_candidates`, `product_links` en `price_import` gebruiken `offers.SHOP_STORES`). Lidl en Aldi zijn ook geen keuze als voorkeurssupermarkt: die opent ook Winkels, en daar staat voor hen niets.
+- **De prijs van de winkel wint van een afgerond percentage.** *-30%* op 1,69 is 1,183. Lidl vraagt 1,19, en de kaart toonde 1,18 met "per stuk 1,18". Geldt de korting vanaf één stuk en ligt de prijs van de winkel binnen twee cent van de berekende, dan geldt nu de prijs van de winkel. Dat geldt voor elke winkel.
+- **Foto's en auditlog:**
+  - De foto's van Lidl (`www.lidl.nl/assets/…` en `imgproxy-retcat.assets.schwarz`) en Aldi (`s7g10.scene7.com/is/image/aldinord/…`) gaan door de afbeeldingencache. Het pad telt mee: de rest van lidl.nl en andere klanten van het CDN van Adobe niet.
+  - Het verkeer staat in het auditlog onder *Lidl* en *Aldi*, en de keuzelijst van het auditlog heeft nu ook Crisp, Lidl en Aldi.
+  - Op **Over** staan Lidl en Aldi bij de koppelingen.
+- **MCP:** de winkelkeuze van `review_offer_matches`, `report_offer_mismatch`, `list_offer_mismatches` en `get_price_history` volgt nu `offers.STORES` en kent dus ook Lidl en Aldi.
+- **Onderzoek:** `docs/onderzoek-lidl.md` (Lidl: geen online boodschappen, de aanbiedingenpagina, de folder-API, de zoek-API die `robots.txt` uitsluit, de kassabonnen van Lidl Plus en de voorwaarden) en `docs/onderzoek-supermarkten.md` (Aldi, Plus, Hoogvliet, Dirk, Spar, Poiesz, Vomar, DekaMarkt en meer, met marktaandeel en een voorstel). Volgende stappen staan daar: de aanbiedingen van Dirk, Plus als volledige winkel, en de kassabonnen van Lidl Plus.
+- **Tests:**
+  - `tests/test_lidl.py` en `tests/test_aldi.py` lezen een ingekorte kopie van de echte pagina's (`tests/fixtures/`) en zelfgemaakte randgevallen, en proberen de HTTP-fouten.
+  - `test_deals.py` test `deals.local_day` (winter, zomer en de twee omschakeldagen) en de afronding.
+  - `test_offers_stores.py` synchroniseert Lidl en Aldi zonder koppeling.
+  - `test_preferred_store.py` controleert dat ze bij Aanbiedingen staan, maar niet bij het mandje, Winkels of de voorkeurssupermarkt.
+  - Een ongeldige winkel heet in de tests nu `"nope"`.
+- **Handleiding** (NL en EN): een nieuw stuk *Lidl en Aldi*, en Lidl en Aldi bij het winkelmenu van Aanbiedingen, de voorkeurssupermarkt, het koppelen en het auditlog. De README's, de `.env`-voorbeelden en de Home Assistant-add-on noemen ze ook.
+- **Nieuw adres voor de scripts en stijlen** (`MEALIESHOPPER_ASSET_VERSION`). Ververs de pagina één keer.
+
+## v4.4.2
+
+### Gewijzigd en opgelost in 4.4.2
+
+Pull request: [#291](https://github.com/helmerzNL/MealieShopper/pull/291).
+
+*English summary: the first round of a design review of the interface. **Check your basket** no longer runs out of its card: the card uses the full width (it was capped at 680 px while a line needed more), a line has named areas that adapt to the width (one row on a wide screen, the drop-down under the ingredient on a laptop, stacked on a phone, with the checkbox and photo next to each other), so a product name in the drop-down is no longer cut off, and **Add to basket** and **Cancel** sit in a bar that stays in view at the bottom. In the **week menu** titles no longer break per syllable ("Boeren-koolstamp-pot"): in a narrow day card the photo sits above the text, and a day that already has a meal shows a small **+** next to the date instead of a full **Add** button under it (an empty day keeps that button). The hint "Cheaper per unit" on an offer is a tile instead of a pill over three lines, product photos on an offer card are an inset tile in the dark theme instead of a white block to the edge, and product names that are links (basket, orders, receipts, the compare window) are in the text colour with a faint underline instead of green and underlined. Nothing changed on the server. Reload the page once after updating.*
+
+- **Controleer je mandje past in zijn kaart.** De kaart was, zoals elke `.box`, maximaal 680 px breed, terwijl de zes vaste kolommen van een regel samen meer vroegen. Op een laptop staken de regels daardoor rechts buiten de kaart, brak het ingrediënt af ("400 g / spaghetti") en kapte de keuzelijst de productnaam af. Nu:
+  - gebruikt de kaart de hele breedte van de inhoud (`.box.cart-review`);
+  - heeft een regel benoemde vlakken die zich naar de breedte van de lijst voegen (container queries): op een breed scherm alles op één regel, van ingrediënt naar product; op een laptop of tablet de foto links en rechts het ingrediënt met *Bekijk product*, met daaronder de keuzelijst en het aantal; op een telefoon vinkje, foto en ingrediënt bovenaan, daaronder de keuzelijst over de volle breedte en dan *Bekijk product* en het aantal. De tekstkolommen kunnen niet meer breder worden dan de regel;
+  - staan **Voeg N producten toe aan mandje** en **Annuleren** in een balk die onderaan in beeld blijft (zoals die van *In bulk importeren*, op een telefoon boven de menubalk), in plaats van bovenaan de lijst;
+  - hebben *Kies* en *Zoek een ander product* weer de hoogte die bedoeld was: de 44 px van `.link-button` won van de regel van de controlelijst en gaf grote gaten tussen de regels tekst.
+- **Weekmenu: titels heel.** In een smalle dagkaart (vier of meer dagen naast elkaar) kreeg de titel naast de foto zo'n 120 px en brak hij per lettergreep af. Nu staat de foto in een smalle kaart boven de tekst, over de volle breedte, met het potlood als vlakje op de foto, en breekt een titel alleen nog tussen woorden. Op een telefoon blijft de foto naast de tekst. Dat geldt ook voor de *Weekplanner* van AH, die dezelfde dagkaart gebruikt.
+- **Weekmenu: compactere dagen.** Op een dag met maaltijden is *Toevoegen* een kleine **+** rechts naast de datum (met hetzelfde label voor schermlezers, "Toevoegen op <dag>"), in plaats van een volle gestippelde knop onder de maaltijden. Een lege dag houdt die knop, want daar is toevoegen de enige handeling. Past *Vandaag* niet naast de datum, dan staat het eronder in plaats van de datum af te breken.
+- **Aanbiedingen:** de hint *Per eenheid goedkoper* is een tegel met de radius van een knop, geen pil over drie regels. In het donkere thema staat de productfoto als ingezette tegel op de kaart, in plaats van een wit vlak tot de rand.
+- **Productnamen** die een link zijn (een kaart in het mandje, een bestelling of bon, en het venster *Vergelijk verpakkingen*) staan in de tekstkleur met een vage onderstreping, en worden groen bij hover en focus. Een lijst vol groene, onderstreepte namen was onrustig.
+- **Handleiding** (NL en EN): de **+** naast de datum in het weekmenu en de balk onderaan de controlelijst. De screenshots van het weekmenu, de controlelijst, het mandje, de aanbiedingen en het donkere thema zijn opnieuw gemaakt.
+- **Tests:** `tests/test_tabbar.py` controleert nu ook dat de balk van de controlelijst op een telefoon boven de menubalk blijft.
+- **Screenshots:** de scenario's van het mandje (`basket`, `basket-picnic`, `basket-jumbo`) liepen op de telefoon vast, omdat *Mandje* daar niet in de menubalk staat maar onder *Meer*. `openBasket` in `scripts/screenshots/scenarios/10-week-and-basket.js` kiest dan het menu-item.
+- **Nieuw adres voor de stijlen en scripts** (`MEALIESHOPPER_ASSET_VERSION`). Ververs de pagina één keer.
+
+## v4.4.1
+
+### Opgelost in 4.4.1
+
+Issue: [#283](https://github.com/helmerzNL/MealieShopper/issues/283); vervolg op pull request [#288](https://github.com/helmerzNL/MealieShopper/pull/288).
+
+*English summary: recipes from Albert Heijn now really get their nutrition. In 4.4.0 the nutrition was only asked for in a variant of the AH recipe query with `preparation { steps { text } }`, but AH gives `steps` as a list of strings, so that variant always failed and MealieShopper fell back to a variant without nutrition. Imports, the bulk import, *To week menu* and **Fill in nutrition** therefore brought no calories (for example "0 of 116 AH recipes filled in, 115 skipped"). The variants now start with the shape AH uses (`steps` without a selection), with the nutrition; the shape with `{ text }` stays behind it in case AH switches back. Every AH recipe is now one request instead of three. Run **Fill in nutrition** under **Settings, Link, Mealie** again: the recipes that were skipped come up again, as only recipes that already have calories are skipped.*
+
+- **Voedingswaarden van AH komen nu echt mee.** In 4.4.0 stond `nutritions` alleen in een variant van de receptvraag met `preparation { steps { text } }`. Bij AH is `steps` een lijst van teksten (op 9 november 2026 nagegaan), dus die variant gaf altijd *"Field steps must not have a selection"*, en MealieShopper viel terug op een variant zonder voedingswaarden. Daardoor kwamen er geen calorieën mee bij een import, de bulkimport, *Naar weekmenu* en **Voedingswaarden aanvullen** ("0 van 116 AH-recepten aangevuld, 115 overgeslagen").
+- **De volgorde van de varianten** (`ah.RECIPE_DETAIL_QUERIES`) begint nu met de vorm van AH: `steps` zonder selectie, met de voedingswaarden. Daarna komt dezelfde vraag met `steps { text }`, voor als AH die vorm terugzet, en dan de varianten zonder voedingswaarden. Een AH-recept kost nu één verzoek in plaats van drie.
+- **Opnieuw aanvullen.** Draai **Voedingswaarden aanvullen** onder *Instellingen, Koppelen, Mealie* opnieuw. De overgeslagen recepten komen dan weer aan bod: alleen een recept dat al calorieën heeft, wordt overgeslagen. Een recept dat AH niet meer kent, telt als mislukt.
+- **Tests:** `tests/test_recipe_import.py` heeft een nep-AH die `steps { text }` weigert, zoals AH zelf doet. De import krijgt dan in één verzoek de voedingswaarden en de stappen. Een tweede test laat zien dat de voedingswaarden ook meekomen als AH ooit weer `steps { text }` vraagt. De terugvaltests rekenen met vijf varianten.
+
+## v4.4.0
+
+### Nieuw in 4.4.0
+
+Issue: [#283](https://github.com/helmerzNL/MealieShopper/issues/283).
+
+*English summary: MealieShopper now shows **calories**. A recipe and a planned meal show the kcal per serving and the nutrition per serving, from Mealie or, for a store or meal kit recipe, from that store; a meal also shows the total for the planned servings ("490 kcal per serving · 980 kcal in total"). **Plan a meal** and **Edit meal** let you choose the number of servings (4 becomes 2): MealieShopper stores it in Mealie as `recipeScale`, like Mealie's planner (needs Mealie 3.29), and the ingredients and the kcal total follow; per serving it stays the same. The recipe picker and **Find recipes** have a **Kcal per serving** min/max filter; in Find recipes the search term may then be empty and only your Mealie recipes are searched, since the stores give no calories in their search results. Because Mealie's recipe list has no nutrition and Mealie stores it as text, MealieShopper keeps the kcal per recipe in a cache of its own (`mealie_recipe_nutrition`, filled from every recipe it fetches from Mealie and refreshed by `updatedAt` at most every ten minutes when you search by calories; not part of the backup). The MCP tool `search_mealie_recipes` takes `kcal_min` and `kcal_max` (kcal per serving) and may then be called without a query, and returns `kcalPerServing`; `get_week_menu` returns `kcalPerServing` and `kcalTotal`, and `plan_meal` takes `servings`. Recipes imported from **Albert Heijn** now take their nutrition along into Mealie (the AH GraphQL `recipe.nutritions`, per serving), also in the bulk import and *To week menu*; the administrator fills in older AH recipes with **Fill in nutrition** under **Settings, Link, Mealie** (only recipes with an Allerhande source link and without calories; what is there stays). **Jumbo** salt is no longer stored as sodium: 1 g of salt becomes 400 mg of sodium. A new switch **Show calories** under **Settings, Preferences, Appearance** (on by default, per user) hides all of it.*
+
+- **Calorieën bij een recept en een maaltijd.** De kcal per persoon (per portie) staan op de kaarten bij Recepten zoeken, in de receptkiezer van *Maaltijd plannen*, in het detail van een recept en bij een geplande maaltijd in het weekmenu. Het venster van een maaltijd toont ook het totaal voor de geplande porties (*490 kcal p.p. · 980 kcal totaal*) en onder het recept de voedingswaarden per portie (energie, eiwit, vet, koolhydraten, natrium en wat Mealie verder weet). Ze komen uit het blok `nutrition` van Mealie, dat MealieShopper eerst overal wegliet, of bij een recept van een winkel of maaltijdbox uit die winkel. `mealie.recipe_detail` geeft `nutrition` en `kcal`, `/api/mealplan` per maaltijd `kcal: {perServing, total}` en `nutrition`, en de kaarten van `/api/mealie/recipes` hebben `kcal` (uit de cache, of `null`).
+- **Porties kiezen bij het inplannen.** Onder het gekozen recept in *Maaltijd plannen* en *Maaltijd wijzigen* staat een veld **Porties** met − en +, met de kcal per persoon en het totaal ernaast. Het begint bij de geplande porties, of bij die van het recept. Alleen een veranderd aantal gaat mee naar Mealie, als `recipeScale` = porties / porties van het recept (hoogstens 20), ook bij een nieuw recept voor een bestaande maaltijd. Het veld staat er alleen als Mealie het kent (`/api/mealplan/options` geeft `recipeScale`, vanaf Mealie 3.29) en de porties van het recept bekend zijn; een ouder Mealie krijgt een duidelijke melding. Mealie accepteert het veld ook bij het aanmaken (`PlanEntryCreate.recipe_scale`). Een notitie heeft geen porties.
+- **Zoeken op calorieën.** Twee velden *Kcal per persoon* (min. en max.) in de receptkiezer en bij Recepten zoeken; `GET /api/mealie/recipes` leest `kcalMin` en `kcalMax` (hele getallen van 0 tot 5000, omgedraaid als min boven max staat). Bij Recepten zoeken mag de zoekterm dan leeg zijn en zoekt alleen het Mealie-blok; de andere winkels gaan uit beeld. Met een zoekterm bepaalt Mealie welke recepten passen en in welke volgorde; zonder zoekterm komen ze op naam uit de cache. Recepten zonder calorieën vallen weg; het aantal staat erbij (`withoutKcal`).
+- **Een cache van de kcal per recept** (`mealieshopper/recipe_nutrition.py`, tabellen `mealie_recipe_nutrition` en `mealie_recipe_nutrition_meta`). Mealie geeft in zijn lijst geen voedingswaarden en bewaart ze als tekst, dus Mealie kan niet op getal filteren. Elk recept dat MealieShopper uit Mealie ophaalt (`mealie.get_recipe`) komt in de cache. Een zoekopdracht op calorieën start, als de cache ouder is dan tien minuten, een ronde die de lijst van Mealie leest en alleen nieuwe recepten en recepten met een andere `updatedAt` ophaalt (hooguit 2.000, acht tegelijk), en verdwenen recepten weghaalt. Een zoekopdracht wacht daar hooguit 15 seconden op (MCP 25); daarna komt wat er al is, met de voortgang (`indexing: {done, total}`), en het scherm zoekt na twee seconden opnieuw. Een ander Mealie-adres begint opnieuw. Mislukt een ronde, dan probeert de volgende zoekopdracht het pas na een minuut weer. De cache staat in `backup.EXCLUDED_TABLES`: hij bouwt zich vanzelf op.
+- **MCP.** `search_mealie_recipes` heeft `kcal_min` en `kcal_max` (kcal per persoon); met een van de twee mag `query` leeg zijn. Elk recept heeft `kcalPerServing`, en met een grens geeft het antwoord `withoutKcal` en een `note` (recepten zonder calorieën, of de cache die zich nog vult). `get_week_menu` geeft per maaltijd `kcalPerServing` en `kcalTotal`, `plan_meal` heeft `servings` (alleen bij een recept met bekende porties, vanaf Mealie 3.29).
+- **Voedingswaarden van Albert Heijn.** De receptvraag aan de GraphQL van AH heeft een nieuwe eerste variant met `nutritions { energy protein fat saturatedFat carbohydrates sugar fibers sodium { value unit } }` (per persoon, natrium in mg; op 8 november opgezocht met het anonieme token). Kent AH het veld niet meer, dan valt `_graphql_variants` terug op de oude varianten en gaat de import zonder voedingswaarden door. `ah.get_recipe_jsonld` zet ze als schema.org-`nutrition` in het recept voor Mealie, dus ook de bulkimport, *Naar weekmenu* en de receptindex van de aanbiedingen krijgen ze; `ah.recipe_detail` toont ze.
+- **Oude AH-recepten aanvullen** (alleen de beheerder). **Voedingswaarden aanvullen** onder *Instellingen, Koppelen, Mealie* loopt als achtergrondtaak de recepten in Mealie langs. Bij een recept met een Allerhande-bronlink en zonder calorieën haalt hij de voedingswaarden bij AH op en zet ze met `PATCH /api/recipes/{slug}` in Mealie, als tekst zonder eenheid zoals Mealie ze bewaart; wat er al staat, blijft staan. Anderhalve seconde tussen twee vragen aan AH, stoppen bij 403 of 429 van AH of na vijf fouten achter elkaar, en **Stoppen** houdt hem eerder op. Routes `GET`, `POST` en `DELETE /api/mealie/nutrition/backfill` (in `auth.ADMIN_PATHS`); het auditlog krijgt een regel met de aantallen.
+- **Jumbo: zout is geen natrium.** Jumbo geeft *zout*; dat kwam als `sodiumContent` in Mealie, en Mealie rekende "1.5 g" om naar 1500 mg natrium. Nu wordt het 600 mg (1 g zout = 400 mg natrium), tenzij Jumbo natrium zelf geeft. Ook *waarvan verzadigd* en *waarvan suikers* komen nu mee, en energie in kJ wordt kcal. De detailweergave van Jumbo, HelloFresh en Marley Spoon toont de voedingswaarden met vertaalde namen; HelloFresh en Marley Spoon gaven daar eerst niets.
+- **Calorieën tonen.** Een nieuwe schakelaar onder *Instellingen, Voorkeuren, Weergave*, standaard aan, per gebruiker (kolom `user_profiles.show_calories`, gaat mee in de back-up). Uit zet `theme.js` de klasse `no-calories` op `<html>`, en verbergt de CSS de kcal, de voedingswaarden, het kcal-totaal bij de porties en de velden om op te zoeken; een zoekopdracht stuurt dan geen grenzen mee.
+- **Gedeelde helper** `mealieshopper/nutrition.py`: de velden van schema.org en Mealie met hun eenheid, getallen lezen uit elke bron (`"490"`, `"490 kcal"`, `"20,5 g"`, kJ), omrekenen (kJ naar kcal, g naar mg, zout naar natrium) en terugschrijven voor een import of voor Mealie. HelloFresh en Marley Spoon gebruiken zijn lijst van velden.
+- **Handleiding en README's** (NL en EN): een nieuw kopje *Calorieën*, en het weekmenu, Recepten zoeken, Voorkeuren, de Mealie-koppeling en de MCP-tools.
+- **Tests:** `tests/test_nutrition.py` (lezen, omrekenen, terugschrijven), `tests/test_recipe_nutrition.py` (de cache, een ronde die alleen gewijzigde recepten ophaalt, een ander Mealie, een mislukte ronde, zoeken met en zonder zoekterm, pagina's, het gedeeltelijke antwoord tijdens het inlezen, de grenzen uit een verzoek, de route, het aanvullen met zijn stopregels en de beheerdersroute), `tests/test_calories_ui.py` (de functies voor het filter in Node, en de bedrading), plus nieuwe gevallen in `test_recipe_import.py`, `test_recipe_reuse.py`, `test_jumbo_recipes.py`, `test_hellofresh.py`, `test_marleyspoon.py`, `test_meal_plan_edit.py` (kcal per maaltijd, de porties bij plannen en wijzigen, een ouder Mealie), `test_mcp.py`, `test_profile.py`, `test_backup.py` en `test_meal_recipe_ui.py`. De woordenboektest in `test_linking_ui.py` geeft het script nu via stdin aan Node: met het hele Nederlandse woordenboek was het groter dan wat Linux als één argument toestaat (128 KiB).
+
+## v4.3.1
+
+### Gewijzigd in 4.3.1
+
+Pull request: [#286](https://github.com/helmerzNL/MealieShopper/pull/286).
+
+*English summary: the two choices for loose products from the week planner of the AH app (**Loose products of a day together as one menu** and **Soup and pizza always separate**, new in 4.3.0) moved from the top of **Stores, Albert Heijn, Week planner** to **Settings, Preferences, Supermarket**, as real switches like *Cooking mode*. They still work the same: per user in the profile, on by default, the second only shown with the first on. The week planner panel links to them and its labels follow a change straight away. Nothing changed on the server.*
+
+- **De keuzes voor losse producten staan bij Voorkeuren.** *Losse producten van een dag samen als één menu* en *Soep en pizza altijd los* stonden in 4.3.0 als vinkjes bovenaan het Weekplanner-paneel. Nu staan ze bij **Instellingen, Voorkeuren**, in het blok **Supermarkt**, onder het nieuwe kopje **Weekplanner van de AH-app**. Het zijn echte schakelaars, net als de *Kookmodus*, met een korte uitleg bij elk.
+  - De werking is gelijk: ze worden per gebruiker in het profiel bewaard, staan standaard aan, en de tweede is alleen te zien als de eerste aan staat.
+  - Weigert de server een keuze, dan springt de schakelaar terug, met de melding van de server eronder.
+  - De labels in de weekplanner volgen een wijziging meteen.
+- **Het Weekplanner-paneel** heeft in plaats van de vinkjes een link: *Hoe losse producten meegaan, stel je in bij Voorkeuren, Supermarkt.*
+- **Handleiding** (NL en EN):
+  - bij *Voorkeuren, Supermarkt* een punt *Weekplanner van de AH-app*
+  - bij de weekplanner de nieuwe plek van de schakelaars
+  - de screenshots van de weekplanner en van Voorkeuren zijn opnieuw gemaakt
+- **Tests:**
+  - `tests/test_appearance.py`: de twee schakelaars in het blok Supermarkt (standaard aan, met een label en een uitleg) en het bewaren met terugzetten bij een weigering
+  - `tests/test_ah_items_ui.py`: het paneel heeft geen vinkjes meer, wel de link
+
+## v4.3.0
+
+### Nieuw in 4.3.0
+
+Pull request: [#285](https://github.com/helmerzNL/MealieShopper/pull/285).
+
+*English summary: **To week menu** in **Stores, Albert Heijn, Week planner** now also copies the loose products from the week planner of the AH app. A product that already has a recipe with the same name in Mealie (case, accents and punctuation do not count, a leading "AH" may be missing) goes in as that recipe. MealieShopper makes a recipe in Mealie of the other products, with the products as ingredients and the picture from AH. Two new switches, kept per user in the profile and on by default: **Loose products of a day together as one menu** makes the products of a day one menu, named after the first note of that day ("Pizza") or after the products; **Soup and pizza always separate** (only shown with the first on) still gives soup and pizza a recipe of their own, while meat, vegetables, potatoes, rice and pasta go together in the menu. With the first off every product becomes a recipe of its own. A recipe or menu made of the same products before is found again by its source and reused, and nothing is planned twice on a day. Each product shows beforehand what will happen to it. Your own AH recipes are still not copied, and a note only as the name of a menu.*
+
+- **Losse producten naar het weekmenu.** Tot nu toe zette *Naar weekmenu* alleen Allerhande-recepten in het weekmenu. Nu gaan ook de losse producten uit de AH-planner mee, per dag en als diner:
+  - **Bestaat al in Mealie:** heet een recept in Mealie al zoals het product (hoofdletters, accenten en leestekens tellen niet mee, en *AH* vooraan mag ontbreken), dan komt dat recept op die dag. Bijvoorbeeld de *Padifood Chinese tomatensoep*.
+  - **Anders maakt MealieShopper een recept in Mealie.** Elk product staat er als ingrediënt in, met de naam zoals AH hem geeft, en met het plaatje van AH. Weigert Mealie het plaatje, dan volgt één nieuwe poging zonder.
+  - **Herkend en niet dubbel:** een recept of menu dat MealieShopper eerder van dezelfde producten maakte, wordt teruggevonden aan zijn bron (de productlink, of voor een menu de productlink met `#menu-` en de productnummers) en hergebruikt. Staat het die dag al in het weekmenu, dan komt het er niet nog een keer bij.
+- **Twee schakelaars in het Weekplanner-paneel**, per gebruiker bewaard in het profiel en standaard aan:
+  - **Losse producten van een dag samen als één menu.** De producten van een dag worden één menu. De eerste notitie van die dag wordt de naam ("Pizza"), anders de productnamen ("A, B en C"). Staat deze uit, dan wordt elk product een eigen recept, met de productnaam als naam.
+  - **Soep en pizza altijd los** (alleen te zien als de eerste aan staat). Soep en pizza krijgen dan toch een eigen recept; vlees, groente, aardappelen, rijst en pasta gaan samen in het menu. Wat soep of pizza is, beslist een patroon op de productnaam (`ah_planner.standalone`): "tomatensoep" en "pizza's" wel, "soepgroente", "soepballetjes", "pizzadeeg" en "pizzasaus" niet.
+- **Vooraf zichtbaar.** Bij elk product staat wat *Naar weekmenu* ermee doet: als eigen recept (of het recept met die naam in Mealie), of in het menu van die dag. Bij de notitie die de naam van het menu wordt, staat dat ook. `GET /api/ah/planner` geeft daarvoor `standalone` bij elk product. De status telt recepten en producten, en de samenvatting telt maaltijden.
+- **Het mandje.** Een ingrediënt van zo'n recept heet precies zoals het product. *Weekmenu naar mandje* zoekt daarop, en AH's exacte titel komt bovenaan, dus bijna altijd is dat product het eerste voorstel. Een vaste koppeling is er niet.
+- **API.** `POST /api/ah/planner/to-meal-plan` neemt nu één dag: `{date, recipeIds, products: [{productId, title}], note, combine, splitMeals}`, met hooguit 20 recepten en 20 producten. Elk resultaat heeft `kind` (`recipe`, `product` of `menu`) en `title`. Het oude lichaam met `items` geeft een 400. Het scherm stuurde al een dag per verzoek.
+- **Profiel.** Twee nieuwe kolommen in `user_profiles`: `planner_combine` en `planner_split_meals`. Een oudere database krijgt ze bij het openen, en de back-up neemt ze mee. Ze staan in `PUT /api/profile/preferences` als `plannerCombine` en `plannerSplitMeals`.
+- **Handleiding** (NL en EN), met een nieuwe screenshot, en `docs/onderzoek-ah-weekplanner.md`: de losse producten, de schakelaars en het besluit.
+- **Tests:** `tests/test_ah_planner.py` dekt:
+  - de nieuwe invoer per dag
+  - soep en pizza herkennen
+  - een naam herkennen, ook zonder *AH* vooraan
+  - een menu van drie producten: de naam, de bron, de ingrediënten en het plaatje
+  - elk product apart
+  - de voorbeelddagen: soep die al in Mealie staat, een andere soep apart, de pizza apart, en een notitie als menunaam met de soep apart
+  - hergebruik via de bron, niets dubbel plannen
+  - productgegevens of zoeken in Mealie die niet lukken
+  - de nieuwe poging zonder plaatje, en geen nieuwe poging bij een fout van Mealie zelf
+  - de route
+
+  `tests/test_profile.py` test de twee voorkeuren, en `tests/test_ah_items_ui.py` de schakelaars en wat het scherm verstuurt.
+## v4.2.1
+
+### Gewijzigd in 4.2.1
+
+Pull request: [#284](https://github.com/helmerzNL/MealieShopper/pull/284).
+
+*English summary: the **About** page now links to the MealieShopper repository on GitHub (https://github.com/helmerzNL/MealieShopper), with a button under the version and the description. It opens in a new tab. `/api/about` also returns the address as `repoUrl`.*
+
+- **Over: link naar MealieShopper op GitHub.** Onder het versienummer en de omschrijving staat de knop **MealieShopper op GitHub** (met het GitHub-icoon van Material Design Icons), naar [github.com/helmerzNL/MealieShopper](https://github.com/helmerzNL/MealieShopper). Hij opent in een nieuw tabblad (`target="_blank"`, `rel="noopener noreferrer"`), zoals de koffieknop. `/api/about` geeft het adres ook terug, als `repoUrl` (`about.REPO_URL`).
+- **Handleiding** (NL en EN): bij Over en updates staat de knop naar GitHub, en de screenshot van Over (`docs/screenshots/nl/about.png` en `en/about.png`) is opnieuw gemaakt.
+- **Tests:** `test_repo_link` controleert het adres in de API en op de pagina, het nieuwe tabblad en de vertaling in het Nederlands en Engels; de volgordetest zet de knop tussen de versie en de componenten.
+
+## v4.2.0
+
+### Nieuw in 4.2.0
+
+Pull request: [#282](https://github.com/helmerzNL/MealieShopper/pull/282).
+
+*English summary: **Stores, Albert Heijn, Week planner** (`/stores/ah/planner`) shows what you planned in the week planner of the AH app, per day from today (AH returns two weeks): Allerhande recipes, your own recipes, products and notes. MealieShopper only reads it, through the same unofficial GraphQL of the AH app as the saved recipes (`recipeWeekPlannerOverview`, with the user token of the AH link); nothing goes back to AH. **To week menu** puts the Allerhande recipes on the same day in the Mealie week menu, as dinner. A recipe that is not in Mealie yet is imported first; one that is already there (same recipe number as source) is reused. A recipe already planned on that day is not added again, so pressing twice adds nothing twice, and what is already in the week menu stays. Your own recipes, products and notes are shown but not copied. The screen sends one day per request and shows the progress and a summary afterwards. A partial answer from AH (an entry AH cannot resolve) still shows the rest. Everyone who is logged in may use it, like planning.*
+
+- **De weekplanner van de AH-app bij Winkels.** Een nieuwe subtab **Weekplanner** bij Albert Heijn (`/stores/ah/planner`, na **Recepten**) toont per dag wat je in de weekplanner van de AH-app hebt gepland, vanaf vandaag (AH geeft twee weken): Allerhande-recepten met plaatje, eigen recepten, producten (met een link naar ah.nl) en notities. Een Allerhande-recept open je met een tik, met daar **Inplannen**, **Importeer** en de link naar AH. MealieShopper leest alleen: plannen doe je in de AH-app, en er gaat niets terug naar AH. De planning wordt niet bewaard; elke keer openen (en `Ophalen bij AH`) haalt hem vers op, dus de back-up verandert niet.
+- **Naar weekmenu.** Zet alle Allerhande-recepten uit de planner op dezelfde dag in het weekmenu van Mealie, als diner (de AH-planner kent geen soort maaltijd). Staat een recept nog niet in Mealie, dan importeert MealieShopper het eerst met de bestaande AH-import; staat het er al (hetzelfde receptnummer als bron), dan gebruikt het dat recept. Staat het recept die dag al in het weekmenu, dan komt het er niet nog een keer bij: twee keer drukken zet niets dubbel. Wat al in het weekmenu staat, blijft staan. Eigen recepten, producten en notities staan er met een grijs label en gaan niet mee (besluit van de eigenaar). Het scherm stuurt een dag per verzoek (`POST /api/ah/planner/to-meal-plan`, hooguit 20 recepten), toont de voortgang en daarna een samenvatting: hoeveel recepten zijn gezet, hoeveel daarvan nieuw in Mealie, hoeveel er al stonden en welke mislukten. Een recept dat mislukt, houdt de andere niet op; het antwoord van AH of Mealie staat alleen in het logboek. Zonder Mealie-koppeling of zonder Allerhande-recepten staat de knop uit. Daarna ververst het weekmenu de geraakte weken.
+- **Uitlezen bij AH.** `ah.get_week_planner` vraagt `recipeWeekPlannerOverview` aan de mobiele GraphQL van AH met het gebruikerstoken van de koppeling, en probeert het bij een geweigerd token één keer opnieuw met een vers token. De vorm van de vraag komt uit het open-source project olekpuchka/albert-heijn-mcp (Apache-2.0); introspectie staat bij AH uit. Een item of dag dat AH niet kan oplossen komt als `null` met een fout ernaast: de rest wordt getoond met een melding dat AH niet alles gaf. Daarvoor is er `_graphql_partial`; `_graphql` faalt zoals voorheen op elke fout. Nog nooit gepland is een lege planning. De plaatjes komen uit `recipeSummaries`; lukt dat niet, dan blijft de planning zonder plaatjes. Zonder AH-koppeling zegt de melding waar je koppelt.
+- **Rechten.** Iedereen die is ingelogd mag de weekplanner lezen en naar het weekmenu zetten, net als plannen en importeren; de routes staan niet bij de beheerdersroutes.
+- **Handleiding en README's** (NL en EN): de weekplanner bij Winkels, met een screenshot, en de AH-rij van de koppelingen. Onderzoek en besluit in `docs/onderzoek-ah-weekplanner.md`.
+- **Tests:** `tests/test_ah_planner.py` voor het uitlezen (alle soorten items, een onbekende soort en `null`, een gedeeltelijk antwoord, alleen fouten, een lege planning, de plaatjes, een vreemde slug, een geweigerd token), de invoercontrole, het overzetten (importeren, hergebruiken, niet dubbel plannen, hetzelfde recept op twee dagen één import, een mislukte import houdt de rest niet op) en de routes (ook een gewone gebruiker). `tests/test_ah_items_ui.py` kent de nieuwe subtab, en de screenshots hebben een scenario `ah-planner`.
 
 ## v4.1.10
 

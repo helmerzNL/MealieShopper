@@ -98,6 +98,7 @@ EXCLUDED_TABLES = frozenset({
     "marleyspoon_menus",  # idem voor Marley Spoon
     "ah_receipt_products",  # koppeling artikelnummer -> product, zoekt de volgende synchronisatie van de bonnen opnieuw op
     "image_cache",  # cache van winkelfoto's op schijf (image_cache.py), opnieuw op te bouwen
+    "mealie_recipe_nutrition", "mealie_recipe_nutrition_meta",  # calorieën van de recepten in Mealie (recipe_nutrition.py), herlaadbaar
     "price_archive_jobs",  # de import van een prijsarchief die loopt (price_archive.py): tijdelijke staat
     "catalogue_changes",  # de versie van de catalogus van de prijzen (prices._catalogue_version): bijhouden, niet bewaren
 })

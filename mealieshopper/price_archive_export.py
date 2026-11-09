@@ -54,7 +54,7 @@ from .price_archive_tidy import ARCHIVE_URLS
 OFFER_FIELDS = tuple(column for column in OFFER_COLUMNS if column != "personal")  # altijd 0: een persoonlijke gaat er niet in
 PRICE_FIELDS = PRICE_COLUMNS
 MONTH = re.compile(r"^(\d{4}-\d{2})-\d{2}")
-STORE_NAMES = {"ah": "Albert Heijn", "jumbo": "Jumbo", "picnic": "Picnic", "crisp": "Crisp"}
+STORE_NAMES = {"ah": "Albert Heijn", "jumbo": "Jumbo", "picnic": "Picnic", "crisp": "Crisp", "lidl": "Lidl", "aldi": "Aldi"}
 
 # Vaste volgorde: per winkel en maand, daarbinnen op datum en product. `id` alleen als laatste, voor twee gelijke regels.
 OFFERS_SQL = f"""

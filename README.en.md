@@ -66,10 +66,11 @@ Planning a week menu in Mealie is nice, but then the retyping starts: looking up
 
 - **Week menu to your basket**: one button looks up the best products at Albert Heijn, Picnic, Jumbo or Crisp for every ingredient in your week menu, works out the servings and pack sizes and adds up the same ingredient from several recipes. You check everything in a list first; only after you confirm does it go into your basket, and you place the order yourself.
 - **Planning the week menu**: put a recipe or a note on a day, move or remove a meal, or let Mealie choose with **Surprise me**. Every change goes straight to Mealie.
-- **Offers and recipe suggestions**: the offers of Albert Heijn (including your personal Bonus Box), Picnic, Jumbo and Crisp, per week and updated every day, with recipes whose ingredients are on offer.
+- **Offers and recipe suggestions**: the offers of Albert Heijn (including your personal Bonus Box), Picnic, Jumbo and Crisp, and without an account those of Lidl and Aldi too, per week and updated every day, with recipes whose ingredients are on offer.
 - **Is it really a deal?**: every offer shows its price per kilo, litre or piece and a verdict against the regular price of the last 30 days. The **Price history** shows per product the offers, the regular price and what you paid yourself, and **Compare pack sizes** points out the cheapest pack. Public historical prices with unknown promotion status appear separately as **Observed prices**, with their sources. They do not count as regular prices. Historical leaflet prices, such as the archive of Albert Heijn and Jumbo since 2009, the administrator imports under **Settings, System**.
 - **Search and import recipes**: search Mealie, Albert Heijn, Jumbo, Picnic and Crisp and the menus of HelloFresh and Marley Spoon at the same time, view a recipe and plan it with one click, or import a recipe from a link. Your saved AH recipes, Jumbo recipe lists and favourite Crisp recipes also go into Mealie in one go.
 - **Cooking from a recipe**: a recipe is shown in a cooking view with the ingredients next to the numbered steps; tick off what is done and see which step is next. **Start cooking** shows one step at a time full screen, and with **Keep screen on** your screen does not switch off meanwhile.
+- **Calories**: the kcal per serving and the nutrition with a recipe and a planned meal, with the total for the servings you plan. Choose the number of servings when planning (4 becomes 2), search by a minimum and maximum kcal, also through your AI assistant; recipes from Albert Heijn take their nutrition along into Mealie.
 - **Your stores in one place**: your basket, lists, saved recipes, favourites, orders and AH receipts, kept as a copy of their own that you can search ("when did I last buy coffee?"), even when the store is unavailable. A product on a receipt that the app does not recognise, you link to a product of the store yourself; from then on it does recognise it.
 - **AI assistants**: an MCP server, so Claude, ChatGPT or Copilot can look at your week menu, recipes and lists, plan a meal and import a recipe into Mealie; OAuth login, with your own account.
 - **For the whole household**: log in with a passkey, or with a password and two-step verification; you invite housemates with a link, and only the administrator links Mealie and the stores. Everyone picks their own preferred supermarket, which Offers and Stores open with.
@@ -238,6 +239,7 @@ flowchart LR
     B -->|API token| M[Mealie]
     B -->|unofficial app API| S[Albert Heijn, Picnic,<br/>Jumbo and Crisp]
     B -->|public menus| K[HelloFresh and<br/>Marley Spoon]
+    B -->|public offers page| L[Lidl and Aldi]
 ```
 
 | Component | Purpose | Data |
@@ -245,19 +247,22 @@ flowchart LR
 | `mealieshopper` | The container: the Quart app under Hypercorn with the interface, the API, the MCP server and the daily offers task | `/data` (`auth.sqlite3` and `secret.key`) |
 | Mealie | Your recipes and week menu; runs separately and is not included | in Mealie itself |
 | Albert Heijn, Picnic, Jumbo, Crisp | Products, baskets, lists, orders and offers | what MealieShopper keeps is in `auth.sqlite3` |
+| Lidl, Aldi | The offers of the week (no online shop, so no basket) | what MealieShopper keeps is in `auth.sqlite3` |
 
-MealieShopper is an unofficial tool and is not affiliated with Mealie, Albert Heijn, Picnic, Jumbo or Crisp.
+MealieShopper is an unofficial tool and is not affiliated with Mealie, Albert Heijn, Picnic, Jumbo, Crisp, Lidl or Aldi.
 
 **Integrations**
 
 | Integration | What for |
 |---|---|
 | [Mealie](https://mealie.io) | Your recipes and week menu; imported recipes and what you plan end up here. Through the API with a token. |
-| [Albert Heijn](https://www.ah.nl) | Lists, saved recipes, products and the basket, through the **unofficial** app API of AH. AH may change it without notice; use it for personal use. |
+| [Albert Heijn](https://www.ah.nl) | Lists, saved recipes, the week planner (read only), products and the basket, through the **unofficial** app API of AH. AH may change it without notice; use it for personal use. |
 | [Allerhande](https://www.ah.nl/allerhande) | Searching and importing recipes. |
 | [Jumbo](https://www.jumbo.com) | Searching products and filling the cart, through the **unofficial** app API of Jumbo (Auth0 and GraphQL). Jumbo may change it without notice or refuse a server; use it for personal use. |
 | [Picnic](https://picnic.app) | Searching products and filling the cart, through the **unofficial** app API of Picnic. Picnic may change it without notice; use it for personal use. |
 | [Crisp](https://crisp.nl) | Searching products, filling and changing the basket, recipes, favourites, orders and offers, through the **unofficial** app API of Crisp. Crisp may change it without notice; use it for personal use. |
+| [Lidl](https://www.lidl.nl) | The offers of the week, from the public offers page; no account. Lidl does not sell groceries online, so there is no basket. Lidl may change the page without notice. |
+| [Aldi](https://www.aldi.nl) | The offers of the week, from the public offers page; no account. Aldi does not sell groceries online, so there is no basket. Aldi may change the page without notice. |
 | [WebAuthn](https://www.w3.org/TR/webauthn-2/) | Logging in with a passkey. |
 | [TOTP (RFC 6238)](https://www.rfc-editor.org/rfc/rfc6238) | Two-step verification with an authenticator app. |
 | [MCP](https://modelcontextprotocol.io) and [OAuth 2.1](https://datatracker.ietf.org/doc/draft-ietf-oauth-v2-1/) | The link with AI assistants such as Claude, ChatGPT and Copilot. |

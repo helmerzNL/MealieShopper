@@ -26,7 +26,7 @@ from urllib.parse import urljoin, urlsplit
 import aiosqlite
 import httpx
 
-from . import about, auth, http_client, mealie, mealkit_import
+from . import about, auth, http_client, mealie, mealkit_import, nutrition
 from .ah_lists import _fold
 from .hellofresh import load_upcoming, monday, neighbours, nutrition_fields, week_code
 from .i18n import tr
@@ -352,7 +352,7 @@ async def get_recipe(key: Any) -> dict[str, Any]:
             title, text = _plain(step.get("title")), _plain(step.get("description"))
             steps.append(f"{title}: {text}" if title and text else title or text)
     values = {item.get("key"): item.get("perPortion") for item in data.get("nutritionalInformation") or [] if isinstance(item, dict)}
-    nutrition = {field: f"{_number(values[name])} {unit}" for name, (field, unit) in NUTRITION.items() if _number(values.get(name))}
+    per_portion = {field: f"{_number(values[name])} {unit}" for name, (field, unit) in NUTRITION.items() if _number(values.get(name))}
     duration = data.get("duration") if isinstance(data.get("duration"), dict) else {}
     image = data.get("image") if isinstance(data.get("image"), dict) else {}
     title, subtitle = _plain(data.get("title")), _plain(data.get("subtitle"))
@@ -365,7 +365,7 @@ async def get_recipe(key: Any) -> dict[str, Any]:
         "portions": PORTIONS,
         "ingredients": [_plain(line) for line in shipped + assumed if _plain(line)],
         "steps": [step for step in steps if step],
-        "nutrition": nutrition,
+        "nutrition": per_portion,
     }
 
 
@@ -393,9 +393,8 @@ def jsonld(recipe: dict[str, Any], minimal: bool = False) -> dict[str, Any]:
     if not minimal:
         if recipe.get("image"):
             data["image"] = [recipe["image"]]
-        nutrition = nutrition_fields(recipe.get("nutrition"))
-        if nutrition:
-            data["nutrition"] = {"@type": "NutritionInformation", **nutrition}
+        if fields := nutrition_fields(recipe.get("nutrition")):
+            data["nutrition"] = {"@type": "NutritionInformation", **fields}
     return data
 
 
@@ -420,10 +419,11 @@ async def run_import(key: Any) -> dict[str, str]:
 
 
 async def detail(key: Any) -> dict[str, Any]:
-    """Het recept in de vorm van het zoekscherm (ingrediënten als regels); zoals Jumbo en Picnic, zonder voedingswaarden."""
+    """Het recept in de vorm van het zoekscherm (ingrediënten als regels), zoals Jumbo en Picnic, met de voedingswaarden per portie."""
     recipe = await get_recipe(key)
     return {
         "id": recipe["key"], "name": recipe["name"], "description": recipe["description"], "image": recipe["image"],
         "minutes": recipe["minutes"], "portions": recipe["portions"], "url": source_url(recipe["key"]),
-        "ingredients": [{"line": line} for line in recipe["ingredients"]], "steps": recipe["steps"], "nutrition": [],
+        "ingredients": [{"line": line} for line in recipe["ingredients"]], "steps": recipe["steps"],
+        "nutrition": nutrition.items(recipe.get("nutrition")),
     }

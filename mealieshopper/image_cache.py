@@ -1,6 +1,6 @@
 """De afbeeldingencache: elke productfoto van een winkel een keer ophalen en daarna voor altijd van schijf serveren.
 
-De interface toont foto's van AH, Jumbo, Picnic en Crisp (bestellingen, het mandje, aanbiedingen, zoekresultaten, recepten).
+De interface toont foto's van AH, Jumbo, Picnic, Crisp, Lidl en Aldi (bestellingen, het mandje, aanbiedingen, zoekresultaten, recepten).
 Rechtstreeks van de winkel laden is hotlinken: het vertelt de winkel wat iemand bekijkt en breekt zodra een adres verandert.
 Daarom vraagt de interface ze op via `/api/images/<token>` (`storeImage()` in static/app.js, het token is het winkeladres in
 URL-veilige base64). De route haalt een foto die er nog niet is op zoals een browser dat zou doen (zie `HEADERS`), bewaart
@@ -116,6 +116,8 @@ HEADERS: dict[str, dict[str, str]] = {
     "jumbo": _browser_headers("https://www.jumbo.com/", "same-site"),
     "picnic": _browser_headers("https://picnic.app/", "cross-site"),
     "crisp": _browser_headers("https://crispapp.nl/", "same-origin"),
+    "lidl": _browser_headers("https://www.lidl.nl/", "same-origin"),
+    "aldi": _browser_headers("https://www.aldi.nl/", "cross-site"),
 }
 
 _EXTENSIONS = {
@@ -198,8 +200,32 @@ def _reset_pace() -> None:
 # --- adressen en tokens ----------------------------------------------------------------------------
 
 
+# Hosts van Lidl en Aldi met het pad waaronder hun productfoto's staan. Op www.lidl.nl staat ook de rest van de site, en scene7.com is
+# het gedeelde CDN van Adobe: daar hoort alleen het pad van Aldi bij.
+_PATH_HOSTS = {
+    "www.lidl.nl": ("lidl", "/assets/"),
+    "imgproxy-retcat.assets.schwarz": ("lidl", "/"),
+    "s7g10.scene7.com": ("aldi", "/is/image/aldinord/"),
+}
+
+
+def _store_of_host(host: str) -> str | None:
+    """De winkel bij een host, zonder naar het pad te kijken."""
+    if host == "static.ah.nl":
+        return "ah"
+    if host == "jumbo.com" or host.endswith(".jumbo.com"):
+        return "jumbo"
+    if host.startswith("storefront-prod.") and host.endswith(_PICNIC_SUFFIX):
+        return "picnic"
+    if host == "crispapp.nl":
+        return "crisp"
+    if host in _PATH_HOSTS:
+        return _PATH_HOSTS[host][0]
+    return None
+
+
 def store_for(url: Any) -> str | None:
-    """De winkel bij een adres (`ah`, `jumbo`, `picnic`, `crisp`), of None als het geen foto van een winkel is."""
+    """De winkel bij een adres (`ah`, `jumbo`, `picnic`, `crisp`, `lidl`, `aldi`), of None als het geen foto van een winkel is."""
     if not isinstance(url, str) or not url:
         return None
     try:
@@ -209,15 +235,9 @@ def store_for(url: Any) -> str | None:
     if parts.scheme not in ("http", "https"):
         return None
     host = parts.hostname or ""
-    if host == "static.ah.nl":
-        return "ah"
-    if host == "jumbo.com" or host.endswith(".jumbo.com"):
-        return "jumbo"
-    if host.startswith("storefront-prod.") and host.endswith(_PICNIC_SUFFIX):
-        return "picnic"
-    if host == "crispapp.nl":
-        return "crisp"
-    return None
+    if host in _PATH_HOSTS and not parts.path.startswith(_PATH_HOSTS[host][1]):
+        return None
+    return _store_of_host(host)
 
 
 def _plain_authority(authority: str) -> bool:
@@ -378,7 +398,7 @@ async def pauses(now: str | None = None) -> list[dict[str, str]]:
     found: list[dict[str, str]] = []
     for row in rows:
         host = str(row["key"])[len(SETTING_PAUSED):]
-        store = store_for(f"https://{host}/")
+        store = _store_of_host(host)
         if store:
             found.append({"host": host, "store": store, "until": str(row["value"])})
     return found

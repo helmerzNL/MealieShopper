@@ -499,7 +499,7 @@ class RoutesTest(AiTestCase):
         with provider(side_effect=post):
             result = await self.admin.post("/api/offers/ai/review", json={"store": "ah", "max": 50})
         self.assertEqual((result.status_code, result.get_json()["judged"]), (200, 2))
-        self.assertEqual((await self.admin.post("/api/offers/ai/review", json={"store": "lidl"})).status_code, 400)
+        self.assertEqual((await self.admin.post("/api/offers/ai/review", json={"store": "nope"})).status_code, 400)
         with provider(return_value=reply(401, {"error": {"message": "weg"}})) as route:
             self.assertEqual((await self.admin.post("/api/offers/ai/review", json={"store": "ah"})).status_code, 200)  # niets meer te beoordelen: geen aanroep, geen fout
         self.assertFalse(route.called)

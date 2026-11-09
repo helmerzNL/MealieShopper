@@ -55,6 +55,6 @@ Onderweg gevonden en opgelost: bevatte een week een notitie zonder recept, dan f
 
 ## Buiten scope
 
-- Weekitems (`endDate`, Mealie v3.30.0): nagaan of het weekmenu ze meekrijgt. De porties (`recipeScale`) leest MealieShopper sinds 2.84.0; instellen gaat (nog) in Mealie.
+- Weekitems (`endDate`, Mealie v3.30.0): nagaan of het weekmenu ze meekrijgt. De porties (`recipeScale`) leest MealieShopper sinds 2.84.0 en stelt het sinds 4.4.0 ook in, bij *Maaltijd plannen* en *Maaltijd wijzigen* (issue #283; Mealie neemt het veld ook bij het aanmaken aan, `PlanEntryCreate.recipe_scale`).
 - Slepen tussen dagen: verplaatsen gaat via de dialoog (dag kiezen), wat ook op een telefoon werkt.
 - De planregels van Mealie beheren (`/api/households/mealplans/rules`): dat blijft in Mealie.

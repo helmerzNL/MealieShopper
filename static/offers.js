@@ -1,7 +1,7 @@
-// Het tabblad Aanbiedingen: de aanbiedingen van een winkel (AH Bonus, Picnic, Jumbo en Crisp) per categorie, en receptvoorstellen
+// Het tabblad Aanbiedingen: de aanbiedingen van een winkel (AH Bonus, Picnic, Jumbo, Crisp, Lidl en Aldi) per categorie, en receptvoorstellen
 // waarvan ingredienten in de aanbieding zijn. Alles komt uit een lokale kopie; die wordt elke dag ververst en kan de
 // beheerder onder Instellingen > Koppelen meteen synchroniseren.
-// Laadt na basket.js en gebruikt STORES, state, formatPrice, formatSyncTime, getWeekBounds, weekFrom, weekStartOf, weekOffsetText en setPlanWeek uit app.js.
+// Laadt na basket.js en gebruikt STORES, OFFER_ONLY_STORES, storeDisplayName, storeWithoutLink, offersOnlyStore, state, formatPrice, formatSyncTime, getWeekBounds, weekFrom, weekStartOf, weekOffsetText en setPlanWeek uit app.js.
 //
 // Bij AH staan ook je persoonlijke aanbiedingen (de Bonus Box) in de lijst, bovenaan en met een eigen label; met de schakelaar
 // "Alleen Bonus Box" zie je alleen die. De schakelaar onthoudt deze browser.
@@ -9,7 +9,8 @@
 // De week is die van het weekmenu (state.weekOffset): plan je volgende week, dan staan hier de aanbiedingen van volgende week, en kies
 // je hier een andere week, dan gaat het weekmenu mee. Eerdere weken zijn er niet: verlopen aanbiedingen staan in de Prijsgeschiedenis.
 
-const OFFERS_STORES = ["ah", "picnic", "jumbo", "crisp"];
+// Lidl en Aldi hebben geen webwinkel: van hen zijn er alleen de aanbiedingen, zonder koppeling (OFFER_ONLY_STORES in app.js).
+const OFFERS_STORES = ["ah", "picnic", "jumbo", "crisp", "lidl", "aldi"];
 const OFFER_ROWS = 3; // zoveel rijen aanbiedingen staan er eerst; de knop Meer voegt er steeds zoveel toe
 const OFFERS_PERSONAL_KEY = "ms-offers-personal";
 const OFFERS_GOOD_KEY = "ms-offers-good";
@@ -375,7 +376,7 @@ function offersChangeWeek(step) {
 // De winkels die op Aanbiedingen te kiezen zijn. In de prijsgeschiedenis zijn dat ze allemaal: daar staan ook prijzen uit
 // een prijsarchief of van kassabonnen, van een winkel waar je geen account aan gekoppeld hebt.
 function offersStores() {
-  return OFFERS_STORES.filter((key) => offersHistoryActive() || key === "ah" || state.linkedStores[key]);
+  return OFFERS_STORES.filter((key) => offersHistoryActive() || storeWithoutLink(key) || state.linkedStores[key]);
 }
 
 function offersTabActive() {
@@ -411,7 +412,7 @@ function renderOffersStore() {
   if (!available.includes(offersState.store)) offersState.store = defaultStoreOf(available); // ontkoppeld
   offersFollowPreferred();
   menu.hidden = available.length < 2;
-  $("#offers-store-name").textContent = STORES[offersState.store].name;
+  $("#offers-store-name").textContent = storeDisplayName(offersState.store);
   $("#offers-store-list").innerHTML = available
     .map(
       (key) =>
@@ -570,7 +571,8 @@ function offerPriceLabelHtml(offer) {
 
 // De rij onderaan de kaart: Vergelijk verpakkingen (een knop) en Prijsgeschiedenis (een link), in dezelfde stijl op één lijn.
 function offerCardFoot(offer) {
-  const compare = offer.unitPricePer
+  // Vergelijk verpakkingen zoekt bij de winkel; bij een winkel met alleen aanbiedingen (Lidl, Aldi) kan dat niet.
+  const compare = offer.unitPricePer && !offersOnlyStore(offersState.store)
     ? `<button class="link-button offer-card__compare" type="button" data-compare="${escapeHtml(offer.id)}">${escapeHtml(t("offers.compare.open"))}</button>`
     : "<span></span>";
   const history = `<a class="link-button offer-card__history" href="${escapeHtml(priceHistoryPath(offersState.store, offer.title, offer.id))}" data-route>${escapeHtml(t("offers.card.history"))}</a>`;
@@ -643,7 +645,7 @@ function offerProductRow(offer) {
     : label
     ? `<span class="${label.cls}"${label.title ? ` title="${escapeHtml(label.title)}"` : ""}>${escapeHtml(label.text)}</span>`
     : often ? `<small class="${often.cls}" title="${escapeHtml(often.title)}">${escapeHtml(often.text)}</small>` : "";
-  const compare = offer.unitPricePer
+  const compare = offer.unitPricePer && !offersOnlyStore(offersState.store)
     ? `<button class="icon-button" type="button" data-compare="${escapeHtml(offer.id)}" title="${escapeHtml(t("offers.compare.open"))}" aria-label="${escapeHtml(t("offers.compare.open"))}">${mdiIcon(MDI_COMPARE_HORIZONTAL)}</button>`
     : "";
   const chart = `<a class="icon-button" href="${escapeHtml(priceHistoryPath(offersState.store, offer.title, offer.id))}" data-route title="${escapeHtml(t("offers.card.history"))}" aria-label="${escapeHtml(t("offers.card.history"))}">${mdiIcon(MDI_CHART_LINE)}</a>`;
@@ -1011,7 +1013,7 @@ function renderOffers(data) {
   offersState.rows = OFFER_ROWS;
   const status = $("#offers-status");
   if (!data.supported) {
-    status.textContent = t("offers.unsupported", { store: STORES[offersState.store].name });
+    status.textContent = t("offers.unsupported", { store: storeDisplayName(offersState.store) });
     offersState.offers = [];
     offersState.categories = [];
   } else {
@@ -1021,6 +1023,7 @@ function renderOffers(data) {
   $("#offers-period").textContent = periodText;
   $("#offers-period").hidden = !periodText;
   renderOffersWeekNotes(data);
+  renderOffersNote();
   status.dataset.base = data.supported ? status.textContent : "";
   renderOffersStatusGood();
   renderOffersPersonal();
@@ -1039,7 +1042,7 @@ function renderOffersWeekNotes(data) {
   if (!data.supported || !data.syncedAt || !data.week || data.week.current) return;
   const notes = [];
   if (!data.total) notes.push(t("offers.week.empty"));
-  if (data.undated) notes.push(tn("offers.undated", data.undated, { store: STORES[offersState.store].name }));
+  if (data.undated) notes.push(tn("offers.undated", data.undated, { store: storeDisplayName(offersState.store) }));
   if (notes.length) $("#offers-status").textContent += ` ${notes.join(" ")}`;
 }
 
@@ -1056,8 +1059,26 @@ function offersShowMore() {
 }
 
 // De lijst van de vorige winkel maakt plaats voor een draaiend icoon zolang de aanbiedingen van de gekozen winkel binnenkomen.
-function renderOffersLoading(storeName = STORES[offersState.store].name) {
+// Bij een winkel met alleen aanbiedingen een korte uitleg boven de lijst: geen webwinkel, dus geen mandje of koppeling; bij Lidl ook wat
+// "met Lidl Plus" betekent.
+function renderOffersNote() {
+  const note = $("#offers-note");
+  if (!note) return;
+  const store = offersState.store;
+  if (!offersOnlyStore(store)) {
+    note.hidden = true;
+    note.textContent = "";
+    return;
+  }
+  const parts = [t("offers.note.offers_only", { store: storeDisplayName(store) })];
+  if (store === "lidl") parts.push(t("offers.note.lidl_plus"));
+  note.textContent = parts.join(" ");
+  note.hidden = false;
+}
+
+function renderOffersLoading(storeName = storeDisplayName(offersState.store)) {
   $("#offers-status").textContent = "";
+  if ($("#offers-note")) $("#offers-note").hidden = true;
   $("#offers-period").hidden = true;
   $("#offers-later").hidden = true;
   $("#offers-personal").hidden = true;
@@ -1110,7 +1131,7 @@ async function showOffers() {
   renderOffersWeek();
   message("#offers-message", "");
   if (offersState.waiting) {
-    renderOffersLoading(STORES[preferredSupermarket()].name);
+    renderOffersLoading(storeDisplayName(preferredSupermarket()));
     return;
   }
   // En op de eerste dag van de week (offersWeekStartKnown laadt dan alsnog), anders vraagt de pagina eerst de verkeerde week op.
@@ -1192,7 +1213,7 @@ function openOfferProduct(recipe, item) {
   $("#offer-product-match").textContent = t("offers.product.match", { ingredient: item.ingredient, recipe: recipe.title });
   const open = $("#offer-product-open");
   open.hidden = !offer.url;
-  open.textContent = t("offers.product.store", { store: STORES[offersState.store].name });
+  open.textContent = t("offers.product.store", { store: storeDisplayName(offersState.store) });
   open.dataset.url = offer.url || "";
   $("#offer-product-nopage").hidden = Boolean(offer.url);
   $("#offer-product-dialog").showModal();
@@ -1237,7 +1258,7 @@ async function showOfferRecipes() {
   const status = $("#offers-recipes-status");
   const list = $("#offers-recipes");
   message("#offers-recipes-message", "");
-  $("#offers-recipes-heading").textContent = t("offers.recipes.heading", { store: STORES[offersState.store].name });
+  $("#offers-recipes-heading").textContent = t("offers.recipes.heading", { store: storeDisplayName(offersState.store) });
   if (!offersState.supported) {
     status.textContent = "";
     list.innerHTML = "";
@@ -1537,7 +1558,7 @@ renderOffersWeek();
 const offersSync = { status: null, result: null };
 
 function offersSyncStoreLine(store, info, failure) {
-  const name = STORES[store].name;
+  const name = storeDisplayName(store);
   if (failure) return t("offers.sync.store.error", { store: name, error: failure });
   if (!info.linked) return t("offers.sync.store.skipped", { store: name });
   if (!info.syncedAt) return t("offers.sync.store.never", { store: name });
