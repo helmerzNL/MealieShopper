@@ -6,6 +6,8 @@ Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar
 
 ### Nieuw en gewijzigd in 4.7.0
 
+Pull request: [#293](https://github.com/helmerzNL/MealieShopper/pull/293).
+
 *English summary: the second round of the design review: the top bar and the navigation. The top bar now only has the logo and your avatar: the flags, the moon/sun button and the tagline are gone from it. **Dark mode / Light mode** and the other language (*English* or *Nederlands*) are new items in the menu under your avatar (on a phone: **More**), and **Settings, Preferences, Appearance** has a new **Language** choice (per browser, as before). On the login page, an invitation and in the setup guide the language choice is text, **NL** and **EN**, instead of flags (a flag stands for a country, not a language); the tagline moved onto the login card. The side menu now starts at 860 px instead of 1024 px (the App-Guidance breakpoint) and only shows the tabs of the open section; the offers tab under **Offers** is called **Overview**. **Week menu** and **Find recipes** get a title when the side menu replaces the tab bar, and **Meal kits**, **Settings** and **Profile** always have one. On a phone a tab bar (Stores, Settings) is one row you swipe, with the chosen tab scrolled into view. Fixed: the filter drawer of **Offers** stood half in view next to the side menu (between 1024 and 1100 px, now from 860 px) and opened in the wrong place, because the panel's entrance animation kept a transform. Nothing changed on the server.*
 
 - **De kop: alleen het logo en je avatar.** De vlaggetjes, de knop met de maan of de zon en de slogan staan niet meer in de kop van elk scherm. Het waren instellingen die je één keer kiest, en op een telefoon namen ze de helft van de kop in.
