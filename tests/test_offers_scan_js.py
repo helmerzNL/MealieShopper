@@ -71,6 +71,8 @@ PRELUDE = "\n".join(
             "offersUnitLabel",
             "offerPopupHtml",
             "offerAsProduct",
+            "offerForPack",
+            "offerPopupPacks",
             "loadOfferZoomHistory",
         )
     ]
@@ -82,7 +84,7 @@ PRELUDE = "\n".join(
         "const offerBadgeTitle = () => 'uitleg';",
         "const monthShort = (date) => date.toLocaleDateString('nl-NL', { month: 'short' }).replace(/\\.$/, '');",
         "const formatPrice = (value) => 'EUR ' + Number(value).toFixed(2);",
-        "const offerById = (id) => ({ id: String(id) });",
+        "const offerById = (id) => Array.isArray(offersState.offers) ? offersState.offers.find((o) => String(o.id) === String(id)) || null : { id: String(id) };",
         "const foldText = (value) => String(value).toLowerCase();",
         "const matchesWords = (text, query) => query.toLowerCase().split(/\\s+/).every((word) => text.includes(word));",
         "const I18N = { formatNumber: String };",
@@ -391,6 +393,17 @@ class OffersScanNodeTest(unittest.TestCase):
         self.assertIn('matchMedia("(max-width: 1099px)")', body)
         self.assertIn(".inert = ", body)
         self.assertIn('setAttribute("aria-hidden"', body)
+
+    def test_a_pack_without_its_own_offer_gets_no_deal_in_the_popup(self):
+        # De 1000 g tegen gewone prijs naast de 500 g in de aanbieding: geen 15% korting of Bonus Box van de 500 g op haar regel.
+        offer = {**self.POPUP_OFFER, "priceBefore": 4.29, "promoLabel": "15% korting", "personal": True,
+                 "family": {"key": "f", "packs": [{"productId": "514010", "unitSize": "390 g", "price": 3.65}, {"productId": "1000", "unitSize": "1000 g", "price": 8.30}]}}
+        found = self.run_js(f"offersState.offers = []; console.log(JSON.stringify(offerForPack({json.dumps(offer)}, '1000')));")
+        self.assertEqual((found["id"], found["price"], found["priceBefore"], found["promoLabel"], found["personal"]), ("1000", 8.30, None, "", False))
+
+    def test_the_unit_choice_keeps_a_remembered_unit_with_a_limit(self):
+        self.assertEqual(self.run_js("console.log(JSON.stringify([offersUnitChoice({ maxUnitPrice: { unit: 'l', value: 5 } }, ['kg', 'stuk']), offersUnitChoice({ maxUnitPrice: { unit: 'l', value: null } }, ['kg', 'stuk'])]));"), ["l", "kg"])
+        self.assertNotIn("filters.maxUnitPrice.unit = ", function_source("renderOffersFilters"), "de keuzelijst verandert de bewaarde eenheid niet")
 
     def test_an_offer_becomes_a_product_for_the_head(self):
         product = self.run_js(f"console.log(JSON.stringify(offerAsProduct('ah', {json.dumps(self.POPUP_OFFER)})));")

@@ -293,7 +293,6 @@ class BestOffersTest(PricesCase):
         self.assertEqual((by_id["233387"]["yearLow"]["status"], by_id["233387"]["yearLow"]["above"]), ("above", 1.5))
 
 
-@unittest.skipUnless(shutil.which("node"), "Node is niet geinstalleerd")
 class JsonBodyTest(AppTestCase):
     """Melding van 2026-11-07: `/api/backup/jobs` en `/api/price-archive/jobs` gaven een 500 op een JSON-body die geen object is.
     Elke POST-route die een JSON-body leest, krijgt hier `"x"` en geeft dan een 400 (request_body.json_object), of de status uit
@@ -303,12 +302,21 @@ class JsonBodyTest(AppTestCase):
     # token in het pad (404 voor een onbekend token), de OAuth-routes van de MCP-server lezen een formulier of JSON (404 zolang
     # OAuth niet is ingesteld, en `/oauth/revoke` geeft altijd 200, zoals RFC 7009 vraagt).
     BODY_EXEMPT: dict[str, int] = {
+        "/api/backup/uploads/<token>": 404,
         "/api/backup/uploads/<token>/stage": 404,
+        "/api/price-archive/uploads/<token>": 404,
         "/api/price-archive/uploads/<token>/stage": 404,
+        "/api/price-archive/export": 200,  # leest alleen queryparameters
+        "/api/picnic/explore": 200,  # leest alleen queryparameters
+        "/mcp": 404,  # JSON-RPC, en zonder OAuth-instelling niet beschikbaar
+        "/oauth/authorize": 404,
         "/oauth/register": 404,
         "/oauth/token": 404,
         "/oauth/revoke": 200,
     }
+    # Routes die de body niet lezen maar wel naar buiten gaan (de AH-loginproxy stuurt alles door, het prijsarchief haalt een site op):
+    # in de tests stopt de netwerkwacht die met een fout, dus die slaan we over.
+    BODY_SKIPPED: set[str] = {"/api/ah/auth/proxy", "/api/ah/auth/proxy/<path:proxy_path>", "/api/price-archive/fetch"}
 
     async def test_2026_11_07_a_non_object_json_body_never_gives_a_500(self):
         # Zonder inloggen (zoals een installatie zonder wachtwoord of passkey), anders stopt elke route al op een 401.
@@ -319,16 +327,18 @@ class JsonBodyTest(AppTestCase):
         client = self.client_for(app)
         wrong: list[str] = []
         for rule in sorted(app.url_map.iter_rules(), key=lambda r: r.rule):
-            if "POST" not in (rule.methods or set()) or rule.endpoint == "static":
+            methods = (rule.methods or set()) & {"POST", "PUT", "PATCH"}
+            if not methods or rule.endpoint == "static" or rule.rule in self.BODY_SKIPPED:
                 continue
             source = inspect.getsource(app.view_functions[rule.endpoint])
-            if "get_json" not in source and "json_object" not in source and "form_or_json" not in source:
-                continue  # leest geen body
+            if not re.search(r"get_json|json_object|form_or_json|get_data|request\.", source) and "body" not in source:
+                continue  # leest de aanvraag niet
             path = re.sub(r"<[^>]+>", "1", rule.rule)
-            response = await client.post(path, data='"x"', headers={"Content-Type": "application/json"})
-            expected = self.BODY_EXEMPT.get(rule.rule, 400)
-            if response.status_code != expected:
-                wrong.append(f"{rule.rule} -> {response.status_code} (verwacht {expected})")
+            for method in sorted(methods):
+                response = await client.open(path, method=method, data='"x"', headers={"Content-Type": "application/json"})
+                expected = self.BODY_EXEMPT.get(rule.rule, 400)
+                if response.status_code != expected:
+                    wrong.append(f"{method} {rule.rule} -> {response.status_code} (verwacht {expected})")
         self.assertEqual(wrong, [], "\n".join(wrong))
 
 
@@ -355,6 +365,7 @@ class RecipeImportUrlTest(AppTestCase):
         imp.assert_not_called()
 
 
+@unittest.skipUnless(shutil.which("node"), "Node is niet geinstalleerd")
 class OffersFiltersTest(unittest.TestCase):
     """Meldingen over de filters op de aanbiedingenpagina."""
 

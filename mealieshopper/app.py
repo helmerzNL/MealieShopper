@@ -691,6 +691,10 @@ def create_app() -> Quart:
         """De ETag van de lijst: de synchronisatie, de dag, de week, de build en de catalogus van de prijsgeschiedenis."""
         return hashlib.sha1(f"{await offers.signature(store, week)}|{await prices.signature(store)}".encode("utf-8")).hexdigest()
 
+    def offers_cache_key(store: str, week: str) -> tuple[str, str]:
+        """De sleutel van de cache: de maandag van de week, want de browser vraagt ?week=<maandag> en de opwarmer rekent met vandaag."""
+        return (store, offers.week_bounds(week)[0].isoformat())
+
     async def offers_with_verdicts(store: str, week: str) -> dict[str, Any]:
         data = await offers.load(store, week)
         await prices.annotate(data["store"], data["offers"])  # het oordeel bij elke aanbieding (#178), een fout laat de lijst staan
@@ -706,7 +710,7 @@ def create_app() -> Quart:
             for week in (today.isoformat(), (today + timedelta(days=7)).isoformat()):
                 try:
                     etag = await offers_etag(store, week)
-                    await offers_cache.get((store, week), etag, lambda: offers_with_verdicts(store, week))
+                    await offers_cache.get(offers_cache_key(store, week), etag, lambda: offers_with_verdicts(store, week))
                 except Exception:  # noqa: BLE001 - opwarmen is een extraatje
                     app.logger.warning("Aanbiedingen van %s opwarmen mislukt", store, exc_info=True)
 
@@ -734,7 +738,7 @@ def create_app() -> Quart:
         # Dezelfde ETag is dezelfde lijst: een tweede browser of apparaat, en aanvragen die tegelijk binnenkomen, krijgen de lijst die
         # er al ligt of op komst is, in plaats van het prijsoordeel opnieuw uit te rekenen (response_cache.py).
         response = await offers_action(
-            lambda: offers_cache.get((store, week), etag, lambda: offers_with_verdicts(store, week)), tr("Aanbiedingen laden mislukt", "Loading the offers failed")
+            lambda: offers_cache.get(offers_cache_key(store, week), etag, lambda: offers_with_verdicts(store, week)), tr("Aanbiedingen laden mislukt", "Loading the offers failed")
         )
         if isinstance(response, Response) and response.status_code == 200:
             response.headers.update(headers)

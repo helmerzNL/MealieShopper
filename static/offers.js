@@ -283,10 +283,12 @@ function offersUnitsInList(list) {
   return ["kg", "l", "stuk"].filter((unit) => list.some((offer) => offer.unitPricePer && offer.unitPricePer.unit === unit));
 }
 
-// De eenheid voor de keuzelijst: de onthouden eenheid als die voorkomt, anders de eerste die er is (of kg).
+// De eenheid voor de keuzelijst: de onthouden eenheid als die voorkomt, of als er een grens in staat (die nooit stil van eenheid
+// wisselt), anders de eerste die er is (of kg).
 function offersUnitChoice(filters, units) {
   const unit = filters.maxUnitPrice && filters.maxUnitPrice.unit;
-  return units.includes(unit) ? unit : units[0] || "kg";
+  if (units.includes(unit) || (unit && typeof filters.maxUnitPrice.value === "number")) return unit;
+  return units[0] || "kg";
 }
 
 // "duurder per kilo dan 1000 g": de aanbieding is per eenheid duurder dan een andere verpakking van hetzelfde product.
@@ -787,7 +789,10 @@ function offerForPack(offer, packId) {
   const found = offerById(packId);
   if (found) return found;
   const pack = offerPopupPacks(offer).find((item) => String(item.productId) === String(packId));
-  return pack ? { ...offer, id: pack.productId, unitSize: pack.unitSize, price: pack.price, title: pack.title || offer.title } : offer;
+  // Een verpakking die zelf geen aanbieding is: de prijs van de verpakking, zonder de actietekst, de oude prijs en de Bonus Box van de aanbieding.
+  return pack
+    ? { ...offer, id: pack.productId, unitSize: pack.unitSize, price: pack.price, title: pack.title || offer.title, priceBefore: null, promoLabel: "", personal: false, activated: null }
+    : offer;
 }
 
 function hideOfferPopup() {
@@ -980,8 +985,9 @@ function renderOffersFilters() {
   if (document.activeElement !== price) price.value = typeof filters.maxUnitPrice.value === "number" ? String(filters.maxUnitPrice.value) : "";
   const unit = $("#offers-filter-unit");
   const units = offersUnitsInList(offersState.offers);
-  filters.maxUnitPrice.unit = offersUnitChoice(filters, units);
-  unit.innerHTML = (units.length ? units : ["kg"]).map((name) => `<option value="${name}"${name === filters.maxUnitPrice.unit ? " selected" : ""}>${escapeHtml(t("offers.filters.per_unit", { unit: offersUnitLabel(name) }))}</option>`).join("");
+  const chosen = offersUnitChoice(filters, units);
+  const options = units.includes(chosen) ? units : [...units, chosen];
+  unit.innerHTML = options.map((name) => `<option value="${name}"${name === chosen ? " selected" : ""}>${escapeHtml(t("offers.filters.per_unit", { unit: offersUnitLabel(name) }))}</option>`).join("");
   const count = offersActiveFilterCount();
   $("#offers-filters-count").textContent = count ? ` (${I18N.formatNumber(count)})` : "";
   const active = $("#offers-active-filters");

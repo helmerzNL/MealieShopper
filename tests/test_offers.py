@@ -352,6 +352,25 @@ class OffersWeekTest(TempDataDirTest):
             self.assertEqual((await client.get("/api/offers?store=ah")).status_code, 200)
             self.assertEqual(spy.await_count, warmed, "de eerste aanvraag komt uit de cache")
 
+    async def test_the_warm_up_and_a_request_with_a_week_share_the_cache_key(self):
+        # De browser vraagt altijd ?week=<maandag>; de opwarmer rekent op een dinsdag met de datum van vandaag. Dezelfde sleutel.
+        from mealieshopper import app as app_module
+
+        app = create_app()
+        client = self.client_for(app)
+        tuesday = self.monday + timedelta(days=1)
+
+        class Today(date):
+            @classmethod
+            def today(cls):
+                return tuesday
+
+        with mock.patch.object(app_module, "date", Today), mock.patch.object(offers, "STORES", ("ah",)), mock.patch.object(prices, "annotate", wraps=prices.annotate) as spy:
+            await app.extensions["mealieshopper_warm_offers"]()
+            warmed = spy.await_count
+            self.assertEqual((await client.get(f"/api/offers?store=ah&week={self.monday.isoformat()}")).status_code, 200)
+            self.assertEqual(spy.await_count, warmed, "de aanvraag van de browser komt uit de opgewarmde cache")
+
     async def test_a_request_during_the_warm_up_shares_the_computation(self):
         app = create_app()
         client = self.client_for(app)
