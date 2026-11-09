@@ -11,12 +11,10 @@ vraagt, zodat de MCP-ingang nooit open staat op een installatie zonder beveiligi
 from __future__ import annotations
 
 import datetime
-import ipaddress
 import json
 from typing import Any, Awaitable, Callable
-from urllib.parse import urlsplit
 
-from . import ah, ah_lists, offers, ah_orders, ah_recipes, auth, crisp, jumbo, jumbo_lists, jumbo_orders, jumbo_recipes, mealie, picnic, picnic_orders, picnic_recipes, prices, recipe_nutrition, server_settings
+from . import ah, ah_lists, offers, ah_orders, urls, ah_recipes, auth, crisp, jumbo, jumbo_lists, jumbo_orders, jumbo_recipes, mealie, picnic, picnic_orders, picnic_recipes, prices, recipe_nutrition, server_settings
 
 LATEST_PROTOCOL = "2025-06-18"
 SUPPORTED_PROTOCOLS = ("2025-06-18", "2025-03-26", "2024-11-05")
@@ -535,16 +533,7 @@ async def tool_crisp_recipes(args: dict[str, Any]) -> Any:
     return {"source": "saved", "total": len(recipes), "recipes": brief}
 
 
-def _private_host(hostname: str) -> bool:
-    """Een adres op je eigen netwerk (Mealie zou het ophalen vanaf jouw server)."""
-    host = hostname.strip("[]").rstrip(".").casefold()
-    if host == "localhost" or host.endswith((".localhost", ".local", ".lan", ".internal", ".home.arpa")) or "." not in host and ":" not in host:
-        return True
-    try:
-        address = ipaddress.ip_address(host)
-    except ValueError:
-        return False
-    return not address.is_global
+_private_host = urls.private_host  # de regel staat in urls.py, gedeeld met POST /api/mealie/import
 
 
 def _int_arg(args: dict[str, Any], name: str, default: int, low: int, high: int) -> int:
@@ -618,14 +607,12 @@ async def tool_get_price_history(args: dict[str, Any]) -> Any:
 
 
 async def tool_import_recipe(args: dict[str, Any]) -> Any:
-    url = _text(args.get("url"), 2000)
-    parts = urlsplit(url)
-    if parts.scheme not in ("http", "https") or not parts.hostname:
-        raise ToolError("Geef een recept-URL op die met http:// of https:// begint")
     # Een assistent kan door een tekst op een webpagina op het verkeerde been worden gezet; adressen op
-    # je eigen netwerk laten we daarom niet door Mealie ophalen.
-    if _private_host(parts.hostname):
-        raise ToolError("Dit adres staat op een eigen netwerk. Importeer alleen recepten van het internet.")
+    # je eigen netwerk laten we daarom niet door Mealie ophalen (urls.public_http_url).
+    try:
+        url = urls.public_http_url(_text(args.get("url"), 2000))
+    except urls.UnsafeUrl as exc:
+        raise ToolError(str(exc)) from exc
     slug = await mealie.import_from_url(url)
     return {"slug": slug, "mealieUrl": await mealie.recipe_page_url(slug)}
 

@@ -332,6 +332,29 @@ class JsonBodyTest(AppTestCase):
         self.assertEqual(wrong, [], "\n".join(wrong))
 
 
+class RecipeImportUrlTest(AppTestCase):
+    """Melding van 2026-11-06: `POST /api/mealie/import` haalde elke opgegeven URL op, ook een adres op het eigen netwerk. Nu
+    dezelfde hostnaamcontrole als de MCP-tool (urls.public_http_url)."""
+
+    async def post(self, body: str):
+        patcher = mock.patch.dict(os.environ, {"PASSKEY_AUTH_ENABLED": "false"})
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        client = self.client_for(create_app())
+        return await client.post("/api/mealie/import", data=body, headers={"Content-Type": "application/json"})
+
+    async def test_2026_11_06_importing_from_a_private_address_is_refused(self):
+        from mealieshopper import mealie
+
+        with mock.patch.object(mealie, "import_from_url", new_callable=mock.AsyncMock) as imp:
+            response = await self.post('{"url": "http://mealie:9000/x"}')
+            self.assertEqual(response.status_code, 400)
+            self.assertEqual(response.get_json()["error"], "Alleen een openbaar http(s)-adres kan worden geimporteerd.")
+            self.assertEqual((await self.post('{"url": 5}')).status_code, 400)
+            self.assertEqual((await self.post('{"url": "ftp://ah.nl/x"}')).status_code, 400)
+        imp.assert_not_called()
+
+
 class OffersFiltersTest(unittest.TestCase):
     """Meldingen over de filters op de aanbiedingenpagina."""
 

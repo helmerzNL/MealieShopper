@@ -13,7 +13,7 @@ import httpx
 from quart import Quart, Response, jsonify, redirect, render_template, request, send_file, send_from_directory
 
 from . import about, ah, ah_explore, ah_lists, ah_orders, ah_planner, ah_recipes, ai_match, ai_review, audit, auth_password, backup, crisp, crisp_orders, factory_reset, hellofresh, image_cache, jumbo, jumbo_explore, jumbo_lists, jumbo_orders, jumbo_recipes, marleyspoon, mcp_http, mealie, mealie_images, offers, offers_schedule, onboarding, picnic, picnic_explore, picnic_orders, picnic_recipes, price_archive, price_import, prices, product_images, product_links, profile, recipe_bulk, recipe_nutrition, request_body, server_settings, updates, users
-from . import auth, deals, http_client, tasks
+from . import auth, deals, http_client, tasks, urls
 from . import assets
 from .body_limits import DEFAULT_MAX_BODY, SizedRequest
 from .forwarded import ForwardedHeaders
@@ -985,9 +985,14 @@ def create_app() -> Quart:
     @app.post("/api/mealie/import")
     async def import_recipe():
         body = await request_body.json_object()
-        url = (body.get("url") or "").strip()
-        if not url:
+        url = body.get("url")
+        if not (isinstance(url, str) and url.strip()):
             return jsonify({"error": tr("URL ontbreekt", "URL is missing")}), 400
+        # Alleen een openbaar adres: geen Mealie, NAS of router op het eigen netwerk (urls.py, dezelfde regel als de MCP-tool).
+        try:
+            url = urls.public_http_url(url)
+        except urls.UnsafeUrl:
+            return jsonify({"error": tr("Alleen een openbaar http(s)-adres kan worden geimporteerd.", "Only a public http(s) address can be imported.")}), 400
 
         try:
             slug = await mealie.import_from_url(url)
