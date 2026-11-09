@@ -108,7 +108,7 @@ async def ensure(conn: aiosqlite.Connection) -> aiosqlite.Connection:
     """Maak de tabel als die er nog niet is, en geef SQL de functie `ms_fold` (`fold`), zodat een query op naam kan koppelen.
 
     Voor de `_connect` van elke module die bonregels koppelt (en `purchase_lines.times_before`)."""
-    await conn.executescript(SCHEMA)
+    await auth.ensure_schema(conn, "product_links", SCHEMA)
     await conn.create_function("ms_fold", 1, fold, deterministic=True)
     return conn
 

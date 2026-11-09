@@ -71,7 +71,7 @@ def next_slot(now: datetime) -> datetime:
 @asynccontextmanager
 async def _connect() -> AsyncIterator[aiosqlite.Connection]:
     async with auth.connect() as conn:
-        await conn.executescript(SCHEMA)
+        await auth.ensure_schema(conn, "offers_schedule", SCHEMA)
         yield conn
 
 
@@ -142,7 +142,7 @@ async def _claim(now: datetime) -> bool:
     """Leg vast dat deze worker de run van het laatste tijdstip uitvoert. Alleen de eerste die dat doet krijgt True."""
     slot = _utc_iso(latest_slot(now))
     async with _connect() as conn:
-        await conn.execute("INSERT OR IGNORE INTO offers_schedule (id, last_run, trigger, summary) VALUES (1, '', 'scheduled', '{}')")
+        await conn.execute("INSERT INTO offers_schedule (id, last_run, trigger, summary) VALUES (1, '', 'scheduled', '{}') ON CONFLICT(id) DO NOTHING")
         claimed = await conn.execute(
             "UPDATE offers_schedule SET last_run = ?, trigger = 'scheduled' WHERE id = 1 AND last_run < ?",
             (_utc_iso(now), slot),

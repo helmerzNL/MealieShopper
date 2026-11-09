@@ -90,7 +90,6 @@ _corr: contextvars.ContextVar[str] = contextvars.ContextVar("audit_corr", defaul
 _actor: contextvars.ContextVar[str] = contextvars.ContextVar("audit_actor", default="")
 _quiet: contextvars.ContextVar[bool] = contextvars.ContextVar("audit_quiet", default=False)
 
-_initialised: set[str] = set()
 _since_prune = 0
 
 SCHEMA = """
@@ -116,6 +115,7 @@ CREATE TABLE IF NOT EXISTS audit_log (
 );
 CREATE INDEX IF NOT EXISTS audit_log_service ON audit_log (service, id);
 CREATE INDEX IF NOT EXISTS audit_log_corr ON audit_log (corr);
+CREATE INDEX IF NOT EXISTS audit_log_ts ON audit_log (ts);
 """
 
 
@@ -268,16 +268,10 @@ def _row_values(
 
 @asynccontextmanager
 async def _connect() -> AsyncIterator[aiosqlite.Connection]:
-    """Een verbinding op `auth.connect` met het schema, een keer per database. Geen commit bij het verlaten.
-
-    Geen slot nodig: het schema is `IF NOT EXISTS`, twee coroutines die het tegelijk draaien zitten elkaar niet in de weg.
-    """
+    """Een verbinding op `auth.connect` met het schema, een keer per proces en database (`auth.ensure_schema`). Geen commit
+    bij het verlaten."""
     async with auth.connect() as conn:
-        key = str(auth.db_path())
-        if key not in _initialised:
-            await conn.executescript(SCHEMA)
-            await conn.commit()
-            _initialised.add(key)
+        await auth.ensure_schema(conn, "audit", SCHEMA)
         yield conn
 
 

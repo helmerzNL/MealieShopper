@@ -1619,7 +1619,7 @@ async def _ajobs_connect() -> AsyncIterator[aiosqlite.Connection]:
     """Een verbinding met de tabel van de klussen. Sluit zonder commit, zoals `auth.connect`."""
     await auth.ensure_db()
     async with auth.connect() as conn:
-        await conn.executescript(JOB_SCHEMA)
+        await auth.ensure_schema(conn, "price_archive_jobs", JOB_SCHEMA)
         yield conn
 
 

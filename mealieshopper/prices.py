@@ -26,6 +26,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import weakref
 from collections.abc import AsyncIterator, Awaitable
 from contextlib import asynccontextmanager
 from datetime import date, datetime, timedelta, timezone
@@ -62,6 +63,7 @@ CREATE TABLE IF NOT EXISTS price_observations (
   seen_at TEXT NOT NULL,
   PRIMARY KEY (store, product_id, day)
 );
+CREATE INDEX IF NOT EXISTS price_observations_day ON price_observations (store, day);
 
 -- De afbeelding van een aanbieding die je minstens één keer kocht, verkleind tot hooguit 1024 pixels breed (zie product_images.py).
 -- `title` is de naam die het product had toen de afbeelding werd bewaard: zo zie je later of het hetzelfde product is, ook als de
@@ -176,7 +178,7 @@ async def _connect() -> AsyncIterator[aiosqlite.Connection]:
     `product_links.ensure` (de tabel en de SQL-functie `ms_fold`)."""
     async with auth.connect() as conn:
         await offers.prepare(conn)
-        await conn.executescript(SCHEMA)
+        await auth.ensure_schema(conn, "prices", SCHEMA)
         yield await product_links.ensure(conn)
 
 
@@ -274,9 +276,23 @@ def recorded(store: str, search: Callable[..., Awaitable[list[dict[str, Any]]]])
 
 _TABLES_SQL = "SELECT name FROM sqlite_master WHERE type = 'table'"
 
+# De tabellen per verbinding, een keer gelezen: een verzoek vraagt ze tot vijftien keer (`_purchase_sources` per bron). Een verbinding
+# van `_connect` heeft haar schema al voordat iemand dit vraagt, en de tabellen van een winkel komen op een andere verbinding erbij.
+_TABLE_CACHE: weakref.WeakKeyDictionary[aiosqlite.Connection, set[str]] = weakref.WeakKeyDictionary()
+
 
 async def _tables(conn: aiosqlite.Connection) -> set[str]:
-    return {row["name"] for row in await conn.execute_fetchall(_TABLES_SQL)}
+    tables: set[str] | None = _TABLE_CACHE.get(conn)
+    if tables is None:
+        tables = _TABLE_CACHE[conn] = {row["name"] for row in await conn.execute_fetchall(_TABLES_SQL)}
+    return tables
+
+
+def native_id(store: str, product_id: str) -> Any:
+    """Het product-id zoals de tabel van de winkel het bewaart: AH als INTEGER, de andere winkels als TEXT. Zo vergelijkt SQL de kolom
+    zonder CAST met de waarde en doet de index op `product_id` het werk (SQLite past anders de affiniteit van de kolom toe, Postgres
+    weigert een tekst naast een getal)."""
+    return int(product_id) if store == "ah" and product_id.isdigit() else product_id
 
 
 def _purchase_sources(tables: set[str], store: str) -> list[str]:
@@ -706,7 +722,7 @@ CATALOGUE_TABLES: frozenset[str] = frozenset({table for sources in _PURCHASES.va
 }
 _CATALOGUE_OPS: tuple[str, ...] = ("INSERT", "UPDATE", "DELETE")
 _CATALOGUE_TRIGGERS_SQL = "SELECT name FROM sqlite_master WHERE type = 'trigger' AND name LIKE 'catalogue!_%' ESCAPE '!'"
-_CATALOGUE_START_SQL = "INSERT OR IGNORE INTO catalogue_changes (id, token, version) VALUES (1, lower(hex(randomblob(8))), 0)"
+_CATALOGUE_START_SQL = "INSERT INTO catalogue_changes (id, token, version) VALUES (1, lower(hex(randomblob(8))), 0) ON CONFLICT(id) DO NOTHING"
 
 
 class _Catalogue(NamedTuple):
@@ -796,10 +812,10 @@ async def _pinned(conn: aiosqlite.Connection, store: str, product_id: str, table
     prijzen, in plaats van alleen andere producten met die naam."""
     sources: list[tuple[str, str, tuple[Any, ...]]] = [
         ("offers", "store = ? AND product_id = ?", (store, product_id)),
-        (f"{store}_order_items", "CAST(product_id AS TEXT) = ?", (product_id,)),
+        (f"{store}_order_items", "product_id = ?", (native_id(store, product_id),)),
     ]
     if store == "ah":
-        sources.append(("ah_receipt_products", "CAST(product_id AS TEXT) = ?", (product_id,)))
+        sources.append(("ah_receipt_products", "product_id = ?", (native_id(store, product_id),)))
     for table, where, args in sources:
         if table not in tables:
             continue

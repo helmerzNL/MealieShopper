@@ -6,7 +6,7 @@ import hashlib
 import os
 import secrets
 import weakref
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -25,6 +25,12 @@ OWNER_ID = "owner"  # de eerste gebruiker is de beheerder; alle anderen zijn gew
 SESSION_COOKIE_NAME = "ms_session"
 SESSION_MAX_AGE_SECONDS = 24 * 60 * 60
 _INITIALIZED = False
+
+# De schema's die dit proces al aanmaakte, per database-pad: elke module maakt haar tabellen, indexen en migraties een keer per
+# proces, niet bij elke verbinding. `forget_runtime_state` wist het, zodat een nieuwe database na een fabrieksreset het schema
+# weer krijgt. Twee coroutines die tegelijk de eerste zijn, draaien de opzet allebei: die is `IF NOT EXISTS` en de migraties
+# controleren zelf nog eens achter een schrijfslot.
+_SCHEMAS_READY: set[tuple[str, str]] = set()
 
 
 def auth_enabled() -> bool:
@@ -170,6 +176,22 @@ async def connect() -> AsyncIterator[aiosqlite.Connection]:
         yield conn
 
 
+async def ensure_schema(conn: aiosqlite.Connection, name: str, setup: str | Callable[[aiosqlite.Connection], Awaitable[None]]) -> None:
+    """Draai `setup` (een SQL-script, of een coroutine met het schema en de migraties van `name`) een keer per proces en database.
+
+    Voor de `_connect` van elke module: DDL per verzoek kost tijd (en op een server als Postgres neemt elke CREATE een slot), en
+    het resultaat verandert nooit tot het proces of de database opnieuw begint. Mislukt de opzet, dan blijft hij open voor de
+    volgende verbinding. Wat per verbinding moet (`PRAGMA foreign_keys`, `create_function`) hoort niet in `setup`."""
+    key: tuple[str, str] = (str(db_path()), name)
+    if key in _SCHEMAS_READY:
+        return
+    if isinstance(setup, str):
+        await conn.executescript(setup)
+    else:
+        await setup(conn)
+    _SCHEMAS_READY.add(key)
+
+
 async def fetchone(conn: aiosqlite.Connection, sql: str, params: tuple[Any, ...] = ()) -> aiosqlite.Row | None:
     """De eerste rij van `sql` op `conn`, of None. Gedeeld door elke module met een eigen tabel."""
     async with conn.execute(sql, params) as cursor:
@@ -247,6 +269,9 @@ CREATE TABLE IF NOT EXISTS invites (
   created_at TEXT NOT NULL,
   expires_at TEXT NOT NULL
 );
+
+CREATE INDEX IF NOT EXISTS passkey_credentials_user ON passkey_credentials (user_id);
+CREATE INDEX IF NOT EXISTS mfa_recovery_codes_user ON mfa_recovery_codes (user_id);
 """
 
 
@@ -606,6 +631,7 @@ def forget_runtime_state() -> None:
     """Vergeet wat er in het geheugen staat over de database en het geheim (na het wissen van de data-map)."""
     global _INITIALIZED
     _INITIALIZED = False
+    _SCHEMAS_READY.clear()
     _master_secrets.clear()
 
 

@@ -198,8 +198,10 @@ async def _save_group(store: str, group: list[dict[str, Any]], answers: dict[int
                     (store, recipe["source"], recipe["id"], line - 1, recipe["ingredients"][line - 1], str(offer["id"]), offer["title"], provider, model, now),
                 )
             await conn.execute(
-                "INSERT OR REPLACE INTO ai_recipe_runs (store, source, recipe_id, offers_synced_at, ingredients_hash, matched_count, provider, model, searched_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO ai_recipe_runs (store, source, recipe_id, offers_synced_at, ingredients_hash, matched_count, provider, model, searched_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(store, source, recipe_id) DO UPDATE SET offers_synced_at = excluded.offers_synced_at, "
+                "ingredients_hash = excluded.ingredients_hash, matched_count = excluded.matched_count, provider = excluded.provider, "
+                "model = excluded.model, searched_at = excluded.searched_at",
                 (store, recipe["source"], recipe["id"], synced_at, offers.ingredients_hash(recipe["ingredients"]), len(found), provider, model, now),
             )
             matched += len(found)

@@ -413,8 +413,10 @@ async def review(store: Any, max_pairs: Any = DEFAULT_MAX_PAIRS) -> dict[str, An
             for number, (verdict, reason) in verdicts.items():
                 pair = group[number - 1]
                 await conn.execute(
-                    "INSERT OR REPLACE INTO offer_verdicts (store, product_id, head, ingredient, product_title, verdict, reason, provider, model, judged_at) "
-                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    "INSERT INTO offer_verdicts (store, product_id, head, ingredient, product_title, verdict, reason, provider, model, judged_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(store, product_id, head) DO UPDATE SET ingredient = excluded.ingredient, "
+                    "product_title = excluded.product_title, verdict = excluded.verdict, reason = excluded.reason, provider = excluded.provider, "
+                    "model = excluded.model, judged_at = excluded.judged_at",
                     (store, pair["offerId"], pair["head"], pair["ingredient"], pair["product"], verdict, reason, provider, model, offers._now()),
                 )
             await conn.commit()

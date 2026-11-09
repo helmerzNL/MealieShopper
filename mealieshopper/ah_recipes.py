@@ -78,11 +78,17 @@ COLUMN_MIGRATIONS: tuple[tuple[str, str, str], ...] = (("ah_saved_recipes", "nut
 async def _connect() -> AsyncIterator[aiosqlite.Connection]:
     """Een verbinding met het schema. Sluit zonder commit, zoals `auth.connect`."""
     async with auth.connect() as conn:
-        await conn.executescript(SCHEMA)
-        for table, column, kind in COLUMN_MIGRATIONS:
-            if column not in {row["name"] for row in await conn.execute_fetchall(f"PRAGMA table_info({table})")}:
-                await conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {kind}")
+        await auth.ensure_schema(conn, "ah_recipes", _setup)
         yield conn
+
+
+async def _setup(conn: aiosqlite.Connection) -> None:
+    """Het schema en de kolommen die later kwamen, een keer per proces (`auth.ensure_schema`)."""
+    await conn.executescript(SCHEMA)
+    for table, column, kind in COLUMN_MIGRATIONS:
+        if column not in {row["name"] for row in await conn.execute_fetchall(f"PRAGMA table_info({table})")}:
+            await conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {kind}")
+    await conn.commit()
 
 
 def _nutrition_of(raw: Any) -> dict[str, float]:
@@ -208,11 +214,11 @@ async def refresh() -> dict[str, Any]:
             [(*row, kept.get(row[0])) for row in rows],
         )
         await conn.executemany(
-            "INSERT OR IGNORE INTO ah_saved_recipe_groups (group_id, position, name, is_default) VALUES (?, ?, ?, ?)",
+            "INSERT INTO ah_saved_recipe_groups (group_id, position, name, is_default) VALUES (?, ?, ?, ?) ON CONFLICT(group_id) DO NOTHING",
             group_rows,
         )
         await conn.executemany(
-            "INSERT OR IGNORE INTO ah_saved_recipe_group_items (group_id, recipe_id, position) VALUES (?, ?, ?)",
+            "INSERT INTO ah_saved_recipe_group_items (group_id, recipe_id, position) VALUES (?, ?, ?) ON CONFLICT(group_id, recipe_id) DO NOTHING",
             member_rows,
         )
         await conn.execute(
