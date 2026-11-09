@@ -24,7 +24,7 @@ def block(name):
 class LinkPageTest(unittest.TestCase):
     def test_koppelen_is_the_first_subtab_of_settings_and_the_dropdown_is_gone(self):
         nav = re.search(r'<nav class="subtabs" aria-label="Instellingen".*?</nav>', HTML, re.S).group(0)
-        self.assertIn('<a class="subtab is-active" data-subtab="settings-link" data-admin-only data-i18n="settings.tab.link" href="/settings" data-nav>Koppelen</a>', nav)
+        self.assertIn('<a class="subtab is-active" data-subtab="settings-link" data-admin-only data-i18n="settings.tab.link" href="/settings" data-nav aria-current="page">Koppelen</a>', nav)
         self.assertEqual(
             re.findall(r'data-subtab="([\w-]+)"', nav),
             ["settings-link", "settings-users", "settings-audit", "settings-system", "settings-appearance"],

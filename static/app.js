@@ -3017,8 +3017,13 @@ document.querySelectorAll(".subtab[data-subtab], .subtab-menu__item[data-subtab]
     if (!panel) return;
     panel
       .querySelectorAll(".subtab, .subtab-menu__item[data-subtab], .subpanel")
-      .forEach((item) => item.classList.remove("is-active"));
+      .forEach((item) => {
+        item.classList.remove("is-active");
+        item.removeAttribute("aria-current");
+      });
     subtab.classList.add("is-active");
+    // Een schermlezer hoort welk tabblad open is, niet alleen een kleur (App-Guidance, web-app-design.md).
+    subtab.setAttribute("aria-current", "page");
     // Op een telefoon is de balk één regel die horizontaal scrolt: het gekozen tabblad in beeld (App-Guidance, web-app-design.md).
     const bar = subtab.closest(".subtabs");
     if (bar && bar.scrollWidth > bar.clientWidth) subtab.scrollIntoView({ block: "nearest", inline: "center" });

@@ -394,9 +394,9 @@
           <label class="field"><span data-i18n="plan.day">Dag</span><input class="input" id="plan-date" type="date" required></label>
           <label class="field"><span data-i18n="plan.meal">Maaltijd</span><select class="input" id="plan-type"></select></label>
         </div>
-        <div class="plan-kind" role="radiogroup" aria-label="Wat plan je?" data-i18n-attr="aria-label:plan.kind">
-          <label class="plan-kind__option"><input type="radio" name="plan-kind" value="recipe" checked><span data-i18n="plan.kind_recipe">Recept</span></label>
-          <label class="plan-kind__option"><input type="radio" name="plan-kind" value="note"><span data-i18n="plan.kind_note">Notitie</span></label>
+        <div class="segmented" role="radiogroup" aria-label="Wat plan je?" data-i18n-attr="aria-label:plan.kind">
+          <label class="segmented__item"><input type="radio" name="plan-kind" value="recipe" checked><span data-i18n="plan.kind_recipe">Recept</span></label>
+          <label class="segmented__item"><input type="radio" name="plan-kind" value="note"><span data-i18n="plan.kind_note">Notitie</span></label>
         </div>
         <div id="plan-recipe-part" class="plan-dialog__part">
           <div id="plan-recipe-chosen" class="plan-recipe-chosen" hidden></div>
@@ -574,7 +574,7 @@
 
       <section id="recipes" class="panel is-active">
         <nav class="subtabs" aria-label="Recepten" data-i18n-attr="aria-label:recipes.nav">
-          <a class="subtab subtab--icon is-active" data-subtab="planner" href="/recipes" data-nav><svg class="subtab-icon" width="20" height="20" viewBox="0 0 24 24" aria-hidden="true" data-mdi="mdiCalendarWeek"><path d="M6 1H8V3H16V1H18V3H19C20.11 3 21 3.9 21 5V19C21 20.11 20.11 21 19 21H5C3.89 21 3 20.1 3 19V5C3 3.89 3.89 3 5 3H6V1M5 8V19H19V8H5M7 10H17V12H7V10Z"/></svg><span data-i18n="nav.plan">Weekmenu</span></a>
+          <a class="subtab subtab--icon is-active" data-subtab="planner" href="/recipes" data-nav aria-current="page"><svg class="subtab-icon" width="20" height="20" viewBox="0 0 24 24" aria-hidden="true" data-mdi="mdiCalendarWeek"><path d="M6 1H8V3H16V1H18V3H19C20.11 3 21 3.9 21 5V19C21 20.11 20.11 21 19 21H5C3.89 21 3 20.1 3 19V5C3 3.89 3.89 3 5 3H6V1M5 8V19H19V8H5M7 10H17V12H7V10Z"/></svg><span data-i18n="nav.plan">Weekmenu</span></a>
           <a class="subtab subtab--icon" data-subtab="search" href="/recipes/search" data-nav><svg class="subtab-icon" width="20" height="20" viewBox="0 0 24 24" aria-hidden="true" data-mdi="mdiMagnify"><path d="M9.5,3A6.5,6.5 0 0,1 16,9.5C16,11.11 15.41,12.59 14.44,13.73L14.71,14H15.5L20.5,19L19,20.5L14,15.5V14.71L13.73,14.44C12.59,15.41 11.11,16 9.5,16A6.5,6.5 0 0,1 3,9.5A6.5,6.5 0 0,1 9.5,3M9.5,5C7,5 5,7 5,9.5C5,12 7,14 9.5,14C12,14 14,12 14,9.5C14,7 12,5 9.5,5Z"/></svg><span data-i18n="nav.search">Recepten zoeken</span></a>
         </nav>
       <div id="planner" class="subpanel is-active">
@@ -776,7 +776,7 @@
             <button class="subtab subtab-menu__toggle subtab-menu__toggle--select" id="offers-store-toggle" type="button" aria-haspopup="true" aria-expanded="false" aria-controls="offers-store-list" aria-label="Supermarkt" data-i18n-attr="aria-label:cart.store"><span id="offers-store-name">Albert Heijn</span><svg class="subtab-menu__chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="M7.41,8.58L12,13.17L16.59,8.58L18,10L12,16L6,10L7.41,8.58Z"/></svg></button>
             <div class="subtab-menu__list" id="offers-store-list" hidden></div>
           </div>
-          <a class="subtab is-active" data-subtab="offers-items" data-i18n="offers.tab.offers" href="/offers" data-nav>Overzicht</a>
+          <a class="subtab is-active" data-subtab="offers-items" data-i18n="offers.tab.offers" href="/offers" data-nav aria-current="page">Overzicht</a>
           <a class="subtab" data-subtab="offers-suggestions" data-i18n="offers.tab.recipes"{% if not offers_recipes_visible %} hidden{% endif %} href="/offers/recipes" data-nav>Recepten</a>
           <a class="subtab" data-subtab="offers-history" data-i18n="offers.tab.history" href="/offers/history" data-nav>Prijsgeschiedenis</a>
         </nav>
@@ -852,9 +852,9 @@
                 <option value="lowest" data-i18n="offers.sort.lowest">Laagste ooit eerst</option>
               </select>
             </label>
-            <div id="offers-view" class="segment-control" role="group" aria-label="Weergave" data-i18n-attr="aria-label:offers.view.label">
-              <button class="segment-control__button" type="button" data-view="cards" aria-pressed="true" title="Kaarten" aria-label="Kaarten" data-i18n-attr="title:offers.view.cards;aria-label:offers.view.cards"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 11H11V3H3M5 5H9V9H5M13 21H21V13H13M15 15H19V19H15M3 21H11V13H3M5 15H9V19H5M13 3V11H21V3M19 9H15V5H19Z"/></svg></button>
-              <button class="segment-control__button" type="button" data-view="compact" aria-pressed="false" title="Compact" aria-label="Compact" data-i18n-attr="title:offers.view.compact;aria-label:offers.view.compact"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 5V19H20V5H3M7 7V9H5V7H7M5 13V11H7V13H5M5 15H7V17H5V15M18 17H9V15H18V17M18 13H9V11H18V13M18 9H9V7H18V9Z"/></svg></button>
+            <div id="offers-view" class="segmented" role="group" aria-label="Weergave" data-i18n-attr="aria-label:offers.view.label">
+              <button class="segmented__item segmented__item--icon" type="button" data-view="cards" aria-pressed="true" title="Kaarten" aria-label="Kaarten" data-i18n-attr="title:offers.view.cards;aria-label:offers.view.cards"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 11H11V3H3M5 5H9V9H5M13 21H21V13H13M15 15H19V19H15M3 21H11V13H3M5 15H9V19H5M13 3V11H21V3M19 9H15V5H19Z"/></svg></button>
+              <button class="segmented__item segmented__item--icon" type="button" data-view="compact" aria-pressed="false" title="Compact" aria-label="Compact" data-i18n-attr="title:offers.view.compact;aria-label:offers.view.compact"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 5V19H20V5H3M7 7V9H5V7H7M5 13V11H7V13H5M5 15H7V17H5V15M18 17H9V15H18V17M18 13H9V11H18V13M18 9H9V7H18V9Z"/></svg></button>
             </div>
           </div>
           <div id="offers-categories" class="offer-cats offer-cats--scroll" role="group" aria-label="Categorieën" data-i18n-attr="aria-label:offers.categories"></div>
@@ -941,7 +941,7 @@
             <button class="subtab subtab-menu__toggle subtab-menu__toggle--select" id="items-store-toggle" type="button" aria-haspopup="true" aria-expanded="false" aria-controls="items-store-list" aria-label="Supermarkt" data-i18n-attr="aria-label:cart.store"><span id="items-store-name">Albert Heijn</span><svg class="subtab-menu__chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="M7.41,8.58L12,13.17L16.59,8.58L18,10L12,16L6,10L7.41,8.58Z"/></svg></button>
             <div class="subtab-menu__list" id="items-store-list" hidden></div>
           </div>
-          <a class="subtab is-active" data-subtab="ah-items-recepten" data-i18n="ah.tab.recipes" href="/stores/ah/recipes" data-nav>Recepten</a>
+          <a class="subtab is-active" data-subtab="ah-items-recepten" data-i18n="ah.tab.recipes" href="/stores/ah/recipes" data-nav aria-current="page">Recepten</a>
           <a class="subtab" data-subtab="ah-items-weekplanner" data-i18n="ah.tab.planner" href="/stores/ah/planner" data-nav>Weekplanner</a>
           <a class="subtab" data-subtab="ah-items-jumbo-recepten" hidden data-i18n="jumbo.favorites.tab" href="/stores/jumbo/recipes" data-nav>Recepten</a>
           <a class="subtab" data-subtab="ah-items-lijstjes" data-i18n="ah.tab.lists" href="/stores/ah/lists" data-nav>Lijstjes</a>
@@ -1311,7 +1311,7 @@
       <section id="profile" class="panel">
         <h2 class="page-title" data-i18n="user.profile">Profiel</h2>
         <nav class="subtabs" aria-label="Profiel" data-i18n-attr="aria-label:profile.nav">
-          <a class="subtab is-active" data-subtab="profile-general" data-i18n="profile.tab.general" href="/profile" data-nav>Algemeen</a>
+          <a class="subtab is-active" data-subtab="profile-general" data-i18n="profile.tab.general" href="/profile" data-nav aria-current="page">Algemeen</a>
           <a class="subtab" data-subtab="profile-security" data-i18n="settings.tab.security" href="/profile/security" data-nav>Beveiliging</a>
           <a class="subtab" data-subtab="profile-ai" data-i18n="settings.tab.ai" href="/profile/ai" data-nav>AI-apps</a>
         </nav>
@@ -1445,7 +1445,7 @@
       <section id="settings" class="panel">
         <h2 class="page-title" data-i18n="user.settings">Instellingen</h2>
         <nav class="subtabs" aria-label="Instellingen" data-i18n-attr="aria-label:settings.nav">
-          <a class="subtab is-active" data-subtab="settings-link" data-admin-only data-i18n="settings.tab.link" href="/settings" data-nav>Koppelen</a>
+          <a class="subtab is-active" data-subtab="settings-link" data-admin-only data-i18n="settings.tab.link" href="/settings" data-nav aria-current="page">Koppelen</a>
           <a class="subtab" data-subtab="settings-users" data-admin-only hidden data-i18n="settings.tab.users" href="/settings/users" data-nav>Gebruikers</a>
           <a class="subtab" data-subtab="settings-audit" data-admin-only data-i18n="settings.tab.audit" href="/settings/audit" data-nav>Auditlog</a>
           <a class="subtab" data-subtab="settings-system" data-admin-only href="/settings/system" data-nav><span data-i18n="settings.tab.system">Systeem</span><span class="update-dot" id="update-dot-subtab" hidden></span></a>
