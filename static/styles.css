@@ -6517,6 +6517,20 @@ html.is-standalone body {
   stroke: var(--text);
 }
 
+/* Een folderactie voor de hele lijn (uit het folderarchief): een streepje onderaan, zonder prijs. */
+.ohc-line rect {
+  fill: #c98a1b;
+}
+
+.ohc-line:hover rect,
+.ohc-line:focus rect {
+  fill: var(--text);
+}
+
+.ohc-line:focus {
+  outline: none;
+}
+
 /* Een aankoop: een stip op de prijs per stuk die je betaalde. */
 .ohc-paid circle {
   fill: var(--surface);
@@ -6588,6 +6602,12 @@ html.is-standalone body {
   height: 9px;
   border: 2px solid var(--text);
   border-radius: 50%;
+}
+
+.ohc-key--line {
+  height: 8px;
+  border-radius: 1.5px;
+  background: #c98a1b;
 }
 
 .ohc-key--observed {

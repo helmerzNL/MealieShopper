@@ -33,7 +33,7 @@ from typing import Any, Callable, Iterable, NamedTuple
 
 import aiosqlite
 
-from . import ah, ah_lists, ah_orders, auth, deals, offers, packs, price_import, product_links
+from . import ah, ah_lists, ah_orders, auth, deals, line_offers, offers, packs, price_import, product_links
 from .i18n import tr
 
 log = logging.getLogger(__name__)
@@ -712,6 +712,16 @@ _CATALOGUE_START_SQL = "INSERT OR IGNORE INTO catalogue_changes (id, token, vers
 class _Catalogue(NamedTuple):
     receipts: list[dict[str, Any]]  # `_receipt_rows`: niet aanpassen, de volgende aanvraag krijgt dezelfde lijst
     products: dict[str, _Known]  # `_known_products`
+    lines: line_offers.LineIndex  # `_line_index`: de folderproducten, om lijnacties bij een product te vinden
+
+
+_FOLDER_PRODUCTS_SQL = "SELECT DISTINCT product_id, title FROM offer_history WHERE store = ? AND product_id LIKE 'folder:%' ORDER BY product_id"
+
+
+async def _line_index(conn: aiosqlite.Connection, store: str) -> line_offers.LineIndex:
+    """De folderproducten van een winkel (uit een prijsarchief, `folder:...`), om lijnacties bij een product te vinden."""
+    rows = await conn.execute_fetchall(_FOLDER_PRODUCTS_SQL, (store,))
+    return line_offers.LineIndex((row["product_id"], row["title"] or "") for row in rows)
 
 
 # (database, winkel) -> (versie, dag, catalogus). Een winkel heeft er een; bij AH met tienduizenden producten scheelt hij per
@@ -751,7 +761,7 @@ async def _catalogue(conn: aiosqlite.Connection, store: str, today: str) -> _Cat
     if found is not None and found[0] == version and found[1] == today:
         return found[2]
     receipts = await _receipt_rows(conn, store, today)
-    catalogue = _Catalogue(receipts, await _known_products(conn, store, today, receipts))
+    catalogue = _Catalogue(receipts, await _known_products(conn, store, today, receipts), await _line_index(conn, store))
     _CATALOGUES[key] = (version, today, catalogue)
     return catalogue
 
@@ -849,11 +859,14 @@ def _regular_segments(points: list[tuple[str, float, str]]) -> list[dict[str, An
 
 def _product(store: str, product_id: str, offer: dict[str, Any] | None, observed: list[Any], bought: list[Any], today: str,
              images: list[dict[str, Any]] | None = None, upcoming: dict[str, Any] | None = None,
-             known: dict[str, Any] | None = None) -> dict[str, Any]:
+             known: dict[str, Any] | None = None, lines: list[dict[str, Any]] | None = None) -> dict[str, Any]:
     product: dict[str, Any] = dict(offer) if offer else {
         "store": store, "productId": product_id, "episodes": [], "timesOnOffer": 0, "lowestPrice": None, "highestPrice": None,
         "regularPrice": None, "onOfferNow": False, "category": None, "firstSeen": None, "lastSeen": None,
     }
+    # De folderacties voor de hele lijn (`_line_offers`), zonder de weken waarin het product zelf al in de aanbieding was.
+    product["lineOffers"] = _without_own_weeks(lines or [], product["episodes"])
+    product["timesInLineOffer"] = len(product["lineOffers"])
     # De aanbieding die nog moet beginnen (`_upcoming`): niet in de geschiedenis, wel op het scherm ("vanaf ma 9 nov").
     product["upcoming"] = {key: upcoming[key] for key in ("validFrom", "validUntil", "price", "priceBefore", "promoLabel", "personal")} if upcoming else None
     for key in ("title", "brand", "unitSize", "image", "url"):
@@ -931,6 +944,46 @@ def _product(store: str, product_id: str, offer: dict[str, Any] | None, observed
     return product
 
 
+async def _line_offers(store: str, catalogue: _Catalogue, ids: list[str]) -> dict[str, list[dict[str, Any]]]:
+    """Per product de folderacties voor zijn hele lijn (line_offers.py): elke periode van een folderproduct waarvan alle woorden
+    in een naam van het product staan, met de foldernaam erbij, oudste eerst. Een week met meer van zulke acties ("Alle Dr.
+    Oetker Casa di Mama pizza's" en "Dr. Oetker pizza's") telt een keer, met de eerste naam. Een folderproduct zelf krijgt er
+    geen."""
+    wanted: dict[str, list[str]] = {}
+    for product_id in ids:
+        known = catalogue.products.get(product_id)
+        if known is None or product_id.startswith("folder:"):
+            continue
+        found = catalogue.lines.lines_for(known.names, known.sizes)
+        if found:
+            wanted[product_id] = found
+    if not wanted:
+        return {}
+    history = await offers.history_of(store, sorted({line for found in wanted.values() for line in found}))
+    result: dict[str, list[dict[str, Any]]] = {}
+    for product_id, found in wanted.items():
+        weeks: dict[str, dict[str, Any]] = {}
+        for line in found:
+            folder = history.get(line) or {}
+            for episode in folder.get("episodes", []):
+                start = episode.get("start")
+                if not start or start in weeks:
+                    continue
+                weeks[start] = {
+                    "productId": line, "title": folder.get("title") or line, "start": start, "end": episode.get("end"),
+                    "validFrom": episode.get("validFrom"), "validUntil": episode.get("validUntil"), "price": episode.get("price"),
+                    "priceBefore": episode.get("priceBefore"), "promoLabel": episode.get("promoLabel") or "",
+                }
+        result[product_id] = [weeks[start] for start in sorted(weeks)]
+    return result
+
+
+def _without_own_weeks(lines: list[dict[str, Any]], episodes: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """De lijnacties die niet samenvallen met een eigen aanbieding van het product: die zegt het al, en preciezer."""
+    own = [(str(e["start"]), str(e.get("end") or "9999-12-31")) for e in episodes if e.get("start")]
+    return [line for line in lines if not any(start <= str(line.get("end") or line["start"]) and line["start"] <= end for start, end in own)]
+
+
 async def _lookup_receipt_names(lookup: Callable[[list[str]], Awaitable[Any]], wanted: "_Query", today: str) -> None:
     """Laat de namen op de bon die bij de zoekterm passen en nog bij geen product horen meteen opzoeken (zie `history`)."""
     async with _connect() as conn:
@@ -1005,9 +1058,11 @@ async def history(store: Any = None, query: Any = "", limit: Any = 50, today: st
             )
         upcoming = {name: await _upcoming(conn, name, [pid for s, pid in chosen if s == name], today) for name in stores}
     offered = {name: await offers.history_of(name, [pid for s, pid in chosen if s == name]) for name in stores}
+    lines = {name: await _line_offers(name, catalogues[name], [pid for s, pid in chosen if s == name]) for name in stores}
     products = [
         _product(name, product_id, offered[name].get(product_id), found[name][0].get(product_id, []), found[name][1].get(product_id, []), today,
-                 found[name][2].get(product_id, []), upcoming[name].get(product_id), pinned_known.get(name) if product_id == pinned else None)
+                 found[name][2].get(product_id, []), upcoming[name].get(product_id), pinned_known.get(name) if product_id == pinned else None,
+                 lines[name].get(product_id, []))
         for name, product_id in chosen
     ]
     return {"products": products, "total": len(ranked), "unsynced": unsynced}

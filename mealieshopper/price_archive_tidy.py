@@ -21,6 +21,11 @@ koppeling komt er dan ook in, maar los van het product waar het archief hem aan 
 de folder (`detach`). Zo staat er geen "AH Goudse oude kaas 48" uit 2009 bij "AH Oude kaas L". Een ongekoppelde folderregel
 zonder gewicht, inhoud of aantal krijgt geen prijs.
 
+Een combi-aanbieding blijft met `keep_unlinked` ook, als eigen folderproduct en nooit bij een product van jou: "Alle Dr. Oetker
+Casa di Mama pizza's" is een actie voor de hele lijn, en dat is in een folderarchief het grootste deel (bij AH twee op de drie
+regels). De Prijsgeschiedenis toont zo'n lijnactie bij elk product waarvan de naam alle woorden van de actie bevat
+(line_offers.py).
+
 De koppeling en het lezen van verpakkingen komen uit `import_archive.py` van wolph, in het pakket met zijn folderarchief
 (`fold`, `size`, `match_product` en `catalogue_from`).
 """
@@ -157,6 +162,24 @@ def short_label(label: Any) -> Any:
     return " ".join(text.split())
 
 
+SOURCE_PRICES = re.compile(r"\bbron: (?:oud=(?P<old>[^,|]+?)\s*,\s*)?actie=(?P<now>[^,|]+?)\s*(?:\||$)")
+
+
+def line_label(label: Any) -> Any:
+    """De actietekst van een lijnactie (`short_label`), met de prijzen uit de bron erachter: het archief geeft een lijnactie
+    geen prijs ("prijs onzeker"), maar de folder noemde hem wel. "Folder | 2 dozen | bron: oud=2 stuks 5.38, actie=3.50 | ..."
+    wordt "2 dozen, actie 3.50, was 2 stuks 5.38"."""
+    short = short_label(label)
+    found = SOURCE_PRICES.search(label) if isinstance(label, str) and label.startswith("Folder | ") else None
+    if not found:
+        return short
+    text = str(short or "").strip()
+    now, old = found["now"].strip(), (found["old"] or "").strip()
+    # Een onbekende waarde ("?") zegt niets, en een prijs die de actietekst al noemt ("2 voor: 5.99") hoeft er niet nog eens bij.
+    parts = [text, f"actie {now}" if now not in ("", "?") and now not in text else "", f"was {old}" if old not in ("", "?") else ""]
+    return ", ".join(part for part in parts if part)
+
+
 STORES = ("ah", "jumbo", "picnic", "crisp")
 TEXT_FIELDS = ("source_title", "title", "description", "unit_size", "promo_label", "product_id")
 
@@ -248,8 +271,25 @@ class Tidy:
         # exact: de app koppelde de regel aan een product van jou; linkedByArchive: het archief koppelde hem al aan een product.
         # pricesExact en pricesUnlinked: hetzelfde voor prijzen uit een archief (Picnic, Crisp).
         # detached: een onzekere koppeling, met keep_unlinked los van het product gezet (`detach`).
-        self.stats = {"exact": 0, "linkedByArchive": 0, "unlinked": 0, "uncertain": 0, "detached": 0, "groups": 0, "unknownPack": 0,
-                      "pricesExact": 0, "pricesUnlinked": 0}
+        # lineOffers: een combi-aanbieding, met keep_unlinked bewaard als eigen folderproduct (`_line_offer`).
+        self.stats = {"exact": 0, "linkedByArchive": 0, "unlinked": 0, "uncertain": 0, "detached": 0, "groups": 0, "lineOffers": 0,
+                      "unknownPack": 0, "pricesExact": 0, "pricesUnlinked": 0}
+
+    def _line_offer(self, row: dict[str, Any]) -> dict[str, Any] | None:
+        """Een combi-aanbieding als eigen folderproduct, of None (zonder `keep_unlinked`, of zonder naam uit de folder).
+
+        Nooit bij een product van jou, ook niet als het archief hem al aan een product hing: die koppeling is dan losgemaakt
+        (`detach`). Zonder één gewicht, inhoud of aantal geen prijs, want de prijzen van de producten in de actie lopen uiteen."""
+        if not self.keep_unlinked:
+            return None
+        kept = dict(row) if is_archive_product(row) else detach(row)
+        if kept is None:
+            return None
+        if not known_pack(kept) and (kept.get("price") is not None or kept.get("price_before") is not None):
+            kept["price"] = kept["price_before"] = None
+            self.stats["unknownPack"] += 1
+        kept["promo_label"] = line_label(kept.get("promo_label"))
+        return kept
 
     def offer(self, row: dict[str, Any]) -> dict[str, Any] | None:
         """De regel zoals hij geïmporteerd wordt, of None als hij er niet in hoort.
@@ -260,8 +300,12 @@ class Tidy:
         if not is_archive_line(row) or row.get("store") not in STORES or not _plain(row):
             return row
         if is_group(row):
-            self.stats["groups"] += 1
-            return None
+            kept = self._line_offer(row)
+            if kept is None:
+                self.stats["groups"] += 1
+                return None
+            self.stats["lineOffers"] += 1
+            return kept
         if not is_archive_product(row) and is_uncertain(row):  # het archief koppelde de regel op woorden aan een product
             detached = detach(row) if self.keep_unlinked else None
             if detached is None:

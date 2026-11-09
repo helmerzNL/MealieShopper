@@ -183,6 +183,46 @@ class PriceHistoryLinkTest(PricesCase):
         self.assertEqual([(e["start"], e["price"], e["priceBefore"]) for e in product["episodes"]], [(days(1), 3.65, 4.29)])
         self.assertEqual(product["regularPrice"], 4.29, "de prijs ervoor geeft de grafiek een gewone prijs")
 
+    async def test_2026_11_09_the_folder_offers_for_the_whole_line_are_in_the_history(self):
+        # "maar dan nog klopt het niet, die dr. oetker pizza's zijn zeer regelmatig in de aanbieding, waar is de geschiedenis?"
+        # (4.1.9). Het folderarchief noemt ze als actie voor de hele lijn ("Alle Dr. Oetker Casa di Mama pizza's"): de import gooide
+        # die als combi weg, en een folderproduct "Dr. Oetker Casa di Mama" hoorde bij geen enkele pizza.
+        await self.sync_offer(f"{TODAY}T05:00:00+00:00", offer("233387", "Dr. Oetker Casa di mama pizza salame extra piccante", 3.65, 4.29,
+                                                              "Bonus Box 15% korting", validFrom=TODAY, validUntil=days(6)))
+        folder = [
+            ("folder:a", "Folder: Alle Dr. Oetker Casa di Mama pizza's", "2009-10-26", "2009-11-01", "2 dozen, actie 3.50, was 2 stuks 5.38"),
+            ("folder:b", "Folder: Dr. Oetker Casa di Mama", "2016-11-14", "2016-11-20", "2 voor 4.00"),
+            ("folder:c", "Folder: Dr. Oetker pizza's", "2016-11-14", "2016-11-20", "dezelfde week: telt een keer"),
+            ("folder:d", "Folder: Alle Dr. Oetker Ristorante pizza's", "2017-01-09", "2017-01-15", "een andere lijn"),
+            ("folder:e", "Folder: Dr. Oetker Casa di Mama", TODAY, days(6), "de week van de eigen aanbieding"),
+        ]
+        with closing(db(prices)) as conn, conn:
+            for product_id, title, start, end, label in folder:
+                conn.execute(
+                    "INSERT INTO offer_history (store, product_id, title, brand, promo_label, valid_from, valid_until, first_seen, last_seen, "
+                    "ended_at) VALUES ('ah', ?, ?, 'Folderarchief', ?, ?, ?, ?, ?, ?)",
+                    (product_id, title, label, start, end, f"{start}T00:00:00+00:00", f"{end}T23:59:59+00:00", f"{end}T23:59:59+00:00"),
+                )
+        product = (await self.linked("Dr. Oetker Casa di mama pizza salame extra piccante", "233387"))[0]
+        self.assertEqual(product["productId"], "233387")
+        self.assertEqual([(line["start"], line["title"], line["promoLabel"]) for line in product["lineOffers"]], [
+            ("2009-10-26", "Folder: Alle Dr. Oetker Casa di Mama pizza's", "2 dozen, actie 3.50, was 2 stuks 5.38"),
+            ("2016-11-14", "Folder: Dr. Oetker Casa di Mama", "2 voor 4.00"),
+        ])
+        self.assertEqual((product["timesInLineOffer"], product["timesOnOffer"]), (2, 1))
+
+    def test_2026_11_09_line_offers_from_the_archive_are_kept_on_import(self):
+        # Dezelfde melding: met "Ook regels bewaren die bij geen product van jou horen" blijft een combi als eigen folderproduct.
+        line = {"store": "ah", "product_id": "folder:x", "title": "Folder: Alle Dr. Oetker Casa di Mama pizza's", "price": None,
+                "price_before": None, "unit_size": None, "description": "2 dozen", "source_title": "Alle Dr. Oetker Casa di Mama pizza's",
+                "promo_label": "Folder | 2 dozen | bron: oud=2 stuks 5.38, actie=3.50 | prijs onzeker",
+                "url": "https://www.supermarktaanbiedingen.com/folders/albert_heijn/2009/44/x"}
+        with closing(db(prices)) as conn:
+            kept = price_archive_tidy.Tidy(conn, keep_unlinked=True).offer(dict(line))
+            dropped = price_archive_tidy.Tidy(conn).offer(dict(line))
+        self.assertEqual((kept["product_id"], kept["promo_label"]), ("folder:x", "2 dozen, actie 3.50, was 2 stuks 5.38"))
+        self.assertIsNone(dropped, "zonder keep_unlinked komt een combi er nog steeds niet in")
+
     async def test_an_unknown_id_changes_nothing(self):
         await prices.record("ah", [{"id": "1", "title": "AH Pindakaas", "price": 2.99}])
         self.assertEqual(
