@@ -58,6 +58,7 @@ PRELUDE = "\n".join(
             "offersUnitsInList",
             "offersUnitChoice",
             "offersCardCount",
+            "offersFiltersWide",
             "offersFiltersOpen",
             "offerPackWarning",
             "offerPerUnitText",
@@ -400,7 +401,7 @@ class OffersScanNodeTest(unittest.TestCase):
         aside.children.add(closeButton);
         const body = element("body");
         const document = { body, activeElement: body };
-        const window = { innerWidth: 1280, innerHeight: 900, matchMedia: () => ({ matches: window.innerWidth < 1100 }) };
+        const window = { innerWidth: 1280, innerHeight: 900, matchMedia: (query) => { const [, side, px] = /\((min|max)-width: (\d+)px\)/.exec(query); return { matches: side === "min" ? window.innerWidth >= Number(px) : window.innerWidth <= Number(px) }; } };
         const $ = (selector) => ({ "#offer-popup": box, "#offer-zoom-dialog": dialog, "#offer-zoom-dialog-body": dialogBody, "#offers-filters": aside,
           "#offers-filters-backdrop": backdrop, "#offers-filters-toggle": toggle, "#offers-filters-close": closeButton })[selector];
         function placeOfferPopup() {}

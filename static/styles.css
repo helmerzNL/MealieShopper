@@ -7005,7 +7005,7 @@ html.is-standalone body {
 }
 
 .ohc-head__price b {
-  font-size: 16px;
+  font-size: var(--text-base);
 }
 
 .ohc-head__price s {

@@ -1518,6 +1518,10 @@ $("#offers-filters-clear").addEventListener("click", () => {
   offersState.filters = offersEmptyFilters();
   offersFilterChanged();
 });
+// Het brede breekpunt van styles.css: vanaf 1200 px staat de filterzijbalk naast de kaarten, daaronder is hij een lade.
+function offersFiltersWide(minWidth = 1200) {
+  return window.matchMedia(`(min-width: ${minWidth}px)`);
+}
 // Op een smal scherm is de zijbalk een uitschuifpaneel: de knop Filters opent hem, de achtergrond, het kruisje en Escape sluiten hem.
 function offersFiltersOpen(open) {
   const aside = $("#offers-filters");
@@ -1525,14 +1529,14 @@ function offersFiltersOpen(open) {
   $("#offers-filters-backdrop").hidden = !open;
   $("#offers-filters-toggle").setAttribute("aria-expanded", String(open));
   document.body.classList.toggle("offers-filters-open", open);
-  // Als lade (onder 1100 px) staat de dichte zijbalk buiten beeld: dan ook buiten de tabvolgorde en voor schermlezers.
-  const drawerClosed = window.matchMedia("(max-width: 1099px)").matches && !open;
+  // Als lade (onder 1200 px) staat de dichte zijbalk buiten beeld: dan ook buiten de tabvolgorde en voor schermlezers.
+  const drawerClosed = !offersFiltersWide().matches && !open;
   if (drawerClosed && aside.contains(document.activeElement)) $("#offers-filters-toggle").focus(); // niet op <body> belanden
   aside.inert = drawerClosed;
   aside.setAttribute("aria-hidden", String(drawerClosed));
 }
 offersFiltersOpen(false);
-window.matchMedia("(max-width: 1099px)").addEventListener("change", () => offersFiltersOpen($("#offers-filters").classList.contains("is-open")));
+offersFiltersWide().addEventListener("change", () => offersFiltersOpen($("#offers-filters").classList.contains("is-open")));
 $("#offers-filters-toggle").addEventListener("click", () => offersFiltersOpen(!$("#offers-filters").classList.contains("is-open")));
 $("#offers-filters-close").addEventListener("click", () => offersFiltersOpen(false));
 $("#offers-filters-backdrop").addEventListener("click", () => offersFiltersOpen(false));
