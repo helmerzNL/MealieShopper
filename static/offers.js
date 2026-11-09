@@ -15,12 +15,12 @@ const OFFERS_PERSONAL_KEY = "ms-offers-personal";
 const OFFERS_GOOD_KEY = "ms-offers-good";
 const OFFERS_SORT_KEY = "ms-offers-sort";
 const OFFERS_VIEW_KEY = "ms-offers-view";
-const OFFERS_SORTS = ["store", "discount", "unit", "lowest"];
+const OFFERS_SORTS = ["best", "store", "discount", "unit", "lowest"];
 const OFFERS_VIEWS = ["cards", "compact"];
 const OFFER_COMPACT_ROWS = 8; // in de compacte weergave staan er per "rij" van de knop Meer zoveel regels
 const offersState = {
   store: "ah", supported: true, offers: [], categories: [], category: "all", course: "all", recipes: [], rows: OFFER_ROWS, weekStart: "",
-  personal: null, personalOnly: false, search: "", goodOnly: false, sort: "store", view: "cards",
+  personal: null, personalOnly: false, search: "", goodOnly: false, sort: "best", view: "cards",
   // chosen: zelf een winkel gekozen (menu of adres); tot dan volgt de pagina de voorkeurssupermarkt (Instellingen, Voorkeuren).
   // waiting: de pagina wacht nog op de koppeling van die winkel, zodat niet eerst de aanbiedingen van AH voorbijflitsen.
   chosen: false, waiting: false,
@@ -93,7 +93,20 @@ function offerDiscountKey(offer) {
   return [0, -badge.percent, badge.source === "history" ? 0 : 1];
 }
 
+// Beste eerst: wat nu op of onder de laagste prijs van de afgelopen twaalf maanden staat (prices.yearLow) en per eenheid niet
+// duurder is dan een andere verpakking van hetzelfde product, op korting en dan op prijs per eenheid. Daarna de rest op korting,
+// daarbinnen hoe weinig het boven de laagste van het jaar zit.
+function offerBestKey(offer) {
+  const low = offer.yearLow || {};
+  const cheaper = offer.verdict && offer.verdict.cheaperPack;
+  const percent = offer.badge && typeof offer.badge.percent === "number" ? offer.badge.percent : -1;
+  const above = typeof low.above === "number" ? low.above : 999;
+  const perUnit = offer.unitPricePer && typeof offer.unitPricePer.value === "number" ? offer.unitPricePer.value : 999;
+  return [low.status === "lowest" && !cheaper ? 0 : 1, -percent, above, perUnit];
+}
+
 function offerSortKey(offer) {
+  if (offersState.sort === "best") return offerBestKey(offer);
   if (offersState.sort === "discount") return offerDiscountKey(offer);
   if (offersState.sort === "unit") {
     const per = offer.unitPricePer;
@@ -267,10 +280,27 @@ function offerPerUnitText(perUnit) {
 
 // De chips onder de prijs (#178): komt de aanbieding vaak terug, en is een andere verpakking per eenheid goedkoper. Het oordeel zelf
 // (echt voordelig, klein voordeel, niet goedkoper) zit in de badge op het plaatje. Zie prices.annotate.
+// De laagste prijs van het afgelopen jaar (prices.yearLow): groen als de prijs van nu die is, anders hoeveel erboven en wanneer die
+// laagste het laatst gold. Niets zonder een jaar aan prijzen.
+function offerYearLowLine(offer) {
+  const low = offer.yearLow;
+  if (!low || !low.status || low.status === "unknown") return null;
+  if (low.status === "lowest") {
+    return { cls: "verdict verdict--year-low", text: t("offers.label.year_low"), title: t("offers.label.year_low_title", { month: offerMonthText(low.month, true) }) };
+  }
+  return {
+    cls: "verdict verdict--year-above",
+    text: t("offers.label.year_above", { amount: formatPrice(low.above), month: offerMonthText(low.month) }),
+    title: t("offers.label.year_above_title", { price: formatPrice(low.price), month: offerMonthText(low.month, true) }),
+  };
+}
+
 function offerVerdictLines(offer) {
   const verdict = offer.verdict;
   if (!verdict) return [];
   const lines = [];
+  const yearLow = offerYearLowLine(offer);
+  if (yearLow) lines.push(yearLow);
   if (verdict.often) {
     lines.push({ cls: "verdict verdict--often", text: t("offers.label.often", { count: verdict.timesThisYear }), title: t("offers.verdict.often", { count: verdict.timesThisYear }) });
   }
@@ -341,6 +371,8 @@ function offerPriceLabel(offer) {
     return { cls: grey, text: t("offers.label.lowest_seen", { month: offerMonthText(label.month) }), title: t("offers.label.lowest_seen_title", { date: offerDateText(label.coveredSince) }) };
   }
   if (label.kind === "lower_before") {
+    // Met een jaar aan prijzen zegt de regel van yearLow het preciezer dan "was al eens lager in 2010".
+    if (offer.yearLow && offer.yearLow.status && offer.yearLow.status !== "unknown") return null;
     const params = { price: formatPrice(label.price), month: offerMonthText(label.month) };
     return { cls: grey, text: t("offers.label.lower_before", params), title: t("offers.label.lower_before_title", { ...params, month: offerMonthText(label.month, true) }) };
   }

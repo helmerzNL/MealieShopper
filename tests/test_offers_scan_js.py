@@ -40,6 +40,9 @@ PRELUDE = "\n".join(
             "offersSorted",
             "offerBadge",
             "offerMonthText",
+            "offerBestKey",
+            "offerYearLowLine",
+            "offerPriceLabel",
         )
     ]
     + [
@@ -48,6 +51,8 @@ PRELUDE = "\n".join(
         "const escapeHtml = (value) => String(value);",
         "const offerBadgeTitle = () => 'uitleg';",
         "const monthShort = (date) => date.toLocaleDateString('nl-NL', { month: 'short' }).replace(/\\.$/, '');",
+        "const formatPrice = (value) => 'EUR ' + Number(value).toFixed(2);",
+        "const offerDateText = (day) => String(day);",
     ]
 )
 
@@ -106,6 +111,35 @@ class OffersScanNodeTest(unittest.TestCase):
 
     def test_store_order_is_left_alone(self):
         self.assertEqual(self.sorted_ids("store"), ["a", "b", "c", "d", "e"])
+
+    def render(self, name, offer):
+        return self.run_js(f"console.log(JSON.stringify({name}({json.dumps(offer)})));")
+
+    def test_best_first_puts_lowest_of_the_year_without_a_cheaper_pack_on_top(self):
+        offers = [
+            {"id": "a", "yearLow": {"status": "lowest"}, "badge": {"percent": 15}, "verdict": {"cheaperPack": None}, "unitPricePer": {"value": 9.0}},
+            {"id": "b", "yearLow": {"status": "lowest"}, "badge": {"percent": 40}, "verdict": {"cheaperPack": {"productId": "x"}}},
+            {"id": "c", "yearLow": {"status": "above", "above": 0.5}, "badge": {"percent": 30}, "verdict": {"cheaperPack": None}},
+            {"id": "d", "yearLow": {"status": "lowest"}, "badge": {"percent": 15}, "verdict": {"cheaperPack": None}, "unitPricePer": {"value": 7.0}},
+            {"id": "e", "yearLow": {"status": "unknown"}, "badge": None, "verdict": {"cheaperPack": None}},
+        ]
+        found = self.run_js(f"offersState.sort = 'best'; console.log(JSON.stringify(offersSorted({json.dumps(offers)}).map((o) => o.id)));")
+        # b: laagste van het jaar, maar per eenheid duurder dan een andere verpakking: bij de rest, daar op korting.
+        self.assertEqual(found, ["d", "a", "b", "c", "e"])
+
+    def test_the_year_low_line_on_the_card(self):
+        self.assertIn("offers.label.year_low", json.dumps(self.render("offerYearLowLine", {"yearLow": {"status": "lowest", "month": "2026-09"}})))
+        above = self.render("offerYearLowLine", {"yearLow": {"status": "above", "above": 0.65, "month": "2026-09", "price": 3.0}})
+        self.assertIn("offers.label.year_above", above["text"])
+        self.assertIn("EUR 0.65", above["text"])
+        self.assertIsNone(self.render("offerYearLowLine", {"yearLow": {"status": "unknown"}}))
+        self.assertIsNone(self.render("offerYearLowLine", {}))
+
+    def test_lower_before_disappears_when_year_low_is_known(self):
+        label = {"kind": "lower_before", "price": 1.99, "month": "2010-03", "coveredSince": "2009-01-01"}
+        self.assertIsNone(self.render("offerPriceLabel", {"priceLabel": label, "yearLow": {"status": "above", "above": 1.0}}))
+        self.assertIn("lower_before", json.dumps(self.render("offerPriceLabel", {"priceLabel": label, "yearLow": {"status": "unknown"}})))
+        self.assertIn("lower_before", json.dumps(self.render("offerPriceLabel", {"priceLabel": label})))
 
     def test_the_badge_takes_the_step_of_the_userscript_and_is_outlined_for_a_store_claim(
         self,
