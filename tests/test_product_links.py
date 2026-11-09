@@ -81,7 +81,7 @@ class SaveTest(LinksCase):
 
     def test_bad_input_is_refused_with_a_readable_message(self):
         with self.assertRaises(ValueError):
-            run(product_links.save("lidl", "X", COTTAGE))
+            run(product_links.save("nope", "X", COTTAGE))
         with self.assertRaises(ValueError):
             run(product_links.save("ah", "X", {"title": "Zonder id"}))
         with self.assertRaises(ValueError):
@@ -254,10 +254,12 @@ class ApiTest(LinksCase):
         self.assertEqual(response.get_json(), {"removed": True})
 
     async def test_bad_input_gives_400(self):
-        self.assertEqual((await self.client.put("/api/product-links", json={"store": "lidl", "name": "X", "product": COTTAGE})).status_code, 400)
+        self.assertEqual((await self.client.put("/api/product-links", json={"store": "nope", "name": "X", "product": COTTAGE})).status_code, 400)
         self.assertEqual((await self.client.put("/api/product-links", json={"store": "ah", "name": "X"})).status_code, 400)
         self.assertEqual((await self.client.delete("/api/product-links/ah/iets/x")).status_code, 400)
-        self.assertEqual((await self.client.get("/api/product-links/search?store=lidl&q=melk")).status_code, 400)
+        self.assertEqual((await self.client.get("/api/product-links/search?store=nope&q=melk")).status_code, 400)
+        # Lidl en Aldi hebben alleen aanbiedingen: geen bon of bestelling om te koppelen.
+        self.assertEqual((await self.client.put("/api/product-links", json={"store": "lidl", "name": "X", "product": COTTAGE})).status_code, 400)
 
     async def test_search_gives_the_same_shape_for_every_store_and_records_the_prices(self):
         ah_result = [{"webshopId": "4711", "title": "AH Cottage cheese", "price": {"now": 1.29}, "images": [{"url": "https://static.ah.nl/c.jpg"}],

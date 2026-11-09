@@ -1,3 +1,4 @@
+import asyncio
 import os
 import tempfile
 import unittest
@@ -5,7 +6,7 @@ from unittest import mock
 
 os.environ["PASSKEY_AUTH_ENABLED"] = "false"
 
-from mealieshopper import ah, ah_recipes  # noqa: E402
+from mealieshopper import ah, ah_recipes, tasks  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
 from helpers import AppTestCase, run  # noqa: E402
 
@@ -38,7 +39,22 @@ class SavedRecipesCacheTestCase(AppTestCase):
         groups = mock.patch.object(ah, "get_saved_recipe_groups", return_value=[])
         self.groups = groups.start()
         self.addCleanup(groups.stop)
+        # Na ?refresh=1 haalt de app op de achtergrond voedingswaarden op (ah_recipes.start_fill): standaard heeft AH er geen.
+        self.asked = []
+        detail = mock.patch.object(ah, "get_recipe_jsonld", new_callable=mock.AsyncMock, side_effect=self.ah_recipe)
+        detail.start()
+        self.addCleanup(detail.stop)
+        pause = mock.patch.object(ah_recipes, "FILL_PAUSE_SECONDS", 0)
+        pause.start()
+        self.addCleanup(pause.stop)
         self.client = self.client_for(create_app())
+
+    async def ah_recipe(self, number):
+        self.asked.append(number)
+        return {"@type": "Recipe", "name": f"Recept {number}"}
+
+    async def asyncTearDown(self) -> None:
+        await tasks.cancel_all()
 
 
 class CacheTest(SavedRecipesCacheTestCase):
@@ -217,6 +233,74 @@ class RouteTest(SavedRecipesCacheTestCase):
             res = await self.client.get("/api/ah/recipes/saved")
         self.assertEqual(res.status_code, 424)
         self.assertEqual(res.get_json()["error"], "AH sessie verlopen")
+
+
+class NutritionTest(SavedRecipesCacheTestCase):
+    """De voedingswaarden van bewaarde recepten (4.5.0): AH geeft ze niet in de lijst, MealieShopper haalt ze er per recept bij."""
+
+    NUTRITION = {"@type": "NutritionInformation", "calories": "490 kcal", "proteinContent": "27 g", "sodiumContent": "200 mg"}
+
+    async def ah_recipe(self, number):
+        self.asked.append(number)
+        if number == 3:
+            raise ah.RecipeUnavailable("weg")
+        if number == 4:
+            raise RuntimeError("even niet")
+        return {"@type": "Recipe", "nutrition": self.NUTRITION} if number != 2 else {"@type": "Recipe"}
+
+    async def test_a_refresh_keeps_them_and_load_gives_them_per_serving(self):
+        with mock.patch.object(ah, "get_saved_recipes", side_effect=pager(3)):
+            await ah_recipes.get()
+            self.assertEqual((await ah_recipes.load())["nutritionPending"], 3, "nog niets opgehaald")
+            await ah_recipes.remember_nutrition("1", self.NUTRITION)
+            await ah_recipes.remember_nutrition("99", self.NUTRITION)  # niet bewaard: verandert niets
+            data = await ah_recipes.get(force=True)
+        first = data["recipes"][0]
+        self.assertEqual(first["kcal"], 490)
+        self.assertEqual(first["nutrition"], [
+            {"key": "calories", "quantity": 490, "unit": "kcal"}, {"key": "proteinContent", "quantity": 27, "unit": "g"},
+            {"key": "sodiumContent", "quantity": 200, "unit": "mg"},
+        ])
+        self.assertEqual((data["recipes"][1]["kcal"], data["recipes"][1]["nutrition"]), (None, []))
+        self.assertEqual(data["nutritionPending"], 2, "een vernieuwing laat de voedingswaarden staan")
+
+    async def test_the_fill_after_a_refresh_respects_its_limits(self):
+        with mock.patch.object(ah, "get_saved_recipes", side_effect=pager(6)):
+            await ah_recipes.get()
+        with mock.patch.object(ah_recipes, "FILL_PER_SYNC", 5):
+            counts = await ah_recipes._run_fill()
+        self.assertEqual(self.asked, [1, 2, 3, 4, 5], "hooguit FILL_PER_SYNC per keer, in de volgorde van de lijst")
+        self.assertEqual(counts, {"filled": 2, "empty": 2, "failed": 1})
+        data = await ah_recipes.load()
+        self.assertEqual([r["kcal"] for r in data["recipes"]], [490, None, None, None, 490, None])
+        self.assertEqual(data["nutritionPending"], 2, "het mislukte recept (4) en het zesde komen later")
+        self.asked.clear()
+        await ah_recipes._run_fill()
+        self.assertEqual(self.asked, [4, 6], "zonder voedingswaarden (2) of onbekend bij AH (3) komt niet terug")
+
+    async def test_a_refusal_of_ah_stops_the_fill(self):
+        with mock.patch.object(ah, "get_saved_recipes", side_effect=pager(3)):
+            await ah_recipes.get()
+        with mock.patch.object(ah, "get_recipe_jsonld", new_callable=mock.AsyncMock, side_effect=ah.AhHttpError("te veel", 429)) as live:
+            await ah_recipes._run_fill()
+        self.assertEqual(live.call_count, 1)
+        self.assertEqual((await ah_recipes.load())["nutritionPending"], 3)
+
+    async def test_refresh_in_the_app_starts_the_fill_and_opening_a_recipe_remembers(self):
+        with mock.patch.object(ah, "get_saved_recipes", side_effect=pager(2)):
+            await self.client.get("/api/ah/recipes/saved?refresh=1")
+            await asyncio.gather(*tasks.running().values())
+        self.assertEqual(self.asked, [1, 2])
+        self.assertEqual((await ah_recipes.load())["recipes"][0]["kcal"], 490)
+        await ah_recipes.remember_nutrition("2", None)  # weer leeg
+        with mock.patch.object(ah, "recipe_detail", new_callable=mock.AsyncMock, return_value={"id": "2", "nutrition": [{"key": "calories", "quantity": 610, "unit": "kcal"}]}):
+            await self.client.get("/api/ah/recipes/2")
+        self.assertEqual((await ah_recipes.load())["recipes"][1]["kcal"], 610)
+        with mock.patch.object(ah, "get_saved_recipes", side_effect=AssertionError("niet bij AH vragen")):
+            self.asked.clear()
+            await self.client.get("/api/ah/recipes/saved")
+            await asyncio.gather(*tasks.running().values())
+        self.assertEqual(self.asked, [], "alleen na Synchroniseren")
 
 
 if __name__ == "__main__":

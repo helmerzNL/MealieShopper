@@ -64,11 +64,11 @@ class VersionTest(AppTestCase):
         read_commit.assert_called_once_with()
 
     def test_the_version_is_read_once_for_the_user_agent(self):
-        # crisp, hellofresh en marleyspoon zetten de versie in hun User-Agent bij elk verzoek: het bestand niet elke keer lezen.
-        from mealieshopper import crisp, hellofresh, marleyspoon
+        # crisp, hellofresh, marleyspoon, lidl en aldi zetten de versie in hun User-Agent bij elk verzoek: het bestand niet elke keer lezen.
+        from mealieshopper import aldi, crisp, hellofresh, lidl, marleyspoon
 
         with mock.patch.dict(os.environ, {"MEALIESHOPPER_VERSION": "7.8.9"}), mock.patch.object(about, "read_version", wraps=about.read_version) as read:
-            agents = {crisp._user_agent(), hellofresh._user_agent(), marleyspoon._user_agent(), crisp._user_agent()}
+            agents = {crisp._user_agent(), hellofresh._user_agent(), marleyspoon._user_agent(), crisp._user_agent(), lidl._user_agent(), aldi._user_agent()}
         self.assertEqual(agents, {"MealieShopper/7.8.9 (+https://github.com/helmerzNL/MealieShopper)"})
         self.assertEqual(read.call_count, 1)
 
@@ -167,6 +167,17 @@ class ComponentsTest(AppTestCase):
         self.assertIn('rel="noopener noreferrer"', link)
         self.assertIn('target="_blank"', link)
 
+    def test_repo_link(self):
+        """Over linkt naar de broncode op GitHub, in een nieuw tabblad en met een vertaalde tekst."""
+        self.assertEqual(run(about.about())["repoUrl"], "https://github.com/helmerzNL/MealieShopper")
+        link = re.search(r'<a[^>]*id="about-repo"[^>]*>', HTML).group(0)
+        self.assertIn('href="https://github.com/helmerzNL/MealieShopper"', link)
+        self.assertIn('rel="noopener noreferrer"', link)
+        self.assertIn('target="_blank"', link)
+        self.assertIn('data-i18n="about.repo"', HTML[HTML.index('id="about-repo"'):])
+        for lang in ("nl", "en"):
+            self.assertIn('"about.repo": "MealieShopper o', (ROOT / "static" / "i18n" / f"{lang}.js").read_text(encoding="utf-8"), lang)
+
 
 class RouteTest(AppTestCase):
     def setUp(self):
@@ -199,11 +210,13 @@ class RouteTest(AppTestCase):
 class PageTest(AppTestCase):
     def test_about_page_has_versions_components_and_coffee_in_that_order_and_sits_in_the_avatar_menu(self):
         section = HTML[HTML.index('<section id="about"'):HTML.index("</main>")]
-        self.assertLess(section.index('id="about-version"'), section.index('id="about-components"'))
+        self.assertLess(section.index('id="about-version"'), section.index('id="about-repo"'))
+        self.assertLess(section.index('id="about-repo"'), section.index('id="about-components"'))
         self.assertLess(section.index('id="about-components"'), section.index('id="about-coffee"'))
         self.assertNotIn('data-tab="about"', HTML)
         menu = HTML[HTML.index('id="user-menu-list"'):HTML.index("</div>\n\n    <main")]
-        self.assertEqual(re.findall(r'data-user-action="(\w+)"', menu), ["basket", "profile", "settings", "about"], "Over staat tussen Instellingen en Uitloggen")
+        self.assertEqual(re.findall(r'data-user-action="(\w+)"', menu), ["basket", "profile", "settings", "about", "theme", "lang"],
+                         "Over staat na Instellingen, en voor thema, taal en Uitloggen")
         self.assertLess(menu.index('data-user-action="about"'), menu.index('id="auth-logout"'))
 
     def test_script_loads_the_details_once_and_redraws_on_a_language_change(self):

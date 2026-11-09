@@ -4,7 +4,7 @@ Een prijsarchief is een bestand met prijzen van vóór MealieShopper, bijvoorbee
 2009-2026, Picnic 2022-2023, Crisp 2021-2026). Anders dan **Back-up terugzetten** vervangt het niets: het voegt rijen toe aan
 `offer_history` (aanbiedingen) en `price_observations` (prijzen), en het verbetert hooguit vooraf beschreven archiefregels.
 
-Twee formaten, die op dezelfde regels uitkomen (`offer`, `price`, `correction`) en dezelfde controle krijgen:
+Drie formaten, die op dezelfde regels uitkomen (`offer`, `price`, `correction`) en dezelfde controle krijgen:
 
 * **Eigen formaat** `mealieshopper-price-archive`, versie 1: een `.jsonl`-bestand (of `.jsonl.gz`) met op de eerste regel een kop
   (`{"format": "mealieshopper-price-archive", "formatVersion": 1, ...}`) en daarna één JSON-object per regel met `type` en de
@@ -14,6 +14,10 @@ Twee formaten, die op dezelfde regels uitkomen (`offer`, `price`, `correction`) 
 * **Het pakket van de gist** zoals **Download ZIP** het geeft: `supermarket-manifest.json` met Base64-delen van
   `supermarket-archives-<datum>.tar.gz`, met daarin `data-manifest.json` en zes gegevensbestanden (`GIST_FILES`). Het losse
   `.tar.gz` mag ook. De app leest alleen die bestanden; de tar wordt nooit uitgepakt en geen script uit het pakket draait.
+* **De vorm van data.mealieshopper.nl**: per winkel lijsten van regels in JSON-bestanden in `offers/` en `prices/` (de map zegt
+  wat een regel is; zonder `type`). Als ZIP met die documenten (de export daarvoor, de datarepo, de ZIP die de site
+  instuurt), als de gist van wolph met `data-site-manifest.json` en Base64-delen van die ZIP (elke controlesom uit het
+  manifest telt), of rechtstreeks van de site met **Aanbiedingen ophalen** (`fetch_site`, met de SHA-256 uit index.json).
 
 Elke folderregel (een aanbieding met een product-id `folder:…`) gaat na de controle door het opschonen in price_archive_tidy.py:
 koppelen aan de producten die de app zelf kent, en een folderregel die nergens bij hoort komt er niet in. Zo staan er in de
@@ -59,9 +63,10 @@ from pathlib import Path, PurePosixPath
 from typing import IO, Any, Callable, Iterator
 
 import aiosqlite
+import httpx
 from quart import Quart, Response, jsonify, request
 
-from . import audit, auth, offers, prices, tasks, thread_db, uploads
+from . import audit, auth, http_client, offers, prices, tasks, thread_db, uploads
 from .price_archive_tidy import ARCHIVE_OFFERS_SQL, ARCHIVE_PRICES_SQL, Tidy
 from .i18n import tr
 
@@ -88,6 +93,21 @@ GIST_FILES: dict[str, str] = {
     "crisp/reports/observations.jsonl": "price",
 }
 GIST_TAR_NAME = re.compile(r"supermarket-archives/(\d{4}-\d{2}-\d{2})/(.+)")
+# De vorm van data.mealieshopper.nl: per winkel een collectie met lijsten van regels in `offers/` en `prices/` (de map zegt wat
+# een regel is). Zo komen ze van de site, uit de eigen export daarvoor (price_archive_export.py) en uit de gist van wolph, die
+# ze als Base64-delen van een ZIP meestuurt met `data-site-manifest.json`.
+SITE_FORMAT = "data.mealieshopper.nl"
+DATA_SITE_URL = "https://data.mealieshopper.nl"
+SITE_MANIFEST = "data-site-manifest.json"
+# `observations/`: prijsmetingen zonder bekende actie (de gists van Picnic en Crisp), in de vorm van een prijs.
+SITE_KINDS: dict[str, str] = {"offers": "offer", "prices": "price", "observations": "price"}
+SITE_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}\.json$")  # een bestandsnaam zoals de site hem toestaat
+SITE_COLLECTION = re.compile(r"^[a-z0-9][a-z0-9-]{0,62}$")
+SITE_UPLOAD_PATH = re.compile(r"^data/([a-z0-9][a-z0-9-]{0,62})/[A-Za-z0-9][A-Za-z0-9._-]{0,127}\.zip$")
+MAX_SITE_DOC_BYTES = 16 * 1024 * 1024  # per document; de site zelf staat 10 MB toe
+MAX_CATALOG_BYTES = 5 * 1024 * 1024  # index.json van de site
+SITE_TIMEOUT = 60.0
+SITE_USER_AGENT = "MealieShopper (+https://www.mealieshopper.nl)"
 
 MAX_UPLOAD_BYTES = 200 * 1024 * 1024  # zoals een back-up (één grens voor een reverse proxy); de ZIP van de gist is ruim 100 MB
 MAX_MEMBER_BYTES = 300 * 1024 * 1024  # uitgepakt, per bestand: tegen een bestand dat zich opblaast
@@ -148,8 +168,8 @@ JOB_DONE_SQL = (
 
 MESSAGES: dict[str, tuple[str, str]] = {
     "not_an_archive": (
-        "Dit is geen prijsarchief. Kies de ZIP van het pakket, het .tar.gz-archief, een export van MealieShopper of een .jsonl-bestand in het formaat mealieshopper-price-archive.",
-        "This is not a price archive. Choose the ZIP of the package, the .tar.gz archive, an export from MealieShopper or a .jsonl file in the mealieshopper-price-archive format.",
+        "Dit is geen prijsarchief. Kies de ZIP van het pakket of van de gist voor data.mealieshopper.nl, het .tar.gz-archief, een export van MealieShopper (ook die voor data.mealieshopper.nl) of een .jsonl-bestand in het formaat mealieshopper-price-archive.",
+        "This is not a price archive. Choose the ZIP of the package or of the gist for data.mealieshopper.nl, the .tar.gz archive, an export from MealieShopper (also the one for data.mealieshopper.nl) or a .jsonl file in the mealieshopper-price-archive format.",
     ),
     "old_package": (
         "Dit is het eerdere AH-pakket. Kies de ZIP met supermarket-manifest.json: die bevat dezelfde AH-gegevens, gecorrigeerd, en ook Jumbo, Picnic en Crisp.",
@@ -167,6 +187,27 @@ MESSAGES: dict[str, tuple[str, str]] = {
         "The checksum of {file} does not match. Download the package again.",
     ),
     "missing_file": ("Het archief mist {file}.", "The archive is missing {file}."),
+    "unlisted_file": (
+        "{file} staat niet in data-site-manifest.json. Download het pakket opnieuw.",
+        "{file} is not listed in data-site-manifest.json. Download the package again.",
+    ),
+    "too_many_files": ("Het archief heeft meer dan {limit} bestanden.", "The archive has more than {limit} files."),
+    "site_unreachable": (
+        "data.mealieshopper.nl is niet bereikbaar ({detail}). Probeer het later opnieuw.",
+        "data.mealieshopper.nl cannot be reached ({detail}). Try again later.",
+    ),
+    "site_catalog": (
+        "De catalogus van data.mealieshopper.nl (index.json) klopt niet: {detail}.",
+        "The catalogue of data.mealieshopper.nl (index.json) is not valid: {detail}.",
+    ),
+    "site_checksum": (
+        "{file} op data.mealieshopper.nl klopt niet met de catalogus. Probeer het later opnieuw.",
+        "{file} on data.mealieshopper.nl does not match the catalogue. Try again later.",
+    ),
+    "site_empty": (
+        "Op data.mealieshopper.nl staan nog geen aanbiedingen of prijzen om op te halen.",
+        "There are no offers or prices on data.mealieshopper.nl to fetch yet.",
+    ),
     "bad_row": ("{file}, regel {line}: {reason}", "{file}, line {line}: {reason}"),
     "empty": ("Het archief bevat geen prijzen.", "The archive contains no prices."),
     "stage_missing": (
@@ -207,6 +248,9 @@ REASONS: dict[str, tuple[str, str]] = {
     ),
     "personal": ("een archief kan geen persoonlijke aanbieding (Bonus Box) bevatten", "an archive cannot contain a personal offer (Bonus Box)"),
     "seen_at": ("seen_at valt niet op day", "seen_at is not on day"),
+    "list": ("het document is geen lijst van regels", "the document is not a list of lines"),
+    "duplicate_key": ("de sleutel {value} staat twee keer in hetzelfde object", "the key {value} appears twice in the same object"),
+    "store_folder": ("winkel {value} hoort niet in deze map", "store {value} does not belong in this folder"),
 }
 
 
@@ -436,6 +480,49 @@ def _json_line(raw: bytes) -> Any:
         raise RowError("json") from None
 
 
+class _DuplicateKey(ValueError):
+    def __init__(self, key: str):
+        super().__init__(key)
+        self.key = key
+
+
+def _strict_json(raw: bytes) -> Any:
+    """Een document van data.mealieshopper.nl, zo streng als de site het leest: UTF-8 (een BOM mag), geen NaN of Infinity, en
+    geen sleutel twee keer in hetzelfde object (die zou ongemerkt verdwijnen)."""
+    def reject(constant: str) -> Any:
+        raise ValueError(constant)
+
+    def pairs(items: list[tuple[str, Any]]) -> dict[str, Any]:
+        result: dict[str, Any] = {}
+        for key, value in items:
+            if key in result:
+                raise _DuplicateKey(key)
+            result[key] = value
+        return result
+
+    try:
+        return json.loads(raw.decode("utf-8-sig"), object_pairs_hook=pairs, parse_constant=reject)
+    except _DuplicateKey as exc:
+        raise RowError("duplicate_key", value=exc.key) from None
+    except (ValueError, RecursionError):  # UnicodeDecodeError is een ValueError
+        raise RowError("json") from None
+
+
+def site_document(name: str) -> tuple[str, str | None] | None:
+    """(soort, winkel van de map) als `name` een document in de vorm van data.mealieshopper.nl is, anders None.
+
+    Een document staat direct in een map `offers/` of `prices/`, ergens in de ZIP: `offers/2015-001.json` (de ZIP uit de gist),
+    `data/ah/offers/2015-001.json` (de export en de datarepo, ook met een map erboven) of `ah/offers/2015-001.json` (de site).
+    Staat er een winkel boven die map, dan hoort elke regel bij die winkel."""
+    parts = name.split("/")
+    if len(parts) < 2 or parts[-2] not in SITE_KINDS or not SITE_NAME.match(parts[-1]):
+        return None
+    if any(part in ("", ".", "..") or "\\" in part for part in parts):
+        return None
+    store = parts[-3] if len(parts) >= 3 and parts[-3] in STORES else None
+    return SITE_KINDS[parts[-2]], store
+
+
 def _bounded(handle: IO[bytes], limit: int) -> bytes:
     data = handle.read(limit + 1)
     if len(data) > limit:
@@ -476,7 +563,16 @@ class Archive:
         with self.path.open("rb") as handle:
             head = handle.read(8)
         if head.startswith(b"PK\x03\x04"):
-            return "export" if self._export_manifest() is not None else "zip"
+            if self._export_manifest() is not None:
+                return "export"
+            names = self._zip_names()
+            if any(_near_top(name, SITE_MANIFEST) for name in names):
+                return "site-gist"
+            if any(_near_top(name, GIST_MANIFEST) or _near_top(name, OLD_GIST_MANIFEST) for name in names):
+                return "zip"
+            if any(site_document(name) for name in names):
+                return "site"
+            return "zip"  # geeft de melding van het pakket (geen prijsarchief)
         if head.startswith(b"\x1f\x8b"):
             try:
                 with gzip.open(self.path, "rb") as handle:
@@ -499,6 +595,13 @@ class Archive:
             return
         if self.kind == "export":
             yield from self._from_export()
+            return
+        if self.kind == "site":
+            self._site_meta()
+            yield from self._from_site(self.path)
+            return
+        if self.kind == "site-gist":
+            yield from self._from_site_gist()
             return
         tar_path = self.path
         temporary: Path | None = None
@@ -615,6 +718,13 @@ class Archive:
         except (zipfile.BadZipFile, zlib.error, OSError, EOFError):
             raise ArchiveError("bad_structure", detail="zip") from None
 
+    def _zip_names(self) -> list[str]:
+        try:
+            with zipfile.ZipFile(self.path) as archive:
+                return [info.filename for info in archive.infolist() if not info.is_dir()]
+        except (zipfile.BadZipFile, OSError):
+            raise ArchiveError("not_an_archive") from None
+
     # De ZIP van de gist: Base64-delen naar één .tar.gz, met de controlesommen uit supermarket-manifest.json.
     def _from_zip(self) -> Path:
         try:
@@ -624,14 +734,9 @@ class Archive:
         with archive:
             entries = [info for info in archive.infolist() if not info.is_dir()]
             by_name = {info.filename: info for info in entries}
-
-            def near_top(info: zipfile.ZipInfo, name: str) -> bool:
-                path = PurePosixPath(info.filename)
-                return path.name == name and len(path.parts) <= 2
-
-            manifests = [info for info in entries if near_top(info, GIST_MANIFEST)]
+            manifests = [info for info in entries if _near_top(info.filename, GIST_MANIFEST)]
             if len(manifests) != 1:
-                if not manifests and any(near_top(info, OLD_GIST_MANIFEST) for info in entries):
+                if not manifests and any(_near_top(info.filename, OLD_GIST_MANIFEST) for info in entries):
                     raise ArchiveError("old_package")
                 raise ArchiveError("not_an_archive")
             manifest_info = manifests[0]
@@ -642,44 +747,236 @@ class Archive:
                 except ValueError:
                     raise ArchiveError("bad_structure", detail=GIST_MANIFEST) from None
             parts = self._gist_manifest(manifest)
-            self.work_dir.mkdir(parents=True, exist_ok=True)
-            target = self.work_dir / f"{STAGE_PREFIX}{secrets.token_hex(8)}.tar.gz"
-            digest = hashlib.sha256()
-            total = 0
-            try:
-                with target.open("wb") as out:
-                    os.chmod(target, 0o600)
-                    for name, expected in parts:
-                        info = by_name.get(name if str(folder) == "." else f"{folder}/{name}")
-                        if info is None:
-                            raise ArchiveError("missing_file", file=name)
-                        if info.file_size > MAX_PART_BYTES:
-                            raise ArchiveError("too_large", 413, limit=MAX_PART_BYTES // (1024 * 1024))
-                        with archive.open(info) as handle:
-                            content = _bounded(handle, MAX_PART_BYTES)
-                        if hashlib.sha256(content).hexdigest() != expected:
-                            raise ArchiveError("checksum", file=name)
-                        try:
-                            raw = base64.b64decode(content.strip(), validate=True)
-                        except (binascii.Error, ValueError):
-                            raise ArchiveError("bad_structure", detail=name) from None
-                        total += len(raw)
-                        if total > manifest["archiveBytes"]:
-                            raise ArchiveError("checksum", file=manifest["archiveFile"])
-                        digest.update(raw)
-                        out.write(raw)
-                if total != manifest["archiveBytes"] or digest.hexdigest() != manifest["archiveSha256"]:
-                    raise ArchiveError("checksum", file=manifest["archiveFile"])
-            except ArchiveError:
-                target.unlink(missing_ok=True)
-                raise
-            except (zipfile.BadZipFile, zlib.error, OSError, EOFError):
-                target.unlink(missing_ok=True)
-                raise ArchiveError("bad_structure", detail="zip") from None
-            except BaseException:
-                target.unlink(missing_ok=True)
-                raise
+            return self._join_parts(
+                archive, by_name, folder, [(name, expected, None) for name, expected in parts],
+                manifest["archiveBytes"], manifest["archiveSha256"], manifest["archiveFile"], ".tar.gz",
+            )
+
+    def _join_parts(
+        self, archive: zipfile.ZipFile, by_name: dict[str, zipfile.ZipInfo], folder: PurePosixPath,
+        parts: list[tuple[str, str, int | None]], size: int, sha256: str, label: str, suffix: str,
+    ) -> Path:
+        """Zet de Base64-delen (naam, SHA-256, eventueel lengte) achter elkaar in een werkbestand en controleert elk deel en het
+        geheel (`size` bytes met SHA-256 `sha256`). Geeft het pad; bij een fout blijft er niets staan."""
+        self.work_dir.mkdir(parents=True, exist_ok=True)
+        target = self.work_dir / f"{STAGE_PREFIX}{secrets.token_hex(8)}{suffix}"
+        digest = hashlib.sha256()
+        total = 0
+        try:
+            with target.open("wb") as out:
+                os.chmod(target, 0o600)
+                for name, expected, length in parts:
+                    info = by_name.get(name if str(folder) == "." else f"{folder}/{name}")
+                    if info is None:
+                        raise ArchiveError("missing_file", file=name)
+                    if info.file_size > MAX_PART_BYTES:
+                        raise ArchiveError("too_large", 413, limit=MAX_PART_BYTES // (1024 * 1024))
+                    with archive.open(info) as handle:
+                        content = _bounded(handle, MAX_PART_BYTES)
+                    if (length is not None and len(content) != length) or hashlib.sha256(content).hexdigest() != expected:
+                        raise ArchiveError("checksum", file=name)
+                    try:
+                        raw = base64.b64decode(content.strip(), validate=True)
+                    except (binascii.Error, ValueError):
+                        raise ArchiveError("bad_structure", detail=name) from None
+                    total += len(raw)
+                    if total > size:
+                        raise ArchiveError("checksum", file=label)
+                    digest.update(raw)
+                    out.write(raw)
+            if total != size or digest.hexdigest() != sha256:
+                raise ArchiveError("checksum", file=label)
+        except ArchiveError:
+            target.unlink(missing_ok=True)
+            raise
+        except (zipfile.BadZipFile, zlib.error, OSError, EOFError):
+            target.unlink(missing_ok=True)
+            raise ArchiveError("bad_structure", detail="zip") from None
+        except BaseException:
+            target.unlink(missing_ok=True)
+            raise
         return target
+
+    # De vorm van data.mealieshopper.nl: lijsten van regels in offers/ en prices/ (zie `site_document`).
+    def _from_site(
+        self, path: Path, documents: dict[str, dict[str, Any]] | None = None, prefix: str = "", store: str | None = None,
+    ) -> Iterator[tuple[str, dict[str, Any], str, int]]:
+        """De regels van elk document in de ZIP `path`, op naam gesorteerd. Met `documents` (uit data-site-manifest.json, op
+        `prefix` + naam in de ZIP) moet elk genoemd document er zijn met dezelfde lengte, SHA-256 en hetzelfde aantal regels, en
+        geen ander. Met `store` hoort elke regel bij die winkel, net als bij een winkel in het pad."""
+        name = ""
+        number = 0
+        try:
+            with zipfile.ZipFile(path) as archive:
+                found: list[tuple[str, zipfile.ZipInfo, str, str | None]] = []
+                for info in archive.infolist():
+                    document = None if info.is_dir() else site_document(info.filename)
+                    if document is not None:
+                        found.append((prefix + info.filename, info, *document))
+                found.sort(key=lambda item: item[0])
+                if len(found) > MAX_EXPORT_FILES:
+                    raise ArchiveError("too_many_files", limit=MAX_EXPORT_FILES)
+                # De opgegeven grootte is een echte grens: zipfile leest nooit meer dan file_size (en controleert de CRC).
+                if sum(item[1].file_size for item in found) > MAX_EXPORT_BYTES:
+                    raise ArchiveError("too_large", 413, limit=MAX_EXPORT_BYTES // (1024 * 1024))
+                if documents is not None:
+                    names = {item[0] for item in found}
+                    for wanted in documents:
+                        if wanted not in names:
+                            raise ArchiveError("missing_file", file=wanted)
+                    for item in found:
+                        if item[0] not in documents:
+                            raise ArchiveError("unlisted_file", file=item[0])
+                elif not found:
+                    raise ArchiveError("not_an_archive")
+                for name, info, kind, folder_store in found:
+                    number = 0
+                    if info.file_size > MAX_SITE_DOC_BYTES:
+                        raise ArchiveError("too_large", 413, limit=MAX_SITE_DOC_BYTES // (1024 * 1024))
+                    with archive.open(info) as handle:
+                        raw = _bounded(handle, MAX_SITE_DOC_BYTES)
+                    expected = documents.get(name) if documents is not None else None
+                    if expected is not None and (len(raw) != expected["bytes"] or hashlib.sha256(raw).hexdigest() != expected["sha256"]):
+                        raise ArchiveError("checksum", file=name)
+                    data = _strict_json(raw)
+                    if not isinstance(data, list):
+                        raise RowError("list")
+                    if expected is not None and expected["items"] is not None and len(data) != expected["items"]:
+                        raise ArchiveError("checksum", file=name)
+                    owner = store or folder_store
+                    for number, item in enumerate(data, 1):
+                        if not isinstance(item, dict):
+                            raise RowError("object")
+                        if owner is not None and isinstance(item.get("store"), str) and item["store"] != owner:
+                            raise RowError("store_folder", "store", item["store"])
+                        yield kind, item, name, number
+        except RowError as exc:
+            raise ArchiveError("bad_row", file=name, line=number or "?", reason=exc.reason, field=exc.field, value=exc.value) from None
+        except (zipfile.BadZipFile, zlib.error, OSError, EOFError, NotImplementedError):
+            raise ArchiveError("bad_structure", detail="zip") from None
+
+    def _site_meta(self) -> None:
+        """De bron in de samenvatting: data.mealieshopper.nl met de commit uit index.json, als die in de ZIP staat (zoals bij
+        **Aanbiedingen ophalen** en de branch `publicatie`)."""
+        meta = {"format": SITE_FORMAT, "source": "", "createdAt": "", "license": ""}
+        try:
+            with zipfile.ZipFile(self.path) as archive:
+                found = [info for info in archive.infolist() if not info.is_dir() and _near_top(info.filename, "index.json")]
+                if len(found) == 1:
+                    with archive.open(found[0]) as handle:
+                        catalog = json.loads(_bounded(handle, MAX_CATALOG_BYTES))
+                    if isinstance(catalog, dict) and catalog.get("site") == DATA_SITE_URL:
+                        commit = str(catalog.get("commit") or "")[:7]
+                        meta["source"] = f"{SITE_FORMAT} ({commit})" if commit else SITE_FORMAT
+                        meta["createdAt"] = str(catalog.get("generated_at") or "")[:40]
+                        license_ = catalog.get("license")
+                        meta["license"] = str(license_.get("name") or "")[:200] if isinstance(license_, dict) else ""
+        except (zipfile.BadZipFile, zlib.error, OSError, EOFError, ValueError, ArchiveError):
+            pass
+        self.meta = meta
+
+    # De gist voor data.mealieshopper.nl: per winkel Base64-delen van de ZIP die je op de site instuurt.
+    def _from_site_gist(self) -> Iterator[tuple[str, dict[str, Any], str, int]]:
+        try:
+            archive = zipfile.ZipFile(self.path)
+        except (zipfile.BadZipFile, OSError):
+            raise ArchiveError("not_an_archive") from None
+        with archive:
+            entries = [info for info in archive.infolist() if not info.is_dir()]
+            by_name = {info.filename: info for info in entries}
+            manifests = [info for info in entries if _near_top(info.filename, SITE_MANIFEST)]
+            if len(manifests) != 1:
+                raise ArchiveError("not_an_archive")
+            folder = PurePosixPath(manifests[0].filename).parent
+            try:
+                with archive.open(manifests[0]) as handle:
+                    manifest = json.loads(_bounded(handle, MAX_MANIFEST_BYTES))
+            except ValueError:
+                raise ArchiveError("bad_structure", detail=SITE_MANIFEST) from None
+            except (zipfile.BadZipFile, zlib.error, OSError, EOFError):
+                raise ArchiveError("bad_structure", detail="zip") from None
+            packages = self._site_manifest(manifest)
+            self.meta = {
+                "format": SITE_FORMAT,
+                "source": ", ".join(package["uploadPath"] for package in packages)[:200],
+                "createdAt": str(manifest.get("created") or "")[:40],
+                "license": "",
+            }
+            for package in packages:
+                target = self._join_parts(
+                    archive, by_name, folder, package["parts"], package["zipBytes"], package["sha256"],
+                    package["uploadPath"], ".zip",
+                )
+                try:
+                    yield from self._from_site(target, package["documents"], prefix=package["store"] + "/", store=package["store"])
+                finally:
+                    target.unlink(missing_ok=True)
+
+    @staticmethod
+    def _site_manifest(manifest: Any) -> list[dict[str, Any]]:
+        """De pakketten uit data-site-manifest.json, elk gecontroleerd: winkel, uploadpad, de ZIP en zijn delen, en de documenten
+        die erin horen (met lengte, SHA-256 en aantal regels)."""
+        packages = manifest.get("packages") if isinstance(manifest, dict) else None
+        if not isinstance(packages, list) or not 0 < len(packages) <= len(STORES):
+            raise ArchiveError("bad_structure", detail=f"{SITE_MANIFEST}: packages")
+
+        def bad(field: str) -> ArchiveError:
+            return ArchiveError("bad_structure", detail=f"{SITE_MANIFEST}: {field}")
+
+        def whole(value: Any, lowest: int, highest: int) -> bool:
+            return isinstance(value, int) and not isinstance(value, bool) and lowest <= value <= highest
+
+        result: list[dict[str, Any]] = []
+        part_names: set[str] = set()
+        stores: set[str] = set()
+        for package in packages:
+            if not isinstance(package, dict):
+                raise bad("packages")
+            store = package.get("store")
+            upload = package.get("uploadPath")
+            match = SITE_UPLOAD_PATH.match(upload) if isinstance(upload, str) else None
+            if store not in STORES or match is None or match[1] != store or store in stores:
+                raise bad("uploadPath")
+            stores.add(store)
+            if not whole(package.get("zipBytes"), 1, MAX_MEMBER_BYTES):
+                raise bad("zipBytes")
+            if not SHA256_PATTERN.match(str(package.get("sha256") or "")):
+                raise bad("sha256")
+            parts = package.get("parts")
+            if not isinstance(parts, list) or not 0 < len(parts) <= MAX_PARTS:
+                raise bad("parts")
+            joined: list[tuple[str, str, int | None]] = []
+            for part in parts:
+                if not isinstance(part, dict) or not isinstance(part.get("file"), str) or not _bare(part["file"]):
+                    raise bad("parts")
+                if part["file"] in part_names or not whole(part.get("bytes"), 1, MAX_PART_BYTES):
+                    raise bad("parts")
+                if not SHA256_PATTERN.match(str(part.get("sha256") or "")):
+                    raise bad("parts")
+                part_names.add(part["file"])
+                joined.append((part["file"], part["sha256"], part["bytes"]))
+            documents = package.get("documents")
+            if not isinstance(documents, list) or not 0 < len(documents) <= MAX_EXPORT_FILES:
+                raise bad("documents")
+            listed: dict[str, dict[str, Any]] = {}
+            for document in documents:
+                path = document.get("path") if isinstance(document, dict) else None
+                if not isinstance(path, str) or not path.startswith(f"{store}/") or path in listed:
+                    raise bad("documents")
+                inner = site_document(path[len(store) + 1:])
+                if inner is None or inner[1] is not None:  # direct in offers/ of prices/ van de ZIP
+                    raise bad("documents")
+                items = document.get("items")
+                if not whole(document.get("bytes"), 0, MAX_SITE_DOC_BYTES) or not SHA256_PATTERN.match(str(document.get("sha256") or "")):
+                    raise bad("documents")
+                if items is not None and not whole(items, 0, MAX_RECORDS):
+                    raise bad("documents")
+                listed[path] = {"bytes": document["bytes"], "sha256": document["sha256"], "items": items}
+            result.append({
+                "store": store, "uploadPath": upload, "zipBytes": package["zipBytes"], "sha256": package["sha256"],
+                "parts": joined, "documents": listed,
+            })
+        return result
 
     @staticmethod
     def _gist_manifest(manifest: Any) -> list[tuple[str, str]]:
@@ -785,6 +1082,12 @@ class Archive:
                 yield kind, data, name, number
         except RowError as exc:
             raise ArchiveError("bad_row", file=name, line="?", reason=exc.reason, field=exc.field, value=exc.value) from None
+
+
+def _near_top(name: str, wanted: str) -> bool:
+    """`name` is het bestand `wanted`, bovenin de ZIP of één map diep (zoals in de ZIP van GitHub)."""
+    path = PurePosixPath(name)
+    return path.name == wanted and len(path.parts) <= 2
 
 
 def _bare(name: str) -> bool:
@@ -1070,6 +1373,116 @@ async def _check(token: str, upload: Path, keep_unlinked: bool) -> dict[str, Any
         upload.unlink(missing_ok=True)
         raise
     return await asyncio.to_thread(_check_upload, token, upload, keep_unlinked)
+
+
+# --- ophalen van data.mealieshopper.nl ------------------------------------------------------------------------------
+
+
+def site_files(catalog: Any) -> list[tuple[str, int, str]]:
+    """De documenten om op te halen uit index.json van de site, als (pad, lengte, SHA-256).
+
+    Alleen collecties met de naam van een winkel, en daarin alleen `<winkel>/offers/<naam>.json` en `<winkel>/prices/<naam>.json`:
+    de rest van de site is voor iets anders. Het adres maakt de app zelf uit DATA_SITE_URL en het pad; de `url` uit de catalogus
+    volgt hij niet. Een document dat erbij hoort maar geen geldige lengte of SHA-256 heeft, weigert de hele catalogus."""
+    collections = catalog.get("collections") if isinstance(catalog, dict) else None
+    if not isinstance(collections, list):
+        raise ArchiveError("site_catalog", 502, detail="collections")
+    found: list[tuple[str, int, str]] = []
+    seen: set[str] = set()
+    total = 0
+    for collection in collections:
+        if not isinstance(collection, dict) or collection.get("name") not in STORES:
+            continue
+        store = str(collection["name"])
+        files = collection.get("files")
+        if not isinstance(files, list):
+            raise ArchiveError("site_catalog", 502, detail=f"{store}: files")
+        for entry in files:
+            path = entry.get("path") if isinstance(entry, dict) else None
+            parts = path.split("/") if isinstance(path, str) else []
+            if len(parts) != 3 or parts[0] != store or parts[1] not in SITE_KINDS or not SITE_NAME.match(parts[2]):
+                continue
+            size, digest = entry.get("bytes"), entry.get("sha256")
+            if isinstance(size, bool) or not isinstance(size, int) or not 0 < size <= MAX_SITE_DOC_BYTES:
+                raise ArchiveError("site_catalog", 502, detail=f"{path}: bytes")
+            if not isinstance(digest, str) or not SHA256_PATTERN.match(digest) or path.lower() in seen:
+                raise ArchiveError("site_catalog", 502, detail=f"{path}: sha256")
+            seen.add(path.lower())
+            total += size
+            found.append((path, size, digest))
+    if len(found) > MAX_EXPORT_FILES:
+        raise ArchiveError("too_many_files", limit=MAX_EXPORT_FILES)
+    if total > MAX_EXPORT_BYTES:
+        raise ArchiveError("too_large", 413, limit=MAX_EXPORT_BYTES // (1024 * 1024))
+    if not found:
+        raise ArchiveError("site_empty", 404)
+    return sorted(found)
+
+
+def _site_reason(exc: httpx.HTTPError) -> str:
+    if isinstance(exc, httpx.TimeoutException):
+        return "timeout"
+    return type(exc).__name__
+
+
+async def _site_get(path: str, limit: int) -> bytes:
+    """Eén bestand van de site, hoogstens `limit` bytes. Geen doorverwijzing: alleen data.mealieshopper.nl zelf."""
+    client: httpx.AsyncClient = http_client.client(
+        "data-site", headers={"User-Agent": SITE_USER_AGENT}, timeout=SITE_TIMEOUT, follow_redirects=False
+    )
+    chunks: list[bytes] = []
+    received = 0
+    try:
+        async with client.stream("GET", f"{DATA_SITE_URL}/{path}") as response:
+            if response.status_code != 200:
+                raise ArchiveError("site_unreachable", 502, detail=f"HTTP {response.status_code}")
+            async for chunk in response.aiter_bytes():
+                received += len(chunk)
+                if received > limit:
+                    raise ArchiveError("site_checksum", 502, file=path)
+                chunks.append(chunk)
+    except httpx.HTTPError as exc:
+        raise ArchiveError("site_unreachable", 502, detail=_site_reason(exc)) from None
+    return b"".join(chunks)
+
+
+def _site_zip(path: Path) -> zipfile.ZipFile:
+    archive = zipfile.ZipFile(path, "w", zipfile.ZIP_STORED, allowZip64=True)
+    os.chmod(path, 0o600)
+    return archive
+
+
+async def fetch_site(keep_unlinked: bool = False) -> dict[str, Any]:
+    """**Aanbiedingen ophalen**: de aanbiedingen en prijzen van data.mealieshopper.nl, klaargezet zoals een upload.
+
+    De catalogus (index.json) zegt welke documenten er zijn, met hun lengte en SHA-256. Elk document wordt opgehaald en
+    gecontroleerd, en komt als `data/<winkel>/offers|prices/<naam>.json` in een ZIP, met index.json erbij voor de bron. Die ZIP
+    krijgt daarna precies de controle van een geüpload archief (`_check`). Klopt er iets niet, dan blijft er niets staan."""
+    remove_old_staged_files()
+    raw_catalog: bytes = await _site_get("index.json", MAX_CATALOG_BYTES)
+    try:
+        catalog: Any = json.loads(raw_catalog)
+    except ValueError:
+        raise ArchiveError("site_catalog", 502, detail="JSON") from None
+    files: list[tuple[str, int, str]] = site_files(catalog)
+    auth.data_dir().mkdir(parents=True, exist_ok=True)
+    token: str = secrets.token_hex(16)
+    upload: Path = _upload_path(token)
+    try:
+        archive: zipfile.ZipFile = await asyncio.to_thread(_site_zip, upload)
+        try:
+            await asyncio.to_thread(archive.writestr, "index.json", raw_catalog)
+            for path, size, digest in files:
+                body: bytes = await _site_get(path, size)
+                if len(body) != size or hashlib.sha256(body).hexdigest() != digest:
+                    raise ArchiveError("site_checksum", 502, file=path)
+                await asyncio.to_thread(archive.writestr, f"data/{path}", body)  # tot 16 MB naar schijf
+        finally:
+            await asyncio.to_thread(archive.close)
+    except BaseException:
+        upload.unlink(missing_ok=True)
+        raise
+    return await _check(token, upload, keep_unlinked)
 
 
 def _upload_path(token: str) -> Path:
@@ -1402,6 +1815,14 @@ def register_routes(app: Quart) -> None:
         except ArchiveError as exc:
             return _error(exc)
 
+    # **Aanbiedingen ophalen**: van data.mealieshopper.nl, daarna dezelfde samenvatting en import als bij een upload.
+    @app.post("/api/price-archive/fetch")
+    async def price_archive_fetch() -> Response | tuple[Response, int]:
+        try:
+            return jsonify(await fetch_site(keep_unlinked=request.args.get("keep_unlinked") == "1"))
+        except ArchiveError as exc:
+            return _error(exc)
+
     @app.delete("/api/price-archive/stage/<token>")
     async def price_archive_unstage(token: str) -> Response | tuple[Response, int]:
         try:
@@ -1419,29 +1840,34 @@ def register_routes(app: Quart) -> None:
             return _error(exc)
         return jsonify(job), 202
 
-    # De export (price_archive_export.py): een ZIP met een bestand per winkel en maand. POST, zoals de back-up: het werk gebeurt
-    # pas als je op de knop drukt, niet bij een link die iets vooraf ophaalt.
+    # De export (price_archive_export.py): een ZIP met een bestand per winkel en maand, of met `?format=site` in de vorm van
+    # data.mealieshopper.nl. POST, zoals de back-up: het werk gebeurt pas als je op de knop drukt, niet bij een link die iets
+    # vooraf ophaalt.
     @app.post("/api/price-archive/export")
     async def price_archive_export() -> Response:
-        from .price_archive_export import write_export  # pas hier: price_archive_export importeert dit bestand
+        from .price_archive_export import write_export, write_site_export  # pas hier: price_archive_export importeert dit bestand
 
+        site: bool = request.args.get("format") == "site"
         started: float = time.monotonic()
         auth.data_dir().mkdir(parents=True, exist_ok=True)
         path: Path = auth.data_dir() / f"{STAGE_PREFIX}export-{secrets.token_hex(8)}.zip"
         try:
             await ensure_schema()
-            header: dict[str, Any] = await asyncio.to_thread(write_export, path)  # alle regels lezen en zippen: bulk- en rekenwerk
+            # alle regels lezen en zippen: bulk- en rekenwerk
+            header: dict[str, Any] = await asyncio.to_thread(write_site_export if site else write_export, path)
         except BaseException:
             path.unlink(missing_ok=True)
             raise
         offers_total: int = sum(header["counts"]["offers"].values())
         prices_total: int = sum(header["counts"]["prices"].values())
+        detail: dict[str, Any] = {"offers": offers_total, "prices": prices_total, "files": len(header["files"]), "skipped": header["skipped"]}
+        if site:
+            detail["format"] = "site"
         await audit.record(
             kind="task", service="price-archive", action="export", actor=await audit.current_actor(),
-            duration_ms=int((time.monotonic() - started) * 1000),
-            detail={"offers": offers_total, "prices": prices_total, "files": len(header["files"]), "skipped": header["skipped"]},
+            duration_ms=int((time.monotonic() - started) * 1000), detail=detail,
         )
-        name: str = "mealieshopper-prijsarchief-" + datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S") + ".zip"
+        name: str = ("mealieshopper-data-" if site else "mealieshopper-prijsarchief-") + datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S") + ".zip"
         # Het bestand is van het bestandssysteem af zodra het open is: er blijft niets staan, ook niet bij een afgebroken download.
         handle: IO[bytes] = path.open("rb")
         size: int = os.fstat(handle.fileno()).st_size

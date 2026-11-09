@@ -34,7 +34,7 @@ De tokens staan als CSS-variabelen in `static/styles.css` (`:root`).
 | Tekst | `#18251E` | `--text` |
 | Ondersteunende tekst | `#59665E` | `--muted` |
 | Rand | `#D6DFD9` | `--border` |
-| Kaart / bediening | 12 px / 8 px radius | `--radius-card` / `--radius-control` |
+| Radius: klein, bediening, kaart, groot, pil | 4 / 8 / 12 / 16 / 999 px | `--radius-sm`, `--radius-control`, `--radius-card`, `--radius-lg`, `--radius-pill` |
 
 Citroen is decoratief; gebruik het niet als tekst op wit (contrast 1,5 : 1). Fouten
 blijven rood (`--danger`) en krijgen een tekstuele uitleg. Focusringen zijn zichtbaar
@@ -63,20 +63,43 @@ Het palet verandert niet; de afwerking wel. Aanvullende tokens in `:root` (en in
 Regels:
 
 - **Dieptelagen.** Pagina (`--bg`), kaart (`--shadow-sm`), oplichtende kaart of menu (`--shadow-md`), venster of inlogkaart (`--shadow-lg`). Gebruik niet meer dan twee niveaus naast elkaar.
-- **Navigatie.** Het hoofdmenu markeert het actieve onderdeel met `--selection` en een groen streepje (groot scherm); het tweede niveau (`.subtabs`) is een segmentbediening met een oplichtend actief segment. Een volledig groen vlak is voorbehouden aan primaire acties, het actieve filter (`.offer-chip`) en de pil van de huidige dag.
+- **Navigatie.** Vanaf 860 px staat het hoofdmenu links (het breekpunt van App-Guidance), met alleen onder het open onderdeel zijn subtabs; het markeert het actieve onderdeel met `--selection` en een groen streepje. Het tweede niveau (`.subtabs`) is een segmentbediening met een oplichtend actief segment; op een telefoon is dat één regel die horizontaal scrolt, en het gekozen segment scrolt in beeld. Een scherm zonder eigen kaarttitel heeft een `.page-title`. Een volledig groen vlak is voorbehouden aan primaire acties, het actieve filter (`.offer-chip`) en de pil van de huidige dag.
 - **Knoppen en velden.** Primair heeft een lichte bovenrand en geeft 1 px indruk bij `:active`; secundair heeft een rand en `--shadow-xs`. Velden krijgen bij focus een rand van 2 px in `--primary` met een halo van `--ring`.
 - **Meldingen.** Een gekleurde balk links (4 px) naast de bestaande kleur en tekst; kleur alleen is nooit de enige aanwijzing.
-- **Prijzen en acties in een lijst.** `.product-card__price` is vet in Manrope; *Bonus* is een pil (`.product-card .bonus`).
+- **Prijzen en acties in een lijst.** `.product-card__price` is vet in Manrope; *Bonus* is een pil (`.product-card .bonus`). Op een aanbiedingskaart is de actie van de winkel ("2 voor 2,99") een vette regel tekst in plaats van een rode pil (`.offer-card .bonus`).
+- **Kortingsbadge** (`offerBadge`, sinds 4.8.0): naar het oordeel, niet naar vijf kleurtrappen. Echt voordelig (`--good`) is vol groen uit `--success-text`, een klein voordeel (`--small`) neutraal, *Geen korting* (`--none`) gedempt met het woord in plaats van "0%", en een claim van de winkel (`--store`) heeft een stippelrand. Geen rood: dat is voor fouten. De randen zijn een `border`, zodat ze ook in een regel van tekst (`--inline`) blijven.
+- **Inzichten** onder de prijs op een aanbiedingskaart (`.offer-insights`): het prijslabel en de chips van het oordeel in één rij, in twee tonen: goed nieuws in de groene statuskleur, de rest neutraal. *Vergelijk verpakkingen* en *Prijsgeschiedenis* zijn twee randloze icoonknoppen rechtsonder.
+- **Chips met een aantal**: de naam en daarachter gedempt het getal (`.offer-chip__count`, "Vlees 412"). Op een telefoon staat een rij categorieën op één regel die opzij scrolt (`.offer-cats--scroll`). Sorteren is een keuzelijst met een zichtbaar label.
+- **Receptkaart** (`recipeCardTitle` en `recipeCardActions` in `app.js`): de titel is een knop die met zijn `::after` de hele kaart beslaat, dus een tik op de kaart opent het recept; de focusring staat om de kaart. Onderaan alleen *Inplannen*, secundair, met de naam van het recept verborgen voor een schermlezer. In de selectiemodus van In bulk importeren selecteert een tik de kaart.
+- **Kerncijfers** (`.stats`, naar App-Guidance): een klein label in hoofdletters boven een vet, tabulair getal, zoals bovenaan het mandje. Uitleg die je niet steeds nodig hebt staat in een `<details class="help">` ("Hoe werkt dit?").
+- **Weeknavigatie**: overal dezelfde pijlen (MDI-chevrons in een `.icon-button`) en `.week-label`; *Deze week* staat er alleen als je een andere week bekijkt.
+- **Segmentbediening** (`.segmented` met `.segmented__item`, sinds 4.9.0): voor een keuze binnen een scherm, zoals de weergave van Aanbiedingen, de weergaven van aankopen en bestellingen en *Recept* of *Notitie* in het plan-venster. Hetzelfde ingedeukte spoor als `.subtabs`, met segmenten van 44 px; actief via `aria-pressed`, `is-active` of een gekozen radio. `.subtabs` is navigatie (links, met `aria-current="page"` op het open tabblad), `.segmented` een keuze; meng ze niet.
+- **Uitleg** (sinds 4.9.0): een scherm of blok begint met één regel die zegt wat het is. De rest staat in een `<details class="help">` met de samenvatting *Hoe werkt dit?* (`common.help`). Waarschuwingen, fouten, wat destructief is en statusregels staan nooit in zo'n blok.
+- **Breekpunten**: drie, 640 px (telefoon), 860 px (menu links) en 1200 px (breed), met 641 en 1199 als tegenhanger, in CSS en in JavaScript. Hangt iets af van de ruimte van een vak in plaats van het scherm (de compacte lijst van Aanbiedingen, de controlelijst, een dagkaart), dan is het een container query.
 - **Beweging.** Korte overgangen van 150-280 ms met `--ease`; het oplichten van kaarten alleen bij `(hover: hover)`; alles uit bij `prefers-reduced-motion`.
 - **Vandaag.** In het weekmenu krijgt de dag van vandaag `.day-card--today` met het label *Vandaag* (`plan.today`).
 
 ## Typografie en bediening
 
 Manrope voor koppen en het woordmerk, Inter voor de interface. Lettertypen worden
-lokaal geladen; de OFL-licenties staan naast de fonts in `static/fonts/`. Basis 16 px,
-ondersteunende tekst 14 px, paginatitels 24-32 px. Compacte metadata mogen kleiner zijn.
-Knoppen zijn semibold en minimaal 44 px hoog. Invoervelden zijn 16 px, zodat iOS niet
-inzoomt bij het focussen. Interface-iconen komen uit
+lokaal geladen; de OFL-licenties staan naast de fonts in `static/fonts/`. Lettergroottes komen uit
+een schaal van acht stappen (sinds 4.9.0, in plaats van 21 losse waarden):
+
+| Token | Grootte | Voor |
+| --- | --- | --- |
+| `--text-xs` | 12 px | labels, badges, kleine meta |
+| `--text-sm` | 13 px | hulptekst, meta, chips |
+| `--text-md` | 14 px | ondersteunende tekst, tabellen |
+| `--text-ui` | 15 px | knoppen, tabs, tekst in kaarten |
+| `--text-base` | 16 px | lopende tekst en invoer |
+| `--text-lg` | 18 px | kop van een blok of venster |
+| `--text-xl` | 20 px | vakkop (`h2`), kerncijfer |
+| `--text-2xl` | 24 px | schermtitel |
+
+Een letterlijke grootte mag alleen voor wat geen lopende tekst is (het label van de menubalk, de maat van een
+teken-icoon, de kolomkoppen van de kassabon, de initialen in de grote avatar) en de `clamp()` van de kookmodus,
+elk met een opmerking; `tests/test_brand.py` houdt dat bij. Knoppen zijn semibold en minimaal 44 px hoog.
+Invoervelden zijn 16 px, zodat iOS niet inzoomt bij het focussen. Interface-iconen komen uit
 [Material Design Icons](https://pictogrammers.com/library/mdi/) (Pictogrammers, Apache 2.0;
 licentie in `static/icons/LICENSE-mdi.txt`). Ze staan als SVG-pad inline in de HTML en nemen de
 tekstkleur over (`fill: currentColor`); de naam van het icoon staat in `data-mdi`. Gebruik voor
@@ -133,13 +156,13 @@ In de geïnstalleerde app (PWA) op een klein scherm (tot 640 px breed) staat het
 zwevende, glazen **onderste menubalk**, zoals een native tabbalk op iOS: vijf items met een
 MDI-icoon en een kort label (`Recepten`, `Aanbod`, `Winkels`, `Boxen` en `Meer` met een hamburger-icoon), een
 groen vlak onder het actieve item en minimaal 56 px hoog. `Meer` opent het menu dat op een groter scherm onder de
-avatar in de kop zit: avatar en naam, een lijn, `Mandje`, `Profiel`, `Instellingen`, `Over`, een lijn en `Uitloggen`,
-elk met een MDI-icoon. `Mandje` staat op een klein scherm (tot 640 px, ook in een gewone browser) alleen in dat menu,
+avatar in de kop zit: avatar en naam, een lijn, `Mandje`, `Profiel`, `Instellingen`, `Over`, een lijn, `Donkere modus`
+(of `Lichte modus`) en de andere taal (`English` of `Nederlands`), een lijn en `Uitloggen`, elk met een MDI-icoon. `Mandje` staat op een klein scherm (tot 640 px, ook in een gewone browser) alleen in dat menu,
 niet in de balk; `Meer` licht op als het mandje, het profiel, de instellingen of `Over` open staat. De balk zweeft 12 px van de randen en
 houdt rekening met de veilige zone (home-indicator) via `env(safe-area-inset-*)`; daarvoor staat
-de viewport op `viewport-fit=cover`. Wisselen van tab brengt je terug naar boven. Op grotere
-schermen, en in een gewone browser, blijven de tabs bovenaan staan, met hetzelfde icoon links van
-de tekst.
+de viewport op `viewport-fit=cover`. Wisselen van tab brengt je terug naar boven. Tussen 641 en
+859 px, en in een gewone browser tot 859 px, staan de tabs bovenaan, met hetzelfde icoon links van de tekst; vanaf 860 px
+staat het menu links.
 
 - **Twee stijlen, één balk** (zoals [`navigation-bar.md`](https://github.com/Flux76HQ/App-Guidance/blob/main/shared/guidelines/navigation-bar.md)
   van Flux76HQ/App-Guidance). `data-nav` op `<html>` kiest het uiterlijk: `ios` is de zwevende
@@ -211,12 +234,17 @@ logo, het manifest en de deelafbeelding veranderen niet.
 - **Kookmodus uit** zet `no-cook-mode` op `<html>` (ook al in het script in de kop); dan verbergt
   `styles.css` bij een recept de balk met Start met koken en de vinkjes bij de ingrediënten.
 
-## Taalkiezer
+## Taal en thema
 
-Twee vlaggetjes (Nederland en Verenigd Koninkrijk) als losse knoppen van minstens 44 px, met de
-taalnaam in de eigen taal als `aria-label` en `aria-pressed` voor de gekozen taal; de gekozen vlag heeft
-een groene ring, de andere is gedimd. De vlaggen zijn inline SVG (geen emoji, want Windows toont daar
-letters) en staan in de kop, op de inlogpagina en in de installatiehulp. Zie het onderdeel Taal in de [handleiding](handleiding.md#taal).
+De kop van de app heeft alleen het logo en de avatar (sinds 4.7.0). Taal en thema staan in het menu onder de avatar
+(op een telefoon onder `Meer`) en bij Instellingen, Voorkeuren: het menu-item zegt wat een tik doet (`Donkere modus`
+of `Lichte modus`, en de andere taal in die taal zelf). De slogan staat alleen op de inlogkaart.
+
+Op de inlogpagina, bij een uitnodiging en in de installatiehulp, waar er nog geen menu is, staat een taalkiezer met de
+knop voor licht en donker ernaast. De taalkiezer is tekst, `NL` en `EN`, geen vlaggen: een vlag staat voor een land,
+niet voor een taal. Twee knoppen van minstens 44 px, met de taalnaam in de eigen taal als `aria-label` en `aria-pressed`
+voor de gekozen taal; de gekozen taal heeft het selectievlak met zijn rand. Zie het onderdeel Taal in de
+[handleiding](handleiding.md#taal).
 
 ## Wat is gecontroleerd
 

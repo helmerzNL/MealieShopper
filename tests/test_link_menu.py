@@ -61,7 +61,7 @@ class LinkPageTest(unittest.TestCase):
             toggle = re.search(rf'<button type="button" class="fold__toggle" id="{prefix}-toggle"[^>]*>', PAGE).group(0)
             self.assertIn(f'aria-controls="{prefix}-body"', toggle, name)
         heading = re.search(r"\.fold--compact \.fold__body h3\s*{(.*?)}", CSS, re.S).group(1)
-        self.assertIn("font-size: 16px", heading, "een tussenkop is kleiner dan de kop van het blok (18 px)")
+        self.assertIn("font-size: var(--text-base)", heading, "een tussenkop is kleiner dan de kop van het blok (18 px)")
         self.assertIn("margin: 0 0 2px", heading)
 
     def test_offers_fold_open_by_default(self):

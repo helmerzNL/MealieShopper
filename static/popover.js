@@ -39,6 +39,31 @@ function popoverPlace(anchorRect, size, viewport) {
   return { left: Math.round(left), top: Math.round(top) };
 }
 
+// De plek van de popup bij een aanbieding (offers.js): rechts van de kaart als daar minstens POPOVER_SIDE_MIN px over is, anders
+// links, en de popup wordt zo breed als de ruimte daar toelaat (hooguit size.width). Past hij aan geen van beide kanten, dan
+// eronder, anders erboven, op volle breedte. Naast de kaart op de hoogte van de kaart, altijd binnen de randen van het scherm.
+const POPOVER_SIDE_MIN = 420;
+
+function offerPopupPlace(anchorRect, size, viewport) {
+  const maxTop = viewport.height - POPOVER_EDGE - size.height;
+  const clampTop = (value) => Math.round(Math.max(POPOVER_EDGE, Math.min(value, maxTop)));
+  const roomRight = viewport.width - POPOVER_EDGE - anchorRect.right - POPOVER_GAP;
+  const roomLeft = anchorRect.left - POPOVER_GAP - POPOVER_EDGE;
+  if (roomRight >= POPOVER_SIDE_MIN || roomLeft >= POPOVER_SIDE_MIN) {
+    const right = roomRight >= POPOVER_SIDE_MIN; // rechts gaat voor: daar kijkt de lezer heen
+    const width = Math.round(Math.min(size.width, right ? roomRight : roomLeft));
+    const left = right ? anchorRect.right + POPOVER_GAP : anchorRect.left - POPOVER_GAP - width;
+    return { left: Math.round(left), top: clampTop(anchorRect.top), width };
+  }
+  const maxLeft = viewport.width - POPOVER_EDGE - size.width;
+  const across = Math.round(Math.max(POPOVER_EDGE, Math.min(anchorRect.left, maxLeft)));
+  const below = anchorRect.bottom + POPOVER_GAP;
+  const above = anchorRect.top - POPOVER_GAP - size.height;
+  if (below <= maxTop) return { left: across, top: Math.round(below), width: size.width };
+  if (above >= POPOVER_EDGE) return { left: across, top: Math.round(above), width: size.width };
+  return { left: across, top: clampTop(below), width: size.width };
+}
+
 // De detailroute van een aankoop: een bestelling bij de winkel van de lijst (AH of Jumbo), een kassabon bij AH (alleen lezen,
 // het opzoeken van producten is een aparte POST), een ingelezen bestelling bij zijn winkel.
 function purchaseDetailUrl(kind, id, store) {

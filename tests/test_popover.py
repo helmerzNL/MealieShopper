@@ -68,6 +68,7 @@ def prelude():
             "const purchaseStatusBadge = (row) => badge('status-' + row.statusKind, row.statusText || row.statusKind);",
             const_source(CATEGORIES, "CATEGORY_ORDER"),
             function_source(CATEGORIES, "categoryLabel"),
+            function_source(CATEGORIES, "chipCount"),
             function_source(CATEGORIES, "categoryChip"),
             function_source(ORDERS, "receiptLinkLine"),
             function_source(ORDERS, "importedLinkLine"),

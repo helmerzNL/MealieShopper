@@ -66,10 +66,11 @@ Een weekmenu plannen in Mealie is fijn, maar daarna begint het overtypen: elk in
 
 - **Weekmenu naar je mandje**: één knop zoekt voor elk ingrediënt uit je weekmenu de beste producten bij Albert Heijn, Picnic, Jumbo of Crisp, rekent de porties en verpakkingen uit en telt hetzelfde ingrediënt uit meerdere recepten op. Je controleert alles eerst in een lijst; pas na je bevestiging gaat het in je mandje, en bestellen doe je zelf.
 - **Het weekmenu plannen**: zet een recept of een notitie op een dag, verplaats of verwijder een maaltijd, of laat Mealie met **Verras me** kiezen. Elke wijziging gaat meteen naar Mealie.
-- **Aanbiedingen en receptvoorstellen**: de aanbiedingen van Albert Heijn (ook je persoonlijke Bonus Box), Picnic, Jumbo en Crisp, per week en elke dag bijgewerkt, met recepten waarvan ingrediënten in de aanbieding zijn.
+- **Aanbiedingen en receptvoorstellen**: de aanbiedingen van Albert Heijn (ook je persoonlijke Bonus Box), Picnic, Jumbo en Crisp, en zonder account ook die van Lidl en Aldi, per week en elke dag bijgewerkt, met recepten waarvan ingrediënten in de aanbieding zijn.
 - **Is het echt een aanbieding?**: bij elke aanbieding de prijs per kilo, liter of stuk en een oordeel tegen de gewone prijs van de laatste 30 dagen. De **Prijsgeschiedenis** toont per product de aanbiedingen, de gewone prijs en wat je zelf betaalde, en **Vergelijk verpakkingen** wijst de goedkoopste verpakking aan. Openbare historische prijzen met onbekende actiestatus staan apart als **Waargenomen prijzen**, met hun bronnen. Ze tellen niet als gewone prijzen. Historische folderprijzen, zoals het archief van Albert Heijn en Jumbo sinds 2009, importeert de beheerder onder **Instellingen, Systeem**.
 - **Recepten zoeken en importeren**: zoek tegelijk in Mealie, bij Albert Heijn, Jumbo, Picnic en Crisp en in de menu's van HelloFresh en Marley Spoon, bekijk een recept en plan het met één klik in, of importeer een recept via een link. Je bewaarde AH-recepten, je Jumbo-receptenlijsten en je favoriete Crisp-recepten zet je ook in één keer in Mealie.
 - **Koken met een recept**: een recept staat in een kookweergave met de ingrediënten naast de genummerde stappen; vink af wat klaar is en zie welke stap nu aan de beurt is. **Start met koken** toont schermvullend één stap tegelijk, en met **Scherm aan laten** gaat je scherm intussen niet uit.
+- **Calorieën en voedingswaarden**: de kcal per persoon en een tabel met eiwit, vet, koolhydraten, suikers, vezels en zout bij een recept en een geplande maaltijd, met het totaal voor de porties die je plant en een dagtotaal per persoon in het weekmenu. Kies bij het inplannen het aantal porties (4 wordt 2) en zoek op een minimum en maximum per persoon (bijvoorbeeld minstens 30 g eiwit, hooguit 1,5 g zout), ook via je AI-assistent; ook je bewaarde AH-recepten tonen hun voedingswaarden.
 - **Je winkels op één plek**: je mandje, lijstjes, bewaarde recepten, favorieten, bestellingen en AH-kassabonnen, in een eigen kopie die je doorzoekt ("wanneer kocht ik voor het laatst koffie?"), ook als de winkel even niet meewerkt. Een product op een bon dat de app niet herkent, koppel je zelf aan een product van de winkel; daarna herkent hij het wel.
 - **AI-assistenten**: een MCP-server, zodat Claude, ChatGPT of Copilot je weekmenu, recepten en lijstjes kan bekijken, een maaltijd kan plannen en een recept in Mealie kan importeren; inloggen met OAuth, met je eigen account.
 - **Voor het hele huishouden**: inloggen met een passkey, of met een wachtwoord en tweestapsverificatie; huisgenoten nodig je uit met een link, en alleen de beheerder koppelt Mealie en de winkels. Iedereen kiest zelf een voorkeurssupermarkt, waarmee Aanbiedingen en Winkels openen.
@@ -84,7 +85,7 @@ Elke functie staat uitgebreid in de [handleiding](docs/handleiding.md).
 |:---:|:---:|
 | <img src="docs/screenshots/nl/plan-add.png" width="440" alt="Maaltijd plannen: de dag, de maaltijd, de keuze tussen Recept en Notitie, je recepten uit Mealie en de knop Verras me"> | <img src="docs/screenshots/nl/cart.png" width="440" alt="Controleer je mandje: per ingrediënt een foto van het product, het product met de prijs per kilo en het aantal verpakkingen; bij spaghetti staat dat 1 kg per kilo goedkoper is, met de knop Kies, en een regel is gemarkeerd"> |
 | **Aanbiedingen** | **Prijsgeschiedenis** |
-| <img src="docs/screenshots/nl/offers.png" width="440" alt="Het tabblad Aanbiedingen: de categorieën en de producten met hun actie, de prijs per kilo of liter, een kortingsbadge in kleur, een prijslabel als Laagste prijs ooit en de links Vergelijk verpakkingen en Prijsgeschiedenis"> | <img src="docs/screenshots/nl/price-history.png" width="440" alt="De Prijsgeschiedenis van rundergehakt: kerngetallen, een grafiek met de aanbiedingen als balken, de gewone prijs als trap en je aankopen als stippen, en de tabel met aanbiedingen"> |
+| <img src="docs/screenshots/nl/offers.png" width="440" alt="Het tabblad Aanbiedingen: de categorieën en de producten met hun actie, de prijs per kilo of liter, een groene kortingsbadge, een label als Laagste in 12 mnd onder de prijs en de knopjes Vergelijk verpakkingen en Prijsgeschiedenis"> | <img src="docs/screenshots/nl/price-history.png" width="440" alt="De Prijsgeschiedenis van rundergehakt: kerngetallen, een grafiek met de aanbiedingen als balken, de gewone prijs als trap en je aankopen als stippen, en de tabel met aanbiedingen"> |
 | **Recepten zoeken** | **Mandje bij Picnic** |
 | <img src="docs/screenshots/nl/search.png" width="440" alt="Recepten zoeken naar kip: bovenaan je eigen recepten in Mealie, als kaarten met tijd, porties en tags"> | <img src="docs/screenshots/nl/basket-picnic.png" width="440" alt="Het Picnic-mandje met plus- en minknoppen, het te betalen bedrag en de bezorgmomenten"> |
 
@@ -167,7 +168,7 @@ Alles is optioneel. `MEALIESHOPPER_TAG` zet je in `.env` naast `docker-compose.y
 | `MEALIESHOPPER_OFFERS_RECIPES` | ❌ | uit | Met `true` toont de app het subtabblad **Recepten** bij Aanbiedingen (receptvoorstellen uit de aanbiedingen). Standaard uit: de koppelingen tussen ingrediënten en producten zijn nog niet goed genoeg. De MCP-tools voor AI-assistenten werken ook als dit uit staat. |
 | `ANTHROPIC_API_KEY`, `OPENAI_API_KEY` | ❌ | - | Een API-sleutel van Claude (Anthropic) en/of ChatGPT (OpenAI) om de koppelingen tussen ingrediënten en aanbiedingen te laten beoordelen (zie *AI: recepten zoeken bij de aanbiedingen* in de [handleiding](docs/handleiding.md#aanbiedingen-1)). Een sleutel die je in de app invult, gaat voor. Zonder sleutel gebeurt er niets met AI. |
 | `ANTHROPIC_BASE_URL`, `OPENAI_BASE_URL` | ❌ | `https://api.anthropic.com`, `https://api.openai.com/v1` | Een ander adres voor de AI-aanvragen, met dezelfde API, zoals bij de officiële SDK's: een proxy als [LiteLLM](https://docs.litellm.ai/), Azure OpenAI of een lokaal model. `ANTHROPIC_BASE_URL` is zonder `/v1`, `OPENAI_BASE_URL` met `/v1`. De sleutel en het model stel je in zoals altijd: voor LiteLLM een sleutel van LiteLLM en de modelnaam uit LiteLLM. |
-| `HTTPS_PROXY`, `HTTP_PROXY`, `ALL_PROXY`, `NO_PROXY`, `REQUESTS_CA_BUNDLE`, `CURL_CA_BUNDLE`, `SSL_CERT_FILE`, `SSL_CERT_DIR` | ❌ | - | Voor een proxy en een eigen certificaat. Al het uitgaande verkeer (de winkels, Mealie, GitHub, de AI-aanbieder, HelloFresh en Marley Spoon) gaat via de proxy uit `HTTPS_PROXY`, `HTTP_PROXY` of `ALL_PROXY`, behalve de hosts in `NO_PROXY` (hostnamen of losse IP-adressen, geen bereik als `192.168.0.0/16`). `REQUESTS_CA_BUNDLE` (of anders `CURL_CA_BUNDLE`) vervangt de ingebouwde lijst met vertrouwde CA's door dat bestand of die map, bijvoorbeeld voor een Mealie met een eigen certificaat. Zet er je eigen CA en de publieke basiscertificaten in, anders vertrouwt de app de winkels en GitHub niet meer. Zonder die twee doen `SSL_CERT_FILE` en `SSL_CERT_DIR` hetzelfde. |
+| `HTTPS_PROXY`, `HTTP_PROXY`, `ALL_PROXY`, `NO_PROXY`, `REQUESTS_CA_BUNDLE`, `CURL_CA_BUNDLE`, `SSL_CERT_FILE`, `SSL_CERT_DIR` | ❌ | - | Voor een proxy en een eigen certificaat. Al het uitgaande verkeer (de winkels, Mealie, GitHub, de AI-aanbieder, HelloFresh, Marley Spoon en data.mealieshopper.nl) gaat via de proxy uit `HTTPS_PROXY`, `HTTP_PROXY` of `ALL_PROXY`, behalve de hosts in `NO_PROXY` (hostnamen of losse IP-adressen, geen bereik als `192.168.0.0/16`). `REQUESTS_CA_BUNDLE` (of anders `CURL_CA_BUNDLE`) vervangt de ingebouwde lijst met vertrouwde CA's door dat bestand of die map, bijvoorbeeld voor een Mealie met een eigen certificaat. Zet er je eigen CA en de publieke basiscertificaten in, anders vertrouwt de app de winkels en GitHub niet meer. Zonder die twee doen `SSL_CERT_FILE` en `SSL_CERT_DIR` hetzelfde. |
 | `MEALIESHOPPER_UPDATE_CHECK` | ❌ | aan | Met `false` zet je de updatecheck uit (Instellingen, Systeem). Standaard kijkt de app op GitHub of er een nieuwere release is en meldt dat aan de beheerder; er gaat geen informatie over jou of de installatie mee. |
 | `MEALIESHOPPER_AUDIT_LOG` | ❌ | aan | Met `false` zet je de auditlog uit (Instellingen, Auditlog). |
 | `MEALIESHOPPER_AUDIT_BODIES` | ❌ | aan | Met `false` bewaart de auditlog alleen wie, wat, wanneer en de uitkomst, niet de verzoeken en antwoorden zelf. |
@@ -223,7 +224,7 @@ Alles staat in de data-map: `/data` in de container, op de host de map die je in
 - **Grenzen:** een back-upbestand mag hoogstens 200 MB zijn (een back-up met jaren aanbiedingen is enkele megabytes, een geïmporteerd prijsarchief maakt er al snel ruim 100 MB van; elke bewaarde afbeelding van een aanbieding die je kocht telt daar ruwweg 50 tot 200 kB bij op). Het scherm uploadt het bestand in stukken van 4 MB, elk een eigen verzoek: een reverse proxy, tunnel of CDN voor MealieShopper (Cloudflare laat op de gratis versie hoogstens 100 MB per verzoek door) hoeft dus geen groot verzoek toe te laten. Een stuk dat mislukt, of waar 30 seconden niets mee gebeurt, gaat vanzelf opnieuw (de server geeft zo'n stuk na 30 seconden stilte ook op, met een regel in het logboek, zodat het de rest van de app niet ophoudt); komt de upload echt niet verder, dan zegt het scherm dat, in plaats van te blijven staan. Het uploaden en downloaden als geheel heeft geen tijdslimiet.
 - **Dit is jouw eigen kopie van wat je invoerde, geen vervanging van een kopie van de hele data-map.** Die blijft de manier om een hele server te bewaren. Het patroon volgt [`backup-restore.md`](https://github.com/Flux76HQ/App-Guidance/blob/main/shared/guidelines/backup-restore.md) van App-Guidance, met twee bewuste afwijkingen: de koppelingen mogen mee, versleuteld met je wachtwoord, en het bestand gaat in stukken naar de server.
 
-**Prijsarchief importeren.** Onder **Instellingen, Systeem, Prijsarchief importeren** voegt de beheerder historische prijzen toe aan de Prijsgeschiedenis, uit de ZIP van een pakket (zoals het folderarchief van AH, Jumbo, Picnic en Crisp) of uit een bestand in het formaat `mealieshopper-price-archive`. Dat vult aan en is geen back-up (alleen met het vinkje *Vervang wat eerder uit een prijsarchief kwam* gaan eerdere archiefregels er eerst uit); de prijzen die erbij komen, gaan daarna wel mee in de back-up. Het formaat en de controles staan in de [handleiding](docs/handleiding.md#prijsarchief-importeren). Andersom geeft **Prijsarchief exporteren** alle aanbiedingen en prijzen als ZIP, met een bestand per winkel en maand, om te delen in bijvoorbeeld een GitHub-repo; je persoonlijke aanbiedingen gaan er nooit in (zie de [handleiding](docs/handleiding.md#prijsarchief-exporteren)).
+**Prijsarchief importeren.** Onder **Instellingen, Systeem, Prijsarchief importeren** voegt de beheerder historische prijzen toe aan de Prijsgeschiedenis, uit de ZIP van een pakket (zoals het folderarchief van AH, Jumbo, Picnic en Crisp, ook de gist voor data.mealieshopper.nl) of uit een bestand in het formaat `mealieshopper-price-archive`, of met **Aanbiedingen ophalen** rechtstreeks van [data.mealieshopper.nl](https://data.mealieshopper.nl). Dat vult aan en is geen back-up (alleen met het vinkje *Vervang wat eerder uit een prijsarchief kwam* gaan eerdere archiefregels er eerst uit); de prijzen die erbij komen, gaan daarna wel mee in de back-up. Het formaat en de controles staan in de [handleiding](docs/handleiding.md#prijsarchief-importeren). Andersom geeft **Prijsarchief exporteren** alle aanbiedingen en prijzen als ZIP, met een bestand per winkel en maand, om te delen in bijvoorbeeld een GitHub-repo, of in de vorm van data.mealieshopper.nl om ze daar in te sturen; je persoonlijke aanbiedingen gaan er nooit in (zie de [handleiding](docs/handleiding.md#prijsarchief-exporteren)).
 
 Alles wissen en opnieuw beginnen kan ook: zie [Fabrieksinstellingen](docs/handleiding.md#fabrieksinstellingen) in de handleiding.
 
@@ -238,6 +239,7 @@ flowchart LR
     B -->|API-token| M[Mealie]
     B -->|onofficiële app-API| S[Albert Heijn, Picnic,<br/>Jumbo en Crisp]
     B -->|openbare menu's| K[HelloFresh en<br/>Marley Spoon]
+    B -->|openbare aanbiedingenpagina| L[Lidl en Aldi]
 ```
 
 | Onderdeel | Doel | Gegevens |
@@ -245,19 +247,22 @@ flowchart LR
 | `mealieshopper` | De container: de Quart-app onder Hypercorn met de interface, de API, de MCP-server en de dagelijkse taak voor de aanbiedingen | `/data` (`auth.sqlite3` en `secret.key`) |
 | Mealie | Je recepten en weekmenu; draait apart en wordt niet meegeleverd | in Mealie zelf |
 | Albert Heijn, Picnic, Jumbo, Crisp | Producten, mandjes, lijstjes, bestellingen en aanbiedingen | wat MealieShopper bewaart, staat in `auth.sqlite3` |
+| Lidl, Aldi | De aanbiedingen van de week (geen webwinkel, dus geen mandje) | wat MealieShopper bewaart, staat in `auth.sqlite3` |
 
-MealieShopper is een onofficieel hulpmiddel en heeft geen band met Mealie, Albert Heijn, Picnic, Jumbo of Crisp.
+MealieShopper is een onofficieel hulpmiddel en heeft geen band met Mealie, Albert Heijn, Picnic, Jumbo, Crisp, Lidl of Aldi.
 
 **Integraties**
 
 | Integratie | Waarvoor |
 |---|---|
 | [Mealie](https://mealie.io) | Je recepten en weekmenu; geïmporteerde recepten en wat je plant komen hier terecht. Via de API met een token. |
-| [Albert Heijn](https://www.ah.nl) | Lijstjes, bewaarde recepten, producten en het winkelmandje, via de **niet-officiële** app-API van AH. AH kan die zonder bericht wijzigen; gebruik het voor persoonlijk gebruik. |
+| [Albert Heijn](https://www.ah.nl) | Lijstjes, bewaarde recepten, de weekplanner (alleen lezen), producten en het winkelmandje, via de **niet-officiële** app-API van AH. AH kan die zonder bericht wijzigen; gebruik het voor persoonlijk gebruik. |
 | [Allerhande](https://www.ah.nl/allerhande) | Recepten zoeken en importeren. |
 | [Jumbo](https://www.jumbo.com) | Producten zoeken en het winkelmandje vullen, via de **niet-officiële** app-API van Jumbo (Auth0 en GraphQL). Jumbo kan die zonder bericht wijzigen of een server weigeren; gebruik het voor persoonlijk gebruik. |
 | [Picnic](https://picnic.app) | Producten zoeken en het winkelmandje vullen, via de **niet-officiële** app-API van Picnic. Picnic kan die zonder bericht wijzigen; gebruik het voor persoonlijk gebruik. |
 | [Crisp](https://crisp.nl) | Producten zoeken, het winkelmandje vullen en aanpassen, recepten, favorieten, bestellingen en aanbiedingen, via de **niet-officiële** app-API van Crisp. Crisp kan die zonder bericht wijzigen; gebruik het voor persoonlijk gebruik. |
+| [Lidl](https://www.lidl.nl) | De aanbiedingen van de week, van de openbare aanbiedingenpagina; geen account. Lidl verkoopt geen boodschappen online, dus er is geen mandje. Lidl kan de pagina zonder bericht wijzigen. |
+| [Aldi](https://www.aldi.nl) | De aanbiedingen van de week, van de openbare aanbiedingenpagina; geen account. Aldi verkoopt geen boodschappen online, dus er is geen mandje. Aldi kan de pagina zonder bericht wijzigen. |
 | [WebAuthn](https://www.w3.org/TR/webauthn-2/) | Inloggen met een passkey. |
 | [TOTP (RFC 6238)](https://www.rfc-editor.org/rfc/rfc6238) | Tweestapsverificatie met een authenticator-app. |
 | [MCP](https://modelcontextprotocol.io) en [OAuth 2.1](https://datatracker.ietf.org/doc/draft-ietf-oauth-v2-1/) | De koppeling met AI-assistenten zoals Claude, ChatGPT en Copilot. |
@@ -329,9 +334,9 @@ Bijdragen zijn welkom. Pull requests gaan naar de branch `beta`, nooit naar `mai
 
 ```bash
 python -m venv .venv
-.venv/bin/pip install -r requirements.txt     # Windows: .\.venv\Scripts\pip
-.venv/bin/python run.py                       # Windows: .\.venv\Scripts\python
-python -m unittest discover -s tests          # alle tests
+.venv/bin/pip install -r requirements.txt -r requirements-dev.txt   # Windows: .\.venv\Scripts\pip
+.venv/bin/python run.py                                            # Windows: .\.venv\Scripts\python
+.venv/bin/python -m pytest                                         # alle tests
 ```
 
 De app luistert op `http://localhost:8000`. Zie [`.env.local.example`](.env.local.example) voor de opties.

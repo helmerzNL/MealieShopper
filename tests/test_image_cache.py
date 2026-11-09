@@ -122,6 +122,17 @@ class HostsAndTokensTest(Case):
         self.assertEqual(
             image_cache.store_for("https://crispapp.nl/blob/abc?thumb=200"), "crisp"
         )
+        self.assertEqual(image_cache.store_for("https://www.lidl.nl/assets/gcp58e1.png"), "lidl")
+        self.assertEqual(image_cache.store_for("https://imgproxy-retcat.assets.schwarz/abc/w:1278/x.jpg"), "lidl")
+        self.assertEqual(
+            image_cache.store_for("https://s7g10.scene7.com/is/image/aldinord/product_1219324?wid=500&hei=500"), "aldi"
+        )
+        for url in (
+            "https://www.lidl.nl/c/aanbiedingen/a10008785",  # de rest van de site van Lidl is geen foto
+            "https://s7g10.scene7.com/is/image/anderbedrijf/x",  # scene7 is het gedeelde CDN van Adobe
+            "https://lidl.nl/assets/x.png",
+        ):
+            self.assertIsNone(image_cache.store_for(url), url)
         for url in (
             "https://evil.example/static.ah.nl/x",
             "https://notjumbo.com/x",

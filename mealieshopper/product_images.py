@@ -250,7 +250,7 @@ async def _fetch_all(store: str, wanted: list[tuple[str, str, str]]) -> tuple[li
 
 
 async def _save_bought(store: str, items: list[dict[str, Any]], now: str) -> int:
-    if store not in offers.STORES:
+    if store not in offers.SHOP_STORES:  # bij Lidl en Aldi koop je niets via MealieShopper
         return 0
     bought = await prices.bought_ids(store, now[:10])
     if not bought:

@@ -113,16 +113,30 @@ class CreateTest(MealPlanTestCase):
         self.assertEqual(answer.status_code, 201)
         self.assertEqual(sent_json(post.calls.last)["entryType"], "snack")
 
+    async def test_plan_with_servings(self):
+        with routes() as api:
+            api.get(ABOUT).mock(return_value=about("v3.30.1"))
+            post = api.post(PLANS).mock(return_value=response(201, {"id": 11}))
+            await self.client.post("/api/mealplan", json={"date": "2026-11-05", "recipeId": RECIPE_ID, "recipeScale": 0.5})
+            await self.client.post("/api/mealplan", json={"date": "2026-11-05", "title": "Uit eten", "recipeScale": 2})
+        self.assertEqual(sent_json(post.calls[0])["recipeScale"], 0.5)
+        self.assertNotIn("recipeScale", sent_json(post.calls[1]), "een notitie heeft geen porties")
+
     async def test_options_follow_the_mealie_version(self):
         with routes() as api:
             about_route = api.get(ABOUT).mock(return_value=about("v3.12.0"))
-            self.assertEqual((await self.client.get("/api/mealplan/options")).get_json()["entryTypes"],
-                             ["breakfast", "lunch", "dinner", "side", "snack", "drink", "dessert"])
+            options = (await self.client.get("/api/mealplan/options")).get_json()
+            self.assertEqual(options["entryTypes"], ["breakfast", "lunch", "dinner", "side", "snack", "drink", "dessert"])
+            self.assertFalse(options["recipeScale"], "porties kiezen kan pas vanaf Mealie 3.29")
         self.assertNotIn("Authorization", about_route.calls.last.request.headers, "de versie vraagt geen token")
         mealie._version_cache.clear()
         with routes() as api:
             api.get(ABOUT).mock(side_effect=httpx.ConnectError("weg"))
-            self.assertEqual((await self.client.get("/api/mealplan/options")).get_json()["entryTypes"], ["breakfast", "lunch", "dinner", "side"])
+            self.assertEqual((await self.client.get("/api/mealplan/options")).get_json(), {"entryTypes": ["breakfast", "lunch", "dinner", "side"], "recipeScale": False})
+        mealie._version_cache.clear()
+        with routes() as api:
+            api.get(ABOUT).mock(return_value=about("v3.29.0"))
+            self.assertTrue((await self.client.get("/api/mealplan/options")).get_json()["recipeScale"])
 
     def test_the_version_is_remembered(self):
         with routes() as api:
@@ -252,7 +266,7 @@ SPAGHETTI = {"quantity": 400, "unit": {"name": "gram", "abbreviation": "g", "use
 class ServingsTest(MealPlanTestCase):
     """Issue #159: de porties uit de planner van Mealie (`recipeScale`, sinds v3.29.0) rekenen de hoeveelheden om."""
 
-    async def week(self, *scales, servings=2):
+    async def week(self, *scales, servings=2, nutrition=None):
         items = []
         for number, scale in enumerate(scales, start=1):
             item = {"id": number, "date": f"2026-11-0{number + 1}", "entryType": "dinner", "recipeId": RECIPE_ID,
@@ -261,6 +275,8 @@ class ServingsTest(MealPlanTestCase):
                 item["recipeScale"] = scale
             items.append(item)
         recipe = {"id": RECIPE_ID, "slug": "pasta", "name": "Pasta", "recipeServings": servings, "recipeIngredient": [dict(SPAGHETTI)]}
+        if nutrition is not None:
+            recipe["nutrition"] = nutrition
 
         with routes() as api, mock.patch.object(mealie, "group_slug", new_callable=mock.AsyncMock, return_value=None):
             api.get(PLANS).mock(return_value=response(body={"items": items}))
@@ -293,6 +309,20 @@ class ServingsTest(MealPlanTestCase):
 
     async def test_odd_servings_are_rounded(self):
         self.assertEqual((await self.week(1 / 3, servings=4))[0]["servings"]["planned"], 1.3)
+
+    async def test_kcal_per_serving_and_for_the_planned_servings(self):
+        # Issue #283: de kcal per portie blijft gelijk, het totaal rekent mee met de porties (4 -> 2 is de helft).
+        double, half = await self.week(2, 0.5, servings=4, nutrition={"calories": "490", "fatContent": "23"})
+        self.assertEqual(double["kcal"], {"perServing": 490, "total": 3920})
+        self.assertEqual(half["kcal"], {"perServing": 490, "total": 980})
+        self.assertEqual(half["nutrition"], [{"key": "calories", "quantity": 490, "unit": "kcal"}, {"key": "fatContent", "quantity": 23, "unit": "g"}])
+        # Alle voedingswaarden ook voor de geplande porties samen (de kolom Totaal in het venster).
+        self.assertEqual(half["nutritionTotal"], [{"key": "calories", "quantity": 980, "unit": "kcal"}, {"key": "fatContent", "quantity": 46, "unit": "g"}])
+        self.assertIsNone((await self.week(1, servings=None, nutrition={"calories": "490"}))[0]["nutritionTotal"], "zonder porties geen totaal")
+        self.assertIsNone((await self.week(1, nutrition={}))[0]["nutritionTotal"])
+        self.assertEqual((await self.week(1, servings=None, nutrition={"calories": "490 kcal"}))[0]["kcal"], {"perServing": 490, "total": None})
+        for nutrition in (None, {}, {"calories": None}, {"calories": "0"}):
+            self.assertIsNone((await self.week(1, nutrition=nutrition))[0]["kcal"], nutrition)
 
 
 class UpdateDeleteTest(MealPlanTestCase):
@@ -332,6 +362,36 @@ class UpdateDeleteTest(MealPlanTestCase):
             await self.client.patch("/api/mealplan/7", json={"recipeId": other})
             await self.client.patch("/api/mealplan/7", json={"title": "Uit eten", "recipeId": None})
         self.assertEqual([sent_json(call)["recipeScale"] for call in put.calls], [1.0, 1.0])
+
+    async def test_choosing_servings_sends_the_scale_also_with_another_recipe(self):
+        # Issue #283: het venster kiest porties; de browser stuurt porties / porties van het recept als `recipeScale`.
+        current = {**self.CURRENT, "recipeScale": 2.0}
+        other = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+        with routes() as api:
+            api.get(ABOUT).mock(return_value=about("v3.29.0"))
+            api.get(f"{PLANS}/7").mock(return_value=response(body=current))
+            put = api.put(f"{PLANS}/7").mock(return_value=response(body=current))
+            await self.client.patch("/api/mealplan/7", json={"recipeScale": 0.5})
+            await self.client.patch("/api/mealplan/7", json={"recipeId": other, "recipeScale": "1,5"})
+            await self.client.patch("/api/mealplan/7", json={"title": "Uit eten", "recipeId": None, "recipeScale": 3})
+        self.assertEqual([sent_json(call)["recipeScale"] for call in put.calls], [0.5, 1.5, 1.0], "een notitie heeft geen porties")
+
+    async def test_odd_servings_or_an_older_mealie_are_refused(self):
+        with routes() as api:
+            api.get(ABOUT).mock(return_value=about("v3.29.0"))
+            put = api.put(f"{PLANS}/7")
+            for bad in (0, -1, "x", True, 21, float("nan")):
+                answer = await self.client.patch("/api/mealplan/7", json={"recipeScale": bad})
+                self.assertEqual(answer.status_code, 400, bad)
+        self.assertFalse(put.called)
+        mealie._version_cache.clear()
+        with routes() as api:
+            api.get(ABOUT).mock(return_value=about("v3.28.1"))
+            post = api.post(PLANS)
+            answer = await self.client.post("/api/mealplan", json={"date": "2026-11-05", "recipeId": RECIPE_ID, "recipeScale": 0.5})
+        self.assertEqual(answer.status_code, 400)
+        self.assertIn("3.29", answer.get_json()["error"])
+        self.assertFalse(post.called)
 
     async def test_an_older_mealie_gets_no_scale_field(self):
         with routes() as api:
@@ -418,6 +478,7 @@ class RecipeSearchTest(MealPlanTestCase):
         self.assertEqual(data["recipes"], [{
             "id": "pasta-pesto", "slug": "pasta-pesto", "recipeId": RECIPE_ID, "name": "Pasta pesto",
             "image": f"/api/mealie/recipes/{RECIPE_ID}/image?v=abc1", "minutes": 75, "portions": 4, "rating": 4, "tags": ["Pasta", "Snel", "Vega"],
+            "kcal": None, "nutrition": [],  # nog niet in de cache van recipe_nutrition.py
         }])
         self.assertEqual(sent_params(get.calls.last), {"page": "1", "perPage": "24", "search": "pasta"}, "Mealie sorteert zoekresultaten zelf")
 
@@ -451,6 +512,18 @@ class RecipeSearchTest(MealPlanTestCase):
         self.assertEqual(data["ingredients"], [{"line": "200 g pasta"}])
         self.assertEqual(data["steps"], ["Kook de pasta.", "Roer de pesto erdoor."])
         self.assertEqual(data["url"], f"{URL}/g/thuis/r/pasta-pesto")
+        self.assertEqual((data["nutrition"], data["kcal"]), ([], None), "geen voedingswaarden in Mealie")
+
+    async def test_detail_has_the_nutrition_per_serving(self):
+        recipe = {"id": RECIPE_ID, "slug": "pasta-pesto", "name": "Pasta pesto", "nutrition": {"calories": "490", "proteinContent": "27", "sodiumContent": "200", "sugarContent": None}}
+        with routes() as api, mock.patch.object(mealie, "group_slug", new_callable=mock.AsyncMock, return_value="thuis"):
+            api.get(f"{URL}/api/recipes/pasta-pesto").mock(return_value=response(body=recipe))
+            data = (await self.client.get("/api/mealie/recipes/pasta-pesto")).get_json()
+        self.assertEqual(data["kcal"], 490)
+        self.assertEqual(data["nutrition"], [
+            {"key": "calories", "quantity": 490, "unit": "kcal"}, {"key": "proteinContent", "quantity": 27, "unit": "g"},
+            {"key": "sodiumContent", "quantity": 200, "unit": "mg"},
+        ])
 
     async def test_detail_keeps_the_sections_of_mealie(self):
         # De kopjes van Mealie gaan mee naar de kookweergave: bij een ingrediënt als `section` (ook als het kopje op een

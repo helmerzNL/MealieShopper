@@ -242,6 +242,7 @@ class DesignTokensTest(AppTestCase):
             "--primary": "#176b45", "--primary-strong": "#105235", "--selection": "#eaf5ee",
             "--lemon": "#f2cf45", "--bg": "#f5f7f6", "--surface": "#ffffff", "--text": "#18251e",
             "--muted": "#59665e", "--border": "#d6dfd9", "--radius-card": "12px", "--radius-control": "8px",
+            "--radius-sm": "4px", "--radius-lg": "16px", "--radius-pill": "999px",
         }
         for name, value in expected.items():
             self.assertEqual(self.tokens[name], value, name)
@@ -251,7 +252,7 @@ class DesignTokensTest(AppTestCase):
         self.assertTrue(self.tokens["--font-heading"].startswith('"manrope"'))
         self.assertEqual(self.tokens["--control-height"], "44px")
         body = re.search(r"body\s*{(.*?)}", self.css, re.S).group(1)
-        self.assertIn("font-size: 16px", body)
+        self.assertIn("font-size: var(--text-base)", body)
         rules = {
             re.sub(r"\s+", "", selector): body
             for selector, body in re.findall(r"([^{}@]+){([^{}]*)}", re.sub(r"/\*.*?\*/", "", self.css, flags=re.S))
@@ -259,7 +260,61 @@ class DesignTokensTest(AppTestCase):
         self.assertIn("font-weight: 600", rules[".tab,.subtab,.button,.icon-button"])
         self.assertIn("min-height: var(--control-height)", rules[".button,.icon-button"])
         self.assertIn("min-height: var(--control-height)", rules[".tab,.subtab"])
-        self.assertIn("font-size: 16px", rules[".input,.textarea"])
+        self.assertIn("font-size: var(--text-base)", rules[".input,.textarea"])
+
+    def test_type_scale_has_eight_steps(self):
+        # Fase 4 (4.9.0): acht stappen in plaats van 21 losse groottes. Lopende tekst en invoer blijven 16 px (iOS zoomt niet in).
+        scale = {"--text-xs": "12px", "--text-sm": "13px", "--text-md": "14px", "--text-ui": "15px", "--text-base": "16px",
+                 "--text-lg": "18px", "--text-xl": "20px", "--text-2xl": "24px"}
+        for name, value in scale.items():
+            self.assertEqual(self.tokens[name], value, name)
+        self.assertEqual(set(re.findall(r"var\((--text-[\w-]+)\)", self.css)) - set(scale), set(), "geen onbekende stap")
+
+    def test_every_font_size_comes_from_the_scale(self):
+        # Een letterlijke grootte alleen voor wat geen lopende tekst is; elke uitzondering heeft een opmerking die zegt waarom.
+        allowed = {
+            ".icon-button": "24px", "html.has-tabbar .tab": "10px", ".receipt__cols": "11px", ".avatar--xl": "32px",
+            ".cook-mode .cook-mode__step-title": "clamp(20px, 1rem + 1vw, 26px)",
+            ".cook-mode .cook-mode__text": "clamp(22px, 1.2rem + 1.5vw, 34px)",
+        }
+        literal = {}
+        for selector, body in re.findall(r"([^{}]+){([^{}]*)}", re.sub(r"/\*.*?\*/", "", self.css, flags=re.S)):
+            for value in re.findall(r"font-size:\s*([^;]+);", body):
+                if not value.startswith("var(--text-"):
+                    literal[" ".join(selector.split())] = value.strip()
+        self.assertEqual(literal, allowed)
+        for selector in allowed:
+            if not selector.startswith(".cook-mode"):
+                rule = re.search(rf"^\s*{re.escape(selector)} {{[^}}]*font-size: {re.escape(allowed[selector])};([^\n]*)", self.css, re.M)
+                self.assertIn("/* ", rule.group(1), f"{selector}: zeg in een opmerking waarom")
+        for script in STATIC.glob("*.js"):
+            self.assertNotIn("font-size", script.read_text(encoding="utf-8"), script.name)
+
+    def test_every_radius_comes_from_a_token(self):
+        # Fase 4 (4.9.0): vijf radius-tokens. Letterlijk blijven alleen een rondje (50%), een reset, en de vormen die een eigen maat
+        # hebben: de menubalk (iOS-capsule en zijn tabs), het streepje van het actieve menu-item, de stapjes van de installatiehulp, de
+        # legenda van de prijsgrafiek en de miniaturen in Weergave.
+        own = {
+            ".ob-progress li:not(:last-child)::after", "html.has-tabbar .tabs", "html.has-tabbar .tab", ".shell > .tabs .tab.is-active::before",
+            ".ohc-key--offer", ".ohc-key--line", ".appearance-sample", ".appearance-sample i", ".appearance-navsample",
+            ".appearance-navsample--ios i", ".appearance-navsample--android i::after",
+        }
+        literal = set()
+        for selector, body in re.findall(r"([^{}]+){([^{}]*)}", re.sub(r"/\*.*?\*/", "", self.css, flags=re.S)):
+            for value in re.findall(r"border(?:-[a-z]+)*-radius:\s*([^;]+);", body):
+                if "var(--radius-" not in value and value.strip() not in ("50%", "0", "inherit"):
+                    literal.add(" ".join(selector.split()))
+        self.assertEqual(literal, own)
+
+    def test_three_breakpoints(self):
+        # Fase 4 (4.9.0): 640 (telefoon), 860 (menu links) en 1200 (breed), met 641 en 1199 als tegenhanger. Wat van de breedte van
+        # een vak afhangt in plaats van het scherm is een container query en valt hierbuiten.
+        widths = set(re.findall(r"@media[^{]*?\((?:min|max)-width: (\d+)px\)", self.css))
+        self.assertEqual(widths, {"640", "641", "860", "1199", "1200"})
+        script = "\n".join(path.read_text(encoding="utf-8") for path in STATIC.glob("*.js"))
+        self.assertEqual(set(re.findall(r"\((?:min|max)-width: \$?\{?(\w+)\}?px\)", script)) - {"minWidth"}, {"860"})
+        self.assertIn("minWidth = 1200", script)
+        self.assertIn("OFFER_POPUP_MIN_SCREEN = 860;", script)
 
     def test_no_leftover_blue_palette(self):
         for old in ("#2563eb", "#1d4ed8", "#e8f0ff", "#1e4fbf", "#f6f7f9", "#162033", "#667085", "#d9dee8",

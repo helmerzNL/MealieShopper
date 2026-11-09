@@ -148,7 +148,8 @@ commentaar boven `store_error` in `mealieshopper/app.py`). Voor Crisp is dat `me
   e-mailadres, dan de code uit de mail. De `client_id` gaat versleuteld in `auth.set_secret`, en het land ook.
 - Routes onder `/api/crisp/` die `cart_preview`, `store_error` en `store_cart` in `app.py` hergebruiken.
 
-Een nieuwe winkel raakt deze plekken. In v2.86.0 en v2.87.0 zijn ze bijgewerkt, behalve de MCP-tools in `mcp.py` (alleen
+Een nieuwe winkel raakt deze plekken (een winkel met alleen aanbiedingen, zoals Lidl en Aldi, raakt er minder: zie
+[onderzoek-supermarkten.md](onderzoek-supermarkten.md#een-winkel-met-alleen-aanbiedingen-in-de-code)). In v2.86.0 en v2.87.0 zijn ze bijgewerkt, behalve de MCP-tools in `mcp.py` (alleen
 de winkelkeuze van de aanbiedingen kent Crisp), `oauth.html` en `onboarding.js`: daar doet Crisp nog niet aan mee. De `.env`-voorbeelden hoefden niet te
 veranderen, want er is geen nieuwe instelling.
 

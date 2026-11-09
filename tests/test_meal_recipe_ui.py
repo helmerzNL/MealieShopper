@@ -70,6 +70,14 @@ class MealRenderTest(unittest.TestCase):
                 function_source("mealLabel"),
                 function_source("escapeHtml"),
                 function_source("mealServings"),
+                # De calorieën (issue #283): de hulpfuncties en de namen van de voedingswaarden.
+                function_source("kcalSpan"),
+                function_source("factsWithKcal"),
+                "const SODIUM_MG_PER_SALT_G = 400;",
+                re.search(r"^const NUTRITION_ROWS = \[.*?^\];$", APP_JS, re.S | re.M).group(0),
+                function_source("nutritionValues"),
+                function_source("nutrientAmount"),
+                function_source("nutritionTable"),
                 'const MDI_CHEF_HAT = "M1"; const MDI_RESTART = "M2"; const MDI_CHECK = "M3";',
                 recipe_view_source(),
                 function_source("mealName"),
@@ -127,6 +135,34 @@ class MealRenderTest(unittest.TestCase):
         html = self.run_js(f"renderMealRecipeBody({json.dumps(entry)})")
         self.assertIn("rsearch.no_ingredients_mealie", html)
         self.assertIn("rsearch.no_steps_mealie", html)
+
+    def test_a_meal_shows_its_kcal_per_serving_in_its_own_span(self):
+        html = self.run_js(f"renderMeal({json.dumps(recipe_entry(kcal={'perServing': 490, 'total': 1960}))})")
+        self.assertIn('<small>plan.servings:4 · plan.ingredients_count:3<span class="kcal kcal--after">kcal.per_serving{&quot;kcal&quot;:&quot;490&quot;}</span></small>', html)
+        self.assertNotIn("kcal", self.run_js(f"renderMeal({json.dumps(recipe_entry(kcal=None))})"))
+        # Zonder andere feiten staat er geen punt voor de kcal (kcal--after zet die erbij, alleen na tekst).
+        alone = self.run_js(f"factsWithKcal(['', null], [['kcal.per_serving', 499.6], ['kcal.total', 0]])")
+        self.assertEqual(alone, '<span class="kcal">kcal.per_serving{&quot;kcal&quot;:&quot;500&quot;}</span>')
+
+    def test_the_window_shows_the_nutrition_per_serving_and_for_the_planned_servings(self):
+        nutrition = [
+            {"key": "calories", "quantity": 490, "unit": "kcal"}, {"key": "fatContent", "quantity": 23, "unit": "g"},
+            {"key": "saturatedFatContent", "quantity": 8, "unit": "g"}, {"key": "sodiumContent", "quantity": 200, "unit": "mg"},
+        ]
+        html = self.run_js(f"renderMealRecipeBody({json.dumps(recipe_entry(nutrition=nutrition))})")
+        rows = re.findall(r'<tr(?: class="([^"]+)")?><th scope="row">(.*?)</th><td>(.*?)</td><td>(.*?)</td></tr>', html)
+        # Per portie en voor de 4 geplande porties; verzadigd vet ingesprongen; zout in gram uit natrium (200 mg = 0,5 g).
+        self.assertEqual(rows, [
+            ("", "nutrition.calories", "490 kcal", "1960 kcal"),
+            ("", "nutrition.fatContent", "23 g", "92 g"),
+            ("nutrition-table__sub", "nutrition.saturatedFatContent", "8 g", "32 g"),
+            ("", "nutrition.salt", "0.5 g", "2 g"),
+        ])
+        self.assertIn("nutrition.total:4", html)
+        self.assertIn('<h4 class="nutrition-facts__title">nutrition.title</h4>', html)
+        single = self.run_js(f"renderMealRecipeBody({json.dumps(recipe_entry(nutrition=nutrition, servings={'planned': 1}))})")
+        self.assertNotIn("nutrition.total", single, "bij één portie geen kolom Totaal")
+        self.assertNotIn("nutrition-facts", self.run_js(f"renderMealRecipeBody({json.dumps(recipe_entry(nutrition=[]))})"))
 
     def test_a_recipe_mealie_could_not_give(self):
         html = self.run_js(f"renderMealRecipeBody({json.dumps(recipe_entry(recipeDetail=None))})")

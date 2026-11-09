@@ -14,7 +14,7 @@ from urllib.parse import parse_qs, urlsplit
 
 os.environ["PASSKEY_AUTH_ENABLED"] = "false"
 
-from mealieshopper import ah, ah_lists, ah_recipes, auth, auth_password, crisp, image_cache, mcp, mealie, oauth, picnic, picnic_recipes  # noqa: E402
+from mealieshopper import ah, ah_lists, ah_recipes, auth, auth_password, crisp, image_cache, mcp, mealie, oauth, picnic, picnic_recipes, recipe_nutrition  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
 from helpers import AppTestCase, db, returned, run  # noqa: E402
 
@@ -578,7 +578,7 @@ class OfferReviewToolsTest(McpTestCase):
         self.assertEqual((await self.data("review_offer_matches", {"store": "ah"}))["total"], 2)
 
     async def test_bad_input_is_a_readable_error(self):
-        for name, args in (("review_offer_matches", {"store": "lidl"}), ("report_offer_mismatch", {"store": "ah", "ingredient": "kipfilet"}),
+        for name, args in (("review_offer_matches", {"store": "nope"}), ("report_offer_mismatch", {"store": "ah", "ingredient": "kipfilet"}),
                            ("report_offer_mismatch", {"store": "ah", "ingredient": "kipfilet", "offer_id": "999"})):
             self.assertTrue((await self.call(self.token, name, args))["isError"], name)
 
@@ -715,7 +715,9 @@ class ToolsTest(McpTestCase):
     async def test_week_menu(self):
         entries = [
             {"id": 5, "date": "2026-10-20", "entryType": "dinner", "recipe": {"name": "Pasta", "slug": "pasta"}, "recipeDetail": {"recipeIngredient": [{"display": "400 g  spaghetti"}, {"note": "peper"}, {}]},
-             "servings": {"scale": 2.0, "base": 2, "planned": 4}},
+             "servings": {"scale": 2.0, "base": 2, "planned": 4}, "kcal": {"perServing": 490, "total": 1960},
+             "nutrition": [{"key": "calories", "quantity": 490, "unit": "kcal"}, {"key": "sodiumContent", "quantity": 200, "unit": "mg"}],
+             "nutritionTotal": [{"key": "calories", "quantity": 1960, "unit": "kcal"}, {"key": "sodiumContent", "quantity": 800, "unit": "mg"}]},
             {"id": 4, "date": "2026-10-19", "entryType": "dinner", "title": "Restjes", "text": "Van  zondag", "recipe": None, "recipeDetail": None},
         ]
         with mock.patch.object(mealie, "get_meal_plan_with_recipes", new_callable=mock.AsyncMock, return_value=entries) as plan, mock.patch.object(mealie, "mealie_url", new_callable=mock.AsyncMock, return_value="https://mealie.example"), \
@@ -728,8 +730,34 @@ class ToolsTest(McpTestCase):
         self.assertEqual(data["meals"][1]["ingredients"], ["400 g spaghetti", "peper"])
         # De porties uit de planner van Mealie (issue #159); een notitie heeft er geen.
         self.assertEqual([m["servings"] for m in data["meals"]], [None, 4])
+        # De calorieën per persoon en voor de porties samen (issue #283).
+        pasta = next(m for m in data["meals"] if m["id"] == 5)
+        self.assertEqual((pasta["kcalPerServing"], pasta["kcalTotal"]), (490, 1960))
+        self.assertEqual((pasta["nutritionPerServing"]["saltG"], pasta["nutritionTotal"]["saltG"], pasta["nutritionTotal"]["kcal"]), (0.5, 2.0, 1960))
+        self.assertIsNone(next(m for m in data["meals"] if m["id"] == 4)["nutritionPerServing"], "een notitie heeft er geen")
+        self.assertEqual(data["days"], [{"date": "2026-10-20", "mealsWithoutNutrition": 0, "perPerson": pasta["nutritionPerServing"]}], "een notitie telt niet mee")
         # Het id is nodig om een maaltijd met remove_planned_meal weg te halen.
         self.assertEqual([(m["id"], m["note"]) for m in data["meals"]], [(4, "Van zondag"), (5, None)])
+
+    async def test_week_menu_has_a_total_per_person_per_day(self):
+        n = lambda **values: [{"key": key, "quantity": amount, "unit": "g"} for key, amount in values.items()]  # noqa: E731
+        entries = [
+            {"id": 1, "date": "2026-10-20", "entryType": "dinner", "recipe": {"name": "Pasta", "slug": "pasta"}, "recipeDetail": {}, "servings": {"planned": 4},
+             "nutrition": n(calories=490, proteinContent=27, sodiumContent=200)},
+            {"id": 2, "date": "2026-10-20", "entryType": "lunch", "recipe": {"name": "Soep", "slug": "soep"}, "recipeDetail": {}, "nutrition": n(calories=300, proteinContent=12)},
+            {"id": 3, "date": "2026-10-20", "entryType": "side", "recipe": {"name": "Brood", "slug": "brood"}, "recipeDetail": {}, "nutrition": []},
+            {"id": 4, "date": "2026-10-20", "entryType": "dessert", "title": "Uit eten", "recipe": None, "recipeDetail": None},
+            {"id": 5, "date": "2026-10-21", "entryType": "dinner", "recipe": {"name": "Curry", "slug": "curry"}, "recipeDetail": {}, "nutrition": n(calories=650)},
+        ]
+        with mock.patch.object(mealie, "get_meal_plan_with_recipes", new_callable=mock.AsyncMock, return_value=entries), \
+                mock.patch.object(mealie, "mealie_url", new_callable=mock.AsyncMock, return_value="https://mealie.example"), \
+                mock.patch.object(mealie, "group_slug", new_callable=mock.AsyncMock, return_value="home"):
+            data = await self.data("get_week_menu", {"start_date": "2026-10-19", "days": 7})
+        first, second = data["days"]
+        # Per persoon: de som per portie (niet maal de porties); een notitie telt niet, een recept zonder waarden wel als ontbrekend.
+        self.assertEqual((first["date"], first["mealsWithoutNutrition"]), ("2026-10-20", 1))
+        self.assertEqual({k: v for k, v in first["perPerson"].items() if v is not None}, {"kcal": 790, "proteinG": 39.0, "saltG": 0.5})
+        self.assertEqual((second["perPerson"]["kcal"], second["mealsWithoutNutrition"]), (650, 0))
 
     async def test_search_mealie_recipes(self):
         found = {"recipes": [{"id": "pasta", "slug": "pasta", "recipeId": "r1", "name": "Pasta", "image": "/api/mealie/recipes/r1/image?v=1",
@@ -738,8 +766,41 @@ class ToolsTest(McpTestCase):
                 mock.patch.object(mealie, "group_slug", new_callable=mock.AsyncMock, return_value="home"):
             data = await self.data("search_mealie_recipes", {"query": "pasta", "limit": 5})
         search.assert_called_once_with("pasta", 1, 5)
-        self.assertEqual(data["recipes"], [{"slug": "pasta", "name": "Pasta", "minutes": 20, "portions": 4, "tags": ["Snel"], "url": "https://mealie.example/g/home/r/pasta"}])
+        self.assertEqual(data["recipes"], [{"slug": "pasta", "name": "Pasta", "minutes": 20, "portions": 4, "kcalPerServing": None, "nutritionPerServing": None, "tags": ["Snel"], "url": "https://mealie.example/g/home/r/pasta"}])
+        self.assertNotIn("withoutKcal", data)
         self.assertTrue((await self.call(self.token, "search_mealie_recipes", {"query": " "}))["isError"])
+
+    async def test_search_mealie_recipes_on_kcal_per_person(self):
+        # Issue #283: een AI vraagt om recepten met hoogstens x kcal per persoon, met of zonder zoekterm.
+        items = [{"key": "calories", "quantity": 490, "unit": "kcal"}, {"key": "proteinContent", "quantity": 32, "unit": "g"}, {"key": "sodiumContent", "quantity": 600, "unit": "mg"}]
+        card = {"id": "pasta", "slug": "pasta", "recipeId": "r1", "name": "Pasta", "image": None, "minutes": 20, "portions": 4, "rating": None, "tags": [], "kcal": 490, "nutrition": items}
+        found = {"recipes": [card], "total": 1, "page": 1, "more": False, "withoutValues": 2, "withoutKcal": 2, "indexing": None}
+        with mock.patch.object(recipe_nutrition, "search", new_callable=mock.AsyncMock, return_value=found) as search, \
+                mock.patch.object(mealie, "search_recipes", new_callable=mock.AsyncMock, side_effect=AssertionError("met een grens zoekt de cache")), \
+                mock.patch.object(mealie, "mealie_url", new_callable=mock.AsyncMock, return_value="https://mealie.example"), \
+                mock.patch.object(mealie, "group_slug", new_callable=mock.AsyncMock, return_value="home"):
+            data = await self.data("search_mealie_recipes", {"kcal_max": 600, "limit": 5})
+            await self.data("search_mealie_recipes", {"query": "pasta", "kcal_min": 700, "kcal_max": 400})
+            await self.data("search_mealie_recipes", {"protein_min": 30, "salt_max": 1.5, "sugar_max": 10})
+            busy = {**found, "indexing": {"done": 12, "total": 80}}
+            search.return_value = busy
+            still = await self.data("search_mealie_recipes", {"kcal_min": 300})
+            bad = await self.call(self.token, "search_mealie_recipes", {"kcal_max": "veel"})
+        self.assertEqual(search.call_args_list[0].args, ("", {"kcal": (None, 600)}, 1, 5))
+        self.assertEqual(search.call_args_list[1].args[:2], ("pasta", {"kcal": (400, 700)}), "omgedraaide grenzen")
+        self.assertEqual(search.call_args_list[2].args[1], {"protein": (30, None), "sugar": (None, 10), "salt": (None, 1.5)})
+        self.assertEqual(search.call_args_list[0].kwargs["wait"], mcp.MCP_KCAL_WAIT)
+        recipe = data["recipes"][0]
+        self.assertEqual((recipe["kcalPerServing"], data["withoutValues"], data["withoutKcal"]), (490, 2, 2))
+        # Zout in gram uit het natrium (600 mg = 1,5 g); een onbekende waarde is null.
+        self.assertEqual(recipe["nutritionPerServing"], {"kcal": 490, "proteinG": 32.0, "fatG": None, "saturatedFatG": None, "carbsG": None, "sugarG": None, "fiberG": None, "saltG": 1.5})
+        self.assertIn("voedingswaarden", data["note"])
+        self.assertIn("12 van 80", still["note"])
+        self.assertTrue(bad["isError"])
+        schema = mcp.TOOLS["search_mealie_recipes"]["inputSchema"]
+        self.assertEqual(set(schema["properties"]) - {"query", "limit"}, {f"{name}_{side}" for name in ("kcal", "protein", "fat", "carbs", "sugar", "fiber", "salt") for side in ("min", "max")})
+        self.assertEqual((schema["properties"]["salt_max"]["type"], schema["properties"]["protein_min"]["type"]), ("number", "integer"))
+        self.assertNotIn("query", schema.get("required", []))
 
     async def test_plan_meal(self):
         created = {"id": 12, "date": "2026-11-03", "entryType": "dinner", "recipe": {"name": "Pasta", "slug": "pasta"}}
@@ -751,6 +812,24 @@ class ToolsTest(McpTestCase):
         self.assertEqual(create.call_args_list[0].args[0], {"date": "2026-11-03", "entryType": "dinner", "title": "", "text": "", "recipeSlug": "pasta"})
         self.assertEqual(create.call_args_list[1].args[0], {"date": "2026-11-04", "entryType": "lunch", "title": "Uit eten", "text": "Bij oma"})
         self.assertEqual(note["id"], 12)
+
+    async def test_plan_meal_with_servings(self):
+        created = {"id": 13, "date": "2026-11-03", "entryType": "dinner", "recipe": {"name": "Pasta", "slug": "pasta"}, "recipeScale": 0.5}
+        with mock.patch.object(mealie, "create_meal_plan_entry", new_callable=mock.AsyncMock, return_value=created) as create, \
+                mock.patch.object(mealie, "get_recipe", new_callable=mock.AsyncMock, return_value={"id": "r1", "slug": "pasta", "recipeServings": 4}), \
+                mock.patch.object(mealie, "mealie_url", new_callable=mock.AsyncMock, return_value="https://mealie.example"), \
+                mock.patch.object(mealie, "group_slug", new_callable=mock.AsyncMock, return_value="home"):
+            data = await self.data("plan_meal", {"date": "2026-11-03", "recipe_slug": "pasta", "servings": 2})
+            note = await self.call(self.token, "plan_meal", {"date": "2026-11-03", "title": "Uit eten", "servings": 2})
+        self.assertEqual(create.call_args.args[0]["recipeScale"], 0.5, "2 van de 4 porties")
+        self.assertEqual(data["servings"], 2)
+        self.assertTrue(note["isError"])
+        with mock.patch.object(mealie, "create_meal_plan_entry", new_callable=mock.AsyncMock) as create, \
+                mock.patch.object(mealie, "get_recipe", new_callable=mock.AsyncMock, return_value={"id": "r1", "slug": "pasta"}):
+            unknown = await self.call(self.token, "plan_meal", {"date": "2026-11-03", "recipe_slug": "pasta", "servings": 2})
+        self.assertTrue(unknown["isError"])
+        self.assertIn("porties", self.text(unknown))
+        create.assert_not_called()
 
     async def test_plan_meal_validates_before_writing(self):
         with mock.patch.object(mealie, "create_meal_plan_entry", new_callable=mock.AsyncMock) as create:
@@ -783,6 +862,14 @@ class ToolsTest(McpTestCase):
         search.assert_called_once_with("pasta pesto", 1)
         self.assertEqual(data["recipes"][0]["url"], "https://www.ah.nl/allerhande/recept/R-R1/pesto")
         self.assertTrue((await self.call(self.token, "search_allerhande_recipes", {"query": "  "}))["isError"])
+
+    async def test_saved_recipes_have_their_nutrition_once_fetched(self):
+        saved = {"recipes": [{"title": "Pasta", "url": "u1", "nutrition": [{"key": "calories", "quantity": 490, "unit": "kcal"}, {"key": "sodiumContent", "quantity": 400, "unit": "mg"}]},
+                             {"title": "Soep", "url": "u2", "nutrition": []}], "total": 2, "syncedAt": "x"}
+        with mock.patch.object(ah_recipes, "get", new_callable=mock.AsyncMock, return_value=saved):
+            recipes = (await self.data("list_saved_ah_recipes"))["recipes"]
+        self.assertEqual((recipes[0]["nutritionPerServing"]["kcal"], recipes[0]["nutritionPerServing"]["saltG"]), (490, 1.0))
+        self.assertIsNone(recipes[1]["nutritionPerServing"])
 
     async def test_saved_recipes_filter_on_all_words(self):
         saved = {"recipes": [{"title": "Pasta pesto", "url": "u1"}, {"title": "Pasta carbonara", "url": "u2"}], "total": 2, "syncedAt": "x"}

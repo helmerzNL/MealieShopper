@@ -12,6 +12,8 @@ const MEALKIT_SEARCH = new Set(["hellofresh", "marleyspoon"]); // zoeken in menu
 const MEALKIT_SEARCH_WEEKS = 4; // deze week en de 3 weken erna
 const recipeSearch = {
   query: "",
+  kcal: "", // de grenzen op de calorieën (kcalMin=..&kcalMax=..), of leeg; met grenzen zoekt alleen Mealie (issue #283)
+  retry: 0,
   mealie: { recipes: [], total: 0, page: 1, more: false },
   ah: { recipes: [], total: 0, page: 0, more: false },
   jumbo: { recipes: [], total: 0, more: false },
@@ -38,37 +40,40 @@ function searchParts(store) {
   };
 }
 
+// De regel onder de naam op een kaart, als HTML: tijd, personen, waardering en labels, met de kcal per persoon erachter.
 function storeRecipeMeta(recipe) {
-  return [
-    recipe.minutes ? t("rsearch.minutes", { count: recipe.minutes }) : "",
-    recipe.portions ? t("rsearch.portions", { count: recipe.portions }) : "",
-    recipe.rating ? `★ ${I18N.formatNumber(recipe.rating)}` : "",
-    ...(recipe.tags || []),
-  ]
-    .filter(Boolean)
-    .join(" · ");
+  const meta = factsWithKcal(
+    [
+      recipe.minutes ? t("rsearch.minutes", { count: recipe.minutes }) : "",
+      recipe.portions ? t("rsearch.portions", { count: recipe.portions }) : "",
+      recipe.rating ? `★ ${I18N.formatNumber(recipe.rating)}` : "",
+      ...(recipe.tags || []),
+    ],
+    [["kcal.per_serving", recipeKcal(recipe)]],
+  );
+  return meta + nutritionBrief(recipe.nutrition, Boolean(meta)); // eiwit, suiker en zout, als de kaart ze heeft
 }
 
 // Inplannen: een recept uit Mealie direct, een recept van een winkel of maaltijdbox eerst in Mealie (of hergebruikt).
 function recipePlanAttrs(store, recipe) {
-  return store === "mealie" ? planButtonAttrs(recipe) : planSourceAttrs(store, recipe.id, recipe.name, recipe.image);
+  return store === "mealie" ? planButtonAttrs(recipe) : planSourceAttrs(store, recipe.id, recipe.name, recipe.image, recipe);
 }
 
 function renderStoreRecipeCard(store, recipe) {
   const meta = storeRecipeMeta(recipe);
   return `
     <article class="recipe-card" data-store-recipe="${store}:${escapeHtml(recipe.id)}">
-      ${recipe.image ? `<img src="${escapeHtml(storeImage(recipe.image))}" alt="${escapeHtml(recipe.name)}" loading="lazy" data-hide-on-error>` : ""}
-      <h3>${escapeHtml(recipe.name)}</h3>
-      ${meta ? `<p class="muted">${escapeHtml(meta)}</p>` : ""}
-      ${recipeCardActions(`${store}:${recipe.id}`, recipePlanAttrs(store, recipe))}
+      ${recipe.image ? `<img src="${escapeHtml(storeImage(recipe.image))}" alt="" loading="lazy" data-hide-on-error>` : ""}
+      ${recipeCardTitle(recipe.name, `${store}:${recipe.id}`)}
+      ${meta ? `<p class="muted">${meta}</p>` : ""}
+      ${recipeCardActions(recipePlanAttrs(store, recipe), recipe.name)}
     </article>`;
 }
 
 function renderSearchStore(store) {
   const data = recipeSearch[store];
   const parts = searchParts(store);
-  parts.section.hidden = !searchStoreActive(store) || !recipeSearch.searched;
+  parts.section.hidden = !searchStoreActive(store) || !recipeSearch.searched || Boolean(recipeSearch.kcal && store !== "mealie");
   parts.results.innerHTML = data.recipes.map((recipe) => (store === "ah" ? renderRecipeCard(recipe) : renderStoreRecipeCard(store, recipe))).join("");
   if (store === "ah") {
     parts.count.textContent = data.recipes.length ? tn("search.count", data.total, { limit: data.total > 2000 ? t("search.limit") : "" }) : "";
@@ -77,7 +82,7 @@ function renderSearchStore(store) {
   }
   if (parts.more) parts.more.hidden = !data.more; // Picnic, Crisp en de maaltijdboxen hebben maar één pagina
   if (recipeSearch.searched && !data.recipes.length && !parts.message.textContent) {
-    message(`#${parts.message.id}`, t("rsearch.none", { query: recipeSearch.query }), "success");
+    message(`#${parts.message.id}`, recipeSearch.kcal ? t("kcal.none") : t("rsearch.none", { query: recipeSearch.query }), "success");
   }
 }
 
@@ -97,15 +102,27 @@ function mealKitSearchCard(recipe) {
 async function fetchSearchStore(store, append) {
   const data = recipeSearch[store];
   const query = recipeSearch.query;
+  const kcal = recipeSearch.kcal;
   const q = encodeURIComponent(query);
   const parts = searchParts(store);
   message(`#${parts.message.id}`, "");
+  let note = "";
   try {
     let found;
     if (store === "mealie") {
       const page = append ? data.page + 1 : 1;
-      const answer = await jsonFetch(`/api/mealie/recipes?q=${q}&page=${page}`);
+      const answer = await jsonFetch(`/api/mealie/recipes?q=${q}&page=${page}${kcal ? `&${kcal}` : ""}`);
       found = { recipes: answer.recipes || [], total: Number(answer.total) || 0, page, more: Boolean(answer.more) };
+      // Met een filter op calorieën: leest de server de recepten nog in, dan zoeken we over twee seconden opnieuw.
+      if (kcal) {
+        note = kcalSearchNote(answer);
+        clearTimeout(recipeSearch.retry);
+        if (answer.indexing && !append) {
+          recipeSearch.retry = setTimeout(() => {
+            if (recipeSearch.query === query && recipeSearch.kcal === kcal) fetchSearchStore("mealie", false);
+          }, 2000);
+        }
+      }
     } else if (store === "ah") {
       const page = append ? data.page + 1 : 0;
       const answer = await jsonFetch(`/api/ah/search?q=${q}&page=${page}`);
@@ -123,7 +140,8 @@ async function fetchSearchStore(store, append) {
       const answer = await jsonFetch(`/api/${store}/recipes?q=${q}`);
       found = { recipes: answer.recipes || [], total: answer.total ?? (answer.recipes || []).length, more: false };
     }
-    if (query !== recipeSearch.query) return; // intussen is er opnieuw gezocht
+    if (query !== recipeSearch.query || kcal !== recipeSearch.kcal) return; // intussen is er opnieuw gezocht
+    if (note) message(`#${parts.message.id}`, note, "success");
     const known = new Set(append ? data.recipes.map((recipe) => String(recipe.id)) : []);
     const fresh = found.recipes.filter((recipe) => !known.has(String(recipe.id)));
     data.recipes = append ? [...data.recipes, ...fresh] : fresh;
@@ -133,7 +151,7 @@ async function fetchSearchStore(store, append) {
     // Jumbo geeft per pagina 24 recepten; een pagina zonder nieuwe recepten of het totaal bereikt: geen "Meer recepten".
     data.more = store === "jumbo" ? Boolean(fresh.length) && data.recipes.length < data.total : found.more && (!["ah", "mealie"].includes(store) || Boolean(fresh.length));
   } catch (error) {
-    if (query !== recipeSearch.query) return;
+    if (query !== recipeSearch.query || kcal !== recipeSearch.kcal) return;
     if (!append) data.recipes = [];
     data.more = false;
     message(`#${parts.message.id}`, error.message);
@@ -144,11 +162,16 @@ async function fetchSearchStore(store, append) {
 async function runRecipeSearch(event) {
   event.preventDefault();
   const query = $("#recipe-query").value.trim();
-  if (!query) return;
+  // Met een grens op de calorieën mag de zoekterm leeg zijn; dan zoekt alleen Mealie (de winkels geven geen kcal in hun lijst).
+  const kcal = nutritionQuery("search");
+  if (!query && !kcal) return;
   recipeSearch.query = query;
+  recipeSearch.kcal = kcal;
   recipeSearch.searched = true;
+  clearTimeout(recipeSearch.retry);
   message("#search-message", "");
-  const active = SEARCH_STORES.filter(searchStoreActive);
+  const active = SEARCH_STORES.filter((store) => searchStoreActive(store) && (!kcal || store === "mealie"));
+  if (kcal && !active.length) message("#search-message", t("kcal.needs_mealie"));
   SEARCH_STORES.forEach((store) => {
     Object.assign(recipeSearch[store], { recipes: [], total: 0, page: store === "mealie" ? 1 : 0, more: false });
     const parts = searchParts(store);
@@ -224,8 +247,8 @@ function renderStoreRecipeDetail(store, recipe, host) {
     recipe.minutes ? t("rsearch.minutes", { count: recipe.minutes }) : "",
     recipe.rating ? `\u2605 ${I18N.formatNumber(recipe.rating)}${recipe.ratingCount ? ` (${I18N.formatNumber(recipe.ratingCount)})` : ""}` : "",
     recipe.author || "",
-  ].filter(Boolean);
-  const nutrition = (recipe.nutrition || []).map((item) => `${item.name} ${I18N.formatNumber(item.quantity)} ${item.unit}`.trim()).join(" \u00b7 ");
+  ];
+  const factsHtml = factsWithKcal(facts, [["kcal.per_serving", recipeKcal(recipe)]]);
   const fromMealie = store === "mealie";
   // Inplannen, Importeer (een recept uit Mealie staat er al) en de link naar de bron: Mealie of de winkel.
   const source = fromMealie ? t("rsearch.in_mealie") : t("rsearch.on_store", { store: RECIPE_SOURCE_NAMES[store] || store });
@@ -245,13 +268,13 @@ function renderStoreRecipeDetail(store, recipe, host) {
   $(`#${prefix}-body`).innerHTML = `
     <div class="picnic-recipe">
       ${recipe.image ? `<img class="picnic-recipe__image" src="${escapeHtml(storeImage(recipe.image))}" alt="" data-hide-on-error>` : ""}
-      ${facts.length ? `<p class="muted">${escapeHtml(facts.join(" \u00b7 "))}</p>` : ""}
+      ${factsHtml ? `<p class="muted">${factsHtml}</p>` : ""}
       ${recipe.description ? `<p>${escapeHtml(recipe.description)}</p>` : ""}
       <div class="recipe-detail__actions">${actions}</div>
       <div id="${prefix}-import-result"></div>
       ${cookView}
       ${recipe.tip ? `<h3>${escapeHtml(t("rsearch.tip"))}</h3><p>${escapeHtml(recipe.tip)}</p>` : ""}
-      ${nutrition ? `<p class="muted">${escapeHtml(t("rsearch.nutrition", { values: nutrition }))}</p>` : ""}
+      ${nutritionTable(recipe.nutrition, { headingLevel: 3 })}
     </div>`;
   if (!fromMealie) $(`#${prefix}-import`).addEventListener("click", (event) => importStoreRecipe(store, recipe.id, event.currentTarget, $(`#${prefix}-import-result`)));
 }

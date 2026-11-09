@@ -35,20 +35,37 @@ from quart.typing import TestAppProtocol, TestClientProtocol, TestHTTPConnection
 from werkzeug.datastructures import FileStorage, Headers
 from werkzeug.wrappers import Response
 
-from mealieshopper import auth, http_client
+from mealieshopper import auth, http_client, tasks
 
 T = TypeVar("T")
+
+
+async def settle_audit(timeout: float = 5.0) -> None:
+    """Wacht tot de auditregels klaar zijn die nog als eigen task worden geschreven.
+
+    Een uitgaand verzoek met een doorverwijzing die httpx niet volgt, logt `audit` in een eigen task (`audit-redirect`): pas
+    na de hooks weet httpx of het de doorverwijzing volgt. Die task schrijft via een thread van aiosqlite naar SQLite. Wie
+    de regel leest, of de loop sluit, moet daar eerst op wachten: anders is er soms nog geen regel, of schrijft de thread
+    nog terwijl de loop dicht is en de tijdelijke data-map wordt opgeruimd ("Event loop is closed", "Directory not empty").
+    Alleen de taken van de auditlog in deze loop; ander achtergrondwerk van een test blijft zoals het was.
+    """
+    loop = asyncio.get_running_loop()
+    pending = [task for name, task in tasks.running().items() if name.startswith("audit-") and not task.done() and task.get_loop() is loop]
+    if pending:
+        await asyncio.wait(pending, timeout=timeout)
 
 
 def run(coro: Coroutine[Any, Any, T]) -> T:
     """Draait een coroutine in een eigen event loop, voor een synchrone test of `setUp`.
 
-    Daarna sluiten de http-clients van die loop (`http_client.aclose_all`), zoals bij elke losse `asyncio.run`."""
+    Daarna worden de auditregels die nog worden geschreven afgewacht (`settle_audit`) en sluiten de http-clients van die
+    loop (`http_client.aclose_all`), zoals bij elke losse `asyncio.run`."""
 
     async def closing_clients() -> T:
         try:
             return await coro
         finally:
+            await settle_audit()
             await http_client.aclose_all()
 
     return asyncio.run(closing_clients())

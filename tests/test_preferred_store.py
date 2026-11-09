@@ -38,12 +38,12 @@ def const_source(source, name):
     return match.group(0)
 
 
-APP_HELPERS = ["preferredSupermarket", "preferredSupermarketKnown", "defaultStoreOf", "linkedStoreKeys", "offersStoreParam"]
+APP_HELPERS = ["preferredSupermarket", "preferredSupermarketKnown", "defaultStoreOf", "linkedStoreKeys", "offersStoreParam",
+               "offersOnlyStore", "storeWithoutLink"]
 
 # Aanbiedingen: wat offersFollowPreferred, offersSwitchStore en routerApplyOffers aanraken, nagebootst. `loads` telt elke
 # keer dat de aanbiedingen laden; `active` zegt of de pagina Aanbiedingen open staat.
 OFFERS_PAGE = r"""
-const OFFERS_STORES = ["ah", "picnic", "jumbo", "crisp"];
 const state = { auth: { preferredStore: "ah" }, linkedStores: { jumbo: false, picnic: false, crisp: false },
   storeStatusKnown: { jumbo: false, picnic: false, crisp: false } };
 const offersState = { store: "ah", category: "x", course: "x", chosen: false, waiting: false };
@@ -53,6 +53,7 @@ const loads = [];
 let active = true;
 let historyChanged = 0;
 function offersTabActive() { return active; }
+function offersHistoryActive() { return false; }
 function showOffers() { loads.push(offersState.store); }
 function offerHistoryStoreChanged() { historyChanged++; }
 function routerSync() {}
@@ -72,6 +73,8 @@ class PreferredStoreTest(unittest.TestCase):
         parts = [
             OFFERS_PAGE,
             const_source(APP_JS, "STORES"),
+            const_source(APP_JS, "OFFER_ONLY_STORES"),
+            const_source(OFFERS_JS, "OFFERS_STORES"),
             *(function_source(APP_JS, name) for name in APP_HELPERS),
             function_source(OFFERS_JS, "offersStores"),
             function_source(OFFERS_JS, "offersFollowPreferred"),
@@ -94,7 +97,7 @@ class PreferredStoreTest(unittest.TestCase):
             state.auth = { preferredStore: "jumbo" }; row();            // status van Jumbo nog niet binnen
             link("jumbo", false); row();                                // binnen: niet gekoppeld
             link("jumbo"); row();                                       // gekoppeld
-            state.auth = { preferredStore: "lidl" }; row();             // onbekend: Albert Heijn
+            state.auth = { preferredStore: "lidl" }; row();             // geen voorkeurssupermarkt (alleen aanbiedingen): Albert Heijn
             state.auth = { preferredStore: "crisp" }; link("crisp"); row();
             console.log(JSON.stringify(rows));
             """
@@ -191,7 +194,7 @@ class PreferredStoreTest(unittest.TestCase):
     def test_offers_wait_for_the_link_of_the_preferred_store_instead_of_showing_albert_heijn_first(self):
         body = function_source(OFFERS_JS, "showOffers")
         self.assertIn("offersState.waiting = !offersState.chosen && !preferredSupermarketKnown();", body)
-        self.assertLess(body.index("if (offersState.waiting) {"), body.index("await jsonFetch"))
+        self.assertLess(body.index("if (offersState.waiting) {"), body.index("await offersRequest"))
         render = function_source(OFFERS_JS, "renderOffersStore")
         self.assertIn("offersFollowPreferred();", render)
         self.assertIn("if (offersState.waiting && preferredSupermarketKnown() && offersTabActive()", render, "daarna alsnog laden")
@@ -203,6 +206,25 @@ class PreferredStoreTest(unittest.TestCase):
     def test_the_old_remembered_offers_store_is_gone(self):
         # Die gold nooit (AH stond er altijd al) en zou de voorkeurssupermarkt overschrijven.
         self.assertNotIn("ms-offers-store", OFFERS_JS)
+
+    def test_lidl_and_aldi_are_offer_stores_without_a_link(self):
+        out = self.run_js(
+            """
+            const before = offersStores();
+            const address = [];
+            routerApplyOffers("", new URLSearchParams("store=lidl"));
+            address.push(result());
+            offersSwitchStore("aldi");
+            address.push(result());
+            console.log(JSON.stringify([before, address, linkedStoreKeys(), storeWithoutLink("lidl"), storeWithoutLink("jumbo")]));
+            """
+        )
+        before, address, linked, lidl, jumbo = out
+        self.assertEqual(before, ["ah", "lidl", "aldi"], "zonder koppelingen: AH, Lidl en Aldi")
+        self.assertEqual((address[0]["store"], address[0]["chosen"], address[0]["pending"]), ("lidl", True, ""), "een adres met Lidl wacht nergens op")
+        self.assertEqual((address[1]["store"], address[1]["loads"]), ("aldi", ["aldi"]))
+        self.assertEqual(linked, ["ah"], "Lidl en Aldi horen niet bij het mandje, Winkels of de voorkeurssupermarkt")
+        self.assertEqual((lidl, jumbo), (True, False))
 
 
 @unittest.skipUnless(shutil.which("node"), "Node is niet geïnstalleerd")
@@ -299,6 +321,7 @@ class PreferencesMarkupTest(unittest.TestCase):
         self.assertIn("JSON.stringify({ preferredStore: store })", body)
         self.assertIn("preferredSupermarketChanged();", body)
         self.assertIn("state.auth = { ...state.auth, preferredStore: previous };", body, "geweigerd: de vorige terug")
+
 
 
 if __name__ == "__main__":

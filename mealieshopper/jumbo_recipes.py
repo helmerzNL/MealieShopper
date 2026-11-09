@@ -11,7 +11,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from . import jumbo
+from . import jumbo, nutrition
 from .ah_lists import _fold
 from .i18n import tr
 
@@ -22,6 +22,8 @@ MAX_ID_LENGTH = 30
 # Een receptnummer is meestal een getal (`504898`), bij recepten van Smulweb en anderen `1416890-7`.
 _RECIPE_ID = re.compile(r"^[0-9A-Za-z_-]{1,%d}$" % MAX_ID_LENGTH)
 _URL_ID = re.compile(r"^https?://(?:www\.)?jumbo\.com/recepten/[^?#/]*?-(\d{1,20}(?:-\d{1,3})?)/?(?:[?#].*)?$", re.I)
+# De naam van een voedingswaarde bij Jumbo -> het veld van schema.org en Mealie (zie nutrition.py). Zout staat er niet bij:
+# dat is geen natrium, het wordt omgerekend (`_SALT`).
 _NUTRITION = {
     "energie": "calories",
     "koolhydraten": "carbohydrateContent",
@@ -29,10 +31,14 @@ _NUTRITION = {
     "eiwit": "proteinContent",
     "vet": "fatContent",
     "verzadigd vet": "saturatedFatContent",
+    "waarvan verzadigd": "saturatedFatContent",
     "vezels": "fiberContent",
+    "voedingsvezel": "fiberContent",
     "suikers": "sugarContent",
-    "zout": "sodiumContent",
+    "waarvan suikers": "sugarContent",
+    "natrium": "sodiumContent",
 }
+_SALT = "zout"
 
 
 def recipe_id_from_url(url: Any) -> str | None:
@@ -97,6 +103,7 @@ def summaries(data: Any) -> list[dict[str, Any]]:
         persons = node.get("numberOfPersons")
         author = node.get("author")
         count = node.get("numberOfIngredients")
+        calories = node.get("calories")  # per portie, zoals "Energie" in het recept zelf; 0 is onbekend
         recipes.append(
             {
                 "id": recipe_id,
@@ -106,6 +113,7 @@ def summaries(data: Any) -> list[dict[str, Any]]:
                 "portions": persons if isinstance(persons, int) and persons > 0 else None,
                 "rating": rating.get("value") if isinstance(rating, dict) and isinstance(rating.get("value"), (int, float)) and rating.get("value") else None,
                 "ingredientCount": count if isinstance(count, int) and count > 0 else None,
+                "kcal": round(calories) if isinstance(calories, (int, float)) and not isinstance(calories, bool) and calories > 0 else None,
                 "course": node.get("course") or None,
                 "author": author.get("name") if isinstance(author, dict) and author.get("name") else None,
                 "url": _site(node.get("link")),
@@ -274,11 +282,7 @@ def parse_recipe(raw: Any, recipe_id: str) -> dict[str, Any]:
                 "product": str(product["title"]) if product and product.get("title") else None,
             }
         )
-    nutrition = [
-        {"name": str(n["name"]), "quantity": n.get("quantity"), "unit": n.get("unit") or ""}
-        for n in raw.get("nutritions") or []
-        if isinstance(n, dict) and n.get("name")
-    ]
+    found = nutrition_values(raw.get("nutritions"))
     author = raw.get("author") if isinstance(raw.get("author"), dict) else {}
     rating = raw.get("rating") if isinstance(raw.get("rating"), dict) else {}
     persons = raw.get("numberOfPersons")
@@ -293,7 +297,7 @@ def parse_recipe(raw: Any, recipe_id: str) -> dict[str, Any]:
         "ingredients": ingredients,
         "steps": [str(step).strip() for step in raw.get("instructions") or [] if str(step).strip()],
         "tip": tip or None,
-        "nutrition": nutrition,
+        "nutrition": nutrition.items(found),
         "course": raw.get("course") or None,
         "dishType": raw.get("dishType") or None,
         "author": author.get("name") or None,
@@ -317,13 +321,26 @@ def source_url(recipe: dict[str, Any]) -> str:
     return recipe.get("url") or f"{jumbo.SITE_URL}/recepten/{recipe['id']}"
 
 
-def _nutrition(items: list[dict[str, Any]]) -> dict[str, str]:
-    data: dict[str, str] = {}
-    for item in items:
-        key = _NUTRITION.get(str(item["name"]).strip().casefold())
-        if key and item.get("quantity") is not None:
-            data[key] = f"{item['quantity']} {item.get('unit') or ''}".strip()
-    return data
+def nutrition_values(raw: Any) -> dict[str, float]:
+    """De voedingswaarden van een Jumbo-recept (`nutritions`: `[{name, quantity, unit}]`, per portie) als getallen in de
+    eenheden van nutrition.py. Zout wordt natrium (1 g zout = 400 mg natrium), tenzij Jumbo natrium zelf ook geeft."""
+    found: dict[str, float] = {}
+    salt: float | None = None
+    for item in raw if isinstance(raw, list) else []:
+        if not isinstance(item, dict):
+            continue
+        name = str(item.get("name") or "").strip().casefold()
+        if name == _SALT:
+            salt = nutrition.sodium_from_salt(item.get("quantity"), item.get("unit") or "g")
+            continue
+        key = _NUTRITION.get(name)
+        if key and key not in found:
+            amount = nutrition.convert(key, item.get("quantity"), item.get("unit"))
+            if amount is not None and not (key == "calories" and amount <= 0):
+                found[key] = amount
+    if salt is not None and "sodiumContent" not in found:
+        found["sodiumContent"] = salt
+    return found
 
 
 def jsonld(recipe: dict[str, Any]) -> dict[str, Any]:
@@ -359,7 +376,7 @@ def jsonld(recipe: dict[str, Any]) -> dict[str, Any]:
         data["author"] = {"@type": "Organization", "name": recipe["author"]}
     if recipe.get("rating") and recipe.get("ratingCount"):
         data["aggregateRating"] = {"@type": "AggregateRating", "ratingValue": recipe["rating"], "ratingCount": recipe["ratingCount"]}
-    nutrition = _nutrition(recipe.get("nutrition") or [])
-    if nutrition:
-        data["nutrition"] = {"@type": "NutritionInformation", **nutrition}
+    found = {item["key"]: item["quantity"] for item in recipe.get("nutrition") or [] if isinstance(item, dict) and item.get("key") in nutrition.UNITS}
+    if block := nutrition.schema(found):
+        data["nutrition"] = block
     return data

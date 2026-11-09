@@ -122,6 +122,18 @@ class ProfileTest(AppTestCase):
         self.assertFalse((await self.client.get("/api/auth/status")).get_json()["cookingMode"], "een weigering verandert niets")
         self.assertTrue((await self.client.put("/api/profile/preferences", json={"cookingMode": True})).get_json()["cookingMode"])
 
+    async def test_calories_are_shown_by_default_and_can_be_hidden(self):
+        # Issue #283: iedere gebruiker kiest zelf of hij de calorieën bij een recept (en het filter erop) ziet.
+        self.assertTrue((await self.client.get("/api/auth/status")).get_json()["showCalories"], "standaard aan")
+        reply = await self.client.put("/api/profile/preferences", json={"showCalories": False})
+        self.assertEqual((reply.status_code, reply.get_json()["showCalories"]), (200, False))
+        await self.client.put("/api/profile/preferences", json={"cookingMode": False})
+        self.assertFalse((await self.client.get("/api/auth/status")).get_json()["showCalories"], "een andere voorkeur laat hem staan")
+        for bad in ({"showCalories": 0}, {"showCalories": "nee"}, {"showCalories": None}):
+            self.assertEqual((await self.client.put("/api/profile/preferences", json=bad)).status_code, 400, bad)
+        self.assertFalse((await self.client.get("/api/profile")).get_json()["showCalories"], "een weigering verandert niets")
+        self.assertTrue((await self.client.put("/api/profile/preferences", json={"showCalories": True})).get_json()["showCalories"])
+
     async def test_preferred_store_is_albert_heijn_until_another_is_chosen(self):
         self.assertEqual((await self.client.get("/api/auth/status")).get_json()["preferredStore"], "ah", "standaard Albert Heijn")
         for store in ("jumbo", "picnic", "crisp", "ah", "jumbo"):
@@ -134,6 +146,36 @@ class ProfileTest(AppTestCase):
             self.assertEqual((await self.client.put("/api/profile/preferences", json=bad)).status_code, 400, bad)
         self.assertEqual((await self.client.get("/api/auth/status")).get_json()["preferredStore"], "jumbo", "een weigering verandert niets")
         self.assertEqual((await self.client.get("/api/profile")).get_json()["preferredStore"], "jumbo")
+
+    async def test_week_planner_servings_are_two_until_another_number_is_chosen(self):
+        # Porties per recept dat de AH-weekplanner van producten maakt (4.10.0): een geheel getal van 1 tot en met 8.
+        self.assertEqual((await self.client.get("/api/auth/status")).get_json()["plannerServings"], 2, "standaard 2")
+        for number in (1, 4, 8):
+            reply = await self.client.put("/api/profile/preferences", json={"plannerServings": number})
+            self.assertEqual((reply.status_code, reply.get_json()["plannerServings"]), (200, number))
+        await self.client.put("/api/profile/preferences", json={"plannerCombine": False})
+        self.assertEqual((await self.client.get("/api/auth/status")).get_json()["plannerServings"], 8, "een andere voorkeur laat hem staan")
+        for bad in ({"plannerServings": 0}, {"plannerServings": 9}, {"plannerServings": "4"}, {"plannerServings": True}, {"plannerServings": None}, {"plannerServings": 2.5}):
+            self.assertEqual((await self.client.put("/api/profile/preferences", json=bad)).status_code, 400, bad)
+        self.assertEqual((await self.client.get("/api/auth/status")).get_json()["plannerServings"], 8, "een weigering verandert niets")
+
+    async def test_week_planner_options_are_on_by_default_and_can_be_switched(self):
+        # De weekplanner van de AH-app (4.3.0): losse producten samen als één menu, en soep en pizza dan toch los.
+        status = (await self.client.get("/api/auth/status")).get_json()
+        self.assertEqual((status["plannerCombine"], status["plannerSplitMeals"]), (True, True), "standaard allebei aan")
+        reply = await self.client.put("/api/profile/preferences", json={"plannerSplitMeals": False})
+        self.assertEqual((reply.status_code, reply.get_json()["plannerCombine"], reply.get_json()["plannerSplitMeals"]), (200, True, False))
+        reply = await self.client.put("/api/profile/preferences", json={"plannerCombine": False})
+        self.assertEqual((reply.get_json()["plannerCombine"], reply.get_json()["plannerSplitMeals"]), (False, False), "de ander blijft staan")
+        await self.client.put("/api/profile/preferences", json={"cookingMode": False})
+        status = (await self.client.get("/api/auth/status")).get_json()
+        self.assertEqual((status["plannerCombine"], status["plannerSplitMeals"]), (False, False), "een andere voorkeur laat ze staan")
+        for bad in ({"plannerCombine": 1}, {"plannerCombine": "ja"}, {"plannerSplitMeals": None}, {"plannerCombine": True, "plannerSplitMeals": 0}):
+            self.assertEqual((await self.client.put("/api/profile/preferences", json=bad)).status_code, 400, bad)
+        status = (await self.client.get("/api/auth/status")).get_json()
+        self.assertEqual((status["plannerCombine"], status["plannerSplitMeals"]), (False, False), "een weigering verandert niets")
+        reply = await self.client.put("/api/profile/preferences", json={"plannerCombine": True, "plannerSplitMeals": True})
+        self.assertEqual((reply.get_json()["plannerCombine"], reply.get_json()["plannerSplitMeals"]), (True, True))
 
     def test_a_bad_stored_value_counts_as_no_choice(self):
         run(profile.set_display_name("owner", "x"))
@@ -160,6 +202,7 @@ class ProfileTest(AppTestCase):
         self.assertEqual((run(profile.get("owner"))["preferOrganic"], run(profile.get("owner"))["displayName"]), (True, "Oud"))
         self.assertEqual((run(profile.get("owner"))["theme"], run(profile.get("owner"))["accent"]), (None, ""), "en de kolommen van de weergave")
         self.assertEqual(run(profile.get("owner"))["preferredStore"], "ah", "en de voorkeurssupermarkt")
+        self.assertEqual((run(profile.get("owner"))["plannerCombine"], run(profile.get("owner"))["plannerSplitMeals"]), (True, True), "en de weekplanner")
         run(profile.set_appearance("owner", accent="#b0213f"))
         self.assertEqual((run(profile.get("owner"))["accent"], run(profile.get("owner"))["darkBackground"]), ("#b0213f", "green"))
 
@@ -229,7 +272,7 @@ class ProfileMarkupTest(AppTestCase):
 
         start = self.html.index('id="user-menu-list"')
         menu = self.html[start:self.html.index("</div>\n\n    <main", start)]
-        self.assertEqual(re.findall(r'data-user-action="(\w+)"', menu), ["basket", "profile", "settings", "about"])
+        self.assertEqual(re.findall(r'data-user-action="(\w+)"', menu), ["basket", "profile", "settings", "about", "theme", "lang"])
         settings = re.search(r'<a[^>]*data-user-action="settings"[^>]*>', menu).group(0)
         self.assertNotIn("data-admin-only", settings, "Instellingen is voor iedereen: een gewone gebruiker ziet daar alleen Weergave")
         profile_item = re.search(r'<a[^>]*data-user-action="profile"[^>]*>', menu).group(0)
@@ -238,24 +281,27 @@ class ProfileMarkupTest(AppTestCase):
         self.assertNotIn("auth-chip", self.html)
 
     def test_menu_order_separators_and_an_icon_per_item(self):
-        # Avatar en naam, een lijn, Mandje (alleen op een klein scherm), Profiel, Instellingen, Over, een lijn, Uitloggen.
+        # Avatar en naam, een lijn, Mandje (alleen op een klein scherm), Profiel, Instellingen, Over, een lijn, thema en taal (sinds
+        # 4.7.0, niet meer in de kop), een lijn, Uitloggen.
         import re
 
         start = self.html.index('id="user-menu-list"')
         menu = self.html[start:self.html.index("</div>\n\n    <main", start)]
         parts = re.findall(r'class="(user-menu__who|user-menu__separator)"|data-user-action="(\w+)"|id="(auth-logout)"', menu)
         self.assertEqual([next(p for p in part if p) for part in parts],
-                         ["user-menu__who", "basket", "profile", "settings", "about", "user-menu__separator", "auth-logout"])
+                         ["user-menu__who", "basket", "profile", "settings", "about", "user-menu__separator", "theme", "lang",
+                          "user-menu__separator", "auth-logout"])
         self.assertIn("border-bottom: 1px solid var(--border)", re.search(r"\.user-menu__who\s*{(.*?)}", self.css, re.S).group(1),
                       "de lijn onder avatar en naam")
         self.assertIn('role="separator"', menu)
         items = re.findall(r'<(?:a|button)[^>]*class="user-menu__item[^"]*".*?</(?:a|button)>', menu, re.S)
-        self.assertEqual(len(items), 5)
+        self.assertEqual(len(items), 7)
         icons = [re.search(r'<svg class="user-menu__icon" viewBox="0 0 24 24" aria-hidden="true" data-mdi="(\w+)"><path d="[^"]+"/></svg>', item)
                  for item in items]
         self.assertTrue(all(icons), "elk item heeft een icoon")
         self.assertEqual([icon.group(1) for icon in icons],
-                         ["mdiCart", "mdiAccountCircleOutline", "mdiCogOutline", "mdiInformationOutline", "mdiLogout"])
+                         ["mdiCart", "mdiAccountCircleOutline", "mdiCogOutline", "mdiInformationOutline", "mdiThemeLightDark",
+                          "mdiTranslate", "mdiLogout"])
         for item in items:
             self.assertNotRegex(item.split(">")[0], r"data-i18n=", "de vertaling staat op de tekst, niet op het item (anders verdwijnt het icoon)")
         basket = re.search(r'<a[^>]*data-user-action="basket"[^>]*>', menu).group(0)
@@ -263,6 +309,23 @@ class ProfileMarkupTest(AppTestCase):
         self.assertIn('href="/cart"', basket)
         icon = re.search(r"\.user-menu__icon\s*{(.*?)}", self.css, re.S).group(1)
         self.assertIn("fill: currentColor", icon)
+
+    def test_menu_switches_theme_and_language(self):
+        # Thema en taal staan sinds 4.7.0 in het menu (en dus ook onder Meer op een telefoon). Echte menu-items, zodat het
+        # ARIA-menu klopt; het label zegt wat een tik doet, en de taal staat in die taal zelf.
+        import re
+
+        start = self.html.index('id="user-menu-list"')
+        menu = self.html[start:self.html.index("</div>\n\n    <main", start)]
+        for action, label in (("theme", 'id="user-menu-theme"'), ("lang", 'id="user-menu-lang" lang="en"')):
+            item = re.search(r'<button type="button" role="menuitem" class="user-menu__item" data-user-action="%s">.*?</button>' % action, menu, re.S)
+            self.assertIsNotNone(item, action)
+            self.assertIn(label, item.group(0))
+        self.assertIn('if (item.dataset.userAction === "theme") THEME.choose(THEME.current() === "dark" ? "light" : "dark");', self.js)
+        self.assertIn('if (item.dataset.userAction === "lang") I18N.setLang(I18N.lang() === "nl" ? "en" : "nl");', self.js)
+        self.assertIn('t(dark ? "theme.light" : "theme.dark")', self.js)
+        self.assertIn('lang.textContent = other === "en" ? "English" : "Nederlands";', self.js)
+        self.assertIn('window.addEventListener("ms:appearancepaint", renderUserMenuSwitches);', self.js)
 
     def test_menu_script_opens_the_basket_and_hides_the_logout_line_with_logout(self):
         self.assertIn('item.dataset.userAction === "basket"', self.js)

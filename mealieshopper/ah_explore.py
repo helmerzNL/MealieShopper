@@ -126,6 +126,25 @@ async def promo_probe(terms: tuple[str, ...], fetch: Callable[[str], Any], is_bo
     return {"gezocht": list(terms), "producten": total, **promo_report(bonus)}
 
 
+_DIGITS = re.compile(r"\d")
+
+
+def nutrition_report(data: Any) -> dict[str, Any]:
+    """De vorm van een voedingstabel van AH: het aantal tabellen, per regel `type`, `name` en de waarde met elk cijfer als 9
+    ("9999 kJ (999 kcal)"), en of `ah.product_nutrition` er energie uit haalt."""
+    product = data.get("product") if isinstance(data, dict) else None
+    trade = product.get("tradeItem") if isinstance(product, dict) else None
+    tables = trade.get("nutritions") if isinstance(trade, dict) else None
+    tables = [table for table in tables if isinstance(table, dict)] if isinstance(tables, list) else []
+    rows = [row for row in (tables[0].get("nutrients") or []) if isinstance(row, dict)] if tables else []
+    read = ah.product_nutrition(rows)
+    return {
+        "tabellen": len(tables),
+        "regels": [{"type": row.get("type"), "name": row.get("name"), "value": _DIGITS.sub("9", str(row.get("value") or ""))} for row in rows],
+        "gelezen": sorted(read) if read else [],
+    }
+
+
 async def _probe(name: str, call: Callable[[], Any], summarize: Callable[[Any], Any] | None = None) -> tuple[dict[str, Any], Any]:
     """Roep `call` aan (synchroon of async, zie `resolved`) en geef het rapport van die route en de uitkomst (None bij een fout)."""
     try:
@@ -160,6 +179,22 @@ async def explore() -> dict[str, Any]:
     async def search(term: str) -> list[dict[str, Any]]:
         found: Any = await _raw_get("/mobile-services/product/search/v2", {"query": term, "page": 0, "size": 25, "sortOn": "RELEVANCE"})
         return (found or {}).get("products") or []
+
+    # De voedingswaarden van een product (4.10.0, de weekplanner van de AH-app): hoe de tabel eruitziet, zodat te zien is of het
+    # lezen in ah.product_nutrition klopt. De cijfers worden 9, de rest blijft (soorten en eenheden zijn geen persoonlijke gegevens).
+    async def nutrition_of_a_product() -> Any:
+        products = await search("melk")
+        product_id = next((item.get("webshopId") for item in products if item.get("webshopId")), None)
+        if not product_id:
+            raise RuntimeError("geen product gevonden om te proberen")
+        return await _anonymous_graphql(ah.PRODUCT_NUTRITION_QUERY, {"id": int(product_id)})
+
+    report, _ = await _probe(
+        "voedingswaarden van een product: GraphQL product.tradeItem.nutritions",
+        nutrition_of_a_product,
+        nutrition_report,
+    )
+    probes.append(report)
 
     report, _ = await _probe(
         "aanbiedingen: GET product/search/v2 (de velden van producten in de bonus)",

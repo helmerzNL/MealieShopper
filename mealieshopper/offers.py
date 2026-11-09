@@ -5,8 +5,9 @@ winkel in een keer, en mislukt het ophalen, dan blijft de vorige kopie staan. Vo
 we een index met de ingrediënten van je recepten (Mealie, Jumbo, Picnic en bewaarde AH-recepten). De voorstellen
 komen daarna uit een lokale vergelijking: geen aanroep naar een winkel of een AI-dienst (de optionele AI-beoordeling in `ai_review.py` draait alleen op een knop).
 
-De aanbiedingen van AH (Bonus), Picnic en Jumbo worden elke dag door `offers_schedule` opgehaald, en op verzoek via
-`sync_all` (de knop onder Instellingen > Koppelen) of per winkel via `sync` (de knop bij Aanbiedingen).
+De aanbiedingen van AH (Bonus), Picnic, Jumbo, Crisp, Lidl en Aldi worden elke dag door `offers_schedule` opgehaald, en op verzoek
+via `sync_all` (de knop onder Instellingen > Koppelen) of per winkel via `sync` (de knop bij Aanbiedingen). Lidl en Aldi hebben geen
+webwinkel: van hen hebben we alleen de aanbiedingen (`OFFER_ONLY_STORES`), zonder account, zoeken of mandje.
 
 Bij AH horen daar ook je persoonlijke aanbiedingen bij, de Bonus Box (zie `ah.get_bonus_box`), zodra je AH-account gekoppeld is. Die staan
 tussen de gewone aanbiedingen met `personal` (en `activated`: of je ze in de AH-app geactiveerd hebt), zodat je erop kunt filteren.
@@ -24,7 +25,7 @@ from typing import Any, Callable, Iterable, TypeVar
 
 import aiosqlite
 
-from . import about, ah, ah_lists, deals, offer_categories, offer_courses, offer_translate, ah_recipes, auth, crisp, jumbo, jumbo_recipes, mealie, mealie_images, picnic, picnic_recipes
+from . import about, ah, ah_lists, aldi, deals, lidl, offer_categories, offer_courses, offer_translate, ah_recipes, auth, crisp, jumbo, jumbo_recipes, mealie, mealie_images, picnic, picnic_recipes
 from .i18n import tr
 
 # Winkels waarvan we aanbiedingen kunnen ophalen, met de functie die dat doet.
@@ -33,8 +34,16 @@ FETCHERS: dict[str, Callable[[], Awaitable[list[dict[str, Any]]]]] = {
     "picnic": picnic.get_offers,
     "jumbo": jumbo.get_offers,
     "crisp": crisp.get_offers,
+    "lidl": lidl.get_offers,
+    "aldi": aldi.get_offers,
 }
-STORES = ("ah", "picnic", "jumbo", "crisp")
+# Winkels met een webwinkel of app: daar kunnen we zoeken, het mandje vullen en bestellingen lezen.
+SHOP_STORES = ("ah", "picnic", "jumbo", "crisp")
+# Winkels zonder webwinkel: alleen de aanbiedingen van hun openbare aanbiedingenpagina, zonder account (zie docs/onderzoek-lidl.md
+# en docs/onderzoek-supermarkten.md). Wat bij de winkel zoekt of een bestelling importeert, kent ze niet (`SHOP_STORES`).
+OFFER_ONLY_STORES = ("lidl", "aldi")
+STORES = SHOP_STORES + OFFER_ONLY_STORES
+STORE_NAMES = {"ah": "Albert Heijn", "picnic": "Picnic", "jumbo": "Jumbo", "crisp": "Crisp", "lidl": "Lidl", "aldi": "Aldi"}
 # Winkels met persoonlijke aanbiedingen (AH: de Bonus Box), met de functie die ze ophaalt. Die vraagt een koppeling, en een fout laat de
 # gewone aanbiedingen staan: dan blijven de persoonlijke van de vorige keer staan en meldt `load` de fout.
 PERSONAL_FETCHERS: dict[str, Callable[[], Awaitable[list[dict[str, Any]]]]] = {
@@ -43,7 +52,7 @@ PERSONAL_FETCHERS: dict[str, Callable[[], Awaitable[list[dict[str, Any]]]]] = {
 
 
 async def linked(store: str) -> bool:
-    """Of we bij deze winkel kunnen vragen: AH Bonus werkt zonder inlog, Picnic, Jumbo en Crisp vragen een koppeling."""
+    """Of we bij deze winkel kunnen vragen: AH Bonus, Lidl en Aldi werken zonder inlog, Picnic, Jumbo en Crisp vragen een koppeling."""
     if store == "picnic":
         return bool(await picnic.configured_auth_key())
     if store == "jumbo":
@@ -322,7 +331,8 @@ def _now() -> str:
 def _valid_store(store: Any) -> str:
     store = str(store or "").strip().lower()
     if store not in STORES:
-        raise ValueError(tr("Onbekende winkel (kies ah, picnic, jumbo of crisp)", "Unknown store (choose ah, picnic, jumbo or crisp)"))
+        choices = ", ".join(STORES[:-1])
+        raise ValueError(tr(f"Onbekende winkel (kies {choices} of {STORES[-1]})", f"Unknown store (choose {choices} or {STORES[-1]})"))
     return store
 
 
@@ -347,7 +357,7 @@ async def signature(store: Any, week: Any = None) -> str:
         meta = await auth.fetchone(conn, "SELECT synced_at FROM offers_meta WHERE store = ?", (store,))
     # Een nieuwe of verbroken koppeling verandert wat er over de persoonlijke aanbiedingen (de Bonus Box) bij de lijst staat.
     personal = "personal" if await personal_linked(store) else ""
-    return "|".join((store, meta["synced_at"] if meta else "", date.today().isoformat(), monday, personal, about.version()))
+    return "|".join((store, meta["synced_at"] if meta else "", date.today().isoformat(), monday, personal, about.version(), await about.build_commit()))
 
 
 def _for_week(offers: list[dict[str, Any]], week: Any) -> tuple[list[dict[str, Any]], dict[str, Any]]:
@@ -717,11 +727,40 @@ async def history_of(store: Any, product_ids: Iterable[Any]) -> dict[str, dict[s
     async with _connect() as conn:
         for start in range(0, len(ids), 500):
             chunk = ids[start:start + 500]
+            marks = ",".join("?" * len(chunk))
             rows += await conn.execute_fetchall(
-                f"SELECT * FROM offer_history WHERE store = ? AND product_id IN ({','.join('?' * len(chunk))}) ORDER BY product_id, first_seen, id",
+                f"SELECT * FROM offer_history WHERE store = ? AND product_id IN ({marks}) ORDER BY product_id, first_seen, id",
                 (store, *chunk),
             )
+            rows += _not_yet_recorded(await conn.execute_fetchall(
+                f"""SELECT * FROM offers WHERE store = ? AND product_id IN ({marks}) AND product_id NOT IN
+                    (SELECT product_id FROM offer_history WHERE store = ? AND ended_at IS NULL) ORDER BY personal""",
+                (store, *chunk, store),
+            ))
+    rows.sort(key=lambda row: (row["product_id"], row["first_seen"]))
     return {product["productId"]: product for product in _history_products(rows).values()}
+
+
+def _not_yet_recorded(rows: Iterable[Any]) -> list[dict[str, Any]]:
+    """Aanbiedingen uit de lokale kopie die vandaag gelden maar nog geen open periode in `offer_history` hebben, als rij van
+    `offer_history`. De nieuwe bonusweek begint om middernacht, en de synchronisatie die hem vastlegt (`_started`,
+    `_record_history`) komt pas 's nachts. Tot dan telt de aanbieding zo al mee in de prijsgeschiedenis, met dezelfde keuze als
+    `_started`: elk product een keer, de gewone bonus voor de Bonus Box (`rows` gesorteerd op `personal`). De synchronisatie maakt
+    er daarna een echte rij van, en dan valt deze weg."""
+    today = date.today()
+    now = _now()
+    found: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        start = deals.parse_date(row["valid_from"])
+        end = deals.parse_date(row["valid_until"])
+        if (start is not None and start > today) or (end is not None and end < today) or row["product_id"] in found:
+            continue
+        found[row["product_id"]] = {
+            **{key: row[key] for key in row.keys()},  # noqa: SIM118 - sqlite3.Row: `in row` zoekt in de waarden
+            "first_seen": f"{start.isoformat()}T00:00:00+00:00" if start else now, "last_seen": now, "ended_at": None,
+            "syncs": 0, "continued": 0,
+        }
+    return list(found.values())
 
 
 def _history_products(rows: Iterable[Any]) -> dict[tuple[str, str], dict[str, Any]]:
@@ -1567,6 +1606,7 @@ async def _collect_ah() -> list[dict[str, Any]]:
                 fetched += 1
                 try:
                     jsonld = await ah.get_recipe_jsonld(int(recipe_id))
+                    await ah_recipes.remember_nutrition(recipe_id, jsonld.get("nutrition") or {})  # de kaart bij Winkels
                     lines = jsonld.get("recipeIngredient") or lines or []
                     course = offer_courses.course_of(jsonld.get("recipeCategory"))
                 except Exception:  # noqa: BLE001

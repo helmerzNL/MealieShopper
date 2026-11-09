@@ -557,17 +557,20 @@ function renderPicnicBasket(cart, note = "") {
         </li>`;
     })
     .join("");
-  const totals = [
-    cart.checkoutTotal ? t("picnic.basket_checkout", { amount: formatPrice(cart.checkoutTotal) }) : cart.totalPrice ? t("picnic.basket_total", { amount: formatPrice(cart.totalPrice) }) : "",
-    cart.savings ? t("picnic.basket_savings", { amount: formatPrice(cart.savings) }) : "",
-  ].filter(Boolean);
+  const stats = items.length
+    ? basketStats([
+        cart.checkoutTotal ? [t("basket.stat.to_pay"), formatPrice(cart.checkoutTotal)] : [t("basket.stat.total"), cart.totalPrice ? formatPrice(cart.totalPrice) : ""],
+        [t("basket.stat.products"), cart.totalCount ? I18N.formatNumber(cart.totalCount) : ""],
+        [t("basket.stat.savings"), cart.savings ? formatPrice(cart.savings) : ""],
+      ])
+    : "";
   const unavailableCount = items.filter((item) => item.available === false).length;
   box.innerHTML = `
+    ${stats}
     ${items.length ? `<div class="toolbar"><button class="button button--secondary" id="picnic-basket-clear" type="button">${escapeHtml(t("picnic.basket_clear"))}</button></div>` : ""}
     ${note ? `<div class="message success">${escapeHtml(note)}</div>` : ""}
     ${unavailableCount ? `<div class="message error">${escapeHtml(t("picnic.basket_unavailable_note", { count: unavailableCount }))}</div>` : ""}
     ${items.length ? `<ul class="basket-lines">${lines}</ul>` : `<p class="muted">${escapeHtml(t("picnic.basket_empty"))}</p>`}
-    ${totals.length ? `<p><strong>${escapeHtml(totals.join(" \u00b7 "))}</strong></p>` : ""}
     <p class="muted">${escapeHtml(t("picnic.basket_hint"))}</p>
     ${picnicSlotsHtml()}`;
   $("#picnic-basket-clear")?.addEventListener("click", () => clearPicnicBasket(items));

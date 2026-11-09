@@ -27,12 +27,12 @@ class StoreSubtabsTest(unittest.TestCase):
     """De subtabs onder Winkels staan bij elke winkel in dezelfde volgorde: eerst de recepten."""
 
     ORDER = [
-        "ah-items-recepten", "ah-items-jumbo-recepten", "ah-items-lijstjes", "ah-items-bestellingen",
+        "ah-items-recepten", "ah-items-weekplanner", "ah-items-jumbo-recepten", "ah-items-lijstjes", "ah-items-bestellingen",
         "ah-items-picnic", "ah-items-picnic-favorieten", "ah-items-picnic-bestellingen",
         "ah-items-crisp-recepten", "ah-items-crisp-favorieten", "ah-items-crisp-bestellingen",
     ]
     STORES = {
-        "ah": ["ah-items-recepten", "ah-items-lijstjes", "ah-items-bestellingen"],
+        "ah": ["ah-items-recepten", "ah-items-weekplanner", "ah-items-lijstjes", "ah-items-bestellingen"],
         "jumbo": ["ah-items-jumbo-recepten", "ah-items-lijstjes", "ah-items-bestellingen"],
         "picnic": ["ah-items-picnic", "ah-items-picnic-favorieten", "ah-items-picnic-bestellingen"],
         "crisp": ["ah-items-crisp-recepten", "ah-items-crisp-favorieten", "ah-items-crisp-bestellingen"],
@@ -45,10 +45,11 @@ class StoreSubtabsTest(unittest.TestCase):
     def test_the_buttons_are_in_the_order_recipes_first(self):
         self.assertEqual(self.nav(), self.ORDER)
 
-    def test_each_store_shows_its_three_subtabs_in_the_wanted_order(self):
+    def test_each_store_shows_its_subtabs_in_the_wanted_order(self):
         script = (ROOT / "static" / "app.js").read_text(encoding="utf-8")
         # De winkelkeuze verbergt per winkel wat er niet bij hoort; wat overblijft staat in de volgorde van de knoppen.
         self.assertIn('hide("ah-items-recepten", state.itemsStore !== "ah");', script)
+        self.assertIn('hide("ah-items-weekplanner", state.itemsStore !== "ah");', script)
         # Picnic en Crisp hebben eigen bestellingen: de lijstjes en bestellingen van AH en Jumbo verdwijnen daar.
         self.assertIn("const ownTabs = picnic || crisp;", script)
         self.assertIn('hide("ah-items-lijstjes", ownTabs);', script)
@@ -77,6 +78,46 @@ class StoreSubtabsTest(unittest.TestCase):
         self.assertLess(body.index("?.click();"), body.index("renderItemsStore();"), "eerst de tab, dan de balk")
         self.assertNotIn("PICNIC_SUBTABS", body)
         self.assertNotIn("loadAhFavoriteLists", body)
+
+
+class WeekPlannerMarkupTest(unittest.TestCase):
+    """Winkels > Albert Heijn > Weekplanner: de weekplanner van de AH-app, met Naar weekmenu (ah_planner.js)."""
+
+    def test_the_planner_has_its_own_address_tab_and_panel(self):
+        script = (ROOT / "static" / "app.js").read_text(encoding="utf-8")
+        self.assertIn('ah: { recipes: "ah-items-recepten", planner: "ah-items-weekplanner",', script)
+        self.assertIn('data-subtab="ah-items-weekplanner" data-i18n="ah.tab.planner" href="/stores/ah/planner" data-nav>Weekplanner</a>', HTML)
+        panel = HTML[HTML.index('id="ah-items-weekplanner"'):HTML.index('id="ah-items-lijstjes"')]
+        for element in ('id="load-ah-planner"', 'id="ah-planner-to-meal-plan"', 'id="ah-planner-days"', 'id="ah-planner-recipe-view"', 'id="ah-planner-recipe-back"'):
+            self.assertIn(element, panel)
+        # Pas laden als de tab opengaat, en het script laadt na recipe_search.js (openStoreRecipe, showRecipeList).
+        self.assertIn('if (subtab.dataset.subtab === "ah-items-weekplanner" && typeof showAhPlanner === "function") showAhPlanner();', script)
+        self.assertLess(HTML.index("filename='recipe_search.js'"), HTML.index("filename='ah_planner.js'"))
+
+    def test_recipes_and_products_go_to_the_week_menu_one_day_at_a_time(self):
+        planner = (ROOT / "static" / "ah_planner.js").read_text(encoding="utf-8")
+        self.assertIn('day.items.filter((item) => item.kind === "recipe")', planner)
+        self.assertIn('day.items.filter((item) => item.kind === "product")', planner)
+        self.assertIn('"/api/ah/planner/to-meal-plan"', planner)
+        # Een dag per verzoek, met de keuzes van de gebruiker, en daarna het weekmenu vernieuwen.
+        self.assertIn("for (const [index, day] of days.entries())", planner)
+        self.assertIn("body: JSON.stringify(day)", planner)
+        self.assertIn("...options,", planner)
+        self.assertIn("refreshMealPlanAfterChange(", planner)
+
+    def test_the_choices_for_loose_products_live_in_the_preferences(self):
+        # Samen als één menu, en soep en pizza dan toch los (4.3.0) staan sinds 4.3.1 bij Instellingen, Voorkeuren, Supermarkt
+        # (test_appearance.py); het paneel leest ze alleen en wijst ernaar.
+        panel = HTML[HTML.index('id="ah-items-weekplanner"'):HTML.index('id="ah-items-lijstjes"')]
+        self.assertNotIn("ah-planner-combine", panel)
+        self.assertNotIn("ah-planner-split-meals", panel)
+        self.assertIn('<a href="/settings/preferences" data-route data-i18n="ah.planner.settings_link">', panel)
+        planner = (ROOT / "static" / "ah_planner.js").read_text(encoding="utf-8")
+        self.assertIn("combine: state.auth?.plannerCombine !== false,", planner)
+        self.assertIn("splitMeals: state.auth?.plannerSplitMeals !== false,", planner)
+        self.assertNotIn('"/api/profile/preferences"', planner, "bewaren doet appearance.js")
+        # Porties per recept (4.10.0) gaan mee naar de server, standaard 2.
+        self.assertIn("servings: Number.isInteger(servings) && servings >= 1 && servings <= 8 ? servings : 2,", planner)
 
 
 class OverviewMarkupTest(unittest.TestCase):

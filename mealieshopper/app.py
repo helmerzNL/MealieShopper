@@ -12,11 +12,13 @@ import sqlite3
 import httpx
 from quart import Quart, Response, jsonify, redirect, render_template, request, send_file, send_from_directory
 
-from . import about, ah, ah_explore, ah_lists, ah_orders, ah_recipes, ai_match, ai_review, audit, auth_password, backup, crisp, crisp_orders, factory_reset, hellofresh, image_cache, jumbo, jumbo_explore, jumbo_lists, jumbo_orders, jumbo_recipes, marleyspoon, mcp_http, mealie, mealie_images, offers, offers_schedule, onboarding, picnic, picnic_explore, picnic_orders, picnic_recipes, price_archive, price_import, prices, product_images, product_links, profile, recipe_bulk, server_settings, updates, users
+from . import about, ah, ah_explore, ah_lists, ah_orders, ah_planner, ah_recipes, ai_match, ai_review, audit, auth_password, backup, crisp, crisp_orders, factory_reset, hellofresh, image_cache, jumbo, jumbo_explore, jumbo_lists, jumbo_orders, jumbo_recipes, marleyspoon, mcp_http, mealie, mealie_images, offers, offers_schedule, onboarding, picnic, picnic_explore, picnic_orders, picnic_recipes, price_archive, price_import, prices, product_images, product_links, profile, recipe_bulk, recipe_nutrition, server_settings, updates, users
 from . import auth, deals, http_client, tasks
+from . import assets
 from .body_limits import DEFAULT_MAX_BODY, SizedRequest
 from .forwarded import ForwardedHeaders
 from .keep_running import FinishAfterDisconnect
+from .response_cache import ResponseCache
 from .i18n import tr
 
 
@@ -89,7 +91,8 @@ def _ah_proxy_cookie(headers: Iterable[str]) -> str | None:
 
 def create_app() -> Quart:
     app = Quart(__name__, template_folder="../templates", static_folder="../static")
-    app.config["ASSET_VERSION"] = environ.get("MEALIESHOPPER_ASSET_VERSION", "20261107-2")
+    # De versie van de statische bestanden: uit hun inhoud (assets.py), tenzij MEALIESHOPPER_ASSET_VERSION hem vastzet.
+    app.config["ASSET_VERSION"] = environ.get("MEALIESHOPPER_ASSET_VERSION") or assets.asset_version(Path(app.static_folder or "static"))
     # Quart bewaart statische bestanden standaard 12 uur in de browser (Flask niet). Met 0 vraagt de browser elke keer na of het
     # bestand veranderd is (ETag, 304), zoals voorheen. None helpt niet: dan valt de browser terug op zijn eigen schatting.
     app.config["SEND_FILE_MAX_AGE_DEFAULT"] = 0
@@ -144,6 +147,7 @@ def create_app() -> Quart:
         # De dagelijkse aanbiedingen-run hoort niet in de tests: die maken de app vaak aan.
         if not environ.get("MEALIESHOPPER_TESTING"):
             offers_schedule.start()
+            tasks.spawn("warm-catalogues", prices.warm_catalogues())  # de eerste /api/offers na een start wacht niet op de catalogus
 
     # Fouten van externe diensten (AH, Mealie) geven we terug als 424 in
     # plaats van 502: reverse proxies (Cloudflare, SWAG, NPM) vervangen een 502
@@ -199,7 +203,8 @@ def create_app() -> Quart:
 
     @app.get("/healthz")
     async def healthz():
-        return jsonify({"ok": True})
+        # assetVersion: een tabblad dat al open stond, vergelijkt hem met zijn eigen versie (router.js, routerStale).
+        return jsonify({"ok": True, "assetVersion": app.config["ASSET_VERSION"]})
 
     @app.get("/api/about")
     async def about_info():
@@ -247,8 +252,9 @@ def create_app() -> Quart:
 
     @app.get("/api/mealplan/options")
     async def mealplan_options():
-        async def options() -> dict[str, list[str]]:
-            return {"entryTypes": await mealie.entry_types()}
+        async def options() -> dict[str, Any]:
+            # `recipeScale`: of het venster het aantal porties mag laten kiezen (Mealie 3.29 of nieuwer).
+            return {"entryTypes": await mealie.entry_types(), "recipeScale": await mealie.supports_recipe_scale()}
 
         return await mealie_action(options, tr("Mealie niet bereikbaar", "Mealie is not reachable"))
 
@@ -273,10 +279,34 @@ def create_app() -> Quart:
 
     @app.get("/api/mealie/recipes")
     async def mealie_recipes_search():
-        return await mealie_action(
-            lambda: mealie.search_recipes(request.args.get("q"), request.args.get("page") or 1),
-            tr("Zoeken in Mealie mislukt", "Searching Mealie failed"),
-        )
+        async def found() -> dict[str, Any]:
+            # Met een grens op een voedingswaarde (kcalMin, proteinMax, saltMax ..., zie nutrition.FILTERS) zoekt de cache van
+            # recipe_nutrition.py, anders Mealie zelf.
+            limits = recipe_nutrition.bounds(request.args)
+            if not limits:
+                return await mealie.search_recipes(request.args.get("q"), request.args.get("page") or 1)
+            return await recipe_nutrition.search(request.args.get("q"), limits, request.args.get("page") or 1)
+
+        return await mealie_action(found, tr("Zoeken in Mealie mislukt", "Searching Mealie failed"))
+
+    # Voedingswaarden van oude AH-recepten in Mealie aanvullen (alleen de beheerder: het pad staat in auth.ADMIN_PATHS).
+    @app.get("/api/mealie/nutrition/backfill")
+    async def mealie_nutrition_backfill_status():
+        return jsonify(recipe_nutrition.backfill_progress())
+
+    @app.post("/api/mealie/nutrition/backfill")
+    async def mealie_nutrition_backfill_start():
+        async def start() -> dict[str, Any]:
+            await mealie.ensure_configured()
+            return recipe_nutrition.start_backfill()
+
+        if recipe_nutrition.backfill_progress().get("state") == "running":
+            return jsonify({"error": tr("Het aanvullen loopt al.", "Filling in is already running.")}), 409
+        return await mealie_action(start, tr("Aanvullen starten mislukt", "Could not start filling in"), 202)
+
+    @app.delete("/api/mealie/nutrition/backfill")
+    async def mealie_nutrition_backfill_stop():
+        return jsonify(recipe_nutrition.stop_backfill())
 
     @app.get("/api/mealie/recipes/<slug>")
     async def mealie_recipe_detail(slug: str):
@@ -350,16 +380,51 @@ def create_app() -> Quart:
             return (request.args.get(name) or "").strip().lower() in {"1", "true", "yes"}
 
         try:
-            return jsonify(await ah_recipes.get(force=flag("refresh"), fetch_if_missing=not flag("cached")))
+            data = await ah_recipes.get(force=flag("refresh"), fetch_if_missing=not flag("cached"))
+            if flag("refresh") and data.get("nutritionPending") and not data.get("ahError"):
+                ah_recipes.start_fill()  # de voedingswaarden die nog ontbreken, met pauzes op de achtergrond (4.5.0)
+            return jsonify(data)
         except Exception as exc:
             app.logger.exception("AH saved recipes error")
             return jsonify({"error": str(exc) or tr("Bewaarde recepten ophalen mislukt", "Could not fetch saved recipes")}), 424
+
+    # De weekplanner van de AH-app (zie ah_planner.py): alleen lezen bij AH. *Naar weekmenu* zet de Allerhande-recepten en
+    # de losse producten (als bestaand recept, eigen recept of menu) in het weekmenu van Mealie. Iedereen die is ingelogd mag
+    # dat, net als plannen en importeren; daarom staan deze paden niet in auth.ADMIN_PREFIXES. Het scherm stuurt een dag per keer.
+    @app.get("/api/ah/planner")
+    async def ah_week_planner():
+        try:
+            return jsonify(await ah_planner.get())
+        except LookupError as exc:  # AH is niet gekoppeld: de tekst is van onszelf en zegt wat te doen
+            return jsonify({"error": str(exc)}), 424
+        except Exception:  # noqa: BLE001 - de fout kan het antwoord van AH bevatten: alleen in het logboek
+            app.logger.exception("AH week planner error")
+            return jsonify({"error": tr("De weekplanner ophalen bij AH is mislukt", "Could not fetch the week planner from AH")}), 424
+
+    @app.post("/api/ah/planner/to-meal-plan")
+    async def ah_week_planner_to_meal_plan():
+        try:
+            await mealie.ensure_configured()
+        except RuntimeError as exc:  # Mealie is niet gekoppeld: de tekst is van onszelf en zegt wat te doen
+            return jsonify({"error": str(exc)}), 400
+        try:
+            day = ah_planner.clean_day(await request.get_json(silent=True))
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+        try:
+            return jsonify(await ah_planner.to_meal_plan(day))
+        except Exception:  # noqa: BLE001 - het weekmenu van Mealie niet te lezen: de melding van Mealie alleen in het logboek
+            app.logger.exception("AH week planner to meal plan error")
+            return jsonify({"error": tr("Het weekmenu van Mealie lezen is mislukt", "Could not read the Mealie week menu")}), 424
 
     # Een Allerhande-recept bekijken en in Mealie zetten, met dezelfde routes als bij Jumbo, Picnic en de maaltijdboxen.
     @app.get("/api/ah/recipes/<int:recipe_id>")
     async def ah_recipe_detail(recipe_id: int):
         try:
-            return jsonify(await ah.recipe_detail(recipe_id))
+            detail = await ah.recipe_detail(recipe_id)
+            # Staat het recept bij je bewaarde recepten, dan krijgt de kaart daar nu ook de voedingswaarden.
+            await ah_recipes.remember_nutrition(recipe_id, {item["key"]: item["quantity"] for item in detail.get("nutrition") or []})
+            return jsonify(detail)
         except Exception:  # noqa: BLE001 - de fout kan het antwoord van AH bevatten: alleen in het logboek
             app.logger.exception("AH recipe error")
             return jsonify({"error": tr("Het recept ophalen bij AH is mislukt", "Could not fetch the recipe from AH")}), 424
@@ -609,6 +674,8 @@ def create_app() -> Quart:
 
     # --- aanbiedingen en receptvoorstellen: lezen uit de lokale kopie, vernieuwen op verzoek ----------------
 
+    offers_cache = ResponseCache()
+
     async def offers_action(action: Callable[[], Any], error_text: str) -> Response | tuple[Response, int]:
         try:
             result: Any = action()
@@ -643,7 +710,11 @@ def create_app() -> Quart:
             await prices.annotate(data["store"], data["offers"])  # het oordeel bij elke aanbieding (#178), een fout laat de lijst staan
             return data
 
-        response = await offers_action(load_with_verdicts, tr("Aanbiedingen laden mislukt", "Loading the offers failed"))
+        # Dezelfde ETag is dezelfde lijst: een tweede browser of apparaat, en aanvragen die tegelijk binnenkomen, krijgen de lijst die
+        # er al ligt of op komst is, in plaats van het prijsoordeel opnieuw uit te rekenen (response_cache.py).
+        response = await offers_action(
+            lambda: offers_cache.get((store, week), etag, load_with_verdicts), tr("Aanbiedingen laden mislukt", "Loading the offers failed")
+        )
         if isinstance(response, Response) and response.status_code == 200:
             response.headers.update(headers)
         return response
@@ -657,13 +728,15 @@ def create_app() -> Quart:
 
     @app.get("/api/prices/history")
     async def prices_history():
-        # ?bought=1: alleen de producten die je minstens één keer kocht.
+        # ?bought=1: alleen de producten die je minstens één keer kocht. ?pin=<id>: dat product staat er altijd in (een link van een
+        # aanbieding of bon naar de prijsgeschiedenis), ?product=<id>: alleen dat product (de hover bij een aanbieding).
         bought = (request.args.get("bought") or "").strip().lower() in {"1", "true", "yes"}
         return await offers_action(
             # Namen op de bon die bij de zoekterm passen en nog bij geen product horen, zoekt dit meteen op bij AH (zuinig: zie
             # ah_orders.resolve_receipt_names).
             lambda: prices.history(request.args.get("store") or None, request.args.get("q") or "", request.args.get("limit") or 50, bought=bought,
-                                   lookup=ah_orders.resolve_receipt_names, product=request.args.get("product") or None),
+                                   lookup=ah_orders.resolve_receipt_names, product=request.args.get("product") or None,
+                                   pin=request.args.get("pin") or None),
             tr("Prijsgeschiedenis laden mislukt", "Loading the price history failed"),
         )
 
@@ -752,8 +825,8 @@ def create_app() -> Quart:
         # Doet één zoekopdracht bij de winkel, in dezelfde vorm voor elke winkel (prices.link_candidates).
         try:
             return jsonify(await prices.link_candidates(request.args.get("store"), request.args.get("q") or ""))
-        except ValueError:
-            return jsonify({"error": tr("Onbekende winkel (kies ah, picnic, jumbo of crisp)", "Unknown store (choose ah, picnic, jumbo or crisp)")}), 400
+        except ValueError as exc:  # een onbekende winkel, of een winkel met alleen aanbiedingen (Lidl, Aldi): de tekst is van onszelf
+            return jsonify({"error": str(exc)}), 400
         except Exception:  # noqa: BLE001 - de winkel gaf een fout: niet gekoppeld, of niet bereikbaar
             app.logger.exception("Zoeken om te koppelen mislukt")
             return jsonify({"error": tr("Zoeken mislukt", "Search failed")}), 424

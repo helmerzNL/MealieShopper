@@ -283,7 +283,7 @@ function orderChips(lines, searched, active) {
   const categories = CATEGORY_ORDER.filter((id) => present.has(id))
     .map((id) => ({ id, count: searched.filter((line) => line.category === id).length }))
     .filter((category) => category.count || category.id === active);
-  return categoryChips({ categories, active, allLabel: t("offers.all", { count: I18N.formatNumber(searched.length) }) });
+  return categoryChips({ categories, active, total: searched.length });
 }
 
 // Tekent de gekozen weergave uit de aankoop die er staat: de chips, de statusregel en de producten. Bon tekent het bonnetje met de

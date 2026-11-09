@@ -12,11 +12,19 @@ ROOT = Path(__file__).resolve().parents[1]
 OFFERS_JS = (ROOT / "static" / "offers.js").read_text(encoding="utf-8")
 APP_JS = (ROOT / "static" / "app.js").read_text(encoding="utf-8")
 CSS = (ROOT / "static" / "styles.css").read_text(encoding="utf-8")
+POPOVER_JS = (ROOT / "static" / "popover.js").read_text(encoding="utf-8")
+
+
+def popover_source(name):
+    match = re.search(rf"^(?:const {re.escape(name)} = .*?;|function {re.escape(name)}\(.*?^}})$", POPOVER_JS, re.DOTALL | re.MULTILINE)
+    if not match:
+        raise AssertionError(f"{name} niet gevonden in popover.js")
+    return match.group(0)
 
 
 def function_source(name):
     match = re.search(
-        rf"^function {re.escape(name)}\(.*?^}}$", OFFERS_JS, re.DOTALL | re.MULTILINE
+        rf"^(?:async )?function {re.escape(name)}\(.*?^}}$", OFFERS_JS, re.DOTALL | re.MULTILINE
     )
     if not match:
         raise AssertionError(f"functie {name} niet gevonden")
@@ -31,7 +39,7 @@ def const_source(name):
 
 
 PRELUDE = "\n".join(
-    [const_source(name) for name in ("OFFER_UNIT_ORDER", "OFFER_LABEL_ORDER")]
+    [const_source(name) for name in ("OFFER_UNIT_ORDER", "OFFER_LABEL_ORDER", "OFFERS_OFTEN_PER_YEAR", "offersDimmedIds", "OFFER_POPUP_WIDTH", "OFFER_POPUP_PURCHASES")]
     + [
         function_source(name)
         for name in (
@@ -40,14 +48,45 @@ PRELUDE = "\n".join(
             "offersSorted",
             "offerBadge",
             "offerMonthText",
+            "offerBestKey",
+            "offerYearLowLine",
+            "offerPriceLabel",
+            "offerFamilies",
+            "offerPackRows",
+            "offerPackWarning",
+            "offerPerUnitText",
+            "offersFilterMatch",
+            "offersEmptyFilters",
+            "offersActiveFilterChips",
+            "offersFilteredWithFamilies",
+            "offersBrandCounts",
+            "offersDimmed",
+            "offersFilters",
+            "offersLoadFilters",
+            "offersUnitLabel",
+            "offerPopupHtml",
+            "offerAsProduct",
+            "loadOfferZoomHistory",
         )
     ]
+    + [popover_source(name) for name in ("POPOVER_GAP", "POPOVER_EDGE", "POPOVER_SIDE_MIN", "offerPopupPlace")]
     + [
-        "const offersState = { sort: 'store' };",
+        "const offersState = { sort: 'store', store: 'ah', filters: null, filtersStore: 'ah' };",
         "const t = (key, params) => key + (params ? ' ' + JSON.stringify(params) : '');",
         "const escapeHtml = (value) => String(value);",
         "const offerBadgeTitle = () => 'uitleg';",
         "const monthShort = (date) => date.toLocaleDateString('nl-NL', { month: 'short' }).replace(/\\.$/, '');",
+        "const formatPrice = (value) => 'EUR ' + Number(value).toFixed(2);",
+        "const offerById = (id) => ({ id: String(id) });",
+        "const foldText = (value) => String(value).toLowerCase();",
+        "const matchesWords = (text, query) => query.toLowerCase().split(/\\s+/).every((word) => text.includes(word));",
+        "const I18N = { formatNumber: String };",
+        "const offerHistoryHead = (product, options) => '<div class=\"ohc-head\">' + product.title + '</div>';",
+        "const offerHistoryStats = () => '<dl class=\"ohc-stats\"></dl>';",
+        "const offerHistoryChartBlock = () => '<div class=\"ohc-block\"></div>';",
+        "const offerHistoryPurchasesTable = (product) => (product.purchases || []).length ? '<table class=\"ohc-table\"></table>' : '';",
+        "const priceHistoryPath = (store, title, id) => '/offers/history?product=' + id;",
+        "const offerDateText = (day) => String(day);",
     ]
 )
 
@@ -107,21 +146,219 @@ class OffersScanNodeTest(unittest.TestCase):
     def test_store_order_is_left_alone(self):
         self.assertEqual(self.sorted_ids("store"), ["a", "b", "c", "d", "e"])
 
-    def test_the_badge_takes_the_step_of_the_userscript_and_is_outlined_for_a_store_claim(
-        self,
-    ):
+    def render(self, name, offer):
+        return self.run_js(f"console.log(JSON.stringify({name}({json.dumps(offer)})));")
+
+    def test_best_first_puts_lowest_of_the_year_without_a_cheaper_pack_on_top(self):
+        offers = [
+            {"id": "a", "yearLow": {"status": "lowest"}, "badge": {"percent": 15}, "verdict": {"cheaperPack": None}, "unitPricePer": {"value": 9.0}},
+            {"id": "b", "yearLow": {"status": "lowest"}, "badge": {"percent": 40}, "verdict": {"cheaperPack": {"productId": "x"}}},
+            {"id": "c", "yearLow": {"status": "above", "above": 0.5}, "badge": {"percent": 30}, "verdict": {"cheaperPack": None}},
+            {"id": "d", "yearLow": {"status": "lowest"}, "badge": {"percent": 15}, "verdict": {"cheaperPack": None}, "unitPricePer": {"value": 7.0}},
+            {"id": "e", "yearLow": {"status": "unknown"}, "badge": None, "verdict": {"cheaperPack": None}},
+        ]
+        found = self.run_js(f"offersState.sort = 'best'; console.log(JSON.stringify(offersSorted({json.dumps(offers)}).map((o) => o.id)));")
+        # b: laagste van het jaar, maar per eenheid duurder dan een andere verpakking: bij de rest, daar op korting.
+        self.assertEqual(found, ["d", "a", "b", "c", "e"])
+
+    def test_the_year_low_line_on_the_card(self):
+        self.assertIn("offers.label.year_low", json.dumps(self.render("offerYearLowLine", {"yearLow": {"status": "lowest", "month": "2026-09"}})))
+        above = self.render("offerYearLowLine", {"yearLow": {"status": "above", "above": 0.65, "month": "2026-09", "price": 3.0}})
+        self.assertIn("offers.label.year_above", above["text"])
+        self.assertIn("EUR 0.65", above["text"])
+        self.assertIsNone(self.render("offerYearLowLine", {"yearLow": {"status": "unknown"}}))
+        self.assertIsNone(self.render("offerYearLowLine", {}))
+
+    FAMILY = {
+        "key": "ah|rundergehakt|ah",
+        "unknownPacks": False,
+        "packs": [
+            {"productId": "300", "unitSize": "300 g", "price": 2.49, "unitPrice": {"value": 8.3, "unit": "kg"}, "onOffer": True, "cheapest": False},
+            {"productId": "500", "unitSize": "500 g", "price": 4.19, "unitPrice": {"value": 8.38, "unit": "kg"}, "onOffer": True, "cheapest": False},
+            {"productId": "1000", "unitSize": "1000 g", "price": 7.49, "unitPrice": {"value": 7.49, "unit": "kg"}, "onOffer": False, "cheapest": True},
+        ],
+    }
+    FAMILY_OFFERS = [
+        {"id": "300", "title": "AH Rundergehakt 300 g", "family": FAMILY, "yearLow": {"status": "lowest"}, "badge": {"percent": 30}, "verdict": {"cheaperPack": {"productId": "1000", "title": "AH Rundergehakt", "unitSize": "1000 g", "unitPrice": {"value": 7.49, "unit": "kg"}}}},
+        {"id": "x", "title": "AH Pindakaas", "family": {"key": "ah|pindakaas|ah", "packs": [], "unknownPacks": False}, "yearLow": {"status": "lowest"}, "badge": {"percent": 10}, "verdict": {"cheaperPack": None}},
+        {"id": "500", "title": "AH Rundergehakt 500 g", "family": FAMILY, "yearLow": {"status": "above", "above": 0.2}, "badge": {"percent": 20}, "verdict": {"cheaperPack": None}},
+    ]
+
+    def families(self, offers, sort="best"):
+        return self.run_js(f"offersState.sort = '{sort}'; console.log(JSON.stringify(offerFamilies(offersSorted({json.dumps(offers)}))));")
+
+    def test_families_group_the_offers_and_take_the_place_of_their_best_offer(self):
+        groups = self.families(self.FAMILY_OFFERS)
+        # De familie staat op de plek van de 500 g: de 300 g is laagste van het jaar maar per kilo duurder dan de 1000 g, dus niet beste.
+        self.assertEqual([group["head"]["id"] for group in groups], ["x", "500"])
+        self.assertEqual([offer["id"] for offer in groups[1]["offers"]], ["500", "300"])
+        self.assertEqual([group["head"]["id"] for group in self.families(self.FAMILY_OFFERS, "store")], ["300", "x"], "in winkelvolgorde staat de familie bij haar eerste aanbieding")
+
+    def test_the_pack_rows_list_every_pack_and_mark_the_cheapest(self):
+        html = self.run_js(f"console.log(JSON.stringify(offerPackRows({json.dumps(self.FAMILY_OFFERS[0])})));")
+        self.assertEqual(html.count('<li class="offer-pack'), 3)
+        self.assertEqual(html.count("offer-pack--cheapest"), 1)
+        self.assertEqual(html.count("offer-pack--offer"), 2)
+        self.assertIn("offers.pack.pricier_than", html)  # op de regel van de 300 g en de 500 g
+        self.assertIn('data-zoom="1000"', html)
+        self.assertIn("EUR 7.49", html)
+
+    def test_a_dimmed_pack_row_is_marked(self):
+        family = {**self.FAMILY, "packs": [{**self.FAMILY["packs"][0], "productId": "dim"}, self.FAMILY["packs"][2]]}
+        html = self.run_js(f"offersDimmedIds.add('dim'); console.log(JSON.stringify(offerPackRows({json.dumps({'id': 'dim', 'family': family})})));")
+        self.assertEqual(html.count("offer-pack--dimmed"), 1)
+
+    def test_a_single_pack_has_no_rows_and_unknown_packs_get_a_note(self):
+        self.assertEqual(self.run_js(f"console.log(JSON.stringify(offerPackRows({json.dumps(self.FAMILY_OFFERS[1])})));"), "")
+        lonely = {"id": "300", "family": {**self.FAMILY, "packs": self.FAMILY["packs"][:1], "unknownPacks": True}}
+        self.assertIn("offers.pack.unknown", self.run_js(f"console.log(JSON.stringify(offerPackRows({json.dumps(lonely)})));"))
+
+    def test_the_pack_warning_names_the_cheaper_pack(self):
+        self.assertIn("1000 g", self.run_js(f"console.log(JSON.stringify(offerPackWarning({json.dumps(self.FAMILY_OFFERS[0])})));"))
+        self.assertEqual(self.run_js(f"console.log(JSON.stringify(offerPackWarning({json.dumps(self.FAMILY_OFFERS[2])})));"), "")
+
+    FILTER_OFFER = {"id": "1", "brand": "Dr. Oetker", "title": "Pizza", "bought": True, "badge": {"percent": 25}, "unitPricePer": {"value": 9.36, "unit": "kg"},
+                    "yearLow": {"status": "lowest"}, "verdict": {"timesThisYear": 3}, "personal": False, "family": {"key": "f1", "packs": []}}
+    EMPTY_FILTERS = {"brands": [], "bought": False, "minDiscount": 0, "maxUnitPrice": {"value": None, "unit": "kg"}, "yearLow": False, "rare": False}
+
+    def match(self, offer, filters):
+        return self.run_js(f"console.log(JSON.stringify(offersFilterMatch({json.dumps(offer)}, {json.dumps(filters)})));")
+
+    def test_filters_stack(self):
+        offer, empty = self.FILTER_OFFER, self.EMPTY_FILTERS
+        self.assertTrue(self.match(offer, empty))
+        self.assertTrue(self.match(offer, {**empty, "brands": ["Dr. Oetker"], "bought": True, "minDiscount": 25, "yearLow": True, "rare": True}))
+        self.assertFalse(self.match(offer, {**empty, "brands": ["Unox"]}))
+        self.assertFalse(self.match(offer, {**empty, "minDiscount": 30}))
+        self.assertFalse(self.match(offer, {**empty, "maxUnitPrice": {"value": 9.0, "unit": "kg"}}))
+        self.assertTrue(self.match(offer, {**empty, "maxUnitPrice": {"value": 9.0, "unit": "l"}}), "een grens in een andere eenheid raakt dit product niet")
+        self.assertFalse(self.match({**offer, "unitPricePer": None}, {**empty, "maxUnitPrice": {"value": 9.0, "unit": "kg"}}))
+        self.assertFalse(self.match({**offer, "badge": None}, {**empty, "minDiscount": 5}))
+        self.assertFalse(self.match({**offer, "verdict": {"timesThisYear": 6}}, {**empty, "rare": True}))
+        self.assertFalse(self.match({**offer, "bought": False}, {**empty, "bought": True}))
+        self.assertFalse(self.match({**offer, "yearLow": {"status": "above"}}, {**empty, "yearLow": True}))
+        self.assertEqual(self.run_js("console.log(JSON.stringify(offersEmptyFilters()));"), empty)
+
+    def test_a_brand_filter_that_matches_nothing_stays_active(self):
+        chips = self.run_js(f"offersState.filters = {json.dumps({**self.EMPTY_FILTERS, 'brands': ['Verdwenen'], 'minDiscount': 25})}; console.log(JSON.stringify(offersActiveFilterChips()));")
+        self.assertEqual([chip["key"] for chip in chips], ["brand:Verdwenen", "minDiscount"])
+        self.assertIn("Verdwenen", chips[0]["label"])
+
+    def test_the_family_stays_when_one_pack_matches_and_the_other_is_dimmed(self):
+        fam = {"key": "ah|rundergehakt|ah", "packs": []}
+        offers = [{**self.FILTER_OFFER, "id": "a", "family": fam, "badge": {"percent": 30}}, {**self.FILTER_OFFER, "id": "b", "family": fam, "badge": {"percent": 5}},
+                  {**self.FILTER_OFFER, "id": "c", "badge": {"percent": 5}}]
+        found = self.run_js(f"offersState.filters = {json.dumps({**self.EMPTY_FILTERS, 'minDiscount': 25})}; const shown = offersFilteredWithFamilies({json.dumps(offers)}); console.log(JSON.stringify({{ ids: shown.map((o) => o.id), dimmed: shown.filter((o) => offersDimmed(o)).map((o) => o.id) }}));")
+        self.assertEqual(found, {"ids": ["a", "b"], "dimmed": ["b"]})
+
+    def test_a_dimmed_offer_does_not_head_the_card(self):
+        fam = {"key": "ah|rundergehakt|ah", "packs": []}
+        offers = [{"id": "b", "family": fam, "verdict": {}}, {"id": "a", "family": fam, "verdict": {}}]
+        found = self.run_js(f"offersState.sort = 'best'; offersDimmedIds.add('b'); console.log(JSON.stringify(offerFamilies({json.dumps(offers)}).map((g) => g.head.id)));")
+        self.assertEqual(found, ["a"])
+
+    def test_bought_counts_for_the_whole_family(self):
+        offer = {**self.FILTER_OFFER, "bought": False, "family": {"key": "f", "packs": [], "bought": True}}
+        self.assertTrue(self.match(offer, {**self.EMPTY_FILTERS, "bought": True}))
+
+    def test_filters_follow_the_store(self):
+        found = self.run_js("offersState.store = 'ah'; offersFilters().brands.push('Unox'); offersState.store = 'jumbo'; const jumbo = offersFilters().brands.slice(); offersState.store = 'ah'; console.log(JSON.stringify({ jumbo, ah: offersFilters().brands }));")
+        self.assertEqual(found, {"jumbo": [], "ah": []})
+
+    def test_a_failed_history_fetch_is_not_cached_and_shows_a_line(self):
+        found = self.run_js(
+            "const jsonFetch = () => Promise.reject(new Error('down')); const offerPopupProducts = new Map(); const offerZoomCache = new Map();"
+            f"loadOfferZoomHistory('ah', '1').then((r) => console.log(JSON.stringify({{ result: r, cached: offerZoomCache.has('ah|1'), html: offerPopupHtml({json.dumps(self.POPUP_OFFER)}, r, []) }})));"
+        )
+        self.assertEqual((found["result"], found["cached"]), (False, False))
+        self.assertIn("offers.popup.none", found["html"])
+        self.assertNotIn("offers.popup.loading", found["html"])
+
+    def test_the_popup_keeps_its_pack_while_the_mouse_crosses_the_card(self):
+        self.assertIn("clearTimeout(offerPopup.timer);", OFFERS_JS.split('$("#offer-popup").addEventListener("mouseenter"')[1].split("});")[0])
+
+    def test_a_tap_opens_the_window_whenever_the_hover_popup_is_off(self):
+        self.assertIn("if (!thumb || offerPopupAllowed()) return;", OFFERS_JS)
+
+    def test_brand_counts_ignore_the_brand_filter_itself(self):
+        offers = [{**self.FILTER_OFFER, "id": "a"}, {**self.FILTER_OFFER, "id": "b", "brand": "Unox", "badge": {"percent": 5}}, {**self.FILTER_OFFER, "id": "c", "brand": "Unox"}]
+        found = self.run_js(f"offersState.filters = {json.dumps({**self.EMPTY_FILTERS, 'brands': ['Unox'], 'minDiscount': 25})}; console.log(JSON.stringify(offersBrandCounts({json.dumps(offers)})));")
+        self.assertEqual(found, [{"brand": "Dr. Oetker", "count": 1}, {"brand": "Unox", "count": 1}])
+
+    POPUP_OFFER = {"id": "514010", "title": "Dr. Oetker Casa di mama pizza salami", "brand": "Dr. Oetker", "unitSize": "390 g", "image": "x.png", "url": "https://ah.nl/x", "price": 3.65}
+    POPUP_PRODUCT = {"store": "ah", "productId": "514010", "title": "Dr. Oetker Casa di mama pizza salami", "purchases": [{"date": "2026-09-01", "price": 2.15}], "episodes": []}
+
+    def place(self, anchor, size, viewport):
+        return self.run_js(f"console.log(JSON.stringify(offerPopupPlace({json.dumps(anchor)}, {json.dumps(size)}, {json.dumps(viewport)})));")
+
+    def popup(self, offer, product, packs, active=None):
+        return self.run_js(f"console.log(JSON.stringify(offerPopupHtml({json.dumps(offer)}, {json.dumps(product)}, {json.dumps(packs)}, {json.dumps(active)})));")
+
+    def test_popup_placement_prefers_right_then_left_then_below_then_above(self):
+        size = {"width": 640, "height": 500}
+        self.assertEqual(self.place({"left": 100, "right": 400, "top": 100, "bottom": 400}, size, {"width": 1280, "height": 900}), {"left": 408, "top": 100, "width": 640})
+        self.assertEqual(self.place({"left": 800, "right": 1100, "top": 100, "bottom": 400}, size, {"width": 1280, "height": 900})["left"], 152)
+        self.assertEqual(self.place({"left": 300, "right": 600, "top": 100, "bottom": 300}, size, {"width": 900, "height": 900})["top"], 308)
+        self.assertEqual(self.place({"left": 300, "right": 600, "top": 700, "bottom": 880}, size, {"width": 900, "height": 900})["top"], 192)
+        cramped = self.place({"left": 300, "right": 600, "top": 20, "bottom": 880}, size, {"width": 900, "height": 600})
+        self.assertGreaterEqual(cramped["top"], 16)
+        self.assertLessEqual(cramped["top"] + 500, 600 - 16)
+        # Naast de kaart blijft de popup binnen de onderrand: hij schuift omhoog in plaats van eraf.
+        self.assertEqual(self.place({"left": 100, "right": 400, "top": 600, "bottom": 800}, size, {"width": 1280, "height": 900})["top"], 384)
+
+    def test_popup_beside_a_card_shrinks_to_the_room_there_down_to_a_minimum(self):
+        # Een kaart in het midden van een scherm van 1280 px: rechts is 481 px over, dus de popup wordt zo breed en staat ernaast
+        # in plaats van over de kaart heen. Onder 420 px gaat hij alsnog eronder, op volle breedte.
+        size = {"width": 640, "height": 500}
+        self.assertEqual(self.place({"left": 561, "right": 775, "top": 443, "bottom": 899}, size, {"width": 1280, "height": 900}), {"left": 783, "top": 384, "width": 481})
+        self.assertEqual(self.place({"left": 400, "right": 460, "top": 100, "bottom": 300}, size, {"width": 1100, "height": 900}), {"left": 468, "top": 100, "width": 616})
+        self.assertEqual(self.place({"left": 300, "right": 600, "top": 100, "bottom": 300}, size, {"width": 900, "height": 900}), {"left": 244, "top": 308, "width": 640})
+
+    def test_popup_html_has_head_stats_chart_purchases_and_the_link(self):
+        html = self.popup(self.POPUP_OFFER, self.POPUP_PRODUCT, [])
+        for marker in ('class="ohc-head"', 'class="ohc-stats"', 'class="ohc-block"', 'class="ohc-table"', "offers.popup.full_history", "/offers/history?product=514010"):
+            self.assertIn(marker, html)
+        self.assertNotIn("offer-popup__packs", html)
+
+    def test_popup_without_history_shows_the_head_and_a_loading_line(self):
+        html = self.popup(self.POPUP_OFFER, None, [])
+        self.assertIn('class="ohc-head"', html)
+        self.assertIn("offers.popup.loading", html)
+        self.assertNotIn("ohc-block", html)
+
+    def test_popup_of_a_family_has_pack_buttons_with_the_shown_pack_pressed(self):
+        packs = [{"productId": "300", "unitSize": "300 g"}, {"productId": "514010", "unitSize": "390 g"}, {"productId": "1000", "unitSize": "1000 g"}]
+        html = self.popup(self.POPUP_OFFER, self.POPUP_PRODUCT, packs, "514010")
+        self.assertEqual(html.count("data-popup-pack="), 3)
+        self.assertIn('data-popup-pack="514010" aria-pressed="true"', html)
+
+    def test_an_offer_becomes_a_product_for_the_head(self):
+        product = self.run_js(f"console.log(JSON.stringify(offerAsProduct('ah', {json.dumps(self.POPUP_OFFER)})));")
+        self.assertEqual((product["store"], product["productId"], product["title"], product["onOfferNow"]), ("ah", "514010", "Dr. Oetker Casa di mama pizza salami", True))
+
+    def test_lower_before_disappears_when_year_low_is_known(self):
+        label = {"kind": "lower_before", "price": 1.99, "month": "2010-03", "coveredSince": "2009-01-01"}
+        self.assertIsNone(self.render("offerPriceLabel", {"priceLabel": label, "yearLow": {"status": "above", "above": 1.0}}))
+        self.assertIn("lower_before", json.dumps(self.render("offerPriceLabel", {"priceLabel": label, "yearLow": {"status": "unknown"}})))
+        self.assertIn("lower_before", json.dumps(self.render("offerPriceLabel", {"priceLabel": label})))
+
+    def test_the_badge_follows_the_verdict_says_no_discount_and_is_dashed_for_a_store_claim(self):
+        # Sinds 4.8.0 naar het oordeel in plaats van de vijf kleuren van het userscript: good, small en none ("Geen korting" in
+        # plaats van "0%"), met een stippelrand voor een claim van de winkel. Zonder oordeel volgt het uit het getal.
         badges = self.run_js(
-            "const steps = [55, 50, 35, 20, 10, 1, 0].map((p) => offerBadge({ badge: { percent: p, source: 'history' } }));"
-            "steps.push(offerBadge({ badge: { percent: 12, source: 'store' } }), offerBadge({}), offerBadge({ badge: { percent: 'x' } }));"
-            "console.log(JSON.stringify(steps));"
+            "const plain = [55, 20, 19, 1, 0].map((p) => offerBadge({ badge: { percent: p, source: 'history' } }));"
+            "const judged = [offerBadge({ badge: { percent: 12, source: 'history' }, verdict: { kind: 'good' } }),"
+            "  offerBadge({ badge: { percent: 30, source: 'history' }, verdict: { kind: 'small' } })];"
+            "const rest = [offerBadge({ badge: { percent: 12, source: 'store' } }), offerBadge({}), offerBadge({ badge: { percent: 'x' } })];"
+            "console.log(JSON.stringify([...plain, ...judged, ...rest]));"
         )
-        for html, step in zip(badges[:7], ("50", "50", "35", "20", "10", "1", "0")):
-            self.assertIn(f'class="offer-badge offer-badge--{step}"', html)
+        for html, kind in zip(badges[:5], ("good", "good", "small", "small", "none")):
+            self.assertIn(f'class="offer-badge offer-badge--{kind}"', html)
         self.assertIn(">-55%<", badges[0])
-        self.assertIn(">0%<", badges[6])
-        self.assertIn(
-            'class="offer-badge offer-badge--10 offer-badge--store"', badges[7]
-        )
+        self.assertIn(">offers.badge.none<", badges[4], "geen 0% maar het woord")
+        self.assertIn('class="offer-badge offer-badge--good"', badges[5], "het oordeel van de server gaat voor")
+        self.assertIn('class="offer-badge offer-badge--small"', badges[6])
+        self.assertIn('class="offer-badge offer-badge--small offer-badge--store"', badges[7])
         self.assertEqual(badges[8:], ["", ""])
 
     def test_the_month_text_adds_the_year_outside_this_year_or_when_asked(self):
@@ -174,21 +411,20 @@ class OffersScanMarkupTest(unittest.TestCase):
         self.assertNotIn("MDI_VIEW_LIST_OUTLINE", APP_JS)
         self.assertRegex(CSS, r"\.offer-card__thumb-icon \{")
 
-    def test_scrolling_with_the_zoom_closed_does_nothing(self):
+    def test_scrolling_with_the_popup_closed_does_nothing(self):
         self.assertIn(
-            "if (box.hidden && !offerZoom.timer) return;",
-            function_source("hideOfferZoom"),
+            "if (box.hidden && !offerPopup.timer) return;",
+            function_source("hideOfferPopup"),
         )
 
-    def test_the_outlined_orange_and_the_grey_badge_have_hard_colours_with_contrast(
-        self,
-    ):
-        self.assertRegex(
-            CSS, r"\.offer-badge--store\.offer-badge--10 \{\n  color: #c25e00;"
-        )
-        self.assertRegex(
-            CSS, r"\.offer-badge--0 \{\n  background: #e5e7eb;\n  color: #374151;"
-        )
+    def test_the_badge_takes_status_colours_and_never_red(self):
+        # De groene statuskleuren volgen de accentkleur niet; rood is voor fouten, niet voor een kleine korting.
+        badge = CSS[CSS.index("\n.offer-badge {"):CSS.index("/* Het prijslabel uit de geschiedenis")]
+        self.assertIn(".offer-badge--good {\n  border-color: var(--success-text);\n  background: var(--success-text);\n  color: var(--surface);", badge)
+        self.assertIn(".offer-badge--none {\n  border-color: var(--border);\n  background: var(--surface-muted);\n  color: var(--muted);", badge)
+        self.assertIn(".offer-badge--store {\n  border: 2px dashed currentColor;", badge)
+        self.assertNotIn("danger", badge)
+        self.assertNotRegex(badge, r"#[0-9a-fA-F]{3,6}\b", "geen vaste kleuren meer, alleen tokens (licht en donker)")
 
     def test_the_compact_row_on_a_phone_stacks_name_price_and_label_beside_the_photo(self):
         # Zo'n 300 pixels voor een regel: de badge onder het plaatje, de naam op twee regels, de prijs met de eenheid rechts, het label.

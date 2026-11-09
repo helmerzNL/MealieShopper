@@ -71,4 +71,24 @@ function perUnit(price, unitSize) {
   return { value: Math.round((price / (amount * factor)) * 100) / 100, unit };
 }
 
-module.exports = { svg, dish, product, DISHES, base, WEEK, mealieUrl, VERSION, NEWER, perUnit };
+// Een subtab openen. Vanaf 860 px staan de subtabs in het zijmenu en is de link in de balk verborgen: dan via de DOM, zoals
+// routerOpenSubtab in static/router.js dat ook doet.
+async function openSubtab(page, id) {
+  const link = page.locator(`[data-subtab="${id}"]`).first();
+  if (await link.isVisible()) await link.click();
+  else await page.evaluate((sub) => document.querySelector(`[data-subtab="${sub}"]`).click(), id);
+}
+
+// Het tabblad Mandje openen en een winkel kiezen in de keuzelijst bovenaan. Gedeeld door de mandjes van AH, Picnic, Jumbo en
+// Crisp.
+async function openBasket(page, store) {
+  // Op een telefoon staat Mandje niet in de menubalk maar onder Meer (het menu van de avatar): dan dat menu-item, dat naar /cart gaat.
+  const tab = page.locator('[data-tab="basket"]');
+  if (await tab.isVisible()) await tab.click();
+  else await page.evaluate(() => document.querySelector('[data-user-action="basket"]').click());
+  await page.waitForSelector("#basket-store");
+  if (store) await page.selectOption("#basket-store", store);
+  await page.waitForTimeout(700);
+}
+
+module.exports = { svg, dish, product, DISHES, base, WEEK, mealieUrl, VERSION, NEWER, perUnit, openSubtab, openBasket };

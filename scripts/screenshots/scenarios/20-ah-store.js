@@ -1,5 +1,5 @@
 // Winkels > Albert Heijn: bewaarde recepten, lijstjes, bestellingen en kassabonnen.
-const { dish, product, DISHES, mealieUrl } = require("../demo");
+const { dish, product, DISHES, mealieUrl, openSubtab } = require("../demo");
 
 // De taal van de pagina staat in de cookie ms_lang; teksten die normaal van de server komen volgen die.
 async function lang(request) {
@@ -299,11 +299,56 @@ const bulkRoutes = {
   },
 };
 
+// ---- de weekplanner van de AH-app (4.2, losse producten 4.3) -----------------------------------------------
+// Vanaf vandaag (woensdag 28 oktober) wat in de AH-app gepland staat: Allerhande-recepten, losse producten (met `standalone`
+// voor soep en pizza, zoals de server die zet), een eigen recept en notities. Naar weekmenu (samen als menu, soep en pizza
+// los): de recepten, op donderdag een menu van drie producten, op vrijdag de soep die al in Mealie staat, en op zaterdag de
+// pizza als eigen recept. Eén recept stond er al.
+const plannerRecipe = (id, title, image) => ({ kind: "recipe", recipeId: id, title, image, url: `https://www.example.nl/allerhande/recept/R-R${id}` });
+const plannerProduct = (id, title, standalone = false) => ({ kind: "product", productId: id, title, standalone, url: `https://www.example.nl/producten/product/wi${id}` });
+const ahPlanner = {
+  days: [
+    { date: "2026-10-28", items: [plannerRecipe(1201, "Pasta pesto met kerstomaatjes", DISHES.pesto)] },
+    {
+      date: "2026-10-29",
+      items: [plannerProduct(4101, "Kipburgers smokey 2 stuks"), plannerProduct(4102, "Krieltjes met rozemarijn"), plannerProduct(4103, "Sperziebonen")],
+    },
+    { date: "2026-10-30", items: [{ kind: "note", text: "Soep" }, plannerProduct(4201, "Chinese tomatensoep", true)] },
+    { date: "2026-10-31", items: [{ kind: "note", text: "Pizza" }, plannerProduct(4301, "Pizza margherita", true)] },
+    { date: "2026-11-01", items: [plannerRecipe(1205, "Curry van kikkererwten", DISHES.curry)] },
+    { date: "2026-11-02", items: [{ kind: "own_recipe", recipeId: 77, title: "Oma's erwtensoep" }] },
+    { date: "2026-11-03", items: [plannerRecipe(1207, "Zalm met geroosterde groenten", DISHES.fish)] },
+  ],
+  incomplete: false,
+};
+const PLANNER_OUTCOME = { 1201: ["already_planned", false], 1205: ["planned", false], 1207: ["planned", true] };
+
+const plannerRoutes = {
+  ...routes,
+  "/api/ah/planner": ahPlanner,
+  "/api/ah/planner/to-meal-plan": (route, request) => {
+    const day = JSON.parse(request.postData() || "{}");
+    const results = (day.recipeIds || []).map((recipeId) => {
+      const [status, imported] = PLANNER_OUTCOME[recipeId] || ["planned", false];
+      return { date: day.date, kind: "recipe", title: "", recipeId, status, imported, slug: `recept-${recipeId}`, mealieUrl: `${mealieUrl}/g/thuis/r/recept-${recipeId}` };
+    });
+    const products = day.products || [];
+    if (products.length > 1) {
+      results.push({ date: day.date, kind: "menu", title: day.note || products.map((product) => product.title).join(", "), productIds: products.map((product) => product.productId), status: "planned", imported: true, slug: "menu", mealieUrl: `${mealieUrl}/g/thuis/r/menu` });
+    } else if (products.length) {
+      // De soep stond al in Mealie (zelfde naam); de pizza wordt een eigen recept.
+      const known = products[0].productId === 4201;
+      results.push({ date: day.date, kind: "product", title: products[0].title, productIds: [products[0].productId], status: "planned", imported: !known, slug: "product", mealieUrl: `${mealieUrl}/g/thuis/r/product` });
+    }
+    return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ results }) });
+  },
+};
+
 // Naar Winkels > Albert Heijn en daar naar het gevraagde onderdeel.
 const openStores = (subtab) => async (page) => {
   await page.click('[data-tab="ah-items"]');
   await page.waitForTimeout(500);
-  if (subtab) await page.click(`[data-subtab="${subtab}"]`);
+  if (subtab) await openSubtab(page, subtab);
   await page.waitForTimeout(700);
 };
 
@@ -328,6 +373,18 @@ async function settleOrderView(page, device) {
 }
 
 module.exports = [
+  {
+    // De weekplanner van de AH-app (4.2), na Naar weekmenu: de samenvatting boven de dagen.
+    name: "ah-planner",
+    routes: plannerRoutes,
+    run: async (page) => {
+      await openStores("ah-items-weekplanner")(page);
+      await page.waitForSelector("#ah-planner-to-meal-plan:not([disabled])");
+      await page.click("#ah-planner-to-meal-plan");
+      await page.waitForSelector("#ah-planner-message .message");
+      await scrollTo(page, "#ah-items-weekplanner .box");
+    },
+  },
   {
     name: "recipes",
     routes,

@@ -66,10 +66,11 @@ Planning a week menu in Mealie is nice, but then the retyping starts: looking up
 
 - **Week menu to your basket**: one button looks up the best products at Albert Heijn, Picnic, Jumbo or Crisp for every ingredient in your week menu, works out the servings and pack sizes and adds up the same ingredient from several recipes. You check everything in a list first; only after you confirm does it go into your basket, and you place the order yourself.
 - **Planning the week menu**: put a recipe or a note on a day, move or remove a meal, or let Mealie choose with **Surprise me**. Every change goes straight to Mealie.
-- **Offers and recipe suggestions**: the offers of Albert Heijn (including your personal Bonus Box), Picnic, Jumbo and Crisp, per week and updated every day, with recipes whose ingredients are on offer.
+- **Offers and recipe suggestions**: the offers of Albert Heijn (including your personal Bonus Box), Picnic, Jumbo and Crisp, and without an account those of Lidl and Aldi too, per week and updated every day, with recipes whose ingredients are on offer.
 - **Is it really a deal?**: every offer shows its price per kilo, litre or piece and a verdict against the regular price of the last 30 days. The **Price history** shows per product the offers, the regular price and what you paid yourself, and **Compare pack sizes** points out the cheapest pack. Public historical prices with unknown promotion status appear separately as **Observed prices**, with their sources. They do not count as regular prices. Historical leaflet prices, such as the archive of Albert Heijn and Jumbo since 2009, the administrator imports under **Settings, System**.
 - **Search and import recipes**: search Mealie, Albert Heijn, Jumbo, Picnic and Crisp and the menus of HelloFresh and Marley Spoon at the same time, view a recipe and plan it with one click, or import a recipe from a link. Your saved AH recipes, Jumbo recipe lists and favourite Crisp recipes also go into Mealie in one go.
 - **Cooking from a recipe**: a recipe is shown in a cooking view with the ingredients next to the numbered steps; tick off what is done and see which step is next. **Start cooking** shows one step at a time full screen, and with **Keep screen on** your screen does not switch off meanwhile.
+- **Calories and nutrition**: the kcal per serving and a table with protein, fat, carbohydrates, sugars, fibre and salt with a recipe and a planned meal, with the total for the servings you plan and a day total per person in the week menu. Choose the number of servings when planning (4 becomes 2) and search by a minimum and maximum per serving (for example at least 30 g of protein, at most 1.5 g of salt), also through your AI assistant; your saved AH recipes show their nutrition too.
 - **Your stores in one place**: your basket, lists, saved recipes, favourites, orders and AH receipts, kept as a copy of their own that you can search ("when did I last buy coffee?"), even when the store is unavailable. A product on a receipt that the app does not recognise, you link to a product of the store yourself; from then on it does recognise it.
 - **AI assistants**: an MCP server, so Claude, ChatGPT or Copilot can look at your week menu, recipes and lists, plan a meal and import a recipe into Mealie; OAuth login, with your own account.
 - **For the whole household**: log in with a passkey, or with a password and two-step verification; you invite housemates with a link, and only the administrator links Mealie and the stores. Everyone picks their own preferred supermarket, which Offers and Stores open with.
@@ -84,7 +85,7 @@ The full description of every feature is in the [user guide](docs/handleiding.en
 |:---:|:---:|
 | <img src="docs/screenshots/en/plan-add.png" width="440" alt="Plan a meal: the day, the meal, the choice between Recipe and Note, your recipes from Mealie and the Surprise me button"> | <img src="docs/screenshots/en/cart.png" width="440" alt="Check your basket: per ingredient a photo of the product, the product with its price per kilo and the number of packs; for spaghetti it says 1 kg is cheaper per kilo, with the Choose button, and one line is marked"> |
 | **Offers** | **Price history** |
-| <img src="docs/screenshots/en/offers.png" width="440" alt="The Offers tab: the categories and the products with their deal, the price per kilo or litre, a coloured discount badge, a price label such as Lowest price ever and the links Compare pack sizes and Price history"> | <img src="docs/screenshots/en/price-history.png" width="440" alt="The Price history of minced beef: key figures, a chart with the offers as bars, the regular price as steps and your purchases as dots, and the table of offers"> |
+| <img src="docs/screenshots/en/offers.png" width="440" alt="The Offers tab: the categories and the products with their deal, the price per kilo or litre, a green discount badge, a label such as Lowest in 12 months below the price and the small buttons Compare pack sizes and Price history"> | <img src="docs/screenshots/en/price-history.png" width="440" alt="The Price history of minced beef: key figures, a chart with the offers as bars, the regular price as steps and your purchases as dots, and the table of offers"> |
 | **Find recipes** | **Picnic basket** |
 | <img src="docs/screenshots/en/search.png" width="440" alt="Searching recipes for kip: your own recipes in Mealie first, as cards with time, servings and tags"> | <img src="docs/screenshots/en/basket-picnic.png" width="440" alt="The Picnic basket with plus and minus buttons, the amount to pay and the delivery slots"> |
 
@@ -167,7 +168,7 @@ Everything is optional. Set `MEALIESHOPPER_TAG` in `.env` next to `docker-compos
 | `MEALIESHOPPER_OFFERS_RECIPES` | ❌ | off | With `true` the app shows the **Recipes** subtab under Offers (recipe suggestions from the offers). Off by default: the matches between ingredients and products are not good enough yet. The MCP tools for AI assistants work with this off too. |
 | `ANTHROPIC_API_KEY`, `OPENAI_API_KEY` | ❌ | - | An API key from Claude (Anthropic) and/or ChatGPT (OpenAI) to have the matches between ingredients and offers reviewed (see *AI: searching recipes for the offers* in the [user guide](docs/handleiding.en.md#offers-1)). A key entered in the app takes precedence. Without a key nothing happens with AI. |
 | `ANTHROPIC_BASE_URL`, `OPENAI_BASE_URL` | ❌ | `https://api.anthropic.com`, `https://api.openai.com/v1` | Another address for the AI requests, with the same API, as with the official SDKs: a proxy such as [LiteLLM](https://docs.litellm.ai/), Azure OpenAI or a local model. `ANTHROPIC_BASE_URL` is without `/v1`, `OPENAI_BASE_URL` with `/v1`. You set the key and the model as always: for LiteLLM a LiteLLM key and the model name from LiteLLM. |
-| `HTTPS_PROXY`, `HTTP_PROXY`, `ALL_PROXY`, `NO_PROXY`, `REQUESTS_CA_BUNDLE`, `CURL_CA_BUNDLE`, `SSL_CERT_FILE`, `SSL_CERT_DIR` | ❌ | - | For a proxy and your own certificate. All outgoing traffic (the stores, Mealie, GitHub, the AI provider, HelloFresh and Marley Spoon) goes through the proxy in `HTTPS_PROXY`, `HTTP_PROXY` or `ALL_PROXY`, except the hosts in `NO_PROXY` (host names or single IP addresses, not a range such as `192.168.0.0/16`). `REQUESTS_CA_BUNDLE` (or else `CURL_CA_BUNDLE`) replaces the built-in list of trusted CAs with that file or folder, for example for a Mealie with its own certificate. Put your own CA and the public root certificates in it, or the app no longer trusts the stores and GitHub. Without those two, `SSL_CERT_FILE` and `SSL_CERT_DIR` do the same. |
+| `HTTPS_PROXY`, `HTTP_PROXY`, `ALL_PROXY`, `NO_PROXY`, `REQUESTS_CA_BUNDLE`, `CURL_CA_BUNDLE`, `SSL_CERT_FILE`, `SSL_CERT_DIR` | ❌ | - | For a proxy and your own certificate. All outgoing traffic (the stores, Mealie, GitHub, the AI provider, HelloFresh, Marley Spoon and data.mealieshopper.nl) goes through the proxy in `HTTPS_PROXY`, `HTTP_PROXY` or `ALL_PROXY`, except the hosts in `NO_PROXY` (host names or single IP addresses, not a range such as `192.168.0.0/16`). `REQUESTS_CA_BUNDLE` (or else `CURL_CA_BUNDLE`) replaces the built-in list of trusted CAs with that file or folder, for example for a Mealie with its own certificate. Put your own CA and the public root certificates in it, or the app no longer trusts the stores and GitHub. Without those two, `SSL_CERT_FILE` and `SSL_CERT_DIR` do the same. |
 | `MEALIESHOPPER_UPDATE_CHECK` | ❌ | on | Set to `false` to turn the update check off (Settings, System). By default the app checks GitHub for a newer release and tells the administrator; no information about you or the installation is sent. |
 | `MEALIESHOPPER_AUDIT_LOG` | ❌ | on | Set to `false` to turn the audit log off (Settings, Audit log). |
 | `MEALIESHOPPER_AUDIT_BODIES` | ❌ | on | Set to `false` and the audit log stores only who, what, when and the outcome, not the requests and answers themselves. |
@@ -223,7 +224,7 @@ Everything is in the data folder: `/data` in the container, on the host the fold
 - **Limits:** a backup file can be 200 MB at most (a backup with years of offers is a few megabytes, an imported price archive easily makes it over 100 MB; each saved image of an offer you bought adds roughly 50 to 200 kB). The screen uploads the file in parts of 4 MB, each a request of its own: a reverse proxy, tunnel or CDN in front of MealieShopper (Cloudflare's free plan lets at most 100 MB through per request) therefore does not have to allow a large request. A part that fails, or where nothing happens for 30 seconds, is sent again by itself (the server also gives up such a part after 30 seconds of silence, with a line in the log, so it does not hold up the rest of the app); if the upload really gets no further, the screen says so instead of standing still. Uploading and downloading as a whole have no time limit.
 - **This is your own copy of what you entered, not a replacement for a copy of the whole data folder.** That remains the way to keep a whole server. The pattern follows [`backup-restore.md`](https://github.com/Flux76HQ/App-Guidance/blob/main/shared/guidelines/backup-restore.md) of App-Guidance, with two deliberate deviations: the links may be included, encrypted with your password, and the file goes to the server in parts.
 
-**Importing a price archive.** Under **Settings, System, Import price archive** the administrator adds historical prices to the Price history, from the ZIP of a package (such as the leaflet archive of AH, Jumbo, Picnic and Crisp) or from a file in the `mealieshopper-price-archive` format. It adds and is not a backup (only with the box *Replace what came from a price archive before* do earlier archive lines go first); the prices it adds do go into the backup afterwards. The format and the checks are in the [manual](docs/handleiding.en.md#importing-a-price-archive). The other way round, **Export price archive** gives all offers and prices as a ZIP, with one file per store and month, to share in for example a GitHub repository; your personal offers are never included (see the [manual](docs/handleiding.en.md#exporting-a-price-archive)).
+**Importing a price archive.** Under **Settings, System, Import price archive** the administrator adds historical prices to the Price history, from the ZIP of a package (such as the leaflet archive of AH, Jumbo, Picnic and Crisp, also the gist for data.mealieshopper.nl) or from a file in the `mealieshopper-price-archive` format, or with **Fetch offers** straight from [data.mealieshopper.nl](https://data.mealieshopper.nl). It adds and is not a backup (only with the box *Replace what came from a price archive before* do earlier archive lines go first); the prices it adds do go into the backup afterwards. The format and the checks are in the [manual](docs/handleiding.en.md#importing-a-price-archive). The other way round, **Export price archive** gives all offers and prices as a ZIP, with one file per store and month, to share in for example a GitHub repository, or in the layout of data.mealieshopper.nl to submit them there; your personal offers are never included (see the [manual](docs/handleiding.en.md#exporting-a-price-archive)).
 
 To erase everything and start over, see [Factory reset](docs/handleiding.en.md#factory-reset) in the user guide.
 
@@ -238,6 +239,7 @@ flowchart LR
     B -->|API token| M[Mealie]
     B -->|unofficial app API| S[Albert Heijn, Picnic,<br/>Jumbo and Crisp]
     B -->|public menus| K[HelloFresh and<br/>Marley Spoon]
+    B -->|public offers page| L[Lidl and Aldi]
 ```
 
 | Component | Purpose | Data |
@@ -245,19 +247,22 @@ flowchart LR
 | `mealieshopper` | The container: the Quart app under Hypercorn with the interface, the API, the MCP server and the daily offers task | `/data` (`auth.sqlite3` and `secret.key`) |
 | Mealie | Your recipes and week menu; runs separately and is not included | in Mealie itself |
 | Albert Heijn, Picnic, Jumbo, Crisp | Products, baskets, lists, orders and offers | what MealieShopper keeps is in `auth.sqlite3` |
+| Lidl, Aldi | The offers of the week (no online shop, so no basket) | what MealieShopper keeps is in `auth.sqlite3` |
 
-MealieShopper is an unofficial tool and is not affiliated with Mealie, Albert Heijn, Picnic, Jumbo or Crisp.
+MealieShopper is an unofficial tool and is not affiliated with Mealie, Albert Heijn, Picnic, Jumbo, Crisp, Lidl or Aldi.
 
 **Integrations**
 
 | Integration | What for |
 |---|---|
 | [Mealie](https://mealie.io) | Your recipes and week menu; imported recipes and what you plan end up here. Through the API with a token. |
-| [Albert Heijn](https://www.ah.nl) | Lists, saved recipes, products and the basket, through the **unofficial** app API of AH. AH may change it without notice; use it for personal use. |
+| [Albert Heijn](https://www.ah.nl) | Lists, saved recipes, the week planner (read only), products and the basket, through the **unofficial** app API of AH. AH may change it without notice; use it for personal use. |
 | [Allerhande](https://www.ah.nl/allerhande) | Searching and importing recipes. |
 | [Jumbo](https://www.jumbo.com) | Searching products and filling the cart, through the **unofficial** app API of Jumbo (Auth0 and GraphQL). Jumbo may change it without notice or refuse a server; use it for personal use. |
 | [Picnic](https://picnic.app) | Searching products and filling the cart, through the **unofficial** app API of Picnic. Picnic may change it without notice; use it for personal use. |
 | [Crisp](https://crisp.nl) | Searching products, filling and changing the basket, recipes, favourites, orders and offers, through the **unofficial** app API of Crisp. Crisp may change it without notice; use it for personal use. |
+| [Lidl](https://www.lidl.nl) | The offers of the week, from the public offers page; no account. Lidl does not sell groceries online, so there is no basket. Lidl may change the page without notice. |
+| [Aldi](https://www.aldi.nl) | The offers of the week, from the public offers page; no account. Aldi does not sell groceries online, so there is no basket. Aldi may change the page without notice. |
 | [WebAuthn](https://www.w3.org/TR/webauthn-2/) | Logging in with a passkey. |
 | [TOTP (RFC 6238)](https://www.rfc-editor.org/rfc/rfc6238) | Two-step verification with an authenticator app. |
 | [MCP](https://modelcontextprotocol.io) and [OAuth 2.1](https://datatracker.ietf.org/doc/draft-ietf-oauth-v2-1/) | The link with AI assistants such as Claude, ChatGPT and Copilot. |
@@ -329,9 +334,9 @@ Contributions are welcome. Pull requests go to the `beta` branch, never to `main
 
 ```bash
 python -m venv .venv
-.venv/bin/pip install -r requirements.txt     # Windows: .\.venv\Scripts\pip
-.venv/bin/python run.py                       # Windows: .\.venv\Scripts\python
-python -m unittest discover -s tests          # all tests
+.venv/bin/pip install -r requirements.txt -r requirements-dev.txt   # Windows: .\.venv\Scripts\pip
+.venv/bin/python run.py                                            # Windows: .\.venv\Scripts\python
+.venv/bin/python -m pytest                                         # all tests
 ```
 
 The app listens on `http://localhost:8000`. See [`.env.local.example`](.env.local.example) for the options.

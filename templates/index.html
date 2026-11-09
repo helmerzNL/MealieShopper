@@ -2,6 +2,7 @@
 <html lang="nl">
   <head>
     <meta charset="utf-8">
+    <meta name="ms-asset-version" content="{{ config.ASSET_VERSION }}">
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
     <script>
       // Onderste menubalk in de geinstalleerde app (PWA) op een klein scherm. Met ?tabbar=1 zie je hem
@@ -122,19 +123,14 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='styles.css', v=config.ASSET_VERSION) }}">
   </head>
   <body>
-    <svg class="flag-sprite" width="0" height="0" aria-hidden="true" focusable="false">
-      <defs>
-        <symbol id="flag-nl" viewBox="0 0 28 20" preserveAspectRatio="xMidYMid slice"><rect width="28" height="7" fill="#AE1C28"/><rect y="7" width="28" height="6" fill="#fff"/><rect y="13" width="28" height="7" fill="#21468B"/></symbol>
-        <symbol id="flag-gb" viewBox="0 0 60 30" preserveAspectRatio="xMidYMid slice"><clipPath id="flag-gb-a"><path d="M0,0 v30 h60 v-30 z"/></clipPath><clipPath id="flag-gb-b"><path d="M30,15 h30 v15 z v15 h-30 z h-30 v-15 z v-15 h30 z"/></clipPath><g clip-path="url(#flag-gb-a)"><path d="M0,0 v30 h60 v-30 z" fill="#012169"/><path d="M0,0 L60,30 M60,0 L0,30" stroke="#fff" stroke-width="6"/><path d="M0,0 L60,30 M60,0 L0,30" clip-path="url(#flag-gb-b)" stroke="#C8102E" stroke-width="4"/><path d="M30,0 v30 M0,15 h60" stroke="#fff" stroke-width="10"/><path d="M30,0 v30 M0,15 h60" stroke="#C8102E" stroke-width="6"/></g></symbol>
-      </defs>
-    </svg>
     <section id="auth-gate" class="auth-gate" hidden>
       <div class="auth-card">
         <div class="switches"><div class="lang-switch" role="group" aria-label="Taal" data-i18n-attr="aria-label:lang.switch">
-          <button type="button" class="lang-switch__button" data-lang="nl" lang="nl" title="Nederlands" aria-label="Nederlands" aria-pressed="true"><svg class="flag" viewBox="0 0 28 20" aria-hidden="true" focusable="false"><use href="#flag-nl"/></svg></button>
-          <button type="button" class="lang-switch__button" data-lang="en" lang="en" title="English" aria-label="English" aria-pressed="false"><svg class="flag" viewBox="0 0 28 20" aria-hidden="true" focusable="false"><use href="#flag-gb"/></svg></button>
+          <button type="button" class="lang-switch__button" data-lang="nl" lang="nl" title="Nederlands" aria-label="Nederlands" aria-pressed="true"><span class="lang-switch__code" aria-hidden="true">NL</span></button>
+          <button type="button" class="lang-switch__button" data-lang="en" lang="en" title="English" aria-label="English" aria-pressed="false"><span class="lang-switch__code" aria-hidden="true">EN</span></button>
         </div><button type="button" class="theme-toggle" data-theme-toggle title="Donkere modus" aria-label="Donkere modus" aria-pressed="false" data-i18n-attr="title:theme.dark;aria-label:theme.dark"><svg class="theme-toggle__icon theme-toggle__icon--moon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path fill="currentColor" d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5z"/></svg><svg class="theme-toggle__icon theme-toggle__icon--sun" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="4.5" fill="currentColor"/><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M12 2.5v2.5M12 19v2.5M2.5 12H5M19 12h2.5M5.3 5.3l1.8 1.8M16.9 16.9l1.8 1.8M5.3 18.7l1.8-1.8M16.9 7.1l1.8-1.8"/></svg></button></div>
         <img class="brand-mark brand-mark--large" src="{{ url_for('static', filename='brand/mark.svg') }}" alt="" width="64" height="64">
+        <p class="auth-card__tagline" data-i18n="brand.tagline">Van recept naar geregeld.</p>
         <h2 id="auth-title" data-i18n="gate.title.login">Inloggen</h2>
         <p id="auth-description" class="muted"></p>
         <div id="auth-message" role="alert"></div>
@@ -168,8 +164,8 @@
     <section id="invite-gate" class="auth-gate" hidden>
       <div class="auth-card">
         <div class="switches"><div class="lang-switch" role="group" aria-label="Taal" data-i18n-attr="aria-label:lang.switch">
-          <button type="button" class="lang-switch__button" data-lang="nl" lang="nl" title="Nederlands" aria-label="Nederlands" aria-pressed="true"><svg class="flag" viewBox="0 0 28 20" aria-hidden="true" focusable="false"><use href="#flag-nl"/></svg></button>
-          <button type="button" class="lang-switch__button" data-lang="en" lang="en" title="English" aria-label="English" aria-pressed="false"><svg class="flag" viewBox="0 0 28 20" aria-hidden="true" focusable="false"><use href="#flag-gb"/></svg></button>
+          <button type="button" class="lang-switch__button" data-lang="nl" lang="nl" title="Nederlands" aria-label="Nederlands" aria-pressed="true"><span class="lang-switch__code" aria-hidden="true">NL</span></button>
+          <button type="button" class="lang-switch__button" data-lang="en" lang="en" title="English" aria-label="English" aria-pressed="false"><span class="lang-switch__code" aria-hidden="true">EN</span></button>
         </div><button type="button" class="theme-toggle" data-theme-toggle title="Donkere modus" aria-label="Donkere modus" aria-pressed="false" data-i18n-attr="title:theme.dark;aria-label:theme.dark"><svg class="theme-toggle__icon theme-toggle__icon--moon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path fill="currentColor" d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5z"/></svg><svg class="theme-toggle__icon theme-toggle__icon--sun" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="4.5" fill="currentColor"/><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M12 2.5v2.5M12 19v2.5M2.5 12H5M19 12h2.5M5.3 5.3l1.8 1.8M16.9 16.9l1.8 1.8M5.3 18.7l1.8-1.8M16.9 7.1l1.8-1.8"/></svg></button></div>
         <img class="brand-mark brand-mark--large" src="{{ url_for('static', filename='brand/mark.svg') }}" alt="" width="64" height="64">
         <h2 id="invite-title" tabindex="-1"></h2>
@@ -219,14 +215,9 @@
       </div>
     </dialog>
 
-    <dialog id="offer-zoom-dialog" class="product-dialog photo-dialog offer-zoom-dialog" aria-labelledby="offer-zoom-title">
+    <dialog id="offer-zoom-dialog" class="product-dialog offer-zoom-dialog" aria-label="Prijsgeschiedenis" data-i18n-attr="aria-label:offers.tab.history">
       <div class="product-dialog__inner">
-        <img id="offer-zoom-image" class="photo-dialog__image" alt="">
-        <div>
-          <h3 id="offer-zoom-title"></h3>
-          <p class="muted" id="offer-zoom-meta"></p>
-        </div>
-        <div class="offer-zoom__chart" id="offer-zoom-dialog-chart"></div>
+        <div id="offer-zoom-dialog-body" class="offer-popup__dialog"></div>
         <div class="product-dialog__actions">
           <button class="button button--secondary" type="button" id="offer-zoom-close" data-i18n="common.close">Sluiten</button>
         </div>
@@ -403,9 +394,9 @@
           <label class="field"><span data-i18n="plan.day">Dag</span><input class="input" id="plan-date" type="date" required></label>
           <label class="field"><span data-i18n="plan.meal">Maaltijd</span><select class="input" id="plan-type"></select></label>
         </div>
-        <div class="plan-kind" role="radiogroup" aria-label="Wat plan je?" data-i18n-attr="aria-label:plan.kind">
-          <label class="plan-kind__option"><input type="radio" name="plan-kind" value="recipe" checked><span data-i18n="plan.kind_recipe">Recept</span></label>
-          <label class="plan-kind__option"><input type="radio" name="plan-kind" value="note"><span data-i18n="plan.kind_note">Notitie</span></label>
+        <div class="segmented" role="radiogroup" aria-label="Wat plan je?" data-i18n-attr="aria-label:plan.kind">
+          <label class="segmented__item"><input type="radio" name="plan-kind" value="recipe" checked><span data-i18n="plan.kind_recipe">Recept</span></label>
+          <label class="segmented__item"><input type="radio" name="plan-kind" value="note"><span data-i18n="plan.kind_note">Notitie</span></label>
         </div>
         <div id="plan-recipe-part" class="plan-dialog__part">
           <div id="plan-recipe-chosen" class="plan-recipe-chosen" hidden></div>
@@ -414,6 +405,53 @@
               <input class="input" id="plan-recipe-query" type="search" placeholder="Zoek in je recepten in Mealie..." aria-label="Zoek in je recepten in Mealie..." autocomplete="off" enterkeyhint="search" data-i18n-attr="placeholder:plan.recipe_search;aria-label:plan.recipe_search">
               <button class="button button--secondary" type="button" id="plan-surprise"><svg class="mdi" viewBox="0 0 24 24" aria-hidden="true" data-mdi="mdiDice5Outline"><path d="M19 5V19H5V5H19M19 3H5C3.9 3 3 3.9 3 5V19C3 20.1 3.9 21 5 21H19C20.1 21 21 20.1 21 19V5C21 3.9 20.1 3 19 3M7.5 6C6.7 6 6 6.7 6 7.5S6.7 9 7.5 9 9 8.3 9 7.5 8.3 6 7.5 6M16.5 15C15.7 15 15 15.7 15 16.5C15 17.3 15.7 18 16.5 18C17.3 18 18 17.3 18 16.5C18 15.7 17.3 15 16.5 15M16.5 6C15.7 6 15 6.7 15 7.5S15.7 9 16.5 9C17.3 9 18 8.3 18 7.5S17.3 6 16.5 6M12 10.5C11.2 10.5 10.5 11.2 10.5 12S11.2 13.5 12 13.5 13.5 12.8 13.5 12 12.8 10.5 12 10.5M7.5 15C6.7 15 6 15.7 6 16.5C6 17.3 6.7 18 7.5 18S9 17.3 9 16.5C9 15.7 8.3 15 7.5 15Z"/></svg><span data-i18n="plan.surprise">Verras me</span></button>
             </div>
+            <div class="kcal-filter" role="group" aria-labelledby="plan-kcal-label">
+              <span class="kcal-filter__label" id="plan-kcal-label" data-i18n="kcal.filter">Kcal per persoon</span>
+              <input class="input kcal-filter__input" id="plan-kcal-min" type="number" inputmode="numeric" min="0" max="5000" step="50" placeholder="min." aria-label="Minimaal aantal kcal per persoon" autocomplete="off" data-i18n-attr="placeholder:kcal.min;aria-label:kcal.min_label">
+              <span class="kcal-filter__dash" aria-hidden="true">–</span>
+              <input class="input kcal-filter__input" id="plan-kcal-max" type="number" inputmode="numeric" min="0" max="5000" step="50" placeholder="max." aria-label="Maximaal aantal kcal per persoon" autocomplete="off" data-i18n-attr="placeholder:kcal.max;aria-label:kcal.max_label">
+            </div>
+            <details class="nutrition-filter" id="plan-nutrition-filter">
+              <summary data-i18n="nutrition.more_filters">Meer filters</summary>
+              <span id="plan-word-min" hidden data-i18n="nutrition.word_min">minimaal per persoon</span>
+              <span id="plan-word-max" hidden data-i18n="nutrition.word_max">maximaal per persoon</span>
+              <div class="kcal-filter" role="group" aria-labelledby="plan-protein-label">
+                <span class="kcal-filter__label" id="plan-protein-label" data-i18n="nutrition.filter_protein">Eiwit (g)</span>
+                <input class="input kcal-filter__input" id="plan-protein-min" type="number" inputmode="numeric" min="0" max="500" step="1" placeholder="min." autocomplete="off" aria-labelledby="plan-protein-label plan-word-min" data-i18n-attr="placeholder:kcal.min">
+                <span class="kcal-filter__dash" aria-hidden="true">–</span>
+                <input class="input kcal-filter__input" id="plan-protein-max" type="number" inputmode="numeric" min="0" max="500" step="1" placeholder="max." autocomplete="off" aria-labelledby="plan-protein-label plan-word-max" data-i18n-attr="placeholder:kcal.max">
+              </div>
+              <div class="kcal-filter" role="group" aria-labelledby="plan-fat-label">
+                <span class="kcal-filter__label" id="plan-fat-label" data-i18n="nutrition.filter_fat">Vet (g)</span>
+                <input class="input kcal-filter__input" id="plan-fat-min" type="number" inputmode="numeric" min="0" max="500" step="1" placeholder="min." autocomplete="off" aria-labelledby="plan-fat-label plan-word-min" data-i18n-attr="placeholder:kcal.min">
+                <span class="kcal-filter__dash" aria-hidden="true">–</span>
+                <input class="input kcal-filter__input" id="plan-fat-max" type="number" inputmode="numeric" min="0" max="500" step="1" placeholder="max." autocomplete="off" aria-labelledby="plan-fat-label plan-word-max" data-i18n-attr="placeholder:kcal.max">
+              </div>
+              <div class="kcal-filter" role="group" aria-labelledby="plan-carbs-label">
+                <span class="kcal-filter__label" id="plan-carbs-label" data-i18n="nutrition.filter_carbs">Koolhydraten (g)</span>
+                <input class="input kcal-filter__input" id="plan-carbs-min" type="number" inputmode="numeric" min="0" max="500" step="1" placeholder="min." autocomplete="off" aria-labelledby="plan-carbs-label plan-word-min" data-i18n-attr="placeholder:kcal.min">
+                <span class="kcal-filter__dash" aria-hidden="true">–</span>
+                <input class="input kcal-filter__input" id="plan-carbs-max" type="number" inputmode="numeric" min="0" max="500" step="1" placeholder="max." autocomplete="off" aria-labelledby="plan-carbs-label plan-word-max" data-i18n-attr="placeholder:kcal.max">
+              </div>
+              <div class="kcal-filter" role="group" aria-labelledby="plan-sugar-label">
+                <span class="kcal-filter__label" id="plan-sugar-label" data-i18n="nutrition.filter_sugar">Suikers (g)</span>
+                <input class="input kcal-filter__input" id="plan-sugar-min" type="number" inputmode="numeric" min="0" max="500" step="1" placeholder="min." autocomplete="off" aria-labelledby="plan-sugar-label plan-word-min" data-i18n-attr="placeholder:kcal.min">
+                <span class="kcal-filter__dash" aria-hidden="true">–</span>
+                <input class="input kcal-filter__input" id="plan-sugar-max" type="number" inputmode="numeric" min="0" max="500" step="1" placeholder="max." autocomplete="off" aria-labelledby="plan-sugar-label plan-word-max" data-i18n-attr="placeholder:kcal.max">
+              </div>
+              <div class="kcal-filter" role="group" aria-labelledby="plan-fiber-label">
+                <span class="kcal-filter__label" id="plan-fiber-label" data-i18n="nutrition.filter_fiber">Vezels (g)</span>
+                <input class="input kcal-filter__input" id="plan-fiber-min" type="number" inputmode="numeric" min="0" max="200" step="1" placeholder="min." autocomplete="off" aria-labelledby="plan-fiber-label plan-word-min" data-i18n-attr="placeholder:kcal.min">
+                <span class="kcal-filter__dash" aria-hidden="true">–</span>
+                <input class="input kcal-filter__input" id="plan-fiber-max" type="number" inputmode="numeric" min="0" max="200" step="1" placeholder="max." autocomplete="off" aria-labelledby="plan-fiber-label plan-word-max" data-i18n-attr="placeholder:kcal.max">
+              </div>
+              <div class="kcal-filter" role="group" aria-labelledby="plan-salt-label">
+                <span class="kcal-filter__label" id="plan-salt-label" data-i18n="nutrition.filter_salt">Zout (g)</span>
+                <input class="input kcal-filter__input" id="plan-salt-min" type="number" inputmode="decimal" min="0" max="50" step="0.1" placeholder="min." autocomplete="off" aria-labelledby="plan-salt-label plan-word-min" data-i18n-attr="placeholder:kcal.min">
+                <span class="kcal-filter__dash" aria-hidden="true">–</span>
+                <input class="input kcal-filter__input" id="plan-salt-max" type="number" inputmode="decimal" min="0" max="50" step="0.1" placeholder="max." autocomplete="off" aria-labelledby="plan-salt-label plan-word-max" data-i18n-attr="placeholder:kcal.max">
+              </div>
+            </details>
             <ul id="plan-recipe-results" class="plan-recipe-results"></ul>
           </div>
         </div>
@@ -439,8 +477,8 @@
             <h2 id="ob-title" tabindex="-1"></h2>
           </div>
           <div class="switches"><div class="lang-switch" role="group" aria-label="Taal" data-i18n-attr="aria-label:lang.switch">
-          <button type="button" class="lang-switch__button" data-lang="nl" lang="nl" title="Nederlands" aria-label="Nederlands" aria-pressed="true"><svg class="flag" viewBox="0 0 28 20" aria-hidden="true" focusable="false"><use href="#flag-nl"/></svg></button>
-          <button type="button" class="lang-switch__button" data-lang="en" lang="en" title="English" aria-label="English" aria-pressed="false"><svg class="flag" viewBox="0 0 28 20" aria-hidden="true" focusable="false"><use href="#flag-gb"/></svg></button>
+          <button type="button" class="lang-switch__button" data-lang="nl" lang="nl" title="Nederlands" aria-label="Nederlands" aria-pressed="true"><span class="lang-switch__code" aria-hidden="true">NL</span></button>
+          <button type="button" class="lang-switch__button" data-lang="en" lang="en" title="English" aria-label="English" aria-pressed="false"><span class="lang-switch__code" aria-hidden="true">EN</span></button>
         </div><button type="button" class="theme-toggle" data-theme-toggle title="Donkere modus" aria-label="Donkere modus" aria-pressed="false" data-i18n-attr="title:theme.dark;aria-label:theme.dark"><svg class="theme-toggle__icon theme-toggle__icon--moon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path fill="currentColor" d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5z"/></svg><svg class="theme-toggle__icon theme-toggle__icon--sun" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="4.5" fill="currentColor"/><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M12 2.5v2.5M12 19v2.5M2.5 12H5M19 12h2.5M5.3 5.3l1.8 1.8M16.9 16.9l1.8 1.8M5.3 18.7l1.8-1.8M16.9 7.1l1.8-1.8"/></svg></button></div>
         </header>
         <ol class="ob-progress" id="ob-progress" aria-label="Voortgang" data-i18n-attr="aria-label:ob.progress_label"></ol>
@@ -458,13 +496,8 @@
               <h1 class="wordmark">Mealie<span>Shopper</span></h1>
               {% if build_channel == "beta" %}<span class="beta-badge" id="beta-badge" title="Dit is een beta-versie: hij kan nog fouten bevatten." data-i18n-attr="title:brand.beta_title">beta</span>{% endif %}
             </div>
-            <p data-i18n="brand.tagline">Van recept naar geregeld.</p>
           </div>
         </a>
-        <div class="switches"><div class="lang-switch" role="group" aria-label="Taal" data-i18n-attr="aria-label:lang.switch">
-          <button type="button" class="lang-switch__button" data-lang="nl" lang="nl" title="Nederlands" aria-label="Nederlands" aria-pressed="true"><svg class="flag" viewBox="0 0 28 20" aria-hidden="true" focusable="false"><use href="#flag-nl"/></svg></button>
-          <button type="button" class="lang-switch__button" data-lang="en" lang="en" title="English" aria-label="English" aria-pressed="false"><svg class="flag" viewBox="0 0 28 20" aria-hidden="true" focusable="false"><use href="#flag-gb"/></svg></button>
-        </div><button type="button" class="theme-toggle" data-theme-toggle title="Donkere modus" aria-label="Donkere modus" aria-pressed="false" data-i18n-attr="title:theme.dark;aria-label:theme.dark"><svg class="theme-toggle__icon theme-toggle__icon--moon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path fill="currentColor" d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5z"/></svg><svg class="theme-toggle__icon theme-toggle__icon--sun" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="4.5" fill="currentColor"/><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M12 2.5v2.5M12 19v2.5M2.5 12H5M19 12h2.5M5.3 5.3l1.8 1.8M16.9 16.9l1.8 1.8M5.3 18.7l1.8-1.8M16.9 7.1l1.8-1.8"/></svg></button></div>
         <div class="user-menu" id="user-menu" hidden>
           <button type="button" class="user-menu__button" id="user-menu-button" aria-haspopup="true" aria-expanded="false" aria-controls="user-menu-list" data-user-menu-trigger>
             <span class="avatar" data-avatar aria-hidden="true"></span>
@@ -485,6 +518,9 @@
       <a role="menuitem" class="user-menu__item" data-user-action="profile" href="/profile" data-nav><svg class="user-menu__icon" viewBox="0 0 24 24" aria-hidden="true" data-mdi="mdiAccountCircleOutline"><path d="M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2M7.07,18.28C7.5,17.38 10.12,16.5 12,16.5C13.88,16.5 16.5,17.38 16.93,18.28C15.57,19.36 13.86,20 12,20C10.14,20 8.43,19.36 7.07,18.28M18.36,16.83C16.93,15.09 13.46,14.5 12,14.5C10.54,14.5 7.07,15.09 5.64,16.83C4.62,15.5 4,13.82 4,12C4,7.59 7.59,4 12,4C16.41,4 20,7.59 20,12C20,13.82 19.38,15.5 18.36,16.83M12,6C10.06,6 8.5,7.56 8.5,9.5C8.5,11.44 10.06,13 12,13C13.94,13 15.5,11.44 15.5,9.5C15.5,7.56 13.94,6 12,6M12,11A1.5,1.5 0 0,1 10.5,9.5A1.5,1.5 0 0,1 12,8A1.5,1.5 0 0,1 13.5,9.5A1.5,1.5 0 0,1 12,11Z"/></svg><span data-i18n="user.profile">Profiel</span></a>
       <a role="menuitem" class="user-menu__item" data-user-action="settings" href="/settings" data-nav><svg class="user-menu__icon" viewBox="0 0 24 24" aria-hidden="true" data-mdi="mdiCogOutline"><path d="M12,8A4,4 0 0,1 16,12A4,4 0 0,1 12,16A4,4 0 0,1 8,12A4,4 0 0,1 12,8M12,10A2,2 0 0,0 10,12A2,2 0 0,0 12,14A2,2 0 0,0 14,12A2,2 0 0,0 12,10M10,22C9.75,22 9.54,21.82 9.5,21.58L9.13,18.93C8.5,18.68 7.96,18.34 7.44,17.94L4.95,18.95C4.73,19.03 4.46,18.95 4.34,18.73L2.34,15.27C2.21,15.05 2.27,14.78 2.46,14.63L4.57,12.97L4.5,12L4.57,11L2.46,9.37C2.27,9.22 2.21,8.95 2.34,8.73L4.34,5.27C4.46,5.05 4.73,4.96 4.95,5.05L7.44,6.05C7.96,5.66 8.5,5.32 9.13,5.07L9.5,2.42C9.54,2.18 9.75,2 10,2H14C14.25,2 14.46,2.18 14.5,2.42L14.87,5.07C15.5,5.32 16.04,5.66 16.56,6.05L19.05,5.05C19.27,4.96 19.54,5.05 19.66,5.27L21.66,8.73C21.79,8.95 21.73,9.22 21.54,9.37L19.43,11L19.5,12L19.43,13L21.54,14.63C21.73,14.78 21.79,15.05 21.66,15.27L19.66,18.73C19.54,18.95 19.27,19.04 19.05,18.95L16.56,17.95C16.04,18.34 15.5,18.68 14.87,18.93L14.5,21.58C14.46,21.82 14.25,22 14,22H10M11.25,4L10.88,6.61C9.68,6.86 8.62,7.5 7.85,8.39L5.44,7.35L4.69,8.65L6.8,10.2C6.4,11.37 6.4,12.64 6.8,13.8L4.68,15.36L5.43,16.66L7.86,15.62C8.63,16.5 9.68,17.14 10.87,17.38L11.24,20H12.76L13.13,17.39C14.32,17.14 15.37,16.5 16.14,15.62L18.57,16.66L19.32,15.36L17.2,13.81C17.6,12.64 17.6,11.37 17.2,10.2L19.31,8.65L18.56,7.35L16.15,8.39C15.38,7.5 14.32,6.86 13.12,6.62L12.75,4H11.25Z"/></svg><span data-i18n="user.settings">Instellingen</span><span class="update-dot" id="update-dot-settings" hidden></span></a>
       <a role="menuitem" class="user-menu__item" data-user-action="about" href="/about" data-nav><svg class="user-menu__icon" viewBox="0 0 24 24" aria-hidden="true" data-mdi="mdiInformationOutline"><path d="M11,9H13V7H11M12,20C7.59,20 4,16.41 4,12C4,7.59 7.59,4 12,4C16.41,4 20,7.59 20,12C20,16.41 16.41,20 12,20M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2M11,17H13V11H11V17Z"/></svg><span data-i18n="user.about">Over</span></a>
+      <div class="user-menu__separator" role="separator"></div>
+      <button type="button" role="menuitem" class="user-menu__item" data-user-action="theme"><svg class="user-menu__icon" viewBox="0 0 24 24" aria-hidden="true" data-mdi="mdiThemeLightDark"><path d="M7.5,2C5.71,3.15 4.5,5.18 4.5,7.5C4.5,9.82 5.71,11.85 7.53,13C4.46,13 2,10.54 2,7.5A5.5,5.5 0 0,1 7.5,2M19.07,3.5L20.5,4.93L4.93,20.5L3.5,19.07L19.07,3.5M12.89,5.93L11.41,5L9.97,6L10.39,4.3L9,3.24L10.75,3.12L11.33,1.47L12,3.1L13.73,3.13L12.38,4.26L12.89,5.93M9.59,9.54L8.43,8.81L7.31,9.59L7.65,8.27L6.56,7.44L7.92,7.35L8.37,6.06L8.88,7.33L10.24,7.36L9.19,8.23L9.59,9.54M19,13.5A5.5,5.5 0 0,1 13.5,19C12.28,19 11.15,18.6 10.24,17.93L17.93,10.24C18.6,11.15 19,12.28 19,13.5M14.6,20.08L17.37,18.93L17.13,22.28L14.6,20.08M18.93,17.38L20.08,14.61L22.28,17.15L18.93,17.38M20.08,12.42L18.94,9.64L22.28,9.88L20.08,12.42M9.63,18.93L12.4,20.08L9.87,22.27L9.63,18.93Z"/></svg><span id="user-menu-theme">Donkere modus</span></button>
+      <button type="button" role="menuitem" class="user-menu__item" data-user-action="lang"><svg class="user-menu__icon" viewBox="0 0 24 24" aria-hidden="true" data-mdi="mdiTranslate"><path d="M12.87,15.07L10.33,12.56L10.36,12.53C12.1,10.59 13.34,8.36 14.07,6H17V4H10V2H8V4H1V6H12.17C11.5,7.92 10.44,9.75 9,11.35C8.07,10.32 7.3,9.19 6.69,8H4.69C5.42,9.63 6.42,11.17 7.67,12.56L2.58,17.58L4,19L9,14L12.11,17.11L12.87,15.07M18.5,10H16.5L12,22H14L15.12,19H19.87L21,22H23L18.5,10M15.88,17L17.5,12.67L19.12,17H15.88Z"/></svg><span id="user-menu-lang" lang="en">English</span></button>
       <div class="user-menu__separator" id="auth-logout-separator" role="separator"></div>
       <button type="button" role="menuitem" class="user-menu__item" id="auth-logout"><svg class="user-menu__icon" viewBox="0 0 24 24" aria-hidden="true" data-mdi="mdiLogout"><path d="M17 7L15.59 8.41L18.17 11H8V13H18.17L15.59 15.58L17 17L22 12M4 5H12V3H4C2.9 3 2 3.9 2 5V19C2 20.1 2.9 21 4 21H12V19H4V5Z"/></svg><span data-i18n="auth.logout">Uitloggen</span></button>
     </div>
@@ -547,14 +583,18 @@
           <button class="button inline-button" id="open-mealie-setup" type="button" data-admin-only data-i18n="mealie.link">Mealie koppelen</button>
           <span data-regular-only hidden data-i18n="plan.mealie_ask_admin">Vraag de beheerder om Mealie te koppelen.</span>
         </div>
-        <div class="toolbar">
-          <button class="icon-button" id="prev-week" aria-label="Vorige week" data-i18n-attr="aria-label:plan.prev_week">&lsaquo;</button>
-          <div class="week-label">
-            <strong id="week-range"></strong>
-            <span id="week-offset"></span>
+        <div class="page-head">
+          <h2 class="page-title page-title--tree" data-i18n="nav.plan">Weekmenu</h2>
+          <div class="toolbar">
+            <button class="icon-button" id="prev-week" type="button" aria-label="Vorige week" data-i18n-attr="aria-label:plan.prev_week"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15.41,16.58L10.83,12L15.41,7.41L14,6L8,12L14,18L15.41,16.58Z"/></svg></button>
+            <div class="week-label">
+              <strong id="week-range"></strong>
+              <span id="week-offset"></span>
+            </div>
+            <button class="icon-button" id="next-week" type="button" aria-label="Volgende week" data-i18n-attr="aria-label:plan.next_week"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8.59,16.58L13.17,12L8.59,7.41L10,6L16,12L10,18L8.59,16.58Z"/></svg></button>
+            <button class="icon-button" id="load-plan" type="button" aria-label="Weekmenu synchroniseren" title="Weekmenu synchroniseren" data-i18n-attr="aria-label:plan.sync;title:plan.sync"><svg viewBox="0 0 24 24" aria-hidden="true" data-mdi="mdiSync"><path d="M12,18A6,6 0 0,1 6,12C6,11 6.25,10.03 6.7,9.2L5.24,7.74C4.46,8.97 4,10.43 4,12A8,8 0 0,0 12,20V23L16,19L12,15M12,4V1L8,5L12,9V6A6,6 0 0,1 18,12C18,13 17.75,13.97 17.3,14.8L18.76,16.26C19.54,15.03 20,13.57 20,12A8,8 0 0,0 12,4Z"/></svg></button>
+            <button class="button button--secondary week-today" id="this-week" type="button" data-i18n="week.this" hidden>Deze week</button>
           </div>
-          <button class="icon-button" id="next-week" aria-label="Volgende week" data-i18n-attr="aria-label:plan.next_week">&rsaquo;</button>
-          <button class="icon-button" id="load-plan" type="button" aria-label="Weekmenu synchroniseren" title="Weekmenu synchroniseren" data-i18n-attr="aria-label:plan.sync;title:plan.sync"><svg viewBox="0 0 24 24" aria-hidden="true" data-mdi="mdiSync"><path d="M12,18A6,6 0 0,1 6,12C6,11 6.25,10.03 6.7,9.2L5.24,7.74C4.46,8.97 4,10.43 4,12A8,8 0 0,0 12,20V23L16,19L12,15M12,4V1L8,5L12,9V6A6,6 0 0,1 18,12C18,13 17.75,13.97 17.3,14.8L18.76,16.26C19.54,15.03 20,13.57 20,12A8,8 0 0,0 12,4Z"/></svg></button>
         </div>
         <div id="planner-message"></div>
         <div id="meal-days" class="day-grid"></div>
@@ -564,11 +604,64 @@
 
       <div id="search" class="subpanel">
         <div id="search-main">
+          <h2 class="page-title page-title--tree" data-i18n="nav.search">Recepten zoeken</h2>
           <form class="form-row" id="search-form">
             <input class="input" id="recipe-query" type="search" placeholder="Zoek een recept in Mealie of bij AH, Jumbo, Picnic, HelloFresh en Marley Spoon..." autocomplete="off" enterkeyhint="search" data-i18n-attr="placeholder:search.placeholder">
             <button class="button" type="submit" data-i18n="search.submit">Zoeken</button>
           </form>
-          <p class="muted" data-i18n="search.intro">Zoekt tegelijk in je eigen recepten in Mealie, bij Albert Heijn, bij Jumbo, Picnic en Crisp zodra die gekoppeld zijn, en in de menu's van HelloFresh en Marley Spoon van deze week en de komende weken (daar is geen koppeling voor nodig). Bekijk een recept voor de ingrediënten en de bereiding, of plan het in je weekmenu; een recept van een winkel komt dan ook in Mealie.</p>
+          <div class="kcal-filter kcal-filter--search" role="group" aria-labelledby="search-kcal-label">
+            <span class="kcal-filter__label" id="search-kcal-label" data-i18n="kcal.filter">Kcal per persoon</span>
+            <input class="input kcal-filter__input" id="search-kcal-min" form="search-form" type="number" inputmode="numeric" min="0" max="5000" step="50" placeholder="min." aria-label="Minimaal aantal kcal per persoon" autocomplete="off" data-i18n-attr="placeholder:kcal.min;aria-label:kcal.min_label">
+            <span class="kcal-filter__dash" aria-hidden="true">–</span>
+            <input class="input kcal-filter__input" id="search-kcal-max" form="search-form" type="number" inputmode="numeric" min="0" max="5000" step="50" placeholder="max." aria-label="Maximaal aantal kcal per persoon" autocomplete="off" data-i18n-attr="placeholder:kcal.max;aria-label:kcal.max_label">
+            <span class="muted kcal-filter__note" data-i18n="kcal.search_note">Alleen je recepten in Mealie; de winkels geven geen voedingswaarden in hun zoekresultaten.</span>
+          </div>
+          <details class="nutrition-filter" id="search-nutrition-filter">
+              <summary data-i18n="nutrition.more_filters">Meer filters</summary>
+              <span id="search-word-min" hidden data-i18n="nutrition.word_min">minimaal per persoon</span>
+              <span id="search-word-max" hidden data-i18n="nutrition.word_max">maximaal per persoon</span>
+              <div class="kcal-filter" role="group" aria-labelledby="search-protein-label">
+                <span class="kcal-filter__label" id="search-protein-label" data-i18n="nutrition.filter_protein">Eiwit (g)</span>
+                <input class="input kcal-filter__input" id="search-protein-min" form="search-form" type="number" inputmode="numeric" min="0" max="500" step="1" placeholder="min." autocomplete="off" aria-labelledby="search-protein-label search-word-min" data-i18n-attr="placeholder:kcal.min">
+                <span class="kcal-filter__dash" aria-hidden="true">–</span>
+                <input class="input kcal-filter__input" id="search-protein-max" form="search-form" type="number" inputmode="numeric" min="0" max="500" step="1" placeholder="max." autocomplete="off" aria-labelledby="search-protein-label search-word-max" data-i18n-attr="placeholder:kcal.max">
+              </div>
+              <div class="kcal-filter" role="group" aria-labelledby="search-fat-label">
+                <span class="kcal-filter__label" id="search-fat-label" data-i18n="nutrition.filter_fat">Vet (g)</span>
+                <input class="input kcal-filter__input" id="search-fat-min" form="search-form" type="number" inputmode="numeric" min="0" max="500" step="1" placeholder="min." autocomplete="off" aria-labelledby="search-fat-label search-word-min" data-i18n-attr="placeholder:kcal.min">
+                <span class="kcal-filter__dash" aria-hidden="true">–</span>
+                <input class="input kcal-filter__input" id="search-fat-max" form="search-form" type="number" inputmode="numeric" min="0" max="500" step="1" placeholder="max." autocomplete="off" aria-labelledby="search-fat-label search-word-max" data-i18n-attr="placeholder:kcal.max">
+              </div>
+              <div class="kcal-filter" role="group" aria-labelledby="search-carbs-label">
+                <span class="kcal-filter__label" id="search-carbs-label" data-i18n="nutrition.filter_carbs">Koolhydraten (g)</span>
+                <input class="input kcal-filter__input" id="search-carbs-min" form="search-form" type="number" inputmode="numeric" min="0" max="500" step="1" placeholder="min." autocomplete="off" aria-labelledby="search-carbs-label search-word-min" data-i18n-attr="placeholder:kcal.min">
+                <span class="kcal-filter__dash" aria-hidden="true">–</span>
+                <input class="input kcal-filter__input" id="search-carbs-max" form="search-form" type="number" inputmode="numeric" min="0" max="500" step="1" placeholder="max." autocomplete="off" aria-labelledby="search-carbs-label search-word-max" data-i18n-attr="placeholder:kcal.max">
+              </div>
+              <div class="kcal-filter" role="group" aria-labelledby="search-sugar-label">
+                <span class="kcal-filter__label" id="search-sugar-label" data-i18n="nutrition.filter_sugar">Suikers (g)</span>
+                <input class="input kcal-filter__input" id="search-sugar-min" form="search-form" type="number" inputmode="numeric" min="0" max="500" step="1" placeholder="min." autocomplete="off" aria-labelledby="search-sugar-label search-word-min" data-i18n-attr="placeholder:kcal.min">
+                <span class="kcal-filter__dash" aria-hidden="true">–</span>
+                <input class="input kcal-filter__input" id="search-sugar-max" form="search-form" type="number" inputmode="numeric" min="0" max="500" step="1" placeholder="max." autocomplete="off" aria-labelledby="search-sugar-label search-word-max" data-i18n-attr="placeholder:kcal.max">
+              </div>
+              <div class="kcal-filter" role="group" aria-labelledby="search-fiber-label">
+                <span class="kcal-filter__label" id="search-fiber-label" data-i18n="nutrition.filter_fiber">Vezels (g)</span>
+                <input class="input kcal-filter__input" id="search-fiber-min" form="search-form" type="number" inputmode="numeric" min="0" max="200" step="1" placeholder="min." autocomplete="off" aria-labelledby="search-fiber-label search-word-min" data-i18n-attr="placeholder:kcal.min">
+                <span class="kcal-filter__dash" aria-hidden="true">–</span>
+                <input class="input kcal-filter__input" id="search-fiber-max" form="search-form" type="number" inputmode="numeric" min="0" max="200" step="1" placeholder="max." autocomplete="off" aria-labelledby="search-fiber-label search-word-max" data-i18n-attr="placeholder:kcal.max">
+              </div>
+              <div class="kcal-filter" role="group" aria-labelledby="search-salt-label">
+                <span class="kcal-filter__label" id="search-salt-label" data-i18n="nutrition.filter_salt">Zout (g)</span>
+                <input class="input kcal-filter__input" id="search-salt-min" form="search-form" type="number" inputmode="decimal" min="0" max="50" step="0.1" placeholder="min." autocomplete="off" aria-labelledby="search-salt-label search-word-min" data-i18n-attr="placeholder:kcal.min">
+                <span class="kcal-filter__dash" aria-hidden="true">–</span>
+                <input class="input kcal-filter__input" id="search-salt-max" form="search-form" type="number" inputmode="decimal" min="0" max="50" step="0.1" placeholder="max." autocomplete="off" aria-labelledby="search-salt-label search-word-max" data-i18n-attr="placeholder:kcal.max">
+              </div>
+            </details>
+          <p class="muted" data-i18n="search.intro">Zoekt in één keer in Mealie, bij je winkels en in de weekmenu's van HelloFresh en Marley Spoon.</p>
+          <details class="help">
+            <summary data-i18n="common.help">Hoe werkt dit?</summary>
+            <p class="muted" data-i18n="search.intro_more">Albert Heijn doet altijd mee, Jumbo, Picnic en Crisp zodra ze gekoppeld zijn; voor de menu's van HelloFresh en Marley Spoon (deze week en de komende weken) is geen koppeling nodig. Bekijk een recept voor de ingrediënten en de bereiding, of plan het in je weekmenu; een recept van een winkel komt dan ook in Mealie.</p>
+          </details>
           <div id="search-message"></div>
           <div id="search-sections">
             <section class="search-store" id="search-mealie" hidden>
@@ -633,13 +726,18 @@
           </div>
         </nav>
         <div class="box box--wide" id="mealkits-view">
-          <p class="muted" id="mealkits-intro">De openbare weekmenu's van HelloFresh Nederland. Bekijk een recept, of plan het in je weekmenu; dan komt het ook in Mealie. Er is geen account of koppeling nodig.</p>
+          <h2 data-i18n="nav.mealkits">Maaltijdboxen</h2>
+          <p class="muted" id="mealkits-intro">De openbare weekmenu's van HelloFresh Nederland, zonder account of koppeling.</p>
+          <details class="help">
+            <summary data-i18n="common.help">Hoe werkt dit?</summary>
+            <p class="muted" data-i18n="recipes.plan_note">Bekijk een recept voor de ingrediënten en de bereiding, of plan het in je weekmenu; dan komt het ook in Mealie.</p>
+          </details>
           <div class="toolbar" id="mealkits-weeks">
             <button class="icon-button" id="mealkits-previous" type="button" aria-label="Vorige week" data-i18n-attr="aria-label:mealkits.previous"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15.41,16.58L10.83,12L15.41,7.41L14,6L8,12L14,18L15.41,16.58Z"/></svg></button>
-            <strong id="mealkits-week" aria-live="polite"></strong>
+            <div class="week-label"><strong id="mealkits-week" aria-live="polite"></strong></div>
             <button class="icon-button" id="mealkits-next" type="button" aria-label="Volgende week" data-i18n-attr="aria-label:mealkits.next"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8.59,16.58L13.17,12L8.59,7.41L10,6L16,12L10,18L8.59,16.58Z"/></svg></button>
-            <button class="button button--secondary" id="mealkits-this-week" type="button" data-i18n="mealkits.this_week">Deze week</button>
-            <button class="button button--secondary" id="mealkits-refresh" type="button" data-i18n="mealkits.refresh">Verversen</button>
+            <button class="icon-button" id="mealkits-refresh" type="button" aria-label="Verversen" title="Verversen" data-i18n-attr="aria-label:mealkits.refresh;title:mealkits.refresh"><svg viewBox="0 0 24 24" aria-hidden="true" data-mdi="mdiSync"><path d="M12,18A6,6 0 0,1 6,12C6,11 6.25,10.03 6.7,9.2L5.24,7.74C4.46,8.97 4,10.43 4,12A8,8 0 0,0 12,20V23L16,19L12,15M12,4V1L8,5L12,9V6A6,6 0 0,1 18,12C18,13 17.75,13.97 17.3,14.8L18.76,16.26C19.54,15.03 20,13.57 20,12A8,8 0 0,0 12,4Z"/></svg></button>
+            <button class="button button--secondary week-today" id="mealkits-this-week" type="button" data-i18n="mealkits.this_week" hidden>Deze week</button>
           </div>
           <form class="form-row" id="mealkits-search-form">
             <label class="searchbar">
@@ -671,7 +769,10 @@
             <span id="basket-store-slot"></span>
             <button class="icon-button" id="basket-refresh" type="button" aria-label="Vernieuwen" title="Vernieuwen" data-i18n-attr="aria-label:basket.refresh;title:basket.refresh"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12,18A6,6 0 0,1 6,12C6,11 6.25,10.03 6.7,9.2L5.24,7.74C4.46,8.97 4,10.43 4,12A8,8 0 0,0 12,20V23L16,19L12,15M12,4V1L8,5L12,9V6A6,6 0 0,1 18,12C18,13 17.75,13.97 17.3,14.8L18.76,16.26C19.54,15.03 20,13.57 20,12A8,8 0 0,0 12,4Z"/></svg></button>
           </div>
-          <p class="muted" id="basket-intro"></p>
+          <details class="help" id="basket-help">
+            <summary data-i18n="common.help">Hoe werkt dit?</summary>
+            <p class="muted" id="basket-intro"></p>
+          </details>
           <div id="basket-message"></div>
           <div id="basket-content"></div>
         </div>
@@ -683,7 +784,7 @@
             <button class="subtab subtab-menu__toggle subtab-menu__toggle--select" id="offers-store-toggle" type="button" aria-haspopup="true" aria-expanded="false" aria-controls="offers-store-list" aria-label="Supermarkt" data-i18n-attr="aria-label:cart.store"><span id="offers-store-name">Albert Heijn</span><svg class="subtab-menu__chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="M7.41,8.58L12,13.17L16.59,8.58L18,10L12,16L6,10L7.41,8.58Z"/></svg></button>
             <div class="subtab-menu__list" id="offers-store-list" hidden></div>
           </div>
-          <a class="subtab is-active" data-subtab="offers-items" data-i18n="offers.tab.offers" href="/offers" data-nav>Aanbiedingen</a>
+          <a class="subtab is-active" data-subtab="offers-items" data-i18n="offers.tab.offers" href="/offers" data-nav>Overzicht</a>
           <a class="subtab" data-subtab="offers-suggestions" data-i18n="offers.tab.recipes"{% if not offers_recipes_visible %} hidden{% endif %} href="/offers/recipes" data-nav>Recepten</a>
           <a class="subtab" data-subtab="offers-history" data-i18n="offers.tab.history" href="/offers/history" data-nav>Prijsgeschiedenis</a>
         </nav>
@@ -691,46 +792,87 @@
         <div class="box box--wide">
           <h2 data-i18n="offers.title">Aanbiedingen</h2>
           <div class="toolbar offers-week" role="group" aria-label="Week van de aanbiedingen" data-i18n-attr="aria-label:offers.week.label">
-            <button class="icon-button" type="button" data-offers-week="-1" aria-label="Vorige week" data-i18n-attr="aria-label:plan.prev_week">&lsaquo;</button>
+            <button class="icon-button" type="button" data-offers-week="-1" aria-label="Vorige week" data-i18n-attr="aria-label:plan.prev_week"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15.41,16.58L10.83,12L15.41,7.41L14,6L8,12L14,18L15.41,16.58Z"/></svg></button>
             <div class="week-label">
               <strong class="offers-week__range"></strong>
               <span class="offers-week__offset"></span>
             </div>
-            <button class="icon-button" type="button" data-offers-week="1" aria-label="Volgende week" data-i18n-attr="aria-label:plan.next_week">&rsaquo;</button>
+            <button class="icon-button" type="button" data-offers-week="1" aria-label="Volgende week" data-i18n-attr="aria-label:plan.next_week"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8.59,16.58L13.17,12L8.59,7.41L10,6L16,12L10,18L8.59,16.58Z"/></svg></button>
+            <button class="button button--secondary week-today" type="button" data-offers-week-today data-i18n="week.this" hidden>Deze week</button>
           </div>
           <p class="offers-period" id="offers-period" hidden></p>
           <p class="muted" id="offers-status"></p>
+          <p class="muted offers-note" id="offers-note" hidden></p>
           <p class="muted offers-later" id="offers-later" hidden><span id="offers-later-text"></span> <button class="link-button link-button--inline" id="offers-later-show" type="button" data-i18n="offers.later.show">Bekijk de week erna</button></p>
           <div id="offers-message"></div>
+          <div class="offers-layout">
+          <aside class="offers-filters" id="offers-filters" aria-label="Filters" data-i18n-attr="aria-label:offers.filters.title">
+            <div class="offers-filters__head">
+              <h3 data-i18n="offers.filters.title">Filters</h3>
+              <button class="icon-button offers-filters__close" id="offers-filters-close" type="button" aria-label="Sluiten" data-i18n-attr="aria-label:common.close">&times;</button>
+            </div>
+            <section class="offers-filters__section">
+              <h4 data-i18n="offers.filters.brand">Merk</h4>
+              <div class="offer-cats offer-cats--filters" id="offers-filter-brands"></div>
+              <button class="link-button" id="offers-filter-brands-more" type="button" hidden></button>
+            </section>
+            <section class="offers-filters__section">
+              <label class="ohc-filter"><input type="checkbox" id="offers-filter-bought" role="switch"><span data-i18n="offers.filters.bought">Eerder gekocht</span></label>
+              <label class="ohc-filter"><input type="checkbox" id="offers-filter-year-low" role="switch"><span data-i18n="offers.filters.year_low">Laagste prijs in een jaar</span></label>
+              <label class="ohc-filter"><input type="checkbox" id="offers-filter-rare" role="switch"><span data-i18n="offers.filters.rare">Zelden in de aanbieding</span></label>
+            </section>
+            <section class="offers-filters__section offers-filters__field">
+              <label for="offers-filter-discount" data-i18n="offers.filters.min_discount">Minimale korting</label>
+              <div class="offers-filters__range"><input type="range" id="offers-filter-discount" min="0" max="75" step="5" value="0"><output id="offers-filter-discount-out" for="offers-filter-discount"></output></div>
+            </section>
+            <section class="offers-filters__section offers-filters__field">
+              <label for="offers-filter-unit-price" data-i18n="offers.filters.max_unit">Prijs per eenheid, hooguit</label>
+              <div class="offers-filters__unit"><input class="input" type="number" id="offers-filter-unit-price" min="0" step="0.5" inputmode="decimal" placeholder="10"><select class="input" id="offers-filter-unit" aria-label="Eenheid" data-i18n-attr="aria-label:offers.filters.unit"></select></div>
+            </section>
+            <section class="offers-filters__section">
+              <h4 data-i18n="offers.filters.store">Winkel</h4>
+              <div class="offers-personal" id="offers-personal" hidden>
+                <label class="ohc-filter">
+                  <input type="checkbox" id="offers-personal-only" role="switch">
+                  <span id="offers-personal-label" data-i18n="offers.personal.switch">Alleen Bonus Box</span>
+                </label>
+                <span class="muted offers-personal__note" id="offers-personal-note"></span>
+              </div>
+              <label class="ohc-filter">
+                <input type="checkbox" id="offers-good-only" role="switch">
+                <span data-i18n="offers.good_only">Alleen echt voordelig</span>
+              </label>
+            </section>
+            <button class="button button--secondary offers-filters__clear" id="offers-filters-clear" type="button" data-i18n="offers.filters.clear">Alles wissen</button>
+          </aside>
+          <div class="offers-filters__backdrop" id="offers-filters-backdrop" hidden></div>
+          <div class="offers-main">
           <div class="offers-tools">
             <input class="input offers-tools__search" id="offers-search" type="search" autocomplete="off" placeholder="Zoek in de aanbiedingen" aria-label="Zoek in de aanbiedingen" data-i18n-attr="placeholder:offers.search;aria-label:offers.search">
-            <div class="offers-personal" id="offers-personal" hidden>
-              <label class="ohc-filter">
-                <input type="checkbox" id="offers-personal-only" role="switch">
-                <span id="offers-personal-label" data-i18n="offers.personal.switch">Alleen Bonus Box</span>
-              </label>
-              <span class="muted offers-personal__note" id="offers-personal-note"></span>
-            </div>
-            <label class="ohc-filter">
-              <input type="checkbox" id="offers-good-only" role="switch">
-              <span data-i18n="offers.good_only">Alleen echt voordelig</span>
+            <button class="offer-chip offers-filters__toggle" id="offers-filters-toggle" type="button" aria-expanded="false" aria-controls="offers-filters"><span data-i18n="offers.filters.title">Filters</span><span id="offers-filters-count"></span></button>
+            <label class="offers-sort">
+              <span data-i18n="offers.sort.label">Sorteren</span>
+              <select id="offers-sort" class="input">
+                <option value="best" data-i18n="offers.sort.best">Beste eerst</option>
+                <option value="store" data-i18n="offers.sort.store">Winkelvolgorde</option>
+                <option value="discount" data-i18n="offers.sort.discount">Hoogste korting</option>
+                <option value="unit" data-i18n="offers.sort.unit">Laagste prijs per eenheid</option>
+                <option value="lowest" data-i18n="offers.sort.lowest">Laagste ooit eerst</option>
+              </select>
             </label>
-            <div id="offers-sort" class="offer-cats offer-cats--sort" role="group" aria-label="Sorteren" data-i18n-attr="aria-label:offers.sort.label">
-              <button class="offer-chip is-active" type="button" data-sort="store" aria-pressed="true" data-i18n="offers.sort.store">Winkelvolgorde</button>
-              <button class="offer-chip" type="button" data-sort="discount" aria-pressed="false" data-i18n="offers.sort.discount">Hoogste korting</button>
-              <button class="offer-chip" type="button" data-sort="unit" aria-pressed="false" data-i18n="offers.sort.unit">Laagste prijs per eenheid</button>
-              <button class="offer-chip" type="button" data-sort="lowest" aria-pressed="false" data-i18n="offers.sort.lowest">Laagste ooit eerst</button>
-            </div>
-            <div id="offers-view" class="segment-control" role="group" aria-label="Weergave" data-i18n-attr="aria-label:offers.view.label">
-              <button class="segment-control__button" type="button" data-view="cards" aria-pressed="true" title="Kaarten" aria-label="Kaarten" data-i18n-attr="title:offers.view.cards;aria-label:offers.view.cards"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 11H11V3H3M5 5H9V9H5M13 21H21V13H13M15 15H19V19H15M3 21H11V13H3M5 15H9V19H5M13 3V11H21V3M19 9H15V5H19Z"/></svg></button>
-              <button class="segment-control__button" type="button" data-view="compact" aria-pressed="false" title="Compact" aria-label="Compact" data-i18n-attr="title:offers.view.compact;aria-label:offers.view.compact"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 5V19H20V5H3M7 7V9H5V7H7M5 13V11H7V13H5M5 15H7V17H5V15M18 17H9V15H18V17M18 13H9V11H18V13M18 9H9V7H18V9Z"/></svg></button>
+            <div id="offers-view" class="segmented" role="group" aria-label="Weergave" data-i18n-attr="aria-label:offers.view.label">
+              <button class="segmented__item segmented__item--icon" type="button" data-view="cards" aria-pressed="true" title="Kaarten" aria-label="Kaarten" data-i18n-attr="title:offers.view.cards;aria-label:offers.view.cards"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 11H11V3H3M5 5H9V9H5M13 21H21V13H13M15 15H19V19H15M3 21H11V13H3M5 15H9V19H5M13 3V11H21V3M19 9H15V5H19Z"/></svg></button>
+              <button class="segmented__item segmented__item--icon" type="button" data-view="compact" aria-pressed="false" title="Compact" aria-label="Compact" data-i18n-attr="title:offers.view.compact;aria-label:offers.view.compact"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 5V19H20V5H3M7 7V9H5V7H7M5 13V11H7V13H5M5 15H7V17H5V15M18 17H9V15H18V17M18 13H9V11H18V13M18 9H9V7H18V9Z"/></svg></button>
             </div>
           </div>
-          <div id="offers-categories" class="offer-cats" role="group" aria-label="Categorieën" data-i18n-attr="aria-label:offers.categories"></div>
+          <div id="offers-categories" class="offer-cats offer-cats--scroll" role="group" aria-label="Categorieën" data-i18n-attr="aria-label:offers.categories"></div>
+          <div id="offers-active-filters" class="offer-cats offer-cats--active-filters" role="group" aria-label="Actieve filters" data-i18n-attr="aria-label:offers.filters.active" hidden></div>
           <div id="offers-loading" class="offers-loading" role="status" aria-live="polite" hidden></div>
           <div id="offers-products" class="product-grid product-grid--offers"></div>
-          <div id="offer-zoom" class="offer-zoom" hidden aria-hidden="true"></div>
+          <div id="offer-popup" class="offer-popup" hidden></div>
           <p><button class="button button--secondary" id="offers-more" type="button" hidden data-i18n="offers.more">Meer</button></p>
+          </div>
+          </div>
         </div>
         </div>
         <div id="offers-suggestions" class="subpanel">
@@ -740,12 +882,13 @@
             <button class="button button--secondary" id="offers-index" type="button" data-i18n="offers.recipes.index">Recepten inlezen</button>
           </div>
           <div class="toolbar offers-week" role="group" aria-label="Week van de aanbiedingen" data-i18n-attr="aria-label:offers.week.label">
-            <button class="icon-button" type="button" data-offers-week="-1" aria-label="Vorige week" data-i18n-attr="aria-label:plan.prev_week">&lsaquo;</button>
+            <button class="icon-button" type="button" data-offers-week="-1" aria-label="Vorige week" data-i18n-attr="aria-label:plan.prev_week"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15.41,16.58L10.83,12L15.41,7.41L14,6L8,12L14,18L15.41,16.58Z"/></svg></button>
             <div class="week-label">
               <strong class="offers-week__range"></strong>
               <span class="offers-week__offset"></span>
             </div>
-            <button class="icon-button" type="button" data-offers-week="1" aria-label="Volgende week" data-i18n-attr="aria-label:plan.next_week">&rsaquo;</button>
+            <button class="icon-button" type="button" data-offers-week="1" aria-label="Volgende week" data-i18n-attr="aria-label:plan.next_week"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8.59,16.58L13.17,12L8.59,7.41L10,6L16,12L10,18L8.59,16.58Z"/></svg></button>
+            <button class="button button--secondary week-today" type="button" data-offers-week-today data-i18n="week.this" hidden>Deze week</button>
           </div>
           <h3 id="offers-recipes-heading"></h3>
           <p class="muted" data-i18n="offers.recipes.explain">Basisingrediënten als zout, olie, boter en bloem tellen niet mee. De recepten met de meeste ingrediënten in de aanbieding staan bovenaan.</p>
@@ -762,7 +905,11 @@
         <div id="offers-history" class="subpanel">
         <div class="box box--wide">
           <h2 data-i18n="offers.history.title">Prijsgeschiedenis</h2>
-          <p class="muted" data-i18n="offers.history.explain">Zoek een product om te zien wanneer het in de aanbieding was en voor welke prijs, wat het normaal kost en wat je ervoor betaalde. De aanbiedingen lopen vanaf de eerste synchronisatie; je bestellingen en kassabonnen tellen mee zodra de app ze heeft opgehaald.</p>
+          <p class="muted" data-i18n="offers.history.explain">Zoek een product om te zien wanneer het in de aanbieding was en voor welke prijs.</p>
+          <details class="help">
+            <summary data-i18n="common.help">Hoe werkt dit?</summary>
+            <p class="muted" data-i18n="offers.history.explain_more">Je ziet ook wat het normaal kost en wat je ervoor betaalde. De aanbiedingen lopen vanaf de eerste synchronisatie; je bestellingen en kassabonnen tellen mee zodra de app ze heeft opgehaald.</p>
+          </details>
           <form id="offers-history-form" role="search">
             <label class="searchbar">
               <span class="visually-hidden" data-i18n="offers.history.search">Zoek een product</span>
@@ -807,6 +954,7 @@
             <div class="subtab-menu__list" id="items-store-list" hidden></div>
           </div>
           <a class="subtab is-active" data-subtab="ah-items-recepten" data-i18n="ah.tab.recipes" href="/stores/ah/recipes" data-nav>Recepten</a>
+          <a class="subtab" data-subtab="ah-items-weekplanner" data-i18n="ah.tab.planner" href="/stores/ah/planner" data-nav>Weekplanner</a>
           <a class="subtab" data-subtab="ah-items-jumbo-recepten" hidden data-i18n="jumbo.favorites.tab" href="/stores/jumbo/recipes" data-nav>Recepten</a>
           <a class="subtab" data-subtab="ah-items-lijstjes" data-i18n="ah.tab.lists" href="/stores/ah/lists" data-nav>Lijstjes</a>
           <a class="subtab" data-subtab="ah-items-bestellingen" data-i18n="ah.tab.orders" href="/stores/ah/orders" data-nav>Bestellingen</a>
@@ -830,7 +978,7 @@
             <svg class="searchbar__icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M9.5,3A6.5,6.5 0 0,1 16,9.5C16,11.11 15.41,12.59 14.44,13.73L14.71,14H15.5L20.5,19L19,20.5L14,15.5V14.71L13.73,14.44C12.59,15.41 11.11,16 9.5,16A6.5,6.5 0 0,1 3,9.5A6.5,6.5 0 0,1 9.5,3M9.5,5C7,5 5,7 5,9.5C5,12 7,14 9.5,14C12,14 14,12 14,9.5C14,7 12,5 9.5,5Z"/></svg>
             <input class="input" id="ah-recipe-filter" type="search" placeholder="Zoek in je recepten" autocomplete="off" enterkeyhint="search" disabled data-i18n-attr="placeholder:ah.recipes.search_ph">
           </label>
-          <p class="muted" id="ah-recipes-status">Je bewaarde Allerhande-recepten worden bij AH opgehaald en daarna in MealieShopper bewaard. Dit gebruikt je AH-koppeling onder Instellingen &gt; Koppelen &gt; Albert Heijn.</p>
+          <p class="muted" id="ah-recipes-status">Je bewaarde Allerhande-recepten: opgehaald bij AH via je koppeling en daarna bewaard in MealieShopper.</p>
           <div class="bulk-tools" data-bulk-tools="ah" hidden>
             <button class="button button--secondary" type="button" data-bulk-select="ah" aria-pressed="false" hidden data-i18n="bulk.select">Selecteren</button>
             <button class="button button--secondary" type="button" data-bulk-group="ah" hidden></button>
@@ -856,6 +1004,33 @@
         </div>
         </div>
 
+        <div id="ah-items-weekplanner" class="subpanel">
+        <div class="box box--wide ah-planner" id="ah-planner-view">
+          <div class="toolbar">
+            <h2 data-i18n="ah.planner.title">Weekplanner uit de AH-app</h2>
+            <button class="button button--secondary" id="load-ah-planner" type="button" data-i18n="ah.planner.refresh">Ophalen bij AH</button>
+            <button class="button" id="ah-planner-to-meal-plan" type="button" disabled data-i18n="ah.planner.to_meal_plan">Naar weekmenu</button>
+          </div>
+          <p class="muted" id="ah-planner-intro" data-i18n="ah.planner.intro">Wat je in de weekplanner van de AH-app hebt gepland, vanaf vandaag. Plannen doe je in de AH-app.</p>
+          <details class="help">
+            <summary data-i18n="common.help">Hoe werkt dit?</summary>
+            <p class="muted" data-i18n="ah.planner.intro_more">Naar weekmenu zet alles op dezelfde dag in het weekmenu: Allerhande-recepten (zo nodig eerst geïmporteerd in Mealie) en losse producten, als het recept met die naam in Mealie, als eigen recept of samen als menu. Eigen AH-recepten gaan niet mee.</p>
+            <p class="muted ah-planner__settings"><a href="/settings/preferences" data-route data-i18n="ah.planner.settings_link">Hoe losse producten meegaan, stel je in bij Voorkeuren, Supermarkt.</a></p>
+          </details>
+          <p class="muted" id="ah-planner-status" role="status" aria-live="polite"></p>
+          <div id="ah-planner-message"></div>
+          <div id="ah-planner-days" class="day-grid"></div>
+        </div>
+        <div class="box box--wide" id="ah-planner-recipe-view" hidden>
+          <div class="list-header">
+            <button class="icon-button" id="ah-planner-recipe-back" type="button" aria-label="Terug naar de weekplanner" data-i18n-attr="aria-label:ah.planner.back"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15.41,16.58L10.83,12L15.41,7.41L14,6L8,12L14,18L15.41,16.58Z"/></svg></button>
+            <h2 id="ah-planner-recipe-title" tabindex="-1"></h2>
+          </div>
+          <div id="ah-planner-recipe-message"></div>
+          <div id="ah-planner-recipe-body"></div>
+        </div>
+        </div>
+
         <div id="ah-items-lijstjes" class="subpanel">
         <div class="box box--wide" id="ah-lists-view">
           <div class="toolbar">
@@ -868,7 +1043,11 @@
             <svg class="searchbar__icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M9.5,3A6.5,6.5 0 0,1 16,9.5C16,11.11 15.41,12.59 14.44,13.73L14.71,14H15.5L20.5,19L19,20.5L14,15.5V14.71L13.73,14.44C12.59,15.41 11.11,16 9.5,16A6.5,6.5 0 0,1 3,9.5A6.5,6.5 0 0,1 9.5,3M9.5,5C7,5 5,7 5,9.5C5,12 7,14 9.5,14C12,14 14,12 14,9.5C14,7 12,5 9.5,5Z"/></svg>
             <input class="input" id="ah-list-filter" type="search" placeholder="Zoek in je lijstjes" autocomplete="off" enterkeyhint="search" data-i18n-attr="placeholder:ah.lists.search_ph">
           </label>
-          <p class="muted" data-i18n="ah.lists.intro">Synchroniseer een lijstje om er een kopie van in MealieShopper te bewaren. Die kopie blijft zichtbaar als de koppeling met de winkel niet werkt. Zoeken kijkt naar de naam van het lijstje en naar de producten in gesynchroniseerde lijstjes.</p>
+          <p class="muted" data-i18n="ah.lists.intro">Synchroniseer een lijstje om er een kopie van in MealieShopper te bewaren.</p>
+          <details class="help">
+            <summary data-i18n="common.help">Hoe werkt dit?</summary>
+            <p class="muted" data-i18n="ah.lists.intro_more">Die kopie blijft zichtbaar als de koppeling met de winkel niet werkt. Zoeken kijkt naar de naam van het lijstje en naar de producten in gesynchroniseerde lijstjes.</p>
+          </details>
           <div id="ah-lists-warning"></div>
           <div id="ah-lists" class="list-grid"></div>
         </div>
@@ -895,8 +1074,13 @@
             <button class="icon-button" id="sync-orders" type="button" aria-label="Synchroniseren" title="Synchroniseren" data-i18n-attr="aria-label:common.sync;title:common.sync"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12,18A6,6 0 0,1 6,12C6,11 6.25,10.03 6.7,9.2L5.24,7.74C4.46,8.97 4,10.43 4,12A8,8 0 0,0 12,20V23L16,19L12,15M12,4V1L8,5L12,9V6A6,6 0 0,1 18,12C18,13 17.75,13.97 17.3,14.8L18.76,16.26C19.54,15.03 20,13.57 20,12A8,8 0 0,0 12,4Z"/></svg></button>
             <button class="button button--secondary orders-import" id="orders-import" type="button" data-admin-only><svg class="mdi" viewBox="0 0 24 24" aria-hidden="true" data-mdi="mdiArchiveOutline"><path d="M20 21H4V10H6V19H18V10H20V21M3 3H21V9H3V3M9.5 11H14.5C14.78 11 15 11.22 15 11.5V13H9V11.5C9 11.22 9.22 11 9.5 11M5 5V7H19V5H5Z"/></svg><span data-i18n="offers.import.open">Oude aankopen importeren</span></button>
           </div>
-          <p class="muted" id="ah-orders-intro" data-i18n="orders.intro">Je aankomende en afgelopen bestellingen bij Albert Heijn en je kassabonnen uit de winkel. Ze worden bewaard in MealieShopper, dus je kunt ze ook zonder verbinding met AH bekijken. Synchroniseren haalt alleen nieuwe gegevens op.</p>
-          <p class="muted" id="jumbo-orders-intro" hidden data-i18n="orders.intro_jumbo">Je Jumbo-bestellingen met de producten. Ze worden bewaard in MealieShopper, dus je kunt ze ook zonder verbinding met Jumbo bekijken. Synchroniseren haalt de lijst en de producten van de nieuwste bestellingen op; herhaal het tot alles binnen is.</p>
+          <p class="muted" id="ah-orders-intro" data-i18n="orders.intro">Je bestellingen bij Albert Heijn en je kassabonnen uit de winkel.</p>
+          <p class="muted" id="jumbo-orders-intro" hidden data-i18n="orders.intro_jumbo">Je Jumbo-bestellingen met de producten.</p>
+          <details class="help">
+            <summary data-i18n="common.help">Hoe werkt dit?</summary>
+            <p class="muted" id="ah-orders-intro-more" data-i18n="orders.intro_more">Ze worden bewaard in MealieShopper, dus je kunt ze ook zonder verbinding met AH bekijken. Synchroniseren haalt alleen nieuwe gegevens op.</p>
+            <p class="muted" id="jumbo-orders-intro-more" hidden data-i18n="orders.intro_jumbo_more">Ze worden bewaard in MealieShopper, dus je kunt ze ook zonder verbinding met Jumbo bekijken. Synchroniseren haalt de lijst en de producten van de nieuwste bestellingen op; herhaal het tot alles binnen is.</p>
+          </details>
           <label class="searchbar">
             <span class="visually-hidden" data-i18n="orders.search">Zoek in je aankopen</span>
             <svg class="searchbar__icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M9.5,3A6.5,6.5 0 0,1 16,9.5C16,11.11 15.41,12.59 14.44,13.73L14.71,14H15.5L20.5,19L19,20.5L14,15.5V14.71L13.73,14.44C12.59,15.41 11.11,16 9.5,16A6.5,6.5 0 0,1 3,9.5A6.5,6.5 0 0,1 9.5,3M9.5,5C7,5 5,7 5,9.5C5,12 7,14 9.5,14C12,14 14,12 14,9.5C14,7 12,5 9.5,5Z"/></svg>
@@ -970,7 +1154,11 @@
             <svg class="searchbar__icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M9.5,3A6.5,6.5 0 0,1 16,9.5C16,11.11 15.41,12.59 14.44,13.73L14.71,14H15.5L20.5,19L19,20.5L14,15.5V14.71L13.73,14.44C12.59,15.41 11.11,16 9.5,16A6.5,6.5 0 0,1 3,9.5A6.5,6.5 0 0,1 9.5,3M9.5,5C7,5 5,7 5,9.5C5,12 7,14 9.5,14C12,14 14,12 14,9.5C14,7 12,5 9.5,5Z"/></svg>
             <input class="input" id="picnic-recipe-filter" type="search" placeholder="Zoek in de recepten" autocomplete="off" enterkeyhint="search" disabled data-i18n-attr="placeholder:picnic.recipes.search">
           </label>
-          <p class="muted" data-i18n="picnic.recipes.intro">Je recepten uit de Picnic-app: Koken > Bewaard, Opnieuw bestellen en het kookboek. Bekijk een recept voor de ingrediënten en de bereiding, of plan het in je weekmenu; dan komt het ook in Mealie.</p>
+          <p class="muted" data-i18n="picnic.recipes.intro">Je recepten uit de Picnic-app: Koken > Bewaard, Opnieuw bestellen en het kookboek.</p>
+          <details class="help">
+            <summary data-i18n="common.help">Hoe werkt dit?</summary>
+            <p class="muted" data-i18n="recipes.plan_note">Bekijk een recept voor de ingrediënten en de bereiding, of plan het in je weekmenu; dan komt het ook in Mealie.</p>
+          </details>
           <p class="muted" id="picnic-recipes-status"></p>
           <div id="picnic-recipes-message"></div>
           <div id="picnic-recipes" class="recipe-grid recipe-grid--compact"></div>
@@ -996,7 +1184,11 @@
             <svg class="searchbar__icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M9.5,3A6.5,6.5 0 0,1 16,9.5C16,11.11 15.41,12.59 14.44,13.73L14.71,14H15.5L20.5,19L19,20.5L14,15.5V14.71L13.73,14.44C12.59,15.41 11.11,16 9.5,16A6.5,6.5 0 0,1 3,9.5A6.5,6.5 0 0,1 9.5,3M9.5,5C7,5 5,7 5,9.5C5,12 7,14 9.5,14C12,14 14,12 14,9.5C14,7 12,5 9.5,5Z"/></svg>
             <input class="input" id="picnic-favorite-filter" type="search" placeholder="Zoek in je favorieten" autocomplete="off" enterkeyhint="search" disabled data-i18n-attr="placeholder:picnic.favorites.search">
           </label>
-          <p class="muted" data-i18n="picnic.favorites.intro">Alleen de producten die je zelf als favoriet hebt opgeslagen in de Picnic-app. Met de knop zet je er één in je Picnic-mandje; bestellen doe je in de Picnic-app.</p>
+          <p class="muted" data-i18n="picnic.favorites.intro">De producten die je als favoriet hebt opgeslagen in de Picnic-app.</p>
+          <details class="help">
+            <summary data-i18n="common.help">Hoe werkt dit?</summary>
+            <p class="muted" data-i18n="picnic.favorites.intro_more">Met de knop zet je er één in je Picnic-mandje; bestellen doe je in de Picnic-app.</p>
+          </details>
           <p class="muted" id="picnic-favorites-status"></p>
           <div id="picnic-favorites-message"></div>
           <div id="picnic-favorites" class="product-grid"></div>
@@ -1010,7 +1202,12 @@
             <select id="jumbo-recipe-list" class="store-select" hidden aria-label="Lijst" data-i18n-attr="aria-label:jumbo.favorites.list"></select>
             <button class="button button--secondary" id="load-jumbo-favorites" type="button" data-i18n="common.load">Laden</button>
           </div>
-          <p class="muted" data-i18n="jumbo.favorites.intro">Je receptenlijsten op jumbo.com: Favorieten en je eigen lijstjes. Bekijk een recept voor de ingrediënten en de bereiding, of plan het in je weekmenu; dan komt het ook in Mealie. Zoeken in alle Jumbo-recepten doe je bij Recepten zoeken.</p>
+          <p class="muted" data-i18n="jumbo.favorites.intro">Je receptenlijsten op jumbo.com: Favorieten en je eigen lijstjes.</p>
+          <details class="help">
+            <summary data-i18n="common.help">Hoe werkt dit?</summary>
+            <p class="muted" data-i18n="recipes.plan_note">Bekijk een recept voor de ingrediënten en de bereiding, of plan het in je weekmenu; dan komt het ook in Mealie.</p>
+            <p class="muted" data-i18n="jumbo.favorites.intro_more">Zoeken in alle Jumbo-recepten doe je bij Recepten zoeken.</p>
+          </details>
           <p class="muted" id="jumbo-favorites-status"></p>
           <div class="bulk-tools" data-bulk-tools="jumbo" hidden>
             <button class="button button--secondary" type="button" data-bulk-select="jumbo" aria-pressed="false" hidden data-i18n="bulk.select">Selecteren</button>
@@ -1045,7 +1242,11 @@
             <button class="button button--secondary" id="sync-picnic-orders" type="button" data-i18n="common.sync">Synchroniseren</button>
             <button class="button button--secondary orders-import" id="picnic-orders-import" type="button" data-admin-only><svg class="mdi" viewBox="0 0 24 24" aria-hidden="true" data-mdi="mdiArchiveOutline"><path d="M20 21H4V10H6V19H18V10H20V21M3 3H21V9H3V3M9.5 11H14.5C14.78 11 15 11.22 15 11.5V13H9V11.5C9 11.22 9.22 11 9.5 11M5 5V7H19V5H5Z"/></svg><span data-i18n="offers.import.open">Oude aankopen importeren</span></button>
           </div>
-          <p class="muted" data-i18n="picnic.orders.intro">Je aankomende bezorgingen bij Picnic (live opgehaald) en je afgeleverde bestellingen. Die laatste bewaart MealieShopper lokaal, dus ze blijven te bekijken zonder verbinding met Picnic; Synchroniseren haalt alleen nieuwe gegevens op. Open een bestelling voor de producten en zet ze met één knop opnieuw in je Picnic-mandje; bestellen doe je in de Picnic-app.</p>
+          <p class="muted" data-i18n="picnic.orders.intro">Je aankomende bezorgingen en je afgeleverde bestellingen bij Picnic.</p>
+          <details class="help">
+            <summary data-i18n="common.help">Hoe werkt dit?</summary>
+            <p class="muted" data-i18n="picnic.orders.intro_more">Aankomende bezorgingen worden live opgehaald. Afgeleverde bestellingen bewaart MealieShopper lokaal, dus ze blijven te bekijken zonder verbinding met Picnic; Synchroniseren haalt alleen nieuwe gegevens op. Open een bestelling voor de producten en zet ze met één knop opnieuw in je Picnic-mandje; bestellen doe je in de Picnic-app.</p>
+          </details>
           <p class="muted" id="picnic-orders-synced"></p>
           <div id="picnic-orders-message"></div>
           <h3 data-i18n="picnic.orders.upcoming">Aankomend</h3>
@@ -1076,7 +1277,12 @@
             <svg class="searchbar__icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M9.5,3A6.5,6.5 0 0,1 16,9.5C16,11.11 15.41,12.59 14.44,13.73L14.71,14H15.5L20.5,19L19,20.5L14,15.5V14.71L13.73,14.44C12.59,15.41 11.11,16 9.5,16A6.5,6.5 0 0,1 3,9.5A6.5,6.5 0 0,1 9.5,3M9.5,5C7,5 5,7 5,9.5C5,12 7,14 9.5,14C12,14 14,12 14,9.5C14,7 12,5 9.5,5Z"/></svg>
             <input class="input" id="crisp-recipe-filter" type="search" placeholder="Zoek in de recepten" autocomplete="off" enterkeyhint="search" disabled data-i18n-attr="placeholder:picnic.recipes.search">
           </label>
-          <p class="muted" data-i18n="crisp.recipes.intro">Je favoriete recepten uit de Crisp-app (het hartje bij een recept). Bekijk een recept voor de ingrediënten en de bereiding, of plan het in je weekmenu; dan komt het ook in Mealie. Zoeken in alle Crisp-recepten doe je bij Recepten zoeken.</p>
+          <p class="muted" data-i18n="crisp.recipes.intro">Je favoriete recepten uit de Crisp-app (het hartje bij een recept).</p>
+          <details class="help">
+            <summary data-i18n="common.help">Hoe werkt dit?</summary>
+            <p class="muted" data-i18n="recipes.plan_note">Bekijk een recept voor de ingrediënten en de bereiding, of plan het in je weekmenu; dan komt het ook in Mealie.</p>
+            <p class="muted" data-i18n="crisp.recipes.intro_more">Zoeken in alle Crisp-recepten doe je bij Recepten zoeken.</p>
+          </details>
           <p class="muted" id="crisp-recipes-status"></p>
           <div class="bulk-tools" data-bulk-tools="crisp" hidden>
             <button class="button button--secondary" type="button" data-bulk-select="crisp" aria-pressed="false" hidden data-i18n="bulk.select">Selecteren</button>
@@ -1114,7 +1320,11 @@
             <svg class="searchbar__icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M9.5,3A6.5,6.5 0 0,1 16,9.5C16,11.11 15.41,12.59 14.44,13.73L14.71,14H15.5L20.5,19L19,20.5L14,15.5V14.71L13.73,14.44C12.59,15.41 11.11,16 9.5,16A6.5,6.5 0 0,1 3,9.5A6.5,6.5 0 0,1 9.5,3M9.5,5C7,5 5,7 5,9.5C5,12 7,14 9.5,14C12,14 14,12 14,9.5C14,7 12,5 9.5,5Z"/></svg>
             <input class="input" id="crisp-favorite-filter" type="search" placeholder="Zoek in je favorieten" autocomplete="off" enterkeyhint="search" disabled data-i18n-attr="placeholder:picnic.favorites.search">
           </label>
-          <p class="muted" data-i18n="crisp.favorites.intro">De producten die je in de Crisp-app hebt bewaard (Door jou bewaard). Met de knop zet je er één in je Crisp-mandje; bestellen doe je in de Crisp-app.</p>
+          <p class="muted" data-i18n="crisp.favorites.intro">De producten die je in de Crisp-app hebt bewaard (Door jou bewaard).</p>
+          <details class="help">
+            <summary data-i18n="common.help">Hoe werkt dit?</summary>
+            <p class="muted" data-i18n="crisp.favorites.intro_more">Met de knop zet je er één in je Crisp-mandje; bestellen doe je in de Crisp-app.</p>
+          </details>
           <p class="muted" id="crisp-favorites-status"></p>
           <div id="crisp-favorites-message"></div>
           <div id="crisp-favorites" class="product-grid"></div>
@@ -1128,7 +1338,11 @@
             <button class="button button--secondary" id="sync-crisp-orders" type="button" data-i18n="common.sync">Synchroniseren</button>
             <button class="button button--secondary orders-import" id="crisp-orders-import" type="button" data-admin-only><svg class="mdi" viewBox="0 0 24 24" aria-hidden="true" data-mdi="mdiArchiveOutline"><path d="M20 21H4V10H6V19H18V10H20V21M3 3H21V9H3V3M9.5 11H14.5C14.78 11 15 11.22 15 11.5V13H9V11.5C9 11.22 9.22 11 9.5 11M5 5V7H19V5H5Z"/></svg><span data-i18n="offers.import.open">Oude aankopen importeren</span></button>
           </div>
-          <p class="muted" data-i18n="crisp.orders.intro">Je aankomende bestellingen bij Crisp (live opgehaald) en je bezorgde bestellingen. Die laatste bewaart MealieShopper lokaal, dus ze blijven te bekijken zonder verbinding met Crisp; Synchroniseren haalt alleen nieuwe gegevens op. Open een bestelling voor de producten en zet ze met één knop opnieuw in je Crisp-mandje; bestellen doe je in de Crisp-app.</p>
+          <p class="muted" data-i18n="crisp.orders.intro">Je aankomende en je bezorgde bestellingen bij Crisp.</p>
+          <details class="help">
+            <summary data-i18n="common.help">Hoe werkt dit?</summary>
+            <p class="muted" data-i18n="crisp.orders.intro_more">Aankomende bestellingen worden live opgehaald. Bezorgde bestellingen bewaart MealieShopper lokaal, dus ze blijven te bekijken zonder verbinding met Crisp; Synchroniseren haalt alleen nieuwe gegevens op. Open een bestelling voor de producten en zet ze met één knop opnieuw in je Crisp-mandje; bestellen doe je in de Crisp-app.</p>
+          </details>
           <p class="muted" id="crisp-orders-synced"></p>
           <div id="crisp-orders-message"></div>
           <h3 data-i18n="picnic.orders.upcoming">Aankomend</h3>
@@ -1150,6 +1364,7 @@
       </section>
 
       <section id="profile" class="panel">
+        <h2 class="page-title" data-i18n="user.profile">Profiel</h2>
         <nav class="subtabs" aria-label="Profiel" data-i18n-attr="aria-label:profile.nav">
           <a class="subtab is-active" data-subtab="profile-general" data-i18n="profile.tab.general" href="/profile" data-nav>Algemeen</a>
           <a class="subtab" data-subtab="profile-security" data-i18n="settings.tab.security" href="/profile/security" data-nav>Beveiliging</a>
@@ -1254,7 +1469,11 @@
         </div>
         <div class="box">
           <h2 data-i18n="ai.title">AI-assistenten koppelen</h2>
-          <p class="muted" data-i18n="ai.intro">Laat Claude, ChatGPT of Copilot je weekmenu, recepten en lijstjes bekijken, een maaltijd plannen en een recept in Mealie importeren. Je logt in met je eigen account en de assistent krijgt alleen jouw rechten.</p>
+          <p class="muted" data-i18n="ai.intro">Laat Claude, ChatGPT of Copilot je weekmenu, recepten en lijstjes gebruiken.</p>
+          <details class="help">
+            <summary data-i18n="common.help">Hoe werkt dit?</summary>
+            <p class="muted" data-i18n="ai.intro_more">De assistent kan een maaltijd plannen en een recept in Mealie importeren. Je logt in met je eigen account en de assistent krijgt alleen jouw rechten.</p>
+          </details>
           <div id="ai-message"></div>
           <div id="ai-body" hidden>
             <label class="field">
@@ -1283,6 +1502,7 @@
       </section>
 
       <section id="settings" class="panel">
+        <h2 class="page-title" data-i18n="user.settings">Instellingen</h2>
         <nav class="subtabs" aria-label="Instellingen" data-i18n-attr="aria-label:settings.nav">
           <a class="subtab is-active" data-subtab="settings-link" data-admin-only data-i18n="settings.tab.link" href="/settings" data-nav>Koppelen</a>
           <a class="subtab" data-subtab="settings-users" data-admin-only hidden data-i18n="settings.tab.users" href="/settings/users" data-nav>Gebruikers</a>
@@ -1307,7 +1527,11 @@
         <div class="box fold fold--compact" id="offers-sync-box">
           <h2 class="fold__title"><button type="button" class="fold__toggle" id="offers-sync-toggle" aria-expanded="true" aria-controls="offers-sync-body"><span data-i18n="offers.sync.title">Aanbiedingen</span><svg class="fold__chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="M7.41,8.58L12,13.17L16.59,8.58L18,10L12,16L6,10L7.41,8.58Z"/></svg></button></h2>
           <div class="fold__body" id="offers-sync-body">
-            <p class="muted" data-i18n="offers.sync.intro">MealieShopper haalt elke dag de aanbiedingen van Albert Heijn, Picnic, Jumbo en Crisp op (Picnic, Jumbo en Crisp zodra ze gekoppeld zijn). Met de knop haal je ze meteen op.</p>
+            <p class="muted" data-i18n="offers.sync.intro">MealieShopper haalt de aanbiedingen elke dag op; met de knop haal je ze meteen op.</p>
+            <details class="help">
+              <summary data-i18n="common.help">Hoe werkt dit?</summary>
+              <p class="muted" data-i18n="offers.sync.intro_more">Het gaat om Albert Heijn, Picnic, Jumbo, Crisp, Lidl en Aldi: Picnic, Jumbo en Crisp zodra ze gekoppeld zijn, Lidl en Aldi zonder koppeling.</p>
+            </details>
             <div class="toolbar">
               <button class="button" id="offers-sync-all" type="button" data-i18n="offers.sync.button">Aanbiedingen synchroniseren</button>
             </div>
@@ -1319,8 +1543,13 @@
         <div class="box fold fold--compact" id="ai-login-box">
           <h2 class="fold__title"><button type="button" class="fold__toggle" id="ai-login-toggle" aria-expanded="false" aria-controls="ai-login-body"><span data-i18n="aireview.title">AI-beoordeling van koppelingen</span><svg class="fold__chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="M7.41,8.58L12,13.17L16.59,8.58L18,10L12,16L6,10L7.41,8.58Z"/></svg></button></h2>
           <div class="fold__body" id="ai-login-body" hidden>
-            <p class="muted" data-i18n="aireview.intro">Heb je een API-sleutel van Claude (Anthropic) of ChatGPT (OpenAI), dan kan een AI recepten zoeken bij de producten in de aanbieding van een winkel. Je start dat zelf met de knop Recepten zoeken met AI bij de receptvoorstellen: de AI koppelt de ingrediënten van je recepten (Mealie, Albert Heijn, Jumbo, Picnic en Crisp) aan producten uit de aanbieding. Die koppelingen vervangen de koppelingen van MealieShopper voor de recepten die de AI doorzocht heeft. Het is helemaal optioneel: zonder sleutel werkt alles zoals eerst.</p>
-            <p class="muted" data-i18n="aireview.privacy">Er gaat alleen tekst van producten uit de aanbieding en van ingrediënten naar de aanbieder (geen recepttitels, namen of adressen), en alleen als je zelf op de knop drukt. Een ronde doorzoekt maximaal 120 recepten en kost geld bij de aanbieder; je ziet vooraf een schatting en na afloop het aantal gebruikte tokens. De sleutel wordt versleuteld opgeslagen en nooit meer getoond.</p>
+            <p class="muted" data-i18n="aireview.intro">Met een API-sleutel van Claude (Anthropic) of ChatGPT (OpenAI) zoekt een AI recepten bij de aanbiedingen van een winkel. Helemaal optioneel.</p>
+            <p class="muted" data-i18n="aireview.privacy">Er gaat alleen tekst van producten en ingrediënten naar de aanbieder, alleen als je zelf op de knop drukt, en een ronde kost geld.</p>
+            <details class="help">
+              <summary data-i18n="common.help">Hoe werkt dit?</summary>
+              <p class="muted" data-i18n="aireview.intro_more">Je start het zelf met de knop Recepten zoeken met AI bij de receptvoorstellen: de AI koppelt de ingrediënten van je recepten (Mealie, Albert Heijn, Jumbo, Picnic en Crisp) aan producten uit de aanbieding. Die koppelingen vervangen de koppelingen van MealieShopper voor de recepten die de AI doorzocht heeft. Zonder sleutel werkt alles zoals eerst.</p>
+              <p class="muted" data-i18n="aireview.privacy_more">Er gaan geen recepttitels, namen of adressen mee. Een ronde doorzoekt maximaal 120 recepten; je ziet vooraf een schatting en na afloop het aantal gebruikte tokens. De sleutel wordt versleuteld opgeslagen en nooit meer getoond.</p>
+            </details>
             <form class="auth-form" id="ai-review-form" autocomplete="off">
               <label class="field">
                 <span data-i18n="aireview.provider">Gebruik</span>
@@ -1400,15 +1629,36 @@
               <span data-i18n="mealie.week_start_label">Eerste dag van de week</span>
               <select class="input" id="mealie-week-start"></select>
             </label>
-            <p class="muted" data-i18n="mealie.week_start_note">Het weekmenu (en de MCP-tool get_week_menu) begint op deze dag. Standaard volgt MealieShopper de eerste dag die je in Mealie bij je huishouden instelt; daar staat die standaard op zondag. Aanbiedingen houdt de bonusweek van maandag t/m zondag.</p>
+            <p class="muted" data-i18n="mealie.week_start_note">Het weekmenu begint op deze dag. Standaard is dat de eerste dag die je in Mealie bij je huishouden instelt.</p>
+            <details class="help">
+              <summary data-i18n="common.help">Hoe werkt dit?</summary>
+              <p class="muted" data-i18n="mealie.week_start_note_more">Ook de MCP-tool get_week_menu begint op deze dag. In Mealie staat die dag standaard op zondag. Aanbiedingen houdt de bonusweek van maandag t/m zondag.</p>
+            </details>
             <div id="mealie-week-start-message"></div>
             </div>
+            <section class="fold__section mealie-nutrition" aria-labelledby="mealie-nutrition-title">
+              <h3 id="mealie-nutrition-title" data-i18n="mealie.nutrition.title">Voedingswaarden van AH-recepten aanvullen</h3>
+              <p class="muted" data-i18n="mealie.nutrition.help">Vult de voedingswaarden aan van Allerhande-recepten die je vóór versie 4.4.1 importeerde.</p>
+              <details class="help">
+                <summary data-i18n="common.help">Hoe werkt dit?</summary>
+                <p class="muted" data-i18n="mealie.nutrition.help_more">Dit haalt ze bij Albert Heijn op en zet ze in Mealie: alleen bij recepten met een Allerhande-bronlink en zonder calorieën, en wat er al staat, blijft staan.</p>
+              </details>
+              <div class="toolbar">
+                <button class="button button--secondary" id="mealie-nutrition-start" type="button" data-i18n="mealie.nutrition.start">Voedingswaarden aanvullen</button>
+                <button class="button button--secondary" id="mealie-nutrition-stop" type="button" hidden data-i18n="mealie.nutrition.stop">Stoppen</button>
+              </div>
+              <div id="mealie-nutrition-message" role="status"></div>
+            </section>
           </div>
         </div>
         <div class="box fold fold--compact" id="ah-login-box">
           <h2 class="fold__title"><button type="button" class="fold__toggle" id="ah-login-toggle" aria-expanded="true" aria-controls="ah-login-body"><span data-i18n="ahlogin.title">Albert Heijn</span><svg class="fold__chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="M7.41,8.58L12,13.17L16.59,8.58L18,10L12,16L6,10L7.41,8.58Z"/></svg></button></h2>
           <div class="fold__body" id="ah-login-body">
-            <p class="muted" data-i18n="ahlogin.intro">Je logt rechtstreeks in op login.ah.nl, zodat je passkey en de AH-inlogknop gewoon werken. Dit gaat op een computer (niet op een telefoon of tablet), omdat je de browserconsole nodig hebt.</p>
+            <p class="muted" data-i18n="ahlogin.intro">Je logt rechtstreeks in op login.ah.nl, op een computer.</p>
+            <details class="help">
+              <summary data-i18n="common.help">Hoe werkt dit?</summary>
+              <p class="muted" data-i18n="ahlogin.intro_more">Zo werken je passkey en de AH-inlogknop gewoon. Een telefoon of tablet gaat niet, omdat je de browserconsole nodig hebt.</p>
+            </details>
             <ol class="steps">
               <li data-i18n-html="ahlogin.step1">Klik op <strong>Inloggen bij Albert Heijn</strong>. De AH-loginpagina opent in een nieuw tabblad.</li>
               <li data-i18n-html="ahlogin.step2">Open in dat tabblad de ontwikkelaarsconsole (<code>F12</code> of <code>Ctrl</code>+<code>Shift</code>+<code>J</code>, op een Mac <code>⌘</code>+<code>⌥</code>+<code>J</code>) <em>voordat</em> je inlogt.</li>
@@ -1431,7 +1681,11 @@
             </div>
             <div class="fold__section">
               <h3 data-i18n="explore.title">AH-routes verkennen</h3>
-              <p class="muted" data-i18n="explore.intro">Roept de onofficiële AH-routes voor het bestelmandje, bestellingen en kassabonnen aan en laat zien welke werken en welke velden erin zitten, ook welke statussen AH voor bestellingen kent. Er wordt niets gewijzigd of bewaard. Het rapport bevat geen namen, adressen, prijzen of id's en is veilig te delen. Het rapport laat ook zien hoe aanbiedingen eruitzien: de velden eromheen en de actieteksten en looptijd (geen prijzen of producten).</p>
+              <p class="muted" data-i18n="explore.short">Test of de onofficiële koppeling nog werkt. Er wordt niets gewijzigd of bewaard en het rapport is veilig te delen.</p>
+              <details class="help">
+                <summary data-i18n="common.help">Hoe werkt dit?</summary>
+                <p class="muted" data-i18n="explore.intro">Roept de onofficiële AH-routes voor het bestelmandje, bestellingen en kassabonnen aan en laat zien welke werken en welke velden erin zitten, ook welke statussen AH voor bestellingen kent en hoe aanbiedingen eruitzien (de velden eromheen, de actieteksten en de looptijd). Het rapport bevat geen namen, adressen, prijzen, producten of id's.</p>
+              </details>
               <button class="button" id="explore-run" type="button" data-i18n="explore.run">Verkennen</button>
               <div id="explore-message"></div>
               <div id="explore-report" hidden>
@@ -1445,7 +1699,11 @@
         <div class="box fold fold--compact" id="jumbo-login-box">
           <h2 class="fold__title"><button type="button" class="fold__toggle" id="jumbo-login-toggle" aria-expanded="true" aria-controls="jumbo-login-body"><span data-i18n="jumbo.title">Jumbo</span><svg class="fold__chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="M7.41,8.58L12,13.17L16.59,8.58L18,10L12,16L6,10L7.41,8.58Z"/></svg></button></h2>
           <div class="fold__body" id="jumbo-login-body">
-            <p class="muted" data-i18n="jumbo.intro">Jumbo heeft geen officiële koppeling. Je logt rechtstreeks in op Jumbo, in je eigen browser (op een computer, niet op een telefoon of tablet), omdat je de browserconsole nodig hebt. MealieShopper bewaart geen wachtwoord, alleen een sessie die Jumbo teruggeeft, versleuteld.</p>
+            <p class="muted" data-i18n="jumbo.intro">Jumbo heeft geen officiële koppeling: je logt in op Jumbo in je eigen browser, op een computer.</p>
+            <details class="help">
+              <summary data-i18n="common.help">Hoe werkt dit?</summary>
+              <p class="muted" data-i18n="jumbo.intro_more">Een telefoon of tablet gaat niet, omdat je de browserconsole nodig hebt. MealieShopper bewaart geen wachtwoord, alleen een sessie die Jumbo teruggeeft, versleuteld.</p>
+            </details>
             <ol class="steps">
               <li data-i18n-html="jumbo.step1">Klik op <strong>Inloggen bij Jumbo</strong>. De Jumbo-loginpagina opent in een nieuw tabblad.</li>
               <li data-i18n-html="jumbo.step2">Open in dat tabblad de ontwikkelaarsconsole (<code>F12</code> of <code>Ctrl</code>+<code>Shift</code>+<code>J</code>, op een Mac <code>⌘</code>+<code>⌥</code>+<code>J</code>) <em>voordat</em> je inlogt.</li>
@@ -1469,7 +1727,11 @@
             </div>
             <div class="fold__section">
               <h3 data-i18n="jumbo.explore_title">Jumbo-routes verkennen</h3>
-              <p class="muted" data-i18n="jumbo.explore_intro">Controleert eerst of Jumbo deze server toelaat en roept daarna de onofficiële Jumbo-routes voor zoeken en het winkelmandje aan. Er wordt niets gewijzigd of bewaard, ook het mandje vullen wordt alleen met een lege lijst geprobeerd. Het rapport bevat geen namen, prijzen of id's en is veilig te delen. Het rapport laat ook zien hoe aanbiedingen eruitzien: de velden eromheen en de actieteksten en looptijd (geen prijzen of producten).</p>
+              <p class="muted" data-i18n="explore.short">Test of de onofficiële koppeling nog werkt. Er wordt niets gewijzigd of bewaard en het rapport is veilig te delen.</p>
+              <details class="help">
+                <summary data-i18n="common.help">Hoe werkt dit?</summary>
+                <p class="muted" data-i18n="jumbo.explore_intro">Controleert eerst of Jumbo deze server toelaat en roept daarna de onofficiële Jumbo-routes voor zoeken en het winkelmandje aan; het mandje vullen wordt alleen met een lege lijst geprobeerd. Het rapport laat ook zien hoe aanbiedingen eruitzien (de velden eromheen, de actieteksten en de looptijd) en bevat geen namen, prijzen, producten of id's.</p>
+              </details>
               <button class="button" id="jumbo-explore-run" type="button" data-i18n="explore.run">Verkennen</button>
               <div id="jumbo-explore-message"></div>
               <div id="jumbo-explore-report" hidden>
@@ -1483,7 +1745,11 @@
         <div class="box fold fold--compact" id="picnic-login-box">
           <h2 class="fold__title"><button type="button" class="fold__toggle" id="picnic-login-toggle" aria-expanded="true" aria-controls="picnic-login-body"><span data-i18n="picnic.title">Picnic</span><svg class="fold__chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="M7.41,8.58L12,13.17L16.59,8.58L18,10L12,16L6,10L7.41,8.58Z"/></svg></button></h2>
           <div class="fold__body" id="picnic-login-body">
-            <p class="muted" data-i18n="picnic.intro">Picnic heeft geen officiële koppeling. MealieShopper logt in zoals de Picnic-app, met je e-mailadres en wachtwoord. Het wachtwoord wordt niet bewaard: alleen de sessie die Picnic teruggeeft, versleuteld.</p>
+            <p class="muted" data-i18n="picnic.intro">Picnic heeft geen officiële koppeling: je logt in zoals in de Picnic-app, met je e-mailadres en wachtwoord.</p>
+            <details class="help">
+              <summary data-i18n="common.help">Hoe werkt dit?</summary>
+              <p class="muted" data-i18n="picnic.intro_more">Het wachtwoord wordt niet bewaard: alleen de sessie die Picnic teruggeeft, versleuteld.</p>
+            </details>
             <form class="auth-form" id="picnic-form" autocomplete="off">
               <label class="field">
                 <span data-i18n="picnic.email">E-mailadres</span>
@@ -1518,7 +1784,11 @@
             </div>
             <div class="fold__section">
               <h3 data-i18n="picnic.explore_title">Picnic-routes verkennen</h3>
-              <p class="muted" data-i18n="picnic.explore_intro">Roept de onofficiële Picnic-routes voor zoeken, het winkelmandje, leveringen, recepten en favorieten aan en laat zien welke werken en welke velden erin zitten. Er wordt niets gewijzigd of bewaard. Het rapport bevat geen namen, adressen, prijzen of id's en is veilig te delen. Het rapport laat ook zien hoe aanbiedingen eruitzien: de velden eromheen en de actieteksten en looptijd (geen prijzen of producten).</p>
+              <p class="muted" data-i18n="explore.short">Test of de onofficiële koppeling nog werkt. Er wordt niets gewijzigd of bewaard en het rapport is veilig te delen.</p>
+              <details class="help">
+                <summary data-i18n="common.help">Hoe werkt dit?</summary>
+                <p class="muted" data-i18n="picnic.explore_intro">Roept de onofficiële Picnic-routes voor zoeken, het winkelmandje, leveringen, recepten en favorieten aan en laat zien welke werken en welke velden erin zitten, ook hoe aanbiedingen eruitzien (de velden eromheen, de actieteksten en de looptijd). Het rapport bevat geen namen, adressen, prijzen, producten of id's.</p>
+              </details>
               <button class="button" id="picnic-explore-run" type="button" data-i18n="explore.run">Verkennen</button>
               <div id="picnic-explore-message"></div>
               <div id="picnic-explore-report" hidden>
@@ -1532,7 +1802,11 @@
         <div class="box fold fold--compact" id="crisp-login-box">
           <h2 class="fold__title"><button type="button" class="fold__toggle" id="crisp-login-toggle" aria-expanded="true" aria-controls="crisp-login-body"><span data-i18n="crisp.title">Crisp</span><svg class="fold__chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="M7.41,8.58L12,13.17L16.59,8.58L18,10L12,16L6,10L7.41,8.58Z"/></svg></button></h2>
           <div class="fold__body" id="crisp-login-body">
-            <p class="muted" data-i18n="crisp.intro">Crisp heeft geen officiële koppeling. MealieShopper logt in zoals de Crisp-app: met je e-mailadres en een code die Crisp je mailt. Er is geen wachtwoord. MealieShopper bewaart alleen het apparaat-id waaraan Crisp je account koppelt, versleuteld.</p>
+            <p class="muted" data-i18n="crisp.intro">Crisp heeft geen officiële koppeling: je logt in zoals in de Crisp-app, met je e-mailadres en een code die Crisp je mailt.</p>
+            <details class="help">
+              <summary data-i18n="common.help">Hoe werkt dit?</summary>
+              <p class="muted" data-i18n="crisp.intro_more">Er is geen wachtwoord. MealieShopper bewaart alleen het apparaat-id waaraan Crisp je account koppelt, versleuteld.</p>
+            </details>
             <form class="auth-form" id="crisp-form" autocomplete="off">
               <label class="field">
                 <span data-i18n="crisp.country">Land</span>
@@ -1566,7 +1840,11 @@
             </div>
             <div class="fold__section">
               <h3 data-i18n="crisp.explore_title">Crisp-routes verkennen</h3>
-              <p class="muted" data-i18n="crisp.explore_intro">Roept de onofficiële Crisp-routes voor zoeken, producten, het winkelmandje, recepten, bestellingen, favorieten en aanbiedingen aan en laat zien welke werken en welke velden erin zitten. Er wordt niets gewijzigd of bewaard. Het rapport bevat geen namen, adressen, prijzen of id's en is veilig te delen.</p>
+              <p class="muted" data-i18n="explore.short">Test of de onofficiële koppeling nog werkt. Er wordt niets gewijzigd of bewaard en het rapport is veilig te delen.</p>
+              <details class="help">
+                <summary data-i18n="common.help">Hoe werkt dit?</summary>
+                <p class="muted" data-i18n="crisp.explore_intro">Roept de onofficiële Crisp-routes voor zoeken, producten, het winkelmandje, recepten, bestellingen, favorieten en aanbiedingen aan en laat zien welke werken en welke velden erin zitten. Het rapport bevat geen namen, adressen, prijzen of id's.</p>
+              </details>
               <button class="button" id="crisp-explore-run" type="button" data-i18n="explore.run">Verkennen</button>
               <div id="crisp-explore-message"></div>
               <div id="crisp-explore-report" hidden>
@@ -1582,7 +1860,11 @@
         <div id="settings-users" class="subpanel">
         <div class="box">
           <h2 data-i18n="users.title">Gebruikers</h2>
-          <p class="muted" data-i18n="users.intro">Jij bent de beheerder: jij koppelt Mealie en Albert Heijn en beheert de gebruikers. Anderen kunnen het weekmenu bekijken en plannen, de recepten en de lijstjes gebruiken en producten in het AH-mandje zetten, maar niets koppelen of beheren.</p>
+          <p class="muted" data-i18n="users.intro">Jij bent de beheerder: jij koppelt Mealie en Albert Heijn en beheert de gebruikers.</p>
+          <details class="help">
+            <summary data-i18n="common.help">Hoe werkt dit?</summary>
+            <p class="muted" data-i18n="users.intro_more">Anderen kunnen het weekmenu bekijken en plannen, de recepten en de lijstjes gebruiken en producten in het AH-mandje zetten, maar niets koppelen of beheren.</p>
+          </details>
           <div id="users-list" class="credential-list"></div>
           <div id="users-message"></div>
         </div>
@@ -1602,7 +1884,11 @@
         <div id="settings-audit" class="subpanel">
         <div class="box box--wide">
           <h2 data-i18n="audit.title">Auditlog</h2>
-          <p class="muted" data-i18n="audit.intro">Hier zie je wat MealieShopper met Albert Heijn, Picnic en Jumbo bespreekt en wat AI-assistenten (MCP) opvragen: elk verzoek met uitkomst, duur en antwoord. Een MCP-verzoek toont de winkelverzoeken die eruit volgden. Wachtwoorden, tokens en codes worden nooit bewaard.</p>
+          <p class="muted" data-i18n="audit.intro">Wat MealieShopper met Albert Heijn, Picnic en Jumbo bespreekt en wat AI-assistenten (MCP) opvragen.</p>
+          <details class="help">
+            <summary data-i18n="common.help">Hoe werkt dit?</summary>
+            <p class="muted" data-i18n="audit.intro_more">Elk verzoek staat erin met uitkomst, duur en antwoord. Een MCP-verzoek toont de winkelverzoeken die eruit volgden. Wachtwoorden, tokens en codes worden nooit bewaard.</p>
+          </details>
           <p class="muted" id="audit-privacy"></p>
           <div id="audit-notices"></div>
           <div class="audit-summary" id="audit-summary"></div>
@@ -1612,6 +1898,9 @@
               <option value="ah" data-i18n="audit.service.ah">Albert Heijn</option>
               <option value="picnic" data-i18n="audit.service.picnic">Picnic</option>
               <option value="jumbo" data-i18n="audit.service.jumbo">Jumbo</option>
+              <option value="crisp" data-i18n="audit.service.crisp">Crisp</option>
+              <option value="lidl" data-i18n="audit.service.lidl">Lidl</option>
+              <option value="aldi" data-i18n="audit.service.aldi">Aldi</option>
               <option value="hellofresh" data-i18n="audit.service.hellofresh">HelloFresh</option>
               <option value="marleyspoon" data-i18n="audit.service.marleyspoon">Marley Spoon</option>
               <option value="mcp" data-i18n="audit.service.mcp">AI-assistenten (MCP)</option>
@@ -1662,7 +1951,13 @@
         </div>
         <div class="box" id="backup-box">
           <h2 data-i18n="backup.title">Back-up en terugzetten</h2>
-          <p class="muted" data-i18n="backup.intro">Neem alle gegevens van deze installatie mee in één bestand en zet ze later terug, bijvoorbeeld op een nieuwe server: de koppelingen met Mealie, Albert Heijn, Picnic en Jumbo, je lijstjes, bestellingen en kassabonnen en de hele historie van de aanbiedingen. Dit is jouw eigen kopie; het vervangt geen back-up van de hele data-map.</p>
+          <p class="muted" data-i18n="backup.intro">Neem alle gegevens van deze installatie mee in één bestand en zet ze later terug, bijvoorbeeld op een nieuwe server.</p>
+          <details class="help">
+            <summary data-i18n="common.help">Hoe werkt dit?</summary>
+            <p class="muted" data-i18n="backup.intro_more">Daarin staan de koppelingen met Mealie, Albert Heijn, Picnic en Jumbo, je lijstjes, bestellingen en kassabonnen en de hele historie van de aanbiedingen. Dit is jouw eigen kopie; het vervangt geen back-up van de hele data-map.</p>
+            <p class="muted" data-i18n="backup.never">Wat inlogt op MealieShopper zit er nooit in: passkeys, wachtwoorden, tweestapsverificatie, herstelcodes, uitnodigingen en de toegang van AI-assistenten (MCP). Het auditlog en de bewaarde receptafbeeldingen ook niet; die bouwen zich vanzelf weer op.</p>
+            <p class="muted" data-i18n="backup.parts_hint">Zonder de aanbiedingen wordt het bestand kleiner. Bij het terugzetten blijven de aanbiedingen die er dan staan zoals ze zijn. De aanbiedingen van nu haalt de app bij de volgende synchronisatie weer op, de historie niet.</p>
+          </details>
           <h3 data-i18n="backup.make_title">Back-up maken</h3>
           <label class="check">
             <input type="checkbox" id="backup-links" checked>
@@ -1687,8 +1982,6 @@
             <input type="checkbox" id="backup-offer-history" checked>
             <span data-i18n="backup.offer_history_label">Neem de historie van aanbiedingen mee</span>
           </label>
-          <p class="muted" data-i18n="backup.parts_hint">Zonder de aanbiedingen wordt het bestand kleiner. Bij het terugzetten blijven de aanbiedingen die er dan staan zoals ze zijn. De aanbiedingen van nu haalt de app bij de volgende synchronisatie weer op, de historie niet.</p>
-          <p class="muted" data-i18n="backup.never">Wat inlogt op MealieShopper zit er nooit in: passkeys, wachtwoorden, tweestapsverificatie, herstelcodes, uitnodigingen en de toegang van AI-assistenten (MCP). Het auditlog en de bewaarde receptafbeeldingen ook niet; die bouwen zich vanzelf weer op.</p>
           <div class="security-actions">
             <button class="button" type="button" id="backup-make" data-i18n="backup.make">Back-up maken</button>
           </div>
@@ -1741,12 +2034,26 @@
         </div>
         <div class="box" id="price-archive-box">
           <h2 data-i18n="price_archive.title">Prijsarchief importeren</h2>
-          <p class="muted" data-i18n="price_archive.intro">Voeg historische prijzen toe aan de Prijsgeschiedenis, bijvoorbeeld het folderarchief van Albert Heijn, Jumbo, Picnic en Crisp. Wat de app zelf ophaalde blijft altijd staan, en dezelfde prijs komt er maar één keer in.</p>
+          <p class="muted" data-i18n="price_archive.intro">Voeg historische prijzen toe aan de Prijsgeschiedenis, bijvoorbeeld het folderarchief van de winkels.</p>
+          <details class="help">
+            <summary data-i18n="common.help">Hoe werkt dit?</summary>
+            <p class="muted" data-i18n="price_archive.intro_more">Er zijn folderarchieven van Albert Heijn, Jumbo, Picnic en Crisp. Wat de app zelf ophaalde blijft altijd staan, en dezelfde prijs komt er maar één keer in.</p>
+            <p class="muted" data-i18n="price_archive.formats">Kies de ZIP van het pakket of van de gist voor data.mealieshopper.nl zoals je hem downloadt, het .tar.gz-archief daaruit, een export van MealieShopper (ook die voor data.mealieshopper.nl en de ZIP van een GitHub-repo), of een .jsonl-bestand (ook als .jsonl.gz) in het formaat mealieshopper-price-archive. De handleiding beschrijft de formaten.</p>
+            <p class="muted" data-i18n="price_archive.keep_unlinked_more">Standaard komen alleen folderregels erin die precies bij een product van jou horen. Met het vinkje hieronder blijven ook de andere (behalve combi-aanbiedingen), bijvoorbeeld om alles weer te exporteren voor data.mealieshopper.nl.</p>
+          </details>
           <label class="field">
             <span data-i18n="price_archive.file_label">Prijsarchief</span>
             <input class="input" id="price-archive-file" type="file" accept=".zip,.gz,.tgz,.jsonl,application/zip,application/gzip">
           </label>
-          <p class="muted" data-i18n="price_archive.formats">Kies de ZIP van het pakket zoals je hem downloadt, het .tar.gz-archief daaruit, een export van MealieShopper (ook de ZIP van een GitHub-repo), of een .jsonl-bestand (ook als .jsonl.gz) in het formaat mealieshopper-price-archive. De handleiding beschrijft het formaat.</p>
+          <div class="security-actions">
+            <button class="button button--secondary" type="button" id="price-archive-fetch" data-i18n="price_archive.fetch">Aanbiedingen ophalen</button>
+          </div>
+          <p class="muted" data-i18n="price_archive.fetch_note">Of haal de gedeelde aanbiedingen en prijzen van alle winkels op van data.mealieshopper.nl. Elk bestand wordt gecontroleerd, en je ziet eerst wat erbij komt.</p>
+          <label class="check">
+            <input type="checkbox" id="price-archive-keep-unlinked">
+            <span data-i18n="price_archive.keep_unlinked_label">Ook regels bewaren die bij geen product van jou horen</span>
+          </label>
+          <p class="muted" data-i18n="price_archive.keep_unlinked_note">Zet het vinkje voordat je een bestand kiest of ophaalt.</p>
           <div class="backup-confirm" id="price-archive-confirm" hidden>
             <h4 data-i18n="price_archive.confirm_title">Dit komt erbij</h4>
             <p class="muted" id="price-archive-source"></p>
@@ -1775,9 +2082,15 @@
         </div>
         <div class="box" id="price-export-box">
           <h2 data-i18n="price_export.title">Prijsarchief exporteren</h2>
-          <p class="muted" data-i18n="price_export.intro">Alle aanbiedingen en prijzen als ZIP, met een bestand per winkel en maand: om te delen, bijvoorbeeld in een GitHub-repo. Je persoonlijke aanbiedingen (Bonus Box) gaan er nooit in. Een andere MealieShopper importeert de ZIP weer met Prijsarchief importeren.</p>
+          <p class="muted" data-i18n="price_export.intro">Alle aanbiedingen en prijzen als ZIP, met een bestand per winkel en maand.</p>
+          <details class="help">
+            <summary data-i18n="common.help">Hoe werkt dit?</summary>
+            <p class="muted" data-i18n="price_export.intro_more">Om te delen, bijvoorbeeld in een GitHub-repo. Je persoonlijke aanbiedingen (Bonus Box) gaan er nooit in. Een andere MealieShopper importeert de ZIP weer met Prijsarchief importeren.</p>
+            <p class="muted" data-i18n="price_export.site_note">Of als losse JSON-bestanden per winkel, met een schema per winkel: in de vorm van data.mealieshopper.nl, klaar om in te sturen in de datarepo. In de ZIP staat hoe.</p>
+          </details>
           <div class="security-actions">
             <button class="button" type="button" id="price-export-make" data-i18n="price_export.go">Exporteren</button>
+            <button class="button button--secondary" type="button" id="price-export-site" data-i18n="price_export.site_go">Exporteren voor data.mealieshopper.nl</button>
           </div>
           <div class="backup-progress" id="price-export-progress" role="status" hidden>
             <p id="price-export-progress-label"></p>
@@ -1847,6 +2160,32 @@
               <p class="appearance-current" id="appearance-store-current" aria-live="polite"></p>
               <div id="appearance-store-message"></div>
             </section>
+            <section class="appearance-section fold__section" aria-labelledby="appearance-planner-title">
+              <h3 id="appearance-planner-title" data-i18n="appearance.planner.title">Weekplanner van de AH-app</h3>
+              <p class="muted" data-i18n="appearance.planner.help">Wat Naar weekmenu doet met losse producten uit de weekplanner. Een product dat al als recept in Mealie staat, gaat altijd als dat recept.</p>
+              <div class="appearance-setting">
+                <div class="appearance-setting__text">
+                  <h4 id="appearance-planner-combine-label" data-i18n="appearance.planner.combine">Losse producten van een dag samen als één menu</h4>
+                  <p class="muted" id="appearance-planner-combine-help" data-i18n="appearance.planner.combine_help">De producten van een dag worden één recept in Mealie, met de eerste notitie van die dag als naam. Uit: elk product een eigen recept.</p>
+                </div>
+                <input type="checkbox" role="switch" class="switch" id="appearance-planner-combine" checked aria-labelledby="appearance-planner-combine-label" aria-describedby="appearance-planner-combine-help">
+              </div>
+              <div class="appearance-setting" id="appearance-planner-split-row">
+                <div class="appearance-setting__text">
+                  <h4 id="appearance-planner-split-meals-label" data-i18n="appearance.planner.split">Soep en pizza altijd los</h4>
+                  <p class="muted" id="appearance-planner-split-meals-help" data-i18n="appearance.planner.split_help">Soep en pizza krijgen toch een eigen recept; vlees, groente, aardappelen, rijst en pasta gaan samen in het menu.</p>
+                </div>
+                <input type="checkbox" role="switch" class="switch" id="appearance-planner-split-meals" checked aria-labelledby="appearance-planner-split-meals-label" aria-describedby="appearance-planner-split-meals-help">
+              </div>
+              <div class="appearance-setting">
+                <div class="appearance-setting__text">
+                  <h4 id="appearance-planner-servings-label" data-i18n="appearance.planner.servings">Porties per recept</h4>
+                  <p class="muted" id="appearance-planner-servings-help" data-i18n="appearance.planner.servings_help">Zoveel porties krijgt een recept dat MealieShopper van AH-producten maakt; de voedingswaarden staan per persoon.</p>
+                </div>
+                <input type="number" class="input appearance-number" id="appearance-planner-servings" min="1" max="8" step="1" value="2" inputmode="numeric" aria-labelledby="appearance-planner-servings-label" aria-describedby="appearance-planner-servings-help">
+              </div>
+              <div id="appearance-planner-message"></div>
+            </section>
           </div>
         </div>
         <div class="box fold fold--compact" id="appearance-display-box">
@@ -1859,6 +2198,22 @@
               </div>
               <input type="checkbox" role="switch" class="switch" id="appearance-cooking" checked aria-labelledby="appearance-cooking-label" aria-describedby="appearance-cooking-help">
             </div>
+            <div class="appearance-setting fold__section">
+              <div class="appearance-setting__text">
+                <h3 id="appearance-calories-label" data-i18n="appearance.calories.title">Calorieën en voedingswaarden tonen</h3>
+                <p class="muted" id="appearance-calories-help" data-i18n="appearance.calories.help">Bij recepten en maaltijden de kcal per persoon, de voedingswaarden en het dagtotaal, en zoeken op voedingswaarden. Uit: niets daarvan.</p>
+              </div>
+              <input type="checkbox" role="switch" class="switch" id="appearance-calories" checked aria-labelledby="appearance-calories-label" aria-describedby="appearance-calories-help">
+            </div>
+            <section class="appearance-section fold__section" aria-labelledby="appearance-lang-title">
+              <h3 id="appearance-lang-title" data-i18n="appearance.lang.title">Taal</h3>
+              <p class="muted" data-i18n="appearance.lang.help">Voor de hele app, op dit apparaat. Wisselen kan ook in het menu onder je naam (op een telefoon: Meer).</p>
+              <fieldset class="appearance-options" id="appearance-lang">
+                <legend class="visually-hidden" data-i18n="appearance.lang.title">Taal</legend>
+                <label class="appearance-option"><input type="radio" name="appearance-lang" value="nl"><span lang="nl">Nederlands</span><svg class="mdi appearance-option__check" viewBox="0 0 24 24" aria-hidden="true"><path d="M21,7L9,19L3.5,13.5L4.91,12.09L9,16.17L19.59,5.59L21,7Z"/></svg></label>
+                <label class="appearance-option"><input type="radio" name="appearance-lang" value="en"><span lang="en">English</span><svg class="mdi appearance-option__check" viewBox="0 0 24 24" aria-hidden="true"><path d="M21,7L9,19L3.5,13.5L4.91,12.09L9,16.17L19.59,5.59L21,7Z"/></svg></label>
+              </fieldset>
+            </section>
             <div id="appearance-display-message"></div>
           </div>
         </div>
@@ -1877,7 +2232,7 @@
             </section>
             <section class="appearance-section fold__section" aria-labelledby="appearance-themebg-title">
               <h3 id="appearance-themebg-title" data-i18n="appearance.theme_bg.title">Thema & achtergrond</h3>
-              <p class="muted" data-i18n="appearance.theme.help">Licht, donker of zoals je apparaat; de maan of de zon bovenaan wisselt ook.</p>
+              <p class="muted" data-i18n="appearance.theme.help">Licht, donker of zoals je apparaat. Wisselen tussen licht en donker kan ook in het menu onder je naam (op een telefoon: Meer).</p>
               <fieldset class="appearance-options" id="appearance-theme">
                 <legend class="visually-hidden" data-i18n="appearance.theme.title">Thema</legend>
                 <label class="appearance-option"><input type="radio" name="appearance-theme" value="system"><svg class="mdi" viewBox="0 0 24 24" aria-hidden="true"><path d="M23,11H18A1,1 0 0,0 17,12V21A1,1 0 0,0 18,22H23A1,1 0 0,0 24,21V12A1,1 0 0,0 23,11M23,20H18V13H23V20M20,2H2C0.89,2 0,2.89 0,4V16A2,2 0 0,0 2,18H9V20H7V22H15V20H13V18H15V16H2V4H20V9H22V4C22,2.89 21.1,2 20,2Z"/></svg><span data-i18n="appearance.theme.system">Apparaat volgen</span><svg class="mdi appearance-option__check" viewBox="0 0 24 24" aria-hidden="true"><path d="M21,7L9,19L3.5,13.5L4.91,12.09L9,16.17L19.59,5.59L21,7Z"/></svg></label>
@@ -1922,6 +2277,7 @@
           <h2 data-i18n="about.title">Over MealieShopper</h2>
           <p class="about-version"><span class="muted" data-i18n="about.version_label">Versie</span> <strong id="about-version">-</strong></p>
           <p class="muted" data-i18n="about.tagline">MealieShopper plant je weekmenu in Mealie en zet de ingrediënten in je Albert Heijn-mandje, en laat je recepten zoeken, bewaren en importeren.</p>
+          <a class="button button--secondary about-repo" id="about-repo" href="https://github.com/helmerzNL/MealieShopper" target="_blank" rel="noopener noreferrer"><svg viewBox="0 0 24 24" aria-hidden="true" data-mdi="mdiGithub"><path d="M12,2A10,10 0 0,0 2,12C2,16.42 4.87,20.17 8.84,21.5C9.34,21.58 9.5,21.27 9.5,21C9.5,20.77 9.5,20.14 9.5,19.31C6.73,19.91 6.14,17.97 6.14,17.97C5.68,16.81 5.03,16.5 5.03,16.5C4.12,15.88 5.1,15.9 5.1,15.9C6.1,15.97 6.63,16.93 6.63,16.93C7.5,18.45 8.97,18 9.54,17.76C9.63,17.11 9.89,16.67 10.17,16.42C7.95,16.17 5.62,15.31 5.62,11.5C5.62,10.39 6,9.5 6.65,8.79C6.55,8.54 6.2,7.5 6.75,6.15C6.75,6.15 7.59,5.88 9.5,7.17C10.29,6.95 11.15,6.84 12,6.84C12.85,6.84 13.71,6.95 14.5,7.17C16.41,5.88 17.25,6.15 17.25,6.15C17.8,7.5 17.45,8.54 17.35,8.79C18,9.5 18.38,10.39 18.38,11.5C18.38,15.32 16.04,16.16 13.81,16.41C14.17,16.72 14.5,17.33 14.5,18.26C14.5,19.6 14.5,20.68 14.5,21C14.5,21.27 14.66,21.59 15.17,21.5C19.14,20.16 22,16.42 22,12A10,10 0 0,0 12,2Z"/></svg><span data-i18n="about.repo">MealieShopper op GitHub</span></a>
         </div>
         <div class="box box--wide about-box">
           <h2 data-i18n="about.components_title">Componenten en integraties</h2>
@@ -1958,6 +2314,7 @@
     <script src="{{ url_for('static', filename='crisp.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='product_links.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='mealkits.js', v=config.ASSET_VERSION) }}"></script>
+    <script src="{{ url_for('static', filename='ah_planner.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='basket.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='offers.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='ai_review.js', v=config.ASSET_VERSION) }}"></script>

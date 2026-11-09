@@ -1,6 +1,7 @@
 // Instellingen, Voorkeuren, per gebruiker, in drie inklapbare blokken (zoals onder Koppelen): Supermarkt (de
-// voorkeurssupermarkt waarmee Aanbiedingen en Winkels openen), Weergave (de kookmodus) en Thema (de accentkleur, het thema met
-// de achtergrond van het donkere thema, en de navigatiebalk).
+// voorkeurssupermarkt waarmee Aanbiedingen en Winkels openen, en hoe Naar weekmenu losse producten uit de weekplanner van de
+// AH-app in Mealie zet), Weergave (de kookmodus en de calorieën) en Thema (de accentkleur, het thema met de achtergrond van het
+// donkere thema, en de navigatiebalk).
 // Het toepassen en het rekenen met kleuren doet static/theme.js (window.THEME); dit bestand tekent de keuzes en bewaart ze
 // bij het profiel (PUT /api/profile/preferences). Na het inloggen zet appearanceFromProfile() de keuze van het profiel.
 // Laadt na app.js en profile.js en gebruikt daar de hulpfuncties van ($, message, jsonFetch, t, escapeHtml, state, ...).
@@ -19,6 +20,7 @@ function appearanceSignedIn() {
 // wat deze browser had, zoals voor er een menu Weergave (nu Voorkeuren) was.
 function appearanceFromProfile() {
   const auth = state.auth || {};
+  renderAppearancePlanner(); // de keuzes voor de AH-weekplanner, los van de weergave
   if (!appearanceSignedIn() || !("accent" in auth)) return;
   THEME.apply({
     theme: auth.theme,
@@ -27,6 +29,7 @@ function appearanceFromProfile() {
     navbarStyle: auth.navbarStyle,
     navbarGlass: auth.navbarGlass,
     cookingMode: auth.cookingMode,
+    showCalories: auth.showCalories,
   });
   renderAppearance();
 }
@@ -50,6 +53,7 @@ async function appearanceSave(change, { previous = null, target = "#appearance-m
       navbarStyle: data.navbarStyle,
       navbarGlass: data.navbarGlass,
       cookingMode: data.cookingMode,
+      showCalories: data.showCalories,
       preferredStore: data.preferredStore,
     };
   } catch (error) {
@@ -175,8 +179,59 @@ async function appearanceSaveStore(store) {
   }
 }
 
+// De weekplanner van de AH-app (4.3): losse producten van een dag samen als één menu, en soep en pizza dan toch los. Standaard
+// aan; de tweede heeft alleen zin als de eerste aan staat. Winkels, Albert Heijn, Weekplanner (ah_planner.js) leest ze.
+function renderAppearancePlanner() {
+  const combine = $("#appearance-planner-combine");
+  if (!combine) return;
+  combine.checked = state.auth?.plannerCombine !== false;
+  $("#appearance-planner-split-meals").checked = state.auth?.plannerSplitMeals !== false;
+  $("#appearance-planner-split-row").hidden = !combine.checked;
+  $("#appearance-planner-servings").value = String(appearancePlannerServings());
+}
+
+// Porties per recept dat de weekplanner van producten maakt (4.10.0): 1 tot en met 8, standaard 2. De voedingswaarden in zo'n
+// recept staan per persoon.
+const APPEARANCE_SERVINGS = { min: 1, max: 8, fallback: 2 };
+
+function appearancePlannerServings() {
+  const value = state.auth?.plannerServings;
+  return Number.isInteger(value) && value >= APPEARANCE_SERVINGS.min && value <= APPEARANCE_SERVINGS.max ? value : APPEARANCE_SERVINGS.fallback;
+}
+
+// Een keuze voor de weekplanner: meteen toepassen (ook op de labels in de weekplanner) en bij het profiel bewaren. Weigert de
+// server hem, dan komt de vorige stand terug met de melding van de server.
+async function appearanceSavePlanner(key, value) {
+  const previous = { plannerCombine: state.auth?.plannerCombine !== false, plannerSplitMeals: state.auth?.plannerSplitMeals !== false, plannerServings: appearancePlannerServings() };
+  const changed = () => {
+    renderAppearancePlanner();
+    if (typeof ahPlanner !== "undefined" && ahPlanner.loaded && typeof renderAhPlanner === "function") renderAhPlanner();
+  };
+  state.auth = { ...state.auth, [key]: value };
+  changed();
+  message("#appearance-planner-message", "");
+  if (!appearanceSignedIn()) return;
+  try {
+    const data = await jsonFetch("/api/profile/preferences", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ [key]: value }),
+    });
+    state.auth = { ...state.auth, plannerCombine: data.plannerCombine !== false, plannerSplitMeals: data.plannerSplitMeals !== false, plannerServings: data.plannerServings };
+  } catch (error) {
+    state.auth = { ...state.auth, ...previous };
+    message("#appearance-planner-message", error.message);
+  }
+  changed();
+}
+
 function renderAppearance() {
   renderAppearanceStore();
+  renderAppearancePlanner();
+  // De taal is een keuze van deze browser (static/i18n.js), niet van het profiel; de rondjes volgen wat er nu aan staat.
+  document.querySelectorAll('input[name="appearance-lang"]').forEach((input) => {
+    input.checked = input.value === I18N.lang();
+  });
   if (!$("#settings-appearance") || typeof THEME === "undefined") return;
   const look = THEME.appearance();
   document.querySelectorAll('input[name="appearance-theme"]').forEach((input) => {
@@ -189,6 +244,8 @@ function renderAppearance() {
   renderAppearanceNav(look);
   const cooking = $("#appearance-cooking");
   if (cooking) cooking.checked = look.cookingMode !== false;
+  const calories = $("#appearance-calories");
+  if (calories) calories.checked = look.showCalories !== false;
 }
 
 // ---- De blokken klappen in en uit. De keuze blijft in deze browser (ms-fold-appearance-<naam>); zonder keuze staan ze
@@ -236,12 +293,37 @@ $("#appearance-cooking").addEventListener("change", (event) => {
   appearanceSave({ cookingMode: event.target.checked }, { previous, target: "#appearance-display-message" });
 });
 
+// Calorieën tonen (issue #283): uit verbergt de kcal bij recepten en maaltijden, de voedingswaarden en het filter erop.
+$("#appearance-calories").addEventListener("change", (event) => {
+  const previous = { showCalories: THEME.appearance().showCalories };
+  THEME.apply({ showCalories: event.target.checked });
+  appearanceSave({ showCalories: event.target.checked }, { previous, target: "#appearance-display-message" });
+});
+
 $("#appearance-store").addEventListener("change", (event) => {
   if (event.target.name === "appearance-store") appearanceSaveStore(event.target.value);
 });
 
+$("#appearance-planner-combine").addEventListener("change", (event) => appearanceSavePlanner("plannerCombine", event.target.checked));
+$("#appearance-planner-split-meals").addEventListener("change", (event) => appearanceSavePlanner("plannerSplitMeals", event.target.checked));
+// Een getal buiten 1 tot en met 8 (of geen getal) wordt niet bewaard: het veld springt terug naar wat er stond.
+$("#appearance-planner-servings").addEventListener("change", (event) => {
+  const value = Number(event.target.value);
+  if (!Number.isInteger(value) || value < APPEARANCE_SERVINGS.min || value > APPEARANCE_SERVINGS.max) {
+    renderAppearancePlanner();
+    return;
+  }
+  if (value !== appearancePlannerServings()) appearanceSavePlanner("plannerServings", value);
+});
+
 $("#appearance-theme").addEventListener("change", (event) => {
   if (event.target.name === "appearance-theme") THEME.choose(event.target.value); // het bewaren volgt via ms:appearancechange
+});
+
+// Geen data-lang op de rondjes: die zou i18n.js als knop behandelen (aria-pressed). setLang vuurt ms:languagechange, en dan
+// tekent renderAppearance de keuze opnieuw.
+$("#appearance-lang").addEventListener("change", (event) => {
+  if (event.target.name === "appearance-lang") I18N.setLang(event.target.value);
 });
 
 $("#appearance-dark-bg").addEventListener("change", (event) => {
@@ -288,7 +370,7 @@ $("#appearance-glass").addEventListener("change", (event) => {
   appearanceSave({ navbarGlass: THEME.appearance().navbarGlass }, { previous, target: "#appearance-nav-message" });
 });
 
-// Het thema (ook met de knop bovenaan) bij het profiel bewaren.
+// Het thema (ook via het menu onder je naam) bij het profiel bewaren.
 window.addEventListener("ms:appearancechange", (event) => {
   renderAppearance();
   if (event.detail?.theme) appearanceSave({ theme: event.detail.theme });

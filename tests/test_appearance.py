@@ -286,6 +286,43 @@ console.log(JSON.stringify(out));
         self.assertEqual(sorted(refused["props"]), ["--nav-alpha", "--nav-blur"], "alleen het glas van de balk")
 
 
+class PlannerPreferencesTest(unittest.TestCase):
+    """Voorkeuren, Supermarkt: hoe Naar weekmenu losse producten uit de AH-weekplanner in Mealie zet (4.3.1, eerst in de planner)."""
+
+    def test_two_real_switches_in_the_supermarket_block(self):
+        store = HTML[HTML.index('id="appearance-store-box"'):HTML.index('id="appearance-display-box"')]
+        self.assertIn('<section class="appearance-section fold__section" aria-labelledby="appearance-planner-title">', store)
+        for name in ("combine", "split-meals"):
+            switch = re.search(rf'<input type="checkbox" role="switch" class="switch" id="appearance-planner-{name}"[^>]*>', store).group(0)
+            self.assertIn(" checked", switch, "standaard aan")
+            self.assertIn(f'aria-labelledby="appearance-planner-{name}-label"', switch)
+            self.assertIn(f'aria-describedby="appearance-planner-{name}-help"', switch)
+        self.assertIn('<div class="appearance-setting" id="appearance-planner-split-row">', store)
+        self.assertLess(store.index("appearance-planner-combine"), store.index("appearance-planner-split-row"))
+        self.assertIn('<div id="appearance-planner-message"></div>', store)
+
+    def test_servings_per_recipe_is_a_small_number_next_to_its_explanation(self):
+        # Porties per recept (4.10.0): de voedingswaarden in een recept van producten staan per persoon.
+        store = HTML[HTML.index('id="appearance-store-box"'):HTML.index('id="appearance-display-box"')]
+        field = re.search(r'<input type="number"[^>]*id="appearance-planner-servings"[^>]*>', store).group(0)
+        for part in ('min="1"', 'max="8"', 'step="1"', 'value="2"', 'aria-labelledby="appearance-planner-servings-label"', 'aria-describedby="appearance-planner-servings-help"'):
+            self.assertIn(part, field)
+        script = (STATIC / "appearance.js").read_text(encoding="utf-8")
+        self.assertIn('appearanceSavePlanner("plannerServings", value)', script)
+        self.assertIn("const APPEARANCE_SERVINGS = { min: 1, max: 8, fallback: 2 };", script)
+        self.assertIn("plannerServings: data.plannerServings", script, "de server heeft het laatste woord")
+
+    def test_the_switches_are_saved_in_the_profile(self):
+        script = (STATIC / "appearance.js").read_text(encoding="utf-8")
+        self.assertIn('appearanceSavePlanner("plannerCombine", event.target.checked)', script)
+        self.assertIn('appearanceSavePlanner("plannerSplitMeals", event.target.checked)', script)
+        save = script[script.index("async function appearanceSavePlanner"):script.index("function renderAppearance()")]
+        self.assertIn('"/api/profile/preferences"', save)
+        self.assertIn("state.auth = { ...state.auth, ...previous };", save, "een weigering zet de vorige stand terug")
+        self.assertIn("renderAhPlanner()", save, "de labels in de weekplanner volgen meteen")
+        self.assertIn('$("#appearance-planner-split-row").hidden = !combine.checked;', script, "soep en pizza los alleen met de eerste aan")
+
+
 class AppearanceMarkupTest(unittest.TestCase):
     def panel(self):
         start = HTML.index('<div id="settings-appearance"')
@@ -344,9 +381,17 @@ class AppearanceMarkupTest(unittest.TestCase):
         self.assertEqual(re.findall(r'name="appearance-store" value="(\w+)"', panel), ["ah", "jumbo", "picnic", "crisp"])
         self.assertRegex(panel, r'name="appearance-store" value="ah" checked>', "standaard Albert Heijn")
         self.assertIn('<input type="range" id="appearance-glass" min="0" max="100" step="1" value="60"', panel)
-        self.assertEqual(panel.count("<fieldset"), 5)
-        self.assertEqual(panel.count("<legend"), 5)
+        # Taal (sinds 4.7.0, in het blok Weergave): elke taal in die taal zelf, en geen data-lang op de rondjes, want dan zou
+        # i18n.js ze als knop behandelen (aria-pressed).
+        self.assertEqual(re.findall(r'name="appearance-lang" value="(\w+)"><span lang="(\w+)">', panel), [("nl", "nl"), ("en", "en")])
+        self.assertNotRegex(panel, r'name="appearance-lang"[^>]*data-lang')
+        display = panel[panel.index('id="appearance-display-box"'):panel.index('id="appearance-theme-box"')]
+        self.assertIn('id="appearance-lang"', display)
+        self.assertEqual(panel.count("<fieldset"), 6)
+        self.assertEqual(panel.count("<legend"), 6)
         script = (STATIC / "appearance.js").read_text(encoding="utf-8")
+        self.assertIn('I18N.setLang(event.target.value)', script)
+        self.assertIn("input.checked = input.value === I18N.lang();", script)
         self.assertIn('type="radio" name="appearance-accent"', script)
         self.assertIn('type="color"', script)
         self.assertIn('"/api/profile/preferences"', script)

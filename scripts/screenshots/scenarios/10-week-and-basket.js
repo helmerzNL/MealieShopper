@@ -1,5 +1,5 @@
 // Weekmenu naar de winkel, mandjes, recepten zoeken, winkelkeuze en maaltijdboxen.
-const { DISHES, WEEK, product, perUnit } = require("../demo");
+const { DISHES, WEEK, product, perUnit, openSubtab, openBasket } = require("../demo");
 // Je eigen recepten in Mealie staan bij Recepten zoeken bovenaan (dezelfde als in de receptkiezer van het weekmenu).
 const { mealieRecipes } = require("./01-plan");
 
@@ -150,14 +150,6 @@ const jumboCart = {
   totalPrice: 12.18,
 };
 
-// Kies een winkel in de keuzelijst bovenaan het tabblad Mandje.
-async function openBasket(page, store) {
-  await page.click('[data-tab="basket"]');
-  await page.waitForSelector("#basket-store");
-  if (store) await page.selectOption("#basket-store", store);
-  await page.waitForTimeout(700);
-}
-
 // ---- Recepten zoeken
 
 const ahRecipe = (id, title, image, minutes, servings, courses) => ({
@@ -275,7 +267,7 @@ const searchRoutes = {
 };
 
 async function search(page) {
-  await page.click('[data-subtab="search"]');
+  await openSubtab(page, "search");
   await page.fill("#recipe-query", "kip");
   await page.press("#recipe-query", "Enter");
   await page.waitForSelector("#search-marleyspoon-results .recipe-card");

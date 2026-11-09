@@ -257,7 +257,12 @@ async def get_snapshot(list_id: str) -> dict[str, Any] | None:
 
 
 def _fold(value: Any) -> str:
-    text = unicodedata.normalize("NFKD", str(value or "").casefold())
+    text = str(value or "").casefold()
+    # Zonder accenten of andere tekens buiten ASCII verandert de normalisatie niets. Dat is verreweg de meeste namen, en het
+    # prijsoordeel bij de aanbiedingen vouwt er tienduizenden per keer (`prices._name_index`).
+    if text.isascii():
+        return text
+    text = unicodedata.normalize("NFKD", text)
     return "".join(ch for ch in text if not unicodedata.combining(ch))
 
 

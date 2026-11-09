@@ -28,15 +28,21 @@ function priceArchiveHideProgress() {
 
 function priceArchiveSetBusy(busy) {
   priceArchiveState.busy = busy;
-  ["#price-archive-file", "#price-archive-import", "#price-archive-discard", "#price-archive-replace"].forEach((selector) => {
+  ["#price-archive-file", "#price-archive-fetch", "#price-archive-keep-unlinked", "#price-archive-import", "#price-archive-discard", "#price-archive-replace"].forEach((selector) => {
     $(selector).disabled = busy;
   });
+}
+
+// Met het vinkje blijven folderregels die bij geen product van jou horen (price_archive_tidy.py, `keep_unlinked`).
+function priceArchiveQuery() {
+  return $("#price-archive-keep-unlinked").checked ? "?keep_unlinked=1" : "";
 }
 
 // In stukken (upload.js): een archief van 100 MB in één verzoek komt niet door elke proxy. Daarna controleert de server
 // het archief.
 function priceArchiveUpload(file) {
   return uploadInChunks(file, "/api/price-archive/uploads", {
+    stageQuery: priceArchiveQuery(),
     onProgress: (done, total) =>
       priceArchiveShowProgress({
         label: t("price_archive.progress.uploading"),
@@ -68,6 +74,27 @@ async function priceArchiveChoose() {
   }
 }
 
+// Aanbiedingen ophalen: de server haalt de aanbiedingen en prijzen van data.mealieshopper.nl op en controleert ze zoals een
+// upload; daarna dezelfde samenvatting en dezelfde knop Importeren.
+async function priceArchiveFetch() {
+  if (priceArchiveState.busy) return;
+  await priceArchiveDiscard();
+  priceArchiveMessage("");
+  priceArchiveSetBusy(true);
+  try {
+    priceArchiveShowProgress({ label: t("price_archive.progress.fetching"), note: t("price_archive.note.fetching") });
+    const summary = await jsonFetch(`/api/price-archive/fetch${priceArchiveQuery()}`, { method: "POST" });
+    priceArchiveState.token = summary.token;
+    priceArchiveState.summary = summary;
+    priceArchiveRenderSummary(summary);
+  } catch (error) {
+    priceArchiveMessage(error.message);
+  } finally {
+    priceArchiveHideProgress();
+    priceArchiveSetBusy(false);
+  }
+}
+
 function priceArchiveDate(day) {
   const when = new Date(`${day}T00:00:00`);
   return Number.isNaN(when.getTime()) ? String(day) : when.toLocaleDateString(I18N.locale(), { day: "numeric", month: "short", year: "numeric" });
@@ -85,7 +112,7 @@ function priceArchiveStoreLine(store, stats) {
   if (offers.covered) parts.push(tn("price_archive.part.covered", offers.covered));
   if (prices.kept) parts.push(tn("price_archive.part.kept", prices.kept));
   const period = stats.earliest && stats.latest ? t("price_archive.period", { from: priceArchiveDate(stats.earliest), to: priceArchiveDate(stats.latest) }) : "";
-  const name = STORES[store]?.name || store;
+  const name = storeDisplayName(store);
   return `<li><strong>${escapeHtml(name)}</strong>${period ? ` <span class="muted">${escapeHtml(period)}</span>` : ""}<br>${escapeHtml(parts.join(", "))}</li>`;
 }
 
@@ -259,15 +286,17 @@ function priceExportProgress({ label, value = null, max = null, note = "" }) {
   $("#price-export-progress").hidden = false;
 }
 
-// Zoals een back-up maken (backup.js): de server bouwt de ZIP, daarna komt hij binnen met een voortgangsbalk.
-async function priceExportMake() {
+// Zoals een back-up maken (backup.js): de server bouwt de ZIP, daarna komt hij binnen met een voortgangsbalk. Met `site` in de
+// vorm van data.mealieshopper.nl (losse JSON-bestanden per winkel, met een schema).
+async function priceExportMake({ site = false } = {}) {
   if (priceExportState.busy) return;
   priceExportState.busy = true;
   $("#price-export-make").disabled = true;
+  $("#price-export-site").disabled = true;
   message("#price-export-message", "");
   try {
     priceExportProgress({ label: t("price_export.progress.making") });
-    const response = await fetch("/api/price-archive/export", { method: "POST", credentials: "same-origin" });
+    const response = await fetch(`/api/price-archive/export${site ? "?format=site" : ""}`, { method: "POST", credentials: "same-origin" });
     if (!response.ok) throw await backupError(response);
     const total = Number(response.headers.get("Content-Length")) || 0;
     const chunks = [];
@@ -287,7 +316,8 @@ async function priceExportMake() {
           : t("backup.note.bytes_only", { done: backupMegabytes(received) }),
       });
     }
-    const name = /filename="?([^";]+)"?/.exec(response.headers.get("Content-Disposition") || "")?.[1] || "mealieshopper-prijsarchief.zip";
+    const fallback = site ? "mealieshopper-data.zip" : "mealieshopper-prijsarchief.zip";
+    const name = /filename="?([^";]+)"?/.exec(response.headers.get("Content-Disposition") || "")?.[1] || fallback;
     const link = document.createElement("a");
     link.href = URL.createObjectURL(new Blob(chunks, { type: "application/zip" }));
     link.download = name;
@@ -310,6 +340,7 @@ async function priceExportMake() {
   } finally {
     $("#price-export-progress").hidden = true;
     $("#price-export-make").disabled = false;
+    $("#price-export-site").disabled = false;
     priceExportState.busy = false;
   }
 }
@@ -321,7 +352,9 @@ function loadPriceArchive() {
 
 $("#price-archive-file").addEventListener("change", priceArchiveChoose);
 $("#price-archive-import").addEventListener("click", priceArchiveImport);
-$("#price-export-make").addEventListener("click", priceExportMake);
+$("#price-archive-fetch").addEventListener("click", priceArchiveFetch);
+$("#price-export-make").addEventListener("click", () => priceExportMake());
+$("#price-export-site").addEventListener("click", () => priceExportMake({ site: true }));
 $("#price-archive-discard").addEventListener("click", () => priceArchiveDiscard());
 $("#price-archive-replace").addEventListener("change", () => {
   if (priceArchiveState.summary) priceArchiveRenderSummary(priceArchiveState.summary);
