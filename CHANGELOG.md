@@ -2,6 +2,15 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub; een stabiele release krijgt de teksten van alle versies sinds de vorige stabiele release.
 
+## v4.10.3
+
+### Opgelost in 4.10.3
+
+*English summary: You stay logged in. The session cookie expired after 24 hours no matter how often you used the app, so everyone logged in again every day. A session now lasts 90 days (`MEALIESHOPPER_SESSION_DAYS`), and every request with a session older than a day sets a fresh cookie, so whoever keeps using the app stays logged in. Logging out, a new password and the reset still end every session at once, a Bearer token (AI apps) gets no cookie, and a session from before this version keeps working until it expires.*
+
+- **Je blijft ingelogd.** Melding van 2026-11-09: "het systeem logt me regelmatig uit". De sessiecookie `ms_session` verliep na 24 uur, hoe vaak je de app ook gebruikte, dus iedereen logde elke dag opnieuw in. Een sessie duurt nu 90 dagen (`MEALIESHOPPER_SESSION_DAYS`, zie de README), en elke aanvraag met een sessie van meer dan een dag oud zet een verse cookie met opnieuw de volle duur. Wie de app blijft gebruiken blijft dus ingelogd, wie 90 dagen wegblijft logt opnieuw in. Uitloggen, een nieuw wachtwoord en de reset uit de README beeindigen nog steeds elke sessie meteen (de sessieteller), een Bearer-token van een AI-app krijgt geen cookie, en een sessie van voor deze versie blijft geldig tot hij verloopt.
+- **Tests:** `tests/test_auth.py` (de duur en de omgevingsvariabele) en in `tests/test_reported_bugs.py` de melding van 2026-11-09 (90 dagen, verlenging na een dag, geen cookie bij een Bearer-token, uitloggen wist zonder nieuwe cookie).
+
 ## v4.10.2
 
 ### Verbeterd in 4.10.2

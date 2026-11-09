@@ -222,7 +222,17 @@ async def test_create_token_carries_the_claims(seeded: Path) -> None:
         await auth.verify_token(await auth.create_token(auth.OWNER_ID, "spam")) or {}
     )
     assert (claims["sub"], claims["usr"], claims["ep"]) == (auth.OWNER_ID, "spam", 3)
-    assert claims["exp"] - claims["iat"] == auth.SESSION_MAX_AGE_SECONDS
+    assert claims["exp"] - claims["iat"] == auth.session_max_age_seconds()
+
+
+def test_a_session_lasts_ninety_days_unless_the_environment_says_otherwise(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("MEALIESHOPPER_SESSION_DAYS", raising=False)
+    assert auth.session_max_age_seconds() == 90 * 24 * 60 * 60
+    monkeypatch.setenv("MEALIESHOPPER_SESSION_DAYS", "7")
+    assert auth.session_max_age_seconds() == 7 * 24 * 60 * 60
+    for wrong in ("0", "-3", "rommel", "1.5", ""):
+        monkeypatch.setenv("MEALIESHOPPER_SESSION_DAYS", wrong)
+        assert auth.session_max_age_seconds() == 90 * 24 * 60 * 60, wrong
 
 
 async def test_secret_box_decrypts_what_it_encrypted(seeded: Path) -> None:
