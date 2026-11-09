@@ -12,7 +12,7 @@ import httpx
 
 os.environ.setdefault("MEALIESHOPPER_DATA_DIR", tempfile.mkdtemp())
 
-from mealieshopper import ah, ah_recipes, auth, offers, prices  # noqa: E402
+from mealieshopper import ah, ah_recipes, auth, offer_categories, offers, offers_schedule, prices  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
 from helpers import AppTestCase, db, returned, routes, run, served  # noqa: E402
 
@@ -414,6 +414,55 @@ class SyncWarmTest(AppTestCase):
                 break
             await asyncio.sleep(0.01)
         warmer.assert_awaited_once_with(("ah",))
+
+    async def test_the_store_of_the_sync_is_folded_before_warming(self):
+        # offers.sync neemt " Jumbo " aan als jumbo, dus de opwarmer moet dezelfde winkel krijgen en niet terugvallen op ah.
+        patcher = mock.patch.dict(os.environ, {"PASSKEY_AUTH_ENABLED": "false"})
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        app = create_app()
+        warmer = mock.AsyncMock()
+        app.extensions["mealieshopper_warm_offers"] = warmer
+        client = self.client_for(app)
+        with mock.patch.object(offers, "sync", new_callable=mock.AsyncMock, return_value={"store": "jumbo", "offers": []}):
+            self.assertEqual((await client.post("/api/offers/sync", json={"store": " Jumbo "})).status_code, 200)
+        for _ in range(20):
+            if warmer.await_count:
+                break
+            await asyncio.sleep(0.01)
+        warmer.assert_awaited_once_with(("jumbo",))
+
+
+class WarmerLifetimeTest(TempDataDirTest):
+    """create_app registreert zijn opwarmer bij offers_schedule; na het stoppen laat de app hem los, tenzij een latere app hem al verving."""
+
+    def setUp(self):
+        super().setUp()
+        self.addCleanup(offers_schedule.set_warmer, None)
+
+    async def test_shutdown_lets_go_of_the_warmer(self):
+        app = create_app()
+        async with app.test_app():
+            self.assertIs(offers_schedule._warmer, app.extensions["mealieshopper_warm_offers"])
+        self.assertIsNone(offers_schedule._warmer)
+
+    async def test_shutdown_leaves_the_warmer_of_a_later_app_alone(self):
+        first = create_app()
+        second = create_app()
+        async with first.test_app():
+            pass
+        self.assertIs(offers_schedule._warmer, second.extensions["mealieshopper_warm_offers"])
+
+
+class HistoryProductsTest(unittest.TestCase):
+    def test_a_row_without_a_category_asks_offer_category_with_the_store(self):
+        row = {"store": "ah", "product_id": "1", "title": "AH Halfvolle melk", "brand": "AH", "unit_size": "1 l", "category": None,
+               "first_seen": "2026-11-01", "ended_at": None, "last_seen": "2026-11-09", "price": 1.0, "price_before": 1.5, "promo_label": "",
+               "valid_from": None, "valid_until": None, "syncs": 1, "continued": 0, "image": "", "url": ""}
+        with mock.patch.object(offer_categories, "offer_category", return_value="zuivel") as category:
+            products = offers._history_products([row])
+        category.assert_called_once_with("ah", "AH Halfvolle melk")
+        self.assertEqual(products[("ah", "1")]["category"], "zuivel")
 
 
 class OffersTableMigrationTest(TempDataDirTest):

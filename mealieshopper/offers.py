@@ -792,7 +792,7 @@ def _history_products(rows: Iterable[Any]) -> dict[tuple[str, str], dict[str, An
         )
         product["timesOnOffer"] += 0 if row["continued"] else 1
         # De nieuwste rij geeft titel en plaatje.
-        product.update(title=row["title"], brand=row["brand"], unitSize=row["unit_size"], category=row["category"] or offer_categories.categorize(row["title"]),
+        product.update(title=row["title"], brand=row["brand"], unitSize=row["unit_size"], category=row["category"] or offer_categories.offer_category(row["store"], row["title"]),
                        image=row["image"] or "", url=row["url"] or "", firstSeen=product.get("firstSeen") or row["first_seen"],
                        lastSeen=row["last_seen"], onOfferNow=row["ended_at"] is None)
     for product in products.values():

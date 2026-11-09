@@ -717,6 +717,12 @@ def create_app() -> Quart:
     app.extensions["mealieshopper_warm_offers"] = warm_offers
     offers_schedule.set_warmer(warm_offers)
 
+    @app.after_serving
+    async def _release_warmer() -> None:
+        # Een gestopte app laat haar opwarmer los, zodat de tests (veel apps na elkaar) niet met een oude blijven zitten.
+        if offers_schedule._warmer is warm_offers:
+            offers_schedule.set_warmer(None)
+
     async def warm_at_start() -> None:
         await prices.warm_catalogues()
         await warm_offers()
@@ -890,7 +896,8 @@ def create_app() -> Quart:
         return response
 
     def _valid_store_arg(value: Any) -> str:
-        return value if value in offers.STORES else "ah"
+        store: str = str(value or "").strip().lower()  # dezelfde vouw als offers.sync, zodat " Jumbo " jumbo opwarmt
+        return store if store in offers.STORES else "ah"
 
     @app.get("/api/offers/status")
     async def offers_status():
