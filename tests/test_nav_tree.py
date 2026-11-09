@@ -133,10 +133,10 @@ class ReceiptsTest(unittest.TestCase):
 
     def test_the_price_history_fits_the_screen_on_a_wide_screen(self):
         # De lijst en het product krijgen allebei de hoogte tot de onderkant van de pagina en scrollen in hun eigen vak.
-        self.assertRegex(CSS, r"\.ohc-list \{\n  display: grid;(?:.*\n)*?  max-height: 420px;(?:.*\n)*?@media \(min-width: 900px\) \{\n  \.ohc-detail \{\n    overflow-y: auto;")
+        self.assertRegex(CSS, r"\.ohc-list \{\n  display: grid;(?:.*\n)*?  max-height: 420px;(?:.*\n)*?@media \(min-width: 1200px\) \{\n  \.ohc-detail \{\n    overflow-y: auto;")
         history = (ROOT / "static" / "offers_history.js").read_text(encoding="utf-8")
         self.assertIn("window.requestAnimationFrame(() => offerHistoryFitList(list));", history)
-        self.assertIn('const height = pageFitHeight(list.parentElement, { minWidth: 900 });', history)
+        self.assertIn('const height = pageFitHeight(list.parentElement, { minWidth: 1200 });', history)
         self.assertIn('$("#offers-history-detail").style.maxHeight = value;', history)
         app = (ROOT / "static" / "app.js").read_text(encoding="utf-8")
         self.assertIn("window.innerHeight - (rect.top + window.scrollY) - (shell.bottom - rect.bottom)", app)

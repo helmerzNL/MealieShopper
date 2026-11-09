@@ -684,7 +684,7 @@ function offerRowHead() {
 // Bij een verpakkingsfamilie wissel je met knoppen van verpakking zonder de popup te sluiten.
 
 const OFFER_POPUP_WIDTH = 640;
-const OFFER_POPUP_MIN_SCREEN = 900; // smaller: geen popup bij hover, wel het venster bij een tik
+const OFFER_POPUP_MIN_SCREEN = 860; // smaller: geen popup bij hover, wel het venster bij een tik (het breekpunt van het menu links)
 const OFFER_POPUP_PURCHASES = 8;
 const offerZoomCache = new Map(); // winkel|id -> belofte van het product uit /api/prices/history
 const offerPopupProducts = new Map(); // winkel:id -> het geladen product, voor de periodeknoppen (offers_history.js)
@@ -1452,7 +1452,7 @@ $("#offers-sort").addEventListener("change", (event) => {
   offersRedraw();
 });
 // De popup: met een muis bij het aanwijzen van een kaart of een regel (een verpakkingsregel toont die verpakking), met het
-// toetsenbord bij focus, en zonder hover-popup (aanraakscherm, of een venster smaller dan 900 px) opent een tik op het plaatje
+// toetsenbord bij focus, en zonder hover-popup (aanraakscherm, of een venster smaller dan 860 px) opent een tik op het plaatje
 // hetzelfde als venster.
 function offerPopupAnchor(target) {
   const anchor = target.closest("[data-offer]"); // een kaart of een regel, niet de kopregel van de compacte lijst

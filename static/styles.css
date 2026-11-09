@@ -82,9 +82,23 @@
   --page-glow: rgba(23, 107, 69, 0.07);
   --ease: cubic-bezier(0.2, 0, 0, 1);
 
-  --radius-card: 12px;
+  --radius-sm: 4px;
   --radius-control: 8px;
+  --radius-card: 12px;
+  --radius-lg: 16px;
+  --radius-pill: 999px;
   --control-height: 44px;
+
+  /* Typeschaal: acht stappen. Gebruik alleen deze; een letterlijke grootte mag alleen voor wat geen lopende tekst is (de menubalk,
+     een icoon, de initialen in een grote avatar) en de clamp() van de kookmodus. tests/test_brand.py houdt dat bij. */
+  --text-xs: 12px; /* labels, badges, kleine meta */
+  --text-sm: 13px; /* hulptekst, meta, chips */
+  --text-md: 14px; /* ondersteunende tekst, tabellen */
+  --text-ui: 15px; /* knoppen, tabs, tekst in kaarten */
+  --text-base: 16px; /* lopende tekst en invoer (iOS zoomt niet in) */
+  --text-lg: 18px; /* kop van een blok of venster */
+  --text-xl: 20px; /* vakkop (h2), kerncijfer */
+  --text-2xl: 24px; /* schermtitel */
 
   --font-body: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   --font-heading: "Manrope", "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
@@ -218,7 +232,7 @@ body {
   background: var(--bg) radial-gradient(1100px 380px at 50% -140px, var(--page-glow), transparent 72%) no-repeat;
   color: var(--text);
   font-family: var(--font-body);
-  font-size: 16px;
+  font-size: var(--text-base);
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
@@ -271,7 +285,7 @@ select:focus-visible {
   gap: 12px;
   color: inherit;
   text-decoration: none;
-  border-radius: 8px;
+  border-radius: var(--radius-control);
 }
 
 .brand-link:focus-visible {
@@ -308,7 +322,7 @@ select:focus-visible {
 .auth-card {
   width: min(440px, 100%);
   border: 1px solid var(--border);
-  border-radius: 16px;
+  border-radius: var(--radius-lg);
   background: var(--surface);
   padding: 28px;
   box-shadow: var(--shadow-lg);
@@ -316,7 +330,7 @@ select:focus-visible {
 }
 
 .auth-card h2 {
-  font-size: 26px;
+  font-size: var(--text-2xl);
   letter-spacing: -0.02em;
 }
 
@@ -328,7 +342,7 @@ select:focus-visible {
 .auth-card > .auth-card__tagline {
   margin: -6px 0 14px;
   color: var(--muted);
-  font-size: 14px;
+  font-size: var(--text-md);
 }
 
 .auth-card > h2,
@@ -391,14 +405,14 @@ h3 {
 }
 
 h2 {
-  font-size: 20px;
+  font-size: var(--text-xl);
   font-weight: 800;
   line-height: 1.25;
   letter-spacing: -0.02em;
 }
 
 .wordmark {
-  font-size: 21px;
+  font-size: var(--text-xl);
   letter-spacing: -0.025em;
   font-weight: 800;
   line-height: 1.1;
@@ -417,10 +431,10 @@ h2 {
 .beta-badge {
   padding: 1px 8px;
   border: 1px solid var(--warning-border);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--warning-bg);
   color: var(--warning-text);
-  font-size: 12px;
+  font-size: var(--text-xs);
   font-weight: 800;
   letter-spacing: 0.04em;
   line-height: 1.5;
@@ -493,7 +507,7 @@ h2 {
    subtabbalk vervangt (page-title--tree, zie de regels vanaf 860 px): anders zegt het segment erboven al waar je bent. */
 .page-title {
   margin: 0 0 16px;
-  font-size: 24px;
+  font-size: var(--text-2xl);
 }
 
 .page-title--tree {
@@ -520,7 +534,7 @@ h2 {
   border: 0;
   border-radius: var(--radius-control);
   font: inherit;
-  font-size: 15px;
+  font-size: var(--text-ui);
   font-weight: 600;
   cursor: pointer;
   transition: background-color 0.15s var(--ease), color 0.15s var(--ease), border-color 0.15s var(--ease),
@@ -553,6 +567,81 @@ h2 {
   background: var(--surface);
   color: var(--primary-strong);
   box-shadow: 0 1px 2px rgba(var(--shadow-ink), 0.12), 0 0 0 1px var(--border);
+}
+
+/* Eén segmentbediening voor een keuze binnen een scherm (fase 4): de weergave van Aanbiedingen, de weergaven van aankopen en
+   bestellingen, Recept of Notitie in het plan-venster. Hetzelfde ingedeukte spoor als .subtabs, maar met knoppen
+   (aria-pressed) of radio's in plaats van links: .subtabs is navigatie, .segmented een keuze. Elk segment is minstens 44 px. */
+.segmented {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  width: fit-content;
+  padding: 3px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--surface-muted);
+  box-shadow: inset 0 1px 2px rgba(var(--shadow-ink), 0.05);
+}
+
+.segmented__item {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: var(--control-height);
+  min-height: var(--control-height);
+  padding: 0 14px;
+  border: 0;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: var(--text-ui);
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.15s var(--ease), color 0.15s var(--ease), box-shadow 0.2s var(--ease);
+  -webkit-tap-highlight-color: transparent;
+}
+
+.segmented__item--icon {
+  padding: 0;
+}
+
+.segmented__item svg {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  fill: currentColor;
+}
+
+/* Een radio in een segment: onzichtbaar, het segment is het doel (en het label). */
+.segmented__item input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.segmented__item.is-active,
+.segmented__item[aria-pressed="true"],
+.segmented__item:has(input:checked) {
+  background: var(--surface);
+  color: var(--primary-strong);
+  box-shadow: 0 1px 2px rgba(var(--shadow-ink), 0.12), 0 0 0 1px var(--border);
+}
+
+.segmented__item:focus-visible,
+.segmented__item:has(input:focus-visible) {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+@media (hover: hover) {
+  .segmented__item:hover:not(.is-active, [aria-pressed="true"], :has(input:checked)) {
+    background: var(--selection);
+    color: var(--primary-strong);
+  }
 }
 
 .tab.is-active > svg {
@@ -619,7 +708,7 @@ h2 {
   background: transparent;
   color: var(--muted);
   font: inherit;
-  font-size: 15px;
+  font-size: var(--text-ui);
   font-weight: 600;
   text-align: left;
   white-space: nowrap;
@@ -749,7 +838,7 @@ a.subtab-menu__item[hidden] {
 .week-label span,
 .muted {
   color: var(--muted);
-  font-size: 14px;
+  font-size: var(--text-md);
 }
 
 .button,
@@ -802,7 +891,7 @@ a.subtab-menu__item[hidden] {
 .icon-button {
   width: var(--control-height);
   padding: 0;
-  font-size: 24px;
+  font-size: 24px; /* geen tekst maar de maat van een teken-icoon (×, ‹); buiten de typeschaal */
   line-height: 1;
 }
 
@@ -821,7 +910,7 @@ a.subtab-menu__item[hidden] {
 }
 
 .field > span {
-  font-size: 14px;
+  font-size: var(--text-md);
   font-weight: 600;
 }
 
@@ -833,7 +922,7 @@ a.subtab-menu__item[hidden] {
   background: var(--surface);
   color: var(--text);
   font: inherit;
-  font-size: 16px;
+  font-size: var(--text-base);
   box-shadow: inset 0 1px 2px rgba(var(--shadow-ink), 0.04);
   transition: border-color 0.15s var(--ease), box-shadow 0.2s var(--ease);
 }
@@ -929,7 +1018,7 @@ a.subtab-menu__item[hidden] {
 .message {
   margin: 16px 0;
   padding: 12px 16px 12px 18px;
-  font-size: 15px;
+  font-size: var(--text-ui);
 }
 
 /* Een gekleurde balk links maakt het soort melding in één oogopslag duidelijk; de tekst legt het altijd uit. */
@@ -1000,7 +1089,7 @@ a.subtab-menu__item[hidden] {
   height: 8px;
   margin-right: 8px;
   overflow: hidden;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--surface-muted);
   box-shadow: inset 0 0 0 1px var(--border);
   vertical-align: middle;
@@ -1012,7 +1101,7 @@ a.subtab-menu__item[hidden] {
   background: var(--primary);
 }
 
-@media (max-width: 560px) {
+@media (max-width: 640px) {
   .linking-facts {
     grid-template-columns: minmax(0, 1fr);
     gap: 2px;
@@ -1051,7 +1140,7 @@ a.subtab-menu__item[hidden] {
   gap: 8px;
   margin: 0 0 12px;
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--text-xs);
   font-weight: 700;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -1068,11 +1157,11 @@ a.subtab-menu__item[hidden] {
 }
 
 .day-card__today {
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--primary);
   color: var(--on-primary);
   padding: 1px 8px;
-  font-size: 11px;
+  font-size: var(--text-xs);
   letter-spacing: 0.04em;
 }
 
@@ -1086,7 +1175,7 @@ a.subtab-menu__item[hidden] {
 .meal__type {
   display: block;
   color: var(--primary);
-  font-size: 12px;
+  font-size: var(--text-xs);
   font-weight: 700;
   text-transform: uppercase;
 }
@@ -1096,7 +1185,7 @@ a.subtab-menu__item[hidden] {
 .meal strong {
   display: block;
   margin-top: 2px;
-  font-size: 15px;
+  font-size: var(--text-ui);
   overflow-wrap: break-word;
   hyphens: manual;
 }
@@ -1105,7 +1194,7 @@ a.subtab-menu__item[hidden] {
   display: block;
   margin-top: 3px;
   color: var(--muted);
-  font-size: 13px;
+  font-size: var(--text-sm);
 }
 
 .ingredients {
@@ -1177,7 +1266,7 @@ a.subtab-menu__item[hidden] {
 
 .recipe-card h3 {
   margin: 0;
-  font-size: 16px;
+  font-size: var(--text-base);
   line-height: 1.3;
 }
 
@@ -1233,7 +1322,7 @@ a.subtab-menu__item[hidden] {
 
 .recipe-card .recipe-card__headline {
   margin: 0;
-  font-size: 14px;
+  font-size: var(--text-md);
   line-height: 1.4;
 }
 
@@ -1244,12 +1333,12 @@ a.subtab-menu__item[hidden] {
 }
 
 .tag {
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--selection);
   box-shadow: inset 0 0 0 1px var(--selection-border);
   color: var(--primary-strong);
   padding: 3px 10px;
-  font-size: 12px;
+  font-size: var(--text-xs);
   font-weight: 600;
 }
 
@@ -1316,7 +1405,7 @@ a.subtab-menu__item[hidden] {
 .credential-row small {
   margin-top: 3px;
   color: var(--muted);
-  font-size: 13px;
+  font-size: var(--text-sm);
 }
 
 .credential-row .list-link {
@@ -1342,17 +1431,17 @@ a.subtab-menu__item[hidden] {
   margin: 14px 0 0;
   padding-left: 20px;
   color: var(--text);
-  font-size: 15px;
+  font-size: var(--text-ui);
   line-height: 1.5;
 }
 
 code {
   background: var(--surface-muted);
   border: 1px solid var(--border);
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   padding: 1px 5px;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 13px;
+  font-size: var(--text-sm);
   overflow-wrap: anywhere;
 }
 
@@ -1403,18 +1492,18 @@ a.product-card strong {
   display: block;
   margin-top: 3px;
   color: var(--muted);
-  font-size: 13px;
+  font-size: var(--text-sm);
 }
 
 .product-card .bonus {
   width: fit-content;
   margin-top: 4px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--danger-bg);
   box-shadow: inset 0 0 0 1px var(--danger-border);
   color: var(--danger);
   padding: 1px 8px;
-  font-size: 12px;
+  font-size: var(--text-xs);
   font-weight: 700;
 }
 
@@ -1423,7 +1512,7 @@ a.product-card strong {
   margin-top: 4px;
   color: var(--text);
   font-family: var(--font-heading);
-  font-size: 16px;
+  font-size: var(--text-base);
   font-weight: 800;
   letter-spacing: -0.01em;
 }
@@ -1431,7 +1520,7 @@ a.product-card strong {
 .product-card .product-card__price s {
   color: var(--muted);
   font-family: var(--font-body);
-  font-size: 13px;
+  font-size: var(--text-sm);
   font-weight: 500;
 }
 
@@ -1467,7 +1556,7 @@ a.product-card strong {
   cursor: pointer;
   vertical-align: middle;
   line-height: 0;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
 }
 
 .offer-flag:hover {
@@ -1488,7 +1577,7 @@ a.product-card strong {
 .offer-match:focus-visible {
   outline: 2px solid var(--primary);
   outline-offset: 2px;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
 }
 
 /* Een popup houdt het vegen voor zich. Zolang er een open is, scrolt de pagina erachter niet: niet bij vegen op de
@@ -1544,7 +1633,7 @@ html:has(dialog[open]) {
 
 .product-dialog h3 {
   margin: 0 0 4px;
-  font-size: 18px;
+  font-size: var(--text-lg);
   overflow-wrap: anywhere;
 }
 
@@ -1586,7 +1675,7 @@ html:has(dialog[open]) {
   gap: 8px;
 }
 
-@media (max-width: 480px) {
+@media (max-width: 640px) {
   .product-dialog__body {
     flex-direction: column;
   }
@@ -1659,7 +1748,7 @@ html:has(dialog[open]) {
   margin: 14px 0;
   padding: 12px 14px;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-control);
 }
 
 .ai-provider h3 {
@@ -1669,14 +1758,14 @@ html:has(dialog[open]) {
 .offer-matches {
   margin: 0;
   padding-left: 18px;
-  font-size: 14px;
+  font-size: var(--text-md);
 }
 
 .recipe-card .bonus {
   margin: 0;
   color: var(--danger);
   font-weight: 600;
-  font-size: 14px;
+  font-size: var(--text-md);
 }
 
 .product-card--list {
@@ -1711,7 +1800,7 @@ a.product-card__main:hover strong {
 .qty__note {
   flex: 1;
   color: var(--muted);
-  font-size: 13px;
+  font-size: var(--text-sm);
 }
 
 .qty__step {
@@ -1820,7 +1909,7 @@ a.product-card__main:hover strong {
   flex: 1 1 180px;
   gap: 6px;
   min-width: 0;
-  font-size: 14px;
+  font-size: var(--text-md);
   font-weight: 600;
 }
 
@@ -1828,7 +1917,7 @@ a.product-card__main:hover strong {
   display: block;
   height: 6px;
   overflow: hidden;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--border);
 }
 
@@ -1844,7 +1933,7 @@ a.product-card__main:hover strong {
 .cook__wake {
   margin: 0;
   min-height: var(--control-height);
-  font-size: 15px;
+  font-size: var(--text-ui);
 }
 
 .cook__wake input {
@@ -1865,7 +1954,7 @@ a.product-card__main:hover strong {
   gap: 12px;
   margin: 0 0 8px;
   font-family: var(--font-heading);
-  font-size: 20px;
+  font-size: var(--text-xl);
   font-weight: 800;
   line-height: 1.25;
 }
@@ -1873,7 +1962,7 @@ a.product-card__main:hover strong {
 .cook__count {
   color: var(--muted);
   font-family: var(--font-body);
-  font-size: 14px;
+  font-size: var(--text-md);
   font-weight: 600;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
@@ -1883,7 +1972,7 @@ a.product-card__main:hover strong {
   margin: 16px 0 4px;
   color: var(--muted);
   font-family: var(--font-body);
-  font-size: 13px;
+  font-size: var(--text-sm);
   font-weight: 700;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -1910,7 +1999,7 @@ a.product-card__main:hover strong {
   min-height: var(--control-height);
   padding: 10px 8px;
   border-radius: var(--radius-control);
-  font-size: 17px;
+  font-size: var(--text-lg);
   line-height: 1.45;
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
@@ -2005,7 +2094,7 @@ html.no-calories .plan-servings__kcal {
   width: 100%;
   max-width: 440px;
   border-collapse: collapse;
-  font-size: 14px;
+  font-size: var(--text-md);
   font-variant-numeric: tabular-nums;
 }
 
@@ -2023,7 +2112,7 @@ html.no-calories .plan-servings__kcal {
 
 .nutrition-table thead th {
   color: var(--muted);
-  font-size: 13px;
+  font-size: var(--text-sm);
   font-weight: 600;
 }
 
@@ -2041,14 +2130,14 @@ html.no-calories .plan-servings__kcal {
 .day-card__nutrition {
   margin: 2px 0 8px;
   color: var(--muted);
-  font-size: 13px;
+  font-size: var(--text-sm);
 }
 
 /* Meer filters (eiwit, vet, koolhydraten, suikers, vezels, zout): ingeklapt onder de kcal. */
 .nutrition-filter > summary {
   width: fit-content;
   color: var(--primary-strong);
-  font-size: 14px;
+  font-size: var(--text-md);
   font-weight: 600;
   cursor: pointer;
 }
@@ -2072,7 +2161,7 @@ html.no-calories .plan-servings__kcal {
 
 .kcal-filter__label {
   color: var(--muted);
-  font-size: 14px;
+  font-size: var(--text-md);
   font-weight: 600;
 }
 
@@ -2095,11 +2184,11 @@ html.no-calories .plan-servings__kcal {
 
 .kcal-filter__note {
   flex-basis: 100%;
-  font-size: 13px;
+  font-size: var(--text-sm);
 }
 
 /* Op een telefoon past "Kcal per persoon" niet naast twee velden: het label staat erboven. */
-@media (max-width: 480px) {
+@media (max-width: 640px) {
   .kcal-filter__label {
     flex-basis: 100%;
   }
@@ -2130,7 +2219,7 @@ html.no-calories .plan-servings__kcal {
 
 .plan-servings__kcal {
   color: var(--muted);
-  font-size: 14px;
+  font-size: var(--text-md);
 }
 
 .cook-steps {
@@ -2169,7 +2258,7 @@ html.no-calories .plan-servings__kcal {
   background: var(--surface);
   color: var(--text);
   font-family: var(--font-heading);
-  font-size: 18px;
+  font-size: var(--text-lg);
   font-weight: 800;
   cursor: pointer;
   transition: background-color 150ms var(--ease), border-color 150ms var(--ease), color 150ms var(--ease);
@@ -2215,7 +2304,7 @@ html.no-calories .plan-servings__kcal {
   display: none;
   margin-bottom: 4px;
   color: var(--primary);
-  font-size: 12px;
+  font-size: var(--text-xs);
   font-weight: 800;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -2228,14 +2317,14 @@ html.no-calories .plan-servings__kcal {
 .cook .cook-step__title {
   margin: 0 0 4px;
   font-family: var(--font-heading);
-  font-size: 17px;
+  font-size: var(--text-lg);
   font-weight: 800;
 }
 
 .cook .cook-step__text {
   max-width: 68ch;
   margin: 0;
-  font-size: 18px;
+  font-size: var(--text-lg);
   line-height: 1.6;
   white-space: pre-line;
   overflow-wrap: break-word;
@@ -2264,7 +2353,7 @@ html.no-calories .plan-servings__kcal {
   }
 
   .cook .cook-step__text {
-    font-size: 17px;
+    font-size: var(--text-lg);
   }
 }
 
@@ -2303,7 +2392,7 @@ html.no-calories .plan-servings__kcal {
 
 .stats dt {
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--text-xs);
   font-weight: 600;
   letter-spacing: 0.05em;
   text-transform: uppercase;
@@ -2311,7 +2400,7 @@ html.no-calories .plan-servings__kcal {
 
 .stats dd {
   margin: 2px 0 0;
-  font-size: 20px;
+  font-size: var(--text-xl);
   font-weight: 700;
   font-variant-numeric: tabular-nums;
 }
@@ -2322,7 +2411,7 @@ html.no-calories .plan-servings__kcal {
   }
 
   .stats dd {
-    font-size: 17px;
+    font-size: var(--text-lg);
   }
 }
 
@@ -2338,7 +2427,7 @@ details.help > summary {
   gap: 6px;
   min-height: 32px;
   color: var(--primary-strong);
-  font-size: 14px;
+  font-size: var(--text-md);
   font-weight: 600;
   cursor: pointer;
   list-style: none;
@@ -2418,7 +2507,7 @@ details.help > p {
   text-align: right;
 }
 
-@media (max-width: 560px) {
+@media (max-width: 640px) {
   .basket-line {
     grid-template-columns: minmax(0, 1fr) auto;
   }
@@ -2617,7 +2706,7 @@ details.help > p {
 .review-search-status {
   flex-basis: 100%;
   color: var(--muted);
-  font-size: 13px;
+  font-size: var(--text-sm);
 }
 
 .review-search-status:empty {
@@ -2631,7 +2720,7 @@ details.help > p {
   min-height: 24px;
   margin-top: 4px;
   padding: 0;
-  font-size: 13px;
+  font-size: var(--text-sm);
   text-align: left;
 }
 
@@ -2644,7 +2733,7 @@ details.help > p {
   background: var(--surface);
   color: var(--text);
   font: inherit;
-  font-size: 16px;
+  font-size: var(--text-base);
   padding: 0 8px;
 }
 
@@ -2653,7 +2742,7 @@ details.help > p {
   display: block;
   margin-top: 2px;
   color: var(--warning-text);
-  font-size: 13px;
+  font-size: var(--text-sm);
 }
 
 .review-cheaper:empty {
@@ -2663,14 +2752,14 @@ details.help > p {
 .review-row .review-cheaper .link-button {
   min-height: 0;
   padding: 0;
-  font-size: 13px;
+  font-size: var(--text-sm);
 }
 
 .review-note {
   display: block;
   margin-top: 3px;
   color: var(--warning-text);
-  font-size: 13px;
+  font-size: var(--text-sm);
 }
 
 /* Liever biologisch (#218): geen biologische variant gevonden, dus het gewone product staat er */
@@ -2678,7 +2767,7 @@ details.help > p {
   display: block;
   margin-top: 2px;
   color: var(--muted);
-  font-size: 13px;
+  font-size: var(--text-sm);
 }
 
 .review-row input[type="checkbox"] {
@@ -2695,7 +2784,7 @@ details.help > p {
   background: var(--surface);
   color: var(--text);
   font: inherit;
-  font-size: 16px;
+  font-size: var(--text-base);
   padding: 0 8px;
 }
 
@@ -2754,7 +2843,7 @@ details.help > p {
   background: var(--surface);
   color: var(--text);
   font: inherit;
-  font-size: 16px;
+  font-size: var(--text-base);
   padding: 0 8px;
   box-shadow: var(--shadow-xs);
   transition: border-color 0.15s var(--ease), box-shadow 0.2s var(--ease);
@@ -2779,7 +2868,7 @@ select.input {
 
 .review-link {
   color: var(--primary);
-  font-size: 14px;
+  font-size: var(--text-md);
   font-weight: 600;
   white-space: nowrap;
   text-decoration: none;
@@ -2802,7 +2891,7 @@ select.input {
   }
 
   .wordmark {
-    font-size: 20px;
+    font-size: var(--text-xl);
   }
 
   .toolbar,
@@ -2967,7 +3056,7 @@ select.input {
 
 .meal-recipe__type {
   color: var(--primary);
-  font-size: 12px;
+  font-size: var(--text-xs);
   font-weight: 700;
   text-transform: uppercase;
 }
@@ -2988,7 +3077,7 @@ select.input {
   --cook-sticky-room: 140px;
 }
 
-@media (min-width: 1000px) {
+@media (min-width: 860px) {
   .meal-recipe {
     width: min(1040px, calc(100vw - 64px));
   }
@@ -3009,7 +3098,7 @@ select.input {
 }
 
 /* ---- De kookmodus (#cook-mode, recipe_view.js): schermvullend, één stap in grote letters, met Vorige en Volgende onderaan
-   binnen bereik van je duim. De ingrediënten liggen op een smal scherm als paneel over de onderkant, vanaf 900 px ernaast. */
+   binnen bereik van je duim. De ingrediënten liggen op een smal scherm als paneel over de onderkant, vanaf 860 px ernaast. */
 .cook-mode {
   inset: 0;
   width: auto;
@@ -3067,7 +3156,7 @@ html:has(#cook-mode[open]) {
 .cook-mode .cook-mode__eyebrow {
   margin: 0;
   color: var(--primary);
-  font-size: 12px;
+  font-size: var(--text-xs);
   font-weight: 800;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -3076,7 +3165,7 @@ html:has(#cook-mode[open]) {
 .cook-mode h2 {
   display: -webkit-box;
   overflow: hidden;
-  font-size: 18px;
+  font-size: var(--text-lg);
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
 }
@@ -3099,7 +3188,7 @@ html:has(#cook-mode[open]) {
   grid-area: meter;
 }
 
-@media (min-width: 720px) {
+@media (min-width: 641px) {
   .cook-mode__head {
     grid-template-columns: minmax(0, 1fr) auto auto;
     grid-template-areas: "titles tools close" "meter meter meter";
@@ -3140,7 +3229,7 @@ html:has(#cook-mode[open]) {
   margin: 0;
   color: var(--primary);
   font-family: var(--font-heading);
-  font-size: 15px;
+  font-size: var(--text-ui);
   font-weight: 800;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -3189,20 +3278,20 @@ html:has(#cook-mode[open]) {
   overflow-y: auto;
   overscroll-behavior: contain;
   border-top: 1px solid var(--border);
-  border-radius: 16px 16px 0 0;
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
   background: var(--surface);
   box-shadow: var(--shadow-lg);
 }
 
 .cook-mode .cook-mode__panel h3 {
   margin: 0 0 4px;
-  font-size: 18px;
+  font-size: var(--text-lg);
 }
 
 .cook-mode__panel .cook__section {
   margin: 12px 0 4px;
   color: var(--muted);
-  font-size: 13px;
+  font-size: var(--text-sm);
   font-weight: 700;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -3219,10 +3308,10 @@ html:has(#cook-mode[open]) {
 
 .cook-mode__nav .button {
   min-height: 56px;
-  font-size: 18px;
+  font-size: var(--text-lg);
 }
 
-@media (min-width: 900px) {
+@media (min-width: 860px) {
   .cook-mode--panel .cook-mode__body {
     grid-template-columns: minmax(0, 1fr) 360px;
   }
@@ -3323,7 +3412,7 @@ html:has(#cook-mode[open]) {
   background: transparent;
   color: var(--muted);
   font: inherit;
-  font-size: 14px;
+  font-size: var(--text-md);
   font-weight: 600;
   cursor: pointer;
   transition: border-color 0.15s var(--ease), background-color 0.15s var(--ease), color 0.15s var(--ease);
@@ -3376,48 +3465,6 @@ html:has(#cook-mode[open]) {
 .plan-dialog__part {
   display: grid;
   gap: 12px;
-}
-
-.plan-kind {
-  display: flex;
-  gap: 4px;
-  width: fit-content;
-  padding: 4px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-card);
-  background: var(--surface-muted);
-  box-shadow: inset 0 1px 2px rgba(var(--shadow-ink), 0.05);
-}
-
-.plan-kind__option {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  min-height: 40px;
-  padding: 0 16px;
-  border-radius: var(--radius-control);
-  color: var(--muted);
-  font-size: 15px;
-  font-weight: 600;
-  cursor: pointer;
-}
-
-.plan-kind__option input {
-  position: absolute;
-  opacity: 0;
-  pointer-events: none;
-}
-
-
-.plan-kind__option:has(input:checked) {
-  background: var(--surface);
-  color: var(--primary-strong);
-  box-shadow: 0 1px 2px rgba(var(--shadow-ink), 0.12), 0 0 0 1px var(--border);
-}
-
-.plan-kind__option:has(input:focus-visible) {
-  outline: 2px solid var(--primary);
-  outline-offset: 2px;
 }
 
 .plan-recipe-search {
@@ -3514,7 +3561,7 @@ button.plan-recipe:focus-visible {
 
 .plan-recipe__text small {
   color: var(--muted);
-  font-size: 13px;
+  font-size: var(--text-sm);
 }
 
 .plan-recipe-chosen {
@@ -3560,10 +3607,6 @@ button.plan-recipe:focus-visible {
     background: var(--selection);
     color: var(--primary-strong);
   }
-
-  .plan-kind__option:hover {
-    color: var(--primary-strong);
-  }
 }
 
 .plan-dialog__delete {
@@ -3578,7 +3621,7 @@ button.plan-recipe:focus-visible {
   margin-left: 4px;
 }
 
-@media (max-width: 480px) {
+@media (max-width: 640px) {
   .plan-dialog__row {
     grid-template-columns: 1fr;
   }
@@ -3612,7 +3655,7 @@ button.plan-recipe:focus-visible {
 
 .ah-planner__nothing {
   margin: 0;
-  font-size: 13px;
+  font-size: var(--text-sm);
 }
 
 #ah-planner-message .message {
@@ -3649,7 +3692,7 @@ button.plan-recipe:focus-visible {
 .recipe-import-result .message {
   margin: 0;
   padding: 8px 10px;
-  font-size: 13px;
+  font-size: var(--text-sm);
   overflow-wrap: anywhere;
 }
 
@@ -3698,7 +3741,7 @@ button.plan-recipe:focus-visible {
 .list-card__open strong {
   display: block;
   color: var(--primary);
-  font-size: 16px;
+  font-size: var(--text-base);
   line-height: 1.3;
   overflow-wrap: break-word;
   hyphens: auto;
@@ -3708,7 +3751,7 @@ button.plan-recipe:focus-visible {
   display: block;
   margin-top: 4px;
   color: var(--muted);
-  font-size: 13px;
+  font-size: var(--text-sm);
   line-height: 1.35;
 }
 
@@ -3859,7 +3902,7 @@ button.plan-recipe:focus-visible {
   }
 
   .recipe-grid--compact .recipe-card h3 {
-    font-size: 14px;
+    font-size: var(--text-md);
   }
 
   .list-header {
@@ -3922,7 +3965,7 @@ a.button {
   background: none;
   color: var(--primary);
   font: inherit;
-  font-size: 14px;
+  font-size: var(--text-md);
   font-weight: 600;
   text-decoration: underline;
   text-underline-offset: 3px;
@@ -3938,7 +3981,7 @@ a.button {
   align-items: flex-start;
   gap: 10px;
   min-height: 28px;
-  font-size: 15px;
+  font-size: var(--text-ui);
   line-height: 1.4;
 }
 
@@ -3973,7 +4016,7 @@ body.has-onboarding {
   width: min(680px, 100%);
   margin: 0 auto;
   border: 1px solid var(--border);
-  border-radius: 16px;
+  border-radius: var(--radius-lg);
   background: var(--surface);
   box-shadow: var(--shadow-lg);
   padding: 28px;
@@ -3994,7 +4037,7 @@ body.has-onboarding {
 
 .onboarding__head h2 {
   margin: 0;
-  font-size: 24px;
+  font-size: var(--text-2xl);
   line-height: 1.2;
 }
 
@@ -4005,7 +4048,7 @@ body.has-onboarding {
 .onboarding__eyebrow {
   margin: 0 0 2px;
   color: var(--primary);
-  font-size: 13px;
+  font-size: var(--text-sm);
   font-weight: 700;
   letter-spacing: 0.02em;
   text-transform: uppercase;
@@ -4028,7 +4071,7 @@ body.has-onboarding {
   gap: 6px;
   min-width: 0;
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--text-xs);
   font-weight: 600;
   text-align: center;
 }
@@ -4043,7 +4086,7 @@ body.has-onboarding {
   border: 2px solid var(--border);
   border-radius: 50%;
   background: var(--surface);
-  font-size: 13px;
+  font-size: var(--text-sm);
   transition: background-color 0.2s var(--ease), border-color 0.2s var(--ease);
 }
 
@@ -4100,7 +4143,7 @@ body.has-onboarding {
   padding: 10px 12px;
   border-radius: var(--radius-control);
   background: var(--surface-muted);
-  font-size: 14px;
+  font-size: var(--text-md);
   overflow-wrap: anywhere;
 }
 
@@ -4129,7 +4172,7 @@ body.has-onboarding {
 .ob-option h3,
 .ob-subtitle {
   margin: 0 0 6px;
-  font-size: 17px;
+  font-size: var(--text-lg);
 }
 
 .ob-subtitle {
@@ -4138,17 +4181,17 @@ body.has-onboarding {
 
 .ob-option p {
   margin: 0 0 12px;
-  font-size: 15px;
+  font-size: var(--text-ui);
 }
 
 .ob-badge {
   display: inline-block;
   margin-bottom: 8px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--primary);
   padding: 2px 10px;
   color: var(--on-primary);
-  font-size: 12px;
+  font-size: var(--text-xs);
   font-weight: 700;
 }
 
@@ -4254,7 +4297,7 @@ body.has-onboarding {
 .recovery-codes code {
   border: 0;
   background: none;
-  font-size: 15px;
+  font-size: var(--text-ui);
   letter-spacing: 0.04em;
   user-select: all;
 }
@@ -4265,7 +4308,7 @@ body.has-onboarding {
   }
 
   .onboarding__head h2 {
-    font-size: 21px;
+    font-size: var(--text-xl);
   }
 
   .ob-progress li:not(.is-current) .ob-progress__label {
@@ -4342,11 +4385,11 @@ body.has-onboarding {
 }
 
 .fold__badge {
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--selection);
   padding: 2px 10px;
   color: var(--primary-strong);
-  font-size: 12px;
+  font-size: var(--text-xs);
   font-weight: 700;
 }
 
@@ -4428,20 +4471,20 @@ body.has-onboarding {
 /* Over */
 .about-version {
   margin: 4px 0 12px;
-  font-size: 15px;
+  font-size: var(--text-ui);
 }
 
 .about-version strong {
   margin-left: 6px;
   font-family: var(--font-heading, inherit);
-  font-size: 24px;
+  font-size: var(--text-2xl);
   overflow-wrap: anywhere;
 }
 
 .about-group {
   margin: 22px 0 8px;
   color: var(--muted);
-  font-size: 13px;
+  font-size: var(--text-sm);
   font-weight: 700;
   letter-spacing: 0.02em;
   text-transform: uppercase;
@@ -4478,22 +4521,22 @@ body.has-onboarding {
 }
 
 .about-list__version {
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--surface-muted);
   padding: 1px 8px;
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--text-xs);
   font-weight: 600;
 }
 
 .about-list small {
   color: var(--muted);
-  font-size: 13px;
+  font-size: var(--text-sm);
   line-height: 1.4;
 }
 
 .about-list .about-list__license {
-  font-size: 12px;
+  font-size: var(--text-xs);
 }
 
 .about-repo {
@@ -4579,7 +4622,7 @@ body.has-onboarding {
   background: none;
   color: var(--muted);
   font: inherit;
-  font-size: 13px;
+  font-size: var(--text-sm);
   font-weight: 700;
   letter-spacing: 0.04em;
   cursor: pointer;
@@ -4698,7 +4741,7 @@ html.is-standalone body {
     padding: 6px 1px;
     border-radius: 26px;
     color: var(--tabbar-ink);
-    font-size: 10px;
+    font-size: 10px; /* label onder het icoon van de menubalk, zoals iOS en Android: buiten de typeschaal */
     font-weight: 600;
     line-height: 1.1;
     transition: background-color 0.2s ease, color 0.2s ease, transform 0.15s ease;
@@ -4783,14 +4826,14 @@ html.is-standalone body {
     border-radius: 0;
     background: none;
     color: var(--muted);
-    font-size: 12px;
+    font-size: var(--text-xs);
     font-weight: 500;
   }
 
   html.has-tabbar[data-nav="android"] .tab-icon {
     box-sizing: content-box;
     padding: 4px 20px;
-    border-radius: 16px;
+    border-radius: var(--radius-pill);
     transition: background-color 0.2s ease;
   }
 
@@ -4843,10 +4886,10 @@ html.is-standalone body {
   display: inline-block;
   margin-left: 6px;
   padding: 1px 8px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--selection);
   color: var(--primary-strong);
-  font-size: 12px;
+  font-size: var(--text-xs);
   font-weight: 600;
 }
 
@@ -4879,12 +4922,12 @@ html.is-standalone body {
 
 .oauth-card h1 {
   margin: 16px 0 8px;
-  font-size: 24px;
+  font-size: var(--text-2xl);
 }
 
 .oauth-card h2 {
   margin: 20px 0 6px;
-  font-size: 16px;
+  font-size: var(--text-base);
 }
 
 .oauth-list {
@@ -4918,7 +4961,7 @@ html.is-standalone body {
   overflow-x: auto;
   border-radius: var(--radius-control);
   background: var(--surface-muted);
-  font-size: 13px;
+  font-size: var(--text-sm);
 }
 
 .ai-tools {
@@ -4971,7 +5014,7 @@ html.is-standalone body {
   background: var(--paper);
   color: var(--ink);
   font-family: ui-monospace, "SFMono-Regular", "Cascadia Mono", Menlo, Consolas, "Liberation Mono", monospace;
-  font-size: 13px;
+  font-size: var(--text-sm);
   line-height: 1.45;
   filter: drop-shadow(0 2px 5px rgb(0 0 0 / 0.22));
 }
@@ -4989,7 +5032,7 @@ html.is-standalone body {
   padding: 0;
   list-style: none;
   color: var(--muted);
-  font-size: 13px;
+  font-size: var(--text-sm);
   font-variant-numeric: tabular-nums;
 }
 
@@ -5026,7 +5069,7 @@ html.is-standalone body {
 }
 
 .receipt__store {
-  font-size: 18px;
+  font-size: var(--text-lg);
   letter-spacing: 0.18em;
 }
 
@@ -5036,7 +5079,7 @@ html.is-standalone body {
   gap: 0 8px;
 }
 
-@media (min-width: 1024px) {
+@media (min-width: 1200px) {
   .receipt {
     padding: 28px 24px 26px;
   }
@@ -5055,7 +5098,7 @@ html.is-standalone body {
   padding-bottom: 4px;
   margin-bottom: 4px;
   border-bottom: 1px dashed var(--ink);
-  font-size: 11px;
+  font-size: 11px; /* kolomkoppen van de nagemaakte kassabon (monospace): buiten de typeschaal */
 }
 
 .receipt__line .receipt__c1 {
@@ -5200,7 +5243,7 @@ html.is-standalone body {
 }
 
 .link-dialog__note {
-  font-size: 13px;
+  font-size: var(--text-sm);
 }
 
 .receipt__section {
@@ -5219,7 +5262,7 @@ html.is-standalone body {
 }
 
 .receipt__total {
-  font-size: 15px;
+  font-size: var(--text-ui);
   font-weight: 700;
 }
 
@@ -5253,7 +5296,7 @@ html.is-standalone body {
   align-items: center;
   gap: 8px;
   color: var(--muted);
-  font-size: 15px;
+  font-size: var(--text-ui);
 }
 
 .input--amount {
@@ -5262,7 +5305,7 @@ html.is-standalone body {
 
 .purchase-status {
   margin: 0;
-  font-size: 14px;
+  font-size: var(--text-md);
 }
 
 /* De balk boven de lijst: links de statusregel, rechts de weergave, het sorteren en de opties. */
@@ -5281,28 +5324,6 @@ html.is-standalone body {
   align-items: center;
   gap: 6px;
   margin-left: auto;
-}
-
-.purchase-view-switch {
-  display: inline-flex;
-  gap: 2px;
-  padding: 2px;
-  border-radius: var(--radius-control);
-  background: var(--surface-muted);
-}
-
-.purchase-view-switch .subtab {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  min-height: 32px;
-  padding: 4px 10px;
-}
-
-.purchase-view-switch .subtab .mdi {
-  width: 18px;
-  height: 18px;
-  fill: currentColor;
 }
 
 /* De menu's rechts in de balk klappen naar links open, anders steken ze buiten het kader (en de pagina) uit. */
@@ -5325,7 +5346,7 @@ html.is-standalone body {
 .purchase-options__title {
   padding: 6px 10px 2px;
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--text-xs);
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.04em;
@@ -5334,7 +5355,7 @@ html.is-standalone body {
 .purchase-options__check {
   padding: 4px 10px;
   min-height: 0;
-  font-size: 14px;
+  font-size: var(--text-md);
 }
 
 /* De kleur per soort aankoop: een bolletje in de tabel en bij de vinkjes, een streep op een kaart en in het overzicht. */
@@ -5373,12 +5394,12 @@ html.is-standalone body {
 .badge {
   --badge: var(--muted);
   display: inline-block;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: color-mix(in srgb, var(--badge) 14%, transparent);
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--badge) 45%, transparent);
   color: var(--badge);
   padding: 1px 8px;
-  font-size: 12px;
+  font-size: var(--text-xs);
   font-weight: 700;
   line-height: 1.5;
   white-space: nowrap;
@@ -5455,7 +5476,7 @@ html.is-standalone body {
   position: static;
   display: inline-block;
   padding: 2px 6px;
-  font-size: 12px;
+  font-size: var(--text-xs);
   box-shadow: none;
   vertical-align: middle;
 }
@@ -5496,12 +5517,12 @@ html.is-standalone body {
   align-items: center;
   gap: 8px;
   margin: 0;
-  font-size: 15px;
+  font-size: var(--text-ui);
 }
 
 .cat-section__count {
   color: var(--muted);
-  font-size: 13px;
+  font-size: var(--text-sm);
 }
 
 .cat-section__amount {
@@ -5558,7 +5579,7 @@ html.is-standalone body {
 .cat-line__meta {
   display: block;
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--text-xs);
 }
 
 .cat-line__badges {
@@ -5584,7 +5605,7 @@ html.is-standalone body {
 
 /* Op een telefoon: het bedrag boven het aantal, rechts, zodat de naam de breedte houdt. De weergaveknoppen van de bestelpagina
    (vier bij een bon) tonen alleen hun pictogram; de tekst blijft voor een schermlezer. */
-@media (max-width: 560px) {
+@media (max-width: 640px) {
   .cat-line {
     grid-template-columns: 40px minmax(0, 1fr) auto;
     grid-template-areas: "photo body amount" "photo body qty";
@@ -5607,10 +5628,10 @@ html.is-standalone body {
   .cat-line__qty {
     grid-area: qty;
     text-align: right;
-    font-size: 13px;
+    font-size: var(--text-sm);
   }
 
-  [data-view-bar="order"] .purchase-view-switch .subtab span {
+  [data-view-bar="order"] .segmented__item span {
     position: absolute;
     width: 1px;
     height: 1px;
@@ -5619,8 +5640,8 @@ html.is-standalone body {
     white-space: nowrap;
   }
 
-  [data-view-bar="order"] .purchase-view-switch .subtab {
-    padding: 4px 12px;
+  [data-view-bar="order"] .segmented__item {
+    padding: 0;
   }
 }
 
@@ -5636,7 +5657,7 @@ html.is-standalone body {
 .order-table td small {
   display: block;
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--text-xs);
 }
 
 .order-table__name a {
@@ -5734,14 +5755,14 @@ html.is-standalone body {
 .purchase-card__date {
   margin-top: 6px;
   color: var(--primary);
-  font-size: 15px;
+  font-size: var(--text-ui);
   line-height: 1.3;
 }
 
 .purchase-card__kind,
 .purchase-card__line {
   color: var(--muted);
-  font-size: 13px;
+  font-size: var(--text-sm);
   line-height: 1.35;
 }
 
@@ -5848,7 +5869,7 @@ html.is-standalone body {
   overflow: hidden;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 3;
-  font-size: 12px;
+  font-size: var(--text-xs);
 }
 
 @media (max-width: 640px) {
@@ -5946,7 +5967,7 @@ html.is-standalone body {
 
 .purchase-overview__head strong {
   color: var(--primary);
-  font-size: 15px;
+  font-size: var(--text-ui);
 }
 
 .purchase-overview__amount {
@@ -5958,7 +5979,7 @@ html.is-standalone body {
 .purchase-overview__names {
   overflow: hidden;
   color: var(--muted);
-  font-size: 13px;
+  font-size: var(--text-sm);
   line-height: 1.35;
   white-space: nowrap;
   text-overflow: ellipsis;
@@ -6043,7 +6064,7 @@ html.is-standalone body {
 .purchase-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 14px;
+  font-size: var(--text-md);
 }
 
 .purchase-table th,
@@ -6060,7 +6081,7 @@ html.is-standalone body {
   z-index: 1;
   background: var(--surface-muted);
   color: var(--muted);
-  font-size: 13px;
+  font-size: var(--text-sm);
   font-weight: 600;
 }
 
@@ -6117,7 +6138,7 @@ html.is-standalone body {
 }
 
 /* Op een telefoon vallen de kolommen Soort en Status weg: de datum, de producten en het bedrag blijven. */
-@media (max-width: 639px) {
+@media (max-width: 640px) {
   .purchase-table th:nth-child(2),
   .purchase-table td:nth-child(2),
   .purchase-table th:nth-child(3),
@@ -6217,9 +6238,9 @@ html.is-standalone body {
 .audit-chip {
   padding: 3px 10px;
   border: 1px solid var(--border);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--surface-muted);
-  font-size: 13px;
+  font-size: var(--text-sm);
 }
 
 .audit-failed {
@@ -6275,21 +6296,21 @@ html.is-standalone body {
 .audit-action small {
   margin-top: 2px;
   color: var(--muted);
-  font-size: 13px;
+  font-size: var(--text-sm);
 }
 
 .audit-time,
 .audit-duration {
-  font-size: 13px;
+  font-size: var(--text-sm);
   white-space: nowrap;
 }
 
 .audit-service {
   padding: 1px 8px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--selection);
   color: var(--primary-strong);
-  font-size: 12px;
+  font-size: var(--text-xs);
   font-weight: 600;
   white-space: nowrap;
 }
@@ -6297,8 +6318,8 @@ html.is-standalone body {
 .audit-status {
   min-width: 36px;
   padding: 1px 8px;
-  border-radius: 999px;
-  font-size: 12px;
+  border-radius: var(--radius-pill);
+  font-size: var(--text-xs);
   font-weight: 700;
   text-align: center;
 }
@@ -6319,7 +6340,7 @@ html.is-standalone body {
 
 .audit-detail h4 {
   margin: 14px 0 6px;
-  font-size: 14px;
+  font-size: var(--text-md);
 }
 
 .audit-facts {
@@ -6346,7 +6367,7 @@ html.is-standalone body {
   border: 1px solid var(--border);
   border-radius: var(--radius-control);
   background: var(--surface-muted);
-  font-size: 12.5px;
+  font-size: var(--text-sm);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
@@ -6398,7 +6419,7 @@ html.is-standalone body {
   overflow: hidden;
   background: var(--primary);
   color: var(--on-primary);
-  font-size: 13px;
+  font-size: var(--text-sm);
   font-weight: 700;
   line-height: 1;
 }
@@ -6414,13 +6435,13 @@ html.is-standalone body {
 .avatar--lg {
   width: 44px;
   height: 44px;
-  font-size: 16px;
+  font-size: var(--text-base);
 }
 
 .avatar--xl {
   width: 96px;
   height: 96px;
-  font-size: 32px;
+  font-size: 32px; /* initialen in de grote avatar: buiten de typeschaal */
 }
 
 .user-menu {
@@ -6435,13 +6456,13 @@ html.is-standalone body {
   gap: 8px;
   min-height: var(--control-height);
   border: 1px solid var(--border);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--surface);
   padding: 3px 8px 3px 4px;
   color: var(--text);
   cursor: pointer;
   font: inherit;
-  font-size: 14px;
+  font-size: var(--text-md);
   font-weight: 600;
 }
 
@@ -6522,7 +6543,7 @@ html.is-standalone body {
 .user-menu__who small {
   display: block;
   color: var(--muted);
-  font-size: 13px;
+  font-size: var(--text-sm);
 }
 
 .user-menu__item {
@@ -6670,7 +6691,7 @@ html.is-standalone body {
     width: 232px;
     margin-bottom: 0;
     padding: 8px;
-    border-radius: 16px;
+    border-radius: var(--radius-lg);
     box-shadow: var(--shadow-sm);
     transition: width 0.2s ease;
   }
@@ -6708,7 +6729,7 @@ html.is-standalone body {
     background: transparent;
     color: var(--muted);
     font: inherit;
-    font-size: 15px;
+    font-size: var(--text-ui);
     font-weight: 600;
     text-align: left;
     cursor: pointer;
@@ -6777,7 +6798,7 @@ html.is-standalone body {
     padding: 0 10px 0 12px;
     border-radius: var(--radius-control);
     color: var(--muted);
-    font-size: 14px;
+    font-size: var(--text-md);
     font-weight: 600;
     text-decoration: none;
   }
@@ -6824,7 +6845,7 @@ html.is-standalone body {
   gap: 4px;
   margin: 12px 0;
   padding-left: 18px;
-  font-size: 14px;
+  font-size: var(--text-md);
 }
 
 .offers-sync-list__failed {
@@ -6842,7 +6863,7 @@ html.is-standalone body {
   grid-template-columns: minmax(0, 1fr);
 }
 
-@media (min-width: 900px) {
+@media (min-width: 1200px) {
   .ohc-layout {
     grid-template-columns: minmax(240px, 300px) minmax(0, 1fr);
     align-items: start;
@@ -6868,7 +6889,7 @@ html.is-standalone body {
   height: 24px;
   margin: 0;
   border: 2px solid var(--muted);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--surface);
   cursor: pointer;
   transition: background-color 0.15s var(--ease), border-color 0.15s var(--ease);
@@ -6920,7 +6941,7 @@ html.is-standalone body {
 
 /* Op een breed scherm passen de lijst en het product samen op het scherm en scrolt elke kolom in zijn eigen vak
    (offerHistoryFitList zet de hoogte, want waar de kolommen beginnen hangt van de tekst erboven af). */
-@media (min-width: 900px) {
+@media (min-width: 1200px) {
   .ohc-detail {
     overflow-y: auto;
   }
@@ -7000,7 +7021,7 @@ html.is-standalone body {
 
 .ohc-stat dt {
   color: var(--muted);
-  font-size: 13px;
+  font-size: var(--text-sm);
 }
 
 .ohc-stat dd {
@@ -7015,7 +7036,7 @@ html.is-standalone body {
 .ohc {
   display: block;
   max-width: 100%;
-  font-size: 12px;
+  font-size: var(--text-xs);
 }
 
 .ohc-grid {
@@ -7030,12 +7051,12 @@ html.is-standalone body {
 .ohc-axis,
 .ohc-regular-label {
   fill: var(--muted);
-  font-size: 12px;
+  font-size: var(--text-xs);
 }
 
 .ohc-price {
   fill: var(--text);
-  font-size: 12px;
+  font-size: var(--text-xs);
   font-weight: 600;
 }
 
@@ -7162,11 +7183,11 @@ html.is-standalone body {
   min-height: 32px;
   padding: 4px 12px;
   border: 1px solid var(--border);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--surface);
   color: var(--text);
   font: inherit;
-  font-size: 13px;
+  font-size: var(--text-sm);
   cursor: pointer;
 }
 
@@ -7189,7 +7210,7 @@ html.is-standalone body {
   padding: 0;
   list-style: none;
   color: var(--muted);
-  font-size: 13px;
+  font-size: var(--text-sm);
 }
 
 .ohc-legend li {
@@ -7237,7 +7258,7 @@ html.is-standalone body {
 
 .ohc-note {
   margin: 6px 8px 0;
-  font-size: 13px;
+  font-size: var(--text-sm);
 }
 
 /* De bewaarde afbeeldingen van een product dat je kocht, met de naam van toen eronder. */
@@ -7247,12 +7268,12 @@ html.is-standalone body {
 
 .ohc-images h4 {
   margin: 0;
-  font-size: 15px;
+  font-size: var(--text-ui);
 }
 
 .ohc-images > p {
   margin: 2px 0 10px;
-  font-size: 13px;
+  font-size: var(--text-sm);
 }
 
 .ohc-images ul {
@@ -7291,7 +7312,7 @@ html.is-standalone body {
 
 .ohc-images figcaption {
   margin-top: 4px;
-  font-size: 13px;
+  font-size: var(--text-sm);
   line-height: 1.35;
   overflow-wrap: anywhere;
 }
@@ -7311,7 +7332,7 @@ html.is-standalone body {
   width: 100%;
   margin-top: 14px;
   border-collapse: collapse;
-  font-size: 14px;
+  font-size: var(--text-md);
 }
 
 .ohc-table th,
@@ -7362,12 +7383,12 @@ html.is-standalone body {
   min-height: 36px;
   padding: 0 14px;
   border: 1px solid var(--border);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--surface);
   box-shadow: var(--shadow-xs);
   color: var(--muted);
   font: inherit;
-  font-size: 14px;
+  font-size: var(--text-md);
   font-weight: 600;
   cursor: pointer;
   transition: background-color 0.15s var(--ease), color 0.15s var(--ease), border-color 0.15s var(--ease), box-shadow 0.2s var(--ease);
@@ -7640,7 +7661,7 @@ html.is-standalone body {
   margin-top: 16px;
   padding: 14px 16px;
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: var(--radius-card);
 }
 
 .backup-confirm h4 {
@@ -7790,9 +7811,9 @@ html.is-standalone body {
   left: 8px;
   z-index: 1;
   border: 1px solid transparent;
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   padding: 3px 7px;
-  font-size: 14px;
+  font-size: var(--text-md);
   font-weight: 800;
   line-height: 1;
   font-variant-numeric: tabular-nums;
@@ -7816,7 +7837,7 @@ html.is-standalone body {
   border-color: var(--border);
   background: var(--surface-muted);
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--text-xs);
   font-weight: 700;
 }
 
@@ -7839,9 +7860,9 @@ html.is-standalone body {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   padding: 1px 8px;
-  font-size: 11.5px;
+  font-size: var(--text-xs);
   font-weight: 600;
   line-height: 1.5;
 }
@@ -7938,7 +7959,7 @@ html.is-standalone body {
   border: 1px solid var(--border);
   border-radius: var(--radius-card);
   box-shadow: var(--shadow-lg);
-  font-size: 14px;
+  font-size: var(--text-md);
   line-height: 1.35;
 }
 
@@ -7985,7 +8006,7 @@ html.is-standalone body {
 }
 
 .popover__title {
-  font-size: 15px;
+  font-size: var(--text-ui);
 }
 
 .popover__meta,
@@ -7999,7 +8020,7 @@ html.is-standalone body {
 .popover__info .offer-chip {
   min-height: 28px;
   padding: 0 10px;
-  font-size: 13px;
+  font-size: var(--text-sm);
   cursor: default;
 }
 
@@ -8021,7 +8042,7 @@ html.is-standalone body {
   flex-wrap: wrap;
   align-items: center;
   gap: 8px;
-  font-size: 15px;
+  font-size: var(--text-ui);
 }
 
 .popover__summary {
@@ -8045,7 +8066,7 @@ html.is-standalone body {
 }
 
 .popover__cat-count {
-  font-size: 13px;
+  font-size: var(--text-sm);
 }
 
 .popover__cat-amount {
@@ -8063,7 +8084,7 @@ html.is-standalone body {
 .popover__thumbs img {
   width: 28px;
   height: 28px;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
 }
 
 .popover__thumbs--small img {
@@ -8072,7 +8093,7 @@ html.is-standalone body {
 }
 
 .popover__more {
-  font-size: 12px;
+  font-size: var(--text-xs);
 }
 
 .popover__foot {
@@ -8114,12 +8135,12 @@ html.is-standalone body {
 .product-card .offer-card__personal {
   width: fit-content;
   margin-top: 4px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   padding: 1px 8px;
   background: var(--surface-muted);
   box-shadow: inset 0 0 0 1px var(--border);
   color: var(--text);
-  font-size: 12px;
+  font-size: var(--text-xs);
   font-weight: 700;
 }
 
@@ -8137,7 +8158,7 @@ html.is-standalone body {
 
 /* De schakelaar "Alleen Bonus Box" boven de categorieën, met wat er over je Bonus Box te zeggen is. */
 /* De werkbalk boven de categorieën: het zoekveld, de schakelaars (Bonus Box, alleen echt voordelig) en de sorteerchips. */
-/* De aanbiedingen met de filterzijbalk links. Vanaf 1100 px staat de zijbalk open naast de kaarten, daaronder is hij een
+/* De aanbiedingen met de filterzijbalk links. Vanaf 1200 px staat de zijbalk open naast de kaarten, daaronder is hij een
    uitschuifpaneel achter de knop Filters. */
 .offers-layout {
   display: grid;
@@ -8171,7 +8192,7 @@ html.is-standalone body {
 .offers-filters__head h3,
 .offers-filters__section h4 {
   margin: 0;
-  font-size: 14px;
+  font-size: var(--text-md);
 }
 
 .offers-filters__section h4 {
@@ -8180,7 +8201,7 @@ html.is-standalone body {
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.04em;
-  font-size: 12px;
+  font-size: var(--text-xs);
 }
 
 .offers-filters__section {
@@ -8201,7 +8222,7 @@ html.is-standalone body {
 .offer-chip--small {
   min-height: 30px;
   padding: 0 10px;
-  font-size: 13px;
+  font-size: var(--text-sm);
 }
 
 .offer-chip--small small {
@@ -8212,7 +8233,7 @@ html.is-standalone body {
 
 .offers-filters__field label {
   font-weight: 600;
-  font-size: 14px;
+  font-size: var(--text-md);
 }
 
 .offers-filters__range {
@@ -8229,7 +8250,7 @@ html.is-standalone body {
 .offers-filters__range output {
   min-width: 84px;
   color: var(--muted);
-  font-size: 13px;
+  font-size: var(--text-sm);
   text-align: right;
 }
 
@@ -8263,7 +8284,7 @@ html.is-standalone body {
   align-items: center;
 }
 
-@media (max-width: 1099px) {
+@media (max-width: 1199px) {
   .offers-layout {
     display: block;
   }
@@ -8342,7 +8363,7 @@ html.is-standalone body {
   align-items: center;
   gap: 8px;
   color: var(--muted);
-  font-size: 14px;
+  font-size: var(--text-md);
   font-weight: 600;
 }
 
@@ -8353,50 +8374,14 @@ html.is-standalone body {
   font-weight: 500;
 }
 
-/* Een segmentknop: iconen naast elkaar in één rand, de actieve gevuld zoals een actief subtab. De weergaven van de aankopen
-   (#purchase-view-switch) hebben hun eigen knoppen met tekst, deze is voor de aanbiedingen. */
-.segment-control {
-  display: inline-flex;
+/* De weergaveknoppen (kaarten of compact) staan rechts in de werkbalk; de stijl is .segmented. */
+#offers-view {
   margin-left: auto;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-control);
-  overflow: hidden;
-  background: var(--surface);
-}
-
-.segment-control__button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 40px;
-  min-height: 36px;
-  border: 0;
-  background: transparent;
-  color: var(--muted);
-  cursor: pointer;
-}
-
-.segment-control__button + .segment-control__button {
-  border-left: 1px solid var(--border);
-}
-
-.segment-control__button svg {
-  width: 20px;
-  height: 20px;
-  fill: currentColor;
-}
-
-.segment-control__button:hover {
-  color: var(--text);
-}
-
-.segment-control__button[aria-pressed="true"] {
-  background: var(--primary);
-  color: var(--on-primary);
 }
 
 /* De compacte weergave: één regel per aanbieding met vaste kolommen en een kopregel erboven. */
 .product-grid--compact {
+  container-type: inline-size;
   grid-template-columns: 1fr;
   gap: 4px;
 }
@@ -8418,7 +8403,7 @@ html.is-standalone body {
   box-shadow: none;
   background: none;
   color: var(--muted);
-  font-size: 10.5px;
+  font-size: var(--text-xs);
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.02em;
@@ -8448,7 +8433,7 @@ html.is-standalone body {
   width: 52px;
   padding: 4px 0;
   text-align: center;
-  font-size: 12.5px;
+  font-size: var(--text-sm);
 }
 
 .offer-row__product {
@@ -8460,7 +8445,7 @@ html.is-standalone body {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 14px;
+  font-size: var(--text-md);
 }
 
 .offer-row__product small {
@@ -8478,7 +8463,7 @@ html.is-standalone body {
 
 .offer-row .product-card__price {
   margin-top: 0;
-  font-size: 15px;
+  font-size: var(--text-ui);
 }
 
 .offer-row .offer-row__unit {
@@ -8522,8 +8507,10 @@ html.is-standalone body {
   fill: currentColor;
 }
 
-/* Op een tablet past de kolom Geschiedenis niet meer naast de rest: die gaat onder de productnaam. */
-@media (max-width: 960px) {
+/* Is de lijst zelf smaller dan 800 px, dan past de kolom Geschiedenis niet meer naast de rest: die gaat onder de productnaam.
+   Een container query, want hoeveel ruimte de lijst heeft hangt af van het menu links en de filters ernaast, niet van het scherm
+   alleen (bij 1280 px met beide open is de lijst ~690 px breed). */
+@container (max-width: 799px) {
   .offer-row {
     grid-template-columns: 48px 60px minmax(0, 1fr) 100px 90px 72px;
     row-gap: 2px;
@@ -8645,12 +8632,12 @@ html.is-standalone body {
 .product-card .verdict {
   width: fit-content;
   margin-top: 4px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   padding: 1px 8px;
   background: var(--surface-muted);
   box-shadow: inset 0 0 0 1px var(--border);
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--text-xs);
   font-weight: 600;
 }
 
@@ -8698,7 +8685,7 @@ html.is-standalone body {
   background: none;
   box-shadow: none;
   color: var(--text);
-  font-size: 13px;
+  font-size: var(--text-sm);
   font-weight: 700;
 }
 
@@ -8710,7 +8697,7 @@ html.is-standalone body {
   padding: 6px 0 0;
   border-top: 1px dashed var(--border);
   list-style: none;
-  font-size: 12px;
+  font-size: var(--text-xs);
 }
 
 .offer-pack {
@@ -8720,7 +8707,7 @@ html.is-standalone body {
   align-items: baseline;
   min-width: 0;
   padding: 2px 4px;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   cursor: default;
 }
 
@@ -8792,7 +8779,7 @@ html.is-standalone body {
 .compare-item__unit {
   flex: none;
   min-width: 92px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   padding: 2px 8px;
   font-variant-numeric: tabular-nums;
   font-weight: 700;
@@ -8867,7 +8854,7 @@ html.is-standalone body {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  font-size: 14px;
+  font-size: var(--text-md);
 }
 
 .compare-filters__text {
@@ -8886,7 +8873,7 @@ html.is-standalone body {
 
 .compare-dialog__note {
   margin: 8px 0 0;
-  font-size: 13px;
+  font-size: var(--text-sm);
 }
 
 /* Oude aankopen importeren (#178) */
@@ -8929,9 +8916,9 @@ html.is-standalone body {
   margin: 8px 0 0;
   padding: 10px 12px;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   background: var(--surface-muted);
-  font-size: 0.85rem;
+  font-size: var(--text-sm);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
@@ -8940,7 +8927,7 @@ html.is-standalone body {
   width: 100%;
   min-height: 140px;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 0.85rem;
+  font-size: var(--text-base);
   resize: vertical;
 }
 
@@ -9020,7 +9007,7 @@ html.is-standalone body {
   place-items: center;
   width: 36px;
   height: 36px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--surface);
   box-shadow: var(--shadow-md);
   cursor: pointer;
@@ -9069,7 +9056,7 @@ html.is-standalone body {
   flex: 1 1 100%;
   margin: 0;
   color: var(--muted);
-  font-size: 0.9rem;
+  font-size: var(--text-md);
 }
 
 .bulk-dialog {
@@ -9350,7 +9337,7 @@ html.is-standalone body {
 .appearance-current {
   margin: 14px 0 0;
   color: var(--muted);
-  font-size: 14px;
+  font-size: var(--text-md);
 }
 
 .appearance-current strong {
@@ -9358,7 +9345,7 @@ html.is-standalone body {
 }
 
 .appearance-current code {
-  font-size: 13px;
+  font-size: var(--text-sm);
 }
 
 .appearance-actions {
@@ -9476,7 +9463,7 @@ html.is-standalone body {
 }
 
 .fold--compact .fold__title {
-  font-size: 18px;
+  font-size: var(--text-lg);
 }
 
 .fold--compact .fold__body {
@@ -9490,13 +9477,13 @@ html.is-standalone body {
 
 .fold--compact .fold__body h3 {
   margin: 0 0 2px;
-  font-size: 16px;
+  font-size: var(--text-base);
 }
 
 /* Een schakelaar binnen een onderdeel (Supermarkt, Weekplanner van de AH-app): een kleinere kop en wat ruimte ertussen. */
 .fold--compact .fold__body h4 {
   margin: 0 0 2px;
-  font-size: 15px;
+  font-size: var(--text-ui);
 }
 
 .appearance-section .appearance-setting {
@@ -9512,13 +9499,13 @@ html.is-standalone body {
 .appearance-section > .muted,
 .appearance-setting .muted {
   margin: 0;
-  font-size: 14px;
+  font-size: var(--text-md);
 }
 
 .appearance-sublabel {
   margin: 14px 0 0;
   color: var(--muted);
-  font-size: 14px;
+  font-size: var(--text-md);
   font-weight: 600;
 }
 
@@ -9543,7 +9530,7 @@ html.is-standalone body {
   height: 32px;
   margin: 6px 0;
   border: 2px solid var(--placeholder); /* 3 : 1 of meer: de rand van een bediening moet je zien */
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--surface-muted);
   cursor: pointer;
   -webkit-appearance: none;

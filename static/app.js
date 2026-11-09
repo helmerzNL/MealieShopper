@@ -2355,7 +2355,7 @@ async function checkAhConnection() {
 // pagina: van waar het begint tot waar de pagina ophoudt, met wat er onder het element nog komt (de rand van het kader, de
 // marge van de pagina) meegerekend. Op een scherm smaller dan `minWidth` of voor een verborgen element null: dan scrolt de
 // pagina gewoon. De aankopentabel (orders.js) en de prijsgeschiedenis (offers_history.js) gebruiken dit.
-function pageFitHeight(element, { minWidth = 1024, min = 240 } = {}) {
+function pageFitHeight(element, { minWidth = 1200, min = 240 } = {}) {
   if (!window.matchMedia(`(min-width: ${minWidth}px)`).matches || !element.offsetParent) return null;
   const rect = element.getBoundingClientRect();
   const shell = document.querySelector("main.shell").getBoundingClientRect();
@@ -2859,7 +2859,7 @@ function updateSavedRecipesStatus(data) {
   // Voedingswaarden die nog bij AH opgehaald moeten worden (telkens een deel na Synchroniseren, zie ah_recipes.start_fill).
   const pending = Number(data.nutritionPending) || 0;
   $("#ah-recipes-status").textContent =
-    tn("saved.status", total) + (when ? t("saved.status_when", { when }) : "") + t("saved.status_hint") +
+    tn("saved.status", total) + (when ? t("saved.status_when", { when }) : "") +
     (pending && caloriesShown() ? ` ${tn("saved.nutrition_pending", pending)}` : "");
 }
 
@@ -3011,14 +3011,21 @@ $("#items-store-list").addEventListener("click", (event) => {
   switchItemsStore(item.dataset.store);
 });
 
+// Het tabblad dat bij het laden open staat (is-active in de markup) krijgt ook aria-current; daarna zet de klik hieronder het.
+document.querySelectorAll(".subtab.is-active[data-subtab]").forEach((subtab) => subtab.setAttribute("aria-current", "page"));
 document.querySelectorAll(".subtab[data-subtab], .subtab-menu__item[data-subtab]").forEach((subtab) => {
   subtab.addEventListener("click", () => {
     const panel = subtab.closest(".panel");
     if (!panel) return;
     panel
       .querySelectorAll(".subtab, .subtab-menu__item[data-subtab], .subpanel")
-      .forEach((item) => item.classList.remove("is-active"));
+      .forEach((item) => {
+        item.classList.remove("is-active");
+        item.removeAttribute("aria-current");
+      });
     subtab.classList.add("is-active");
+    // Een schermlezer hoort welk tabblad open is, niet alleen een kleur (App-Guidance, web-app-design.md).
+    subtab.setAttribute("aria-current", "page");
     // Op een telefoon is de balk één regel die horizontaal scrolt: het gekozen tabblad in beeld (App-Guidance, web-app-design.md).
     const bar = subtab.closest(".subtabs");
     if (bar && bar.scrollWidth > bar.clientWidth) subtab.scrollIntoView({ block: "nearest", inline: "center" });
