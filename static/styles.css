@@ -8381,6 +8381,7 @@ html.is-standalone body {
 
 /* De compacte weergave: één regel per aanbieding met vaste kolommen en een kopregel erboven. */
 .product-grid--compact {
+  container-type: inline-size;
   grid-template-columns: 1fr;
   gap: 4px;
 }
@@ -8506,9 +8507,10 @@ html.is-standalone body {
   fill: currentColor;
 }
 
-/* Onder 1200 px (met het menu links en de filters ernaast) past de kolom Geschiedenis niet meer naast de rest: die gaat onder
-   de productnaam. */
-@media (max-width: 1199px) {
+/* Is de lijst zelf smaller dan 800 px, dan past de kolom Geschiedenis niet meer naast de rest: die gaat onder de productnaam.
+   Een container query, want hoeveel ruimte de lijst heeft hangt af van het menu links en de filters ernaast, niet van het scherm
+   alleen (bij 1280 px met beide open is de lijst ~690 px breed). */
+@container (max-width: 799px) {
   .offer-row {
     grid-template-columns: 48px 60px minmax(0, 1fr) 100px 90px 72px;
     row-gap: 2px;

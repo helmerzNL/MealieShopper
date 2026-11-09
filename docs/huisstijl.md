@@ -34,7 +34,7 @@ De tokens staan als CSS-variabelen in `static/styles.css` (`:root`).
 | Tekst | `#18251E` | `--text` |
 | Ondersteunende tekst | `#59665E` | `--muted` |
 | Rand | `#D6DFD9` | `--border` |
-| Kaart / bediening | 12 px / 8 px radius | `--radius-card` / `--radius-control` |
+| Radius: klein, bediening, kaart, groot, pil | 4 / 8 / 12 / 16 / 999 px | `--radius-sm`, `--radius-control`, `--radius-card`, `--radius-lg`, `--radius-pill` |
 
 Citroen is decoratief; gebruik het niet als tekst op wit (contrast 1,5 : 1). Fouten
 blijven rood (`--danger`) en krijgen een tekstuele uitleg. Focusringen zijn zichtbaar
@@ -73,16 +73,33 @@ Regels:
 - **Receptkaart** (`recipeCardTitle` en `recipeCardActions` in `app.js`): de titel is een knop die met zijn `::after` de hele kaart beslaat, dus een tik op de kaart opent het recept; de focusring staat om de kaart. Onderaan alleen *Inplannen*, secundair, met de naam van het recept verborgen voor een schermlezer. In de selectiemodus van In bulk importeren selecteert een tik de kaart.
 - **Kerncijfers** (`.stats`, naar App-Guidance): een klein label in hoofdletters boven een vet, tabulair getal, zoals bovenaan het mandje. Uitleg die je niet steeds nodig hebt staat in een `<details class="help">` ("Hoe werkt dit?").
 - **Weeknavigatie**: overal dezelfde pijlen (MDI-chevrons in een `.icon-button`) en `.week-label`; *Deze week* staat er alleen als je een andere week bekijkt.
+- **Segmentbediening** (`.segmented` met `.segmented__item`, sinds 4.9.0): voor een keuze binnen een scherm, zoals de weergave van Aanbiedingen, de weergaven van aankopen en bestellingen en *Recept* of *Notitie* in het plan-venster. Hetzelfde ingedeukte spoor als `.subtabs`, met segmenten van 44 px; actief via `aria-pressed`, `is-active` of een gekozen radio. `.subtabs` is navigatie (links, met `aria-current="page"` op het open tabblad), `.segmented` een keuze; meng ze niet.
+- **Uitleg** (sinds 4.9.0): een scherm of blok begint met één regel die zegt wat het is. De rest staat in een `<details class="help">` met de samenvatting *Hoe werkt dit?* (`common.help`). Waarschuwingen, fouten, wat destructief is en statusregels staan nooit in zo'n blok.
+- **Breekpunten**: drie, 640 px (telefoon), 860 px (menu links) en 1200 px (breed), met 641 en 1199 als tegenhanger, in CSS en in JavaScript. Hangt iets af van de ruimte van een vak in plaats van het scherm (de compacte lijst van Aanbiedingen, de controlelijst, een dagkaart), dan is het een container query.
 - **Beweging.** Korte overgangen van 150-280 ms met `--ease`; het oplichten van kaarten alleen bij `(hover: hover)`; alles uit bij `prefers-reduced-motion`.
 - **Vandaag.** In het weekmenu krijgt de dag van vandaag `.day-card--today` met het label *Vandaag* (`plan.today`).
 
 ## Typografie en bediening
 
 Manrope voor koppen en het woordmerk, Inter voor de interface. Lettertypen worden
-lokaal geladen; de OFL-licenties staan naast de fonts in `static/fonts/`. Basis 16 px,
-ondersteunende tekst 14 px, paginatitels 24-32 px. Compacte metadata mogen kleiner zijn.
-Knoppen zijn semibold en minimaal 44 px hoog. Invoervelden zijn 16 px, zodat iOS niet
-inzoomt bij het focussen. Interface-iconen komen uit
+lokaal geladen; de OFL-licenties staan naast de fonts in `static/fonts/`. Lettergroottes komen uit
+een schaal van acht stappen (sinds 4.9.0, in plaats van 21 losse waarden):
+
+| Token | Grootte | Voor |
+| --- | --- | --- |
+| `--text-xs` | 12 px | labels, badges, kleine meta |
+| `--text-sm` | 13 px | hulptekst, meta, chips |
+| `--text-md` | 14 px | ondersteunende tekst, tabellen |
+| `--text-ui` | 15 px | knoppen, tabs, tekst in kaarten |
+| `--text-base` | 16 px | lopende tekst en invoer |
+| `--text-lg` | 18 px | kop van een blok of venster |
+| `--text-xl` | 20 px | vakkop (`h2`), kerncijfer |
+| `--text-2xl` | 24 px | schermtitel |
+
+Een letterlijke grootte mag alleen voor wat geen lopende tekst is (het label van de menubalk, de maat van een
+teken-icoon, de kolomkoppen van de kassabon, de initialen in de grote avatar) en de `clamp()` van de kookmodus,
+elk met een opmerking; `tests/test_brand.py` houdt dat bij. Knoppen zijn semibold en minimaal 44 px hoog.
+Invoervelden zijn 16 px, zodat iOS niet inzoomt bij het focussen. Interface-iconen komen uit
 [Material Design Icons](https://pictogrammers.com/library/mdi/) (Pictogrammers, Apache 2.0;
 licentie in `static/icons/LICENSE-mdi.txt`). Ze staan als SVG-pad inline in de HTML en nemen de
 tekstkleur over (`fill: currentColor`); de naam van het icoon staat in `data-mdi`. Gebruik voor
