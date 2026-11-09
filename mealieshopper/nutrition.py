@@ -139,3 +139,59 @@ def total(per_serving: float | None, servings: Any) -> int | None:
     if per_serving is None or not count:
         return None
     return round(per_serving * count)
+
+
+# --- zout, filteren en optellen (vervolg op #283) ------------------------------------------------------------------------
+# Op een verpakking staat zout in gram; Mealie en de bronnen geven natrium in mg (zout = natrium x 2,5). We bewaren natrium,
+# zoals Mealie dat veld kent, en rekenen bij het tonen, filteren en in MCP om naar zout.
+
+
+def salt_g(sodium_mg: float | None) -> float | None:
+    """Zout in gram bij een hoeveelheid natrium in mg."""
+    return None if sodium_mg is None else sodium_mg / SODIUM_MG_PER_SALT_G
+
+
+def sodium_mg(salt: float | None) -> float | None:
+    """Natrium in mg bij een hoeveelheid zout in gram."""
+    return None if salt is None else salt * SODIUM_MG_PER_SALT_G
+
+
+# De waarden waarop je kunt zoeken, in de volgorde van het scherm: naam in een verzoek (`<naam>Min`, `<naam>Max`, en in MCP
+# `<naam>_min`, `<naam>_max`) -> (veld, hoogste grens, decimalen). `salt` is geen veld maar het zout uit `sodiumContent`.
+FILTERS: dict[str, tuple[str, int, int]] = {
+    "kcal": ("calories", 5000, 0),
+    "protein": ("proteinContent", 500, 0),
+    "fat": ("fatContent", 500, 0),
+    "carbs": ("carbohydrateContent", 500, 0),
+    "sugar": ("sugarContent", 500, 0),
+    "fiber": ("fiberContent", 200, 0),
+    "salt": ("sodiumContent", 50, 1),
+}
+
+
+def value_of(found: dict[str, float], name: str) -> float | None:
+    """De waarde voor een filter uit `values()`: het veld, of bij `salt` het zout in gram uit het natrium."""
+    field = FILTERS[name][0]
+    amount = found.get(field)
+    return salt_g(amount) if name == "salt" else amount
+
+
+def add(totals: dict[str, float], found: dict[str, float], factor: float = 1.0) -> dict[str, float]:
+    """Telt de waarden van `found` (maal `factor`) bij `totals` op en geeft `totals` terug."""
+    for key, amount in found.items():
+        if key in UNITS and amount is not None:
+            totals[key] = totals.get(key, 0.0) + amount * factor
+    return totals
+
+
+def scaled(found: dict[str, float], factor: Any) -> dict[str, float] | None:
+    """De waarden maal het aantal porties (het totaal van een maaltijd), of None zonder aantal."""
+    count = number(factor)
+    if not found or not count:
+        return None
+    return {key: amount * count for key, amount in found.items()}
+
+
+def brief(found: dict[str, float]) -> dict[str, float | None]:
+    """De korte vorm voor een kaart: kcal, eiwit, suiker en zout (g), elk None als het onbekend is."""
+    return {name: value_of(found, name) for name in ("kcal", "protein", "sugar", "salt")}

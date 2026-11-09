@@ -1606,6 +1606,7 @@ async def _collect_ah() -> list[dict[str, Any]]:
                 fetched += 1
                 try:
                     jsonld = await ah.get_recipe_jsonld(int(recipe_id))
+                    await ah_recipes.remember_nutrition(recipe_id, jsonld.get("nutrition") or {})  # de kaart bij Winkels
                     lines = jsonld.get("recipeIngredient") or lines or []
                     course = offer_courses.course_of(jsonld.get("recipeCategory"))
                 except Exception:  # noqa: BLE001

@@ -411,6 +411,47 @@
               <span class="kcal-filter__dash" aria-hidden="true">–</span>
               <input class="input kcal-filter__input" id="plan-kcal-max" type="number" inputmode="numeric" min="0" max="5000" step="50" placeholder="max." aria-label="Maximaal aantal kcal per persoon" autocomplete="off" data-i18n-attr="placeholder:kcal.max;aria-label:kcal.max_label">
             </div>
+            <details class="nutrition-filter" id="plan-nutrition-filter">
+              <summary data-i18n="nutrition.more_filters">Meer filters</summary>
+              <span id="plan-word-min" hidden data-i18n="nutrition.word_min">minimaal per persoon</span>
+              <span id="plan-word-max" hidden data-i18n="nutrition.word_max">maximaal per persoon</span>
+              <div class="kcal-filter" role="group" aria-labelledby="plan-protein-label">
+                <span class="kcal-filter__label" id="plan-protein-label" data-i18n="nutrition.filter_protein">Eiwit (g)</span>
+                <input class="input kcal-filter__input" id="plan-protein-min" type="number" inputmode="numeric" min="0" max="500" step="1" placeholder="min." autocomplete="off" aria-labelledby="plan-protein-label plan-word-min" data-i18n-attr="placeholder:kcal.min">
+                <span class="kcal-filter__dash" aria-hidden="true">–</span>
+                <input class="input kcal-filter__input" id="plan-protein-max" type="number" inputmode="numeric" min="0" max="500" step="1" placeholder="max." autocomplete="off" aria-labelledby="plan-protein-label plan-word-max" data-i18n-attr="placeholder:kcal.max">
+              </div>
+              <div class="kcal-filter" role="group" aria-labelledby="plan-fat-label">
+                <span class="kcal-filter__label" id="plan-fat-label" data-i18n="nutrition.filter_fat">Vet (g)</span>
+                <input class="input kcal-filter__input" id="plan-fat-min" type="number" inputmode="numeric" min="0" max="500" step="1" placeholder="min." autocomplete="off" aria-labelledby="plan-fat-label plan-word-min" data-i18n-attr="placeholder:kcal.min">
+                <span class="kcal-filter__dash" aria-hidden="true">–</span>
+                <input class="input kcal-filter__input" id="plan-fat-max" type="number" inputmode="numeric" min="0" max="500" step="1" placeholder="max." autocomplete="off" aria-labelledby="plan-fat-label plan-word-max" data-i18n-attr="placeholder:kcal.max">
+              </div>
+              <div class="kcal-filter" role="group" aria-labelledby="plan-carbs-label">
+                <span class="kcal-filter__label" id="plan-carbs-label" data-i18n="nutrition.filter_carbs">Koolhydraten (g)</span>
+                <input class="input kcal-filter__input" id="plan-carbs-min" type="number" inputmode="numeric" min="0" max="500" step="1" placeholder="min." autocomplete="off" aria-labelledby="plan-carbs-label plan-word-min" data-i18n-attr="placeholder:kcal.min">
+                <span class="kcal-filter__dash" aria-hidden="true">–</span>
+                <input class="input kcal-filter__input" id="plan-carbs-max" type="number" inputmode="numeric" min="0" max="500" step="1" placeholder="max." autocomplete="off" aria-labelledby="plan-carbs-label plan-word-max" data-i18n-attr="placeholder:kcal.max">
+              </div>
+              <div class="kcal-filter" role="group" aria-labelledby="plan-sugar-label">
+                <span class="kcal-filter__label" id="plan-sugar-label" data-i18n="nutrition.filter_sugar">Suikers (g)</span>
+                <input class="input kcal-filter__input" id="plan-sugar-min" type="number" inputmode="numeric" min="0" max="500" step="1" placeholder="min." autocomplete="off" aria-labelledby="plan-sugar-label plan-word-min" data-i18n-attr="placeholder:kcal.min">
+                <span class="kcal-filter__dash" aria-hidden="true">–</span>
+                <input class="input kcal-filter__input" id="plan-sugar-max" type="number" inputmode="numeric" min="0" max="500" step="1" placeholder="max." autocomplete="off" aria-labelledby="plan-sugar-label plan-word-max" data-i18n-attr="placeholder:kcal.max">
+              </div>
+              <div class="kcal-filter" role="group" aria-labelledby="plan-fiber-label">
+                <span class="kcal-filter__label" id="plan-fiber-label" data-i18n="nutrition.filter_fiber">Vezels (g)</span>
+                <input class="input kcal-filter__input" id="plan-fiber-min" type="number" inputmode="numeric" min="0" max="200" step="1" placeholder="min." autocomplete="off" aria-labelledby="plan-fiber-label plan-word-min" data-i18n-attr="placeholder:kcal.min">
+                <span class="kcal-filter__dash" aria-hidden="true">–</span>
+                <input class="input kcal-filter__input" id="plan-fiber-max" type="number" inputmode="numeric" min="0" max="200" step="1" placeholder="max." autocomplete="off" aria-labelledby="plan-fiber-label plan-word-max" data-i18n-attr="placeholder:kcal.max">
+              </div>
+              <div class="kcal-filter" role="group" aria-labelledby="plan-salt-label">
+                <span class="kcal-filter__label" id="plan-salt-label" data-i18n="nutrition.filter_salt">Zout (g)</span>
+                <input class="input kcal-filter__input" id="plan-salt-min" type="number" inputmode="decimal" min="0" max="50" step="0.1" placeholder="min." autocomplete="off" aria-labelledby="plan-salt-label plan-word-min" data-i18n-attr="placeholder:kcal.min">
+                <span class="kcal-filter__dash" aria-hidden="true">–</span>
+                <input class="input kcal-filter__input" id="plan-salt-max" type="number" inputmode="decimal" min="0" max="50" step="0.1" placeholder="max." autocomplete="off" aria-labelledby="plan-salt-label plan-word-max" data-i18n-attr="placeholder:kcal.max">
+              </div>
+            </details>
             <ul id="plan-recipe-results" class="plan-recipe-results"></ul>
           </div>
         </div>
@@ -573,8 +614,49 @@
             <input class="input kcal-filter__input" id="search-kcal-min" form="search-form" type="number" inputmode="numeric" min="0" max="5000" step="50" placeholder="min." aria-label="Minimaal aantal kcal per persoon" autocomplete="off" data-i18n-attr="placeholder:kcal.min;aria-label:kcal.min_label">
             <span class="kcal-filter__dash" aria-hidden="true">–</span>
             <input class="input kcal-filter__input" id="search-kcal-max" form="search-form" type="number" inputmode="numeric" min="0" max="5000" step="50" placeholder="max." aria-label="Maximaal aantal kcal per persoon" autocomplete="off" data-i18n-attr="placeholder:kcal.max;aria-label:kcal.max_label">
-            <span class="muted kcal-filter__note" data-i18n="kcal.search_note">Alleen je recepten in Mealie; de winkels geven geen calorieën in hun zoekresultaten.</span>
+            <span class="muted kcal-filter__note" data-i18n="kcal.search_note">Alleen je recepten in Mealie; de winkels geven geen voedingswaarden in hun zoekresultaten.</span>
           </div>
+          <details class="nutrition-filter" id="search-nutrition-filter">
+              <summary data-i18n="nutrition.more_filters">Meer filters</summary>
+              <span id="search-word-min" hidden data-i18n="nutrition.word_min">minimaal per persoon</span>
+              <span id="search-word-max" hidden data-i18n="nutrition.word_max">maximaal per persoon</span>
+              <div class="kcal-filter" role="group" aria-labelledby="search-protein-label">
+                <span class="kcal-filter__label" id="search-protein-label" data-i18n="nutrition.filter_protein">Eiwit (g)</span>
+                <input class="input kcal-filter__input" id="search-protein-min" form="search-form" type="number" inputmode="numeric" min="0" max="500" step="1" placeholder="min." autocomplete="off" aria-labelledby="search-protein-label search-word-min" data-i18n-attr="placeholder:kcal.min">
+                <span class="kcal-filter__dash" aria-hidden="true">–</span>
+                <input class="input kcal-filter__input" id="search-protein-max" form="search-form" type="number" inputmode="numeric" min="0" max="500" step="1" placeholder="max." autocomplete="off" aria-labelledby="search-protein-label search-word-max" data-i18n-attr="placeholder:kcal.max">
+              </div>
+              <div class="kcal-filter" role="group" aria-labelledby="search-fat-label">
+                <span class="kcal-filter__label" id="search-fat-label" data-i18n="nutrition.filter_fat">Vet (g)</span>
+                <input class="input kcal-filter__input" id="search-fat-min" form="search-form" type="number" inputmode="numeric" min="0" max="500" step="1" placeholder="min." autocomplete="off" aria-labelledby="search-fat-label search-word-min" data-i18n-attr="placeholder:kcal.min">
+                <span class="kcal-filter__dash" aria-hidden="true">–</span>
+                <input class="input kcal-filter__input" id="search-fat-max" form="search-form" type="number" inputmode="numeric" min="0" max="500" step="1" placeholder="max." autocomplete="off" aria-labelledby="search-fat-label search-word-max" data-i18n-attr="placeholder:kcal.max">
+              </div>
+              <div class="kcal-filter" role="group" aria-labelledby="search-carbs-label">
+                <span class="kcal-filter__label" id="search-carbs-label" data-i18n="nutrition.filter_carbs">Koolhydraten (g)</span>
+                <input class="input kcal-filter__input" id="search-carbs-min" form="search-form" type="number" inputmode="numeric" min="0" max="500" step="1" placeholder="min." autocomplete="off" aria-labelledby="search-carbs-label search-word-min" data-i18n-attr="placeholder:kcal.min">
+                <span class="kcal-filter__dash" aria-hidden="true">–</span>
+                <input class="input kcal-filter__input" id="search-carbs-max" form="search-form" type="number" inputmode="numeric" min="0" max="500" step="1" placeholder="max." autocomplete="off" aria-labelledby="search-carbs-label search-word-max" data-i18n-attr="placeholder:kcal.max">
+              </div>
+              <div class="kcal-filter" role="group" aria-labelledby="search-sugar-label">
+                <span class="kcal-filter__label" id="search-sugar-label" data-i18n="nutrition.filter_sugar">Suikers (g)</span>
+                <input class="input kcal-filter__input" id="search-sugar-min" form="search-form" type="number" inputmode="numeric" min="0" max="500" step="1" placeholder="min." autocomplete="off" aria-labelledby="search-sugar-label search-word-min" data-i18n-attr="placeholder:kcal.min">
+                <span class="kcal-filter__dash" aria-hidden="true">–</span>
+                <input class="input kcal-filter__input" id="search-sugar-max" form="search-form" type="number" inputmode="numeric" min="0" max="500" step="1" placeholder="max." autocomplete="off" aria-labelledby="search-sugar-label search-word-max" data-i18n-attr="placeholder:kcal.max">
+              </div>
+              <div class="kcal-filter" role="group" aria-labelledby="search-fiber-label">
+                <span class="kcal-filter__label" id="search-fiber-label" data-i18n="nutrition.filter_fiber">Vezels (g)</span>
+                <input class="input kcal-filter__input" id="search-fiber-min" form="search-form" type="number" inputmode="numeric" min="0" max="200" step="1" placeholder="min." autocomplete="off" aria-labelledby="search-fiber-label search-word-min" data-i18n-attr="placeholder:kcal.min">
+                <span class="kcal-filter__dash" aria-hidden="true">–</span>
+                <input class="input kcal-filter__input" id="search-fiber-max" form="search-form" type="number" inputmode="numeric" min="0" max="200" step="1" placeholder="max." autocomplete="off" aria-labelledby="search-fiber-label search-word-max" data-i18n-attr="placeholder:kcal.max">
+              </div>
+              <div class="kcal-filter" role="group" aria-labelledby="search-salt-label">
+                <span class="kcal-filter__label" id="search-salt-label" data-i18n="nutrition.filter_salt">Zout (g)</span>
+                <input class="input kcal-filter__input" id="search-salt-min" form="search-form" type="number" inputmode="decimal" min="0" max="50" step="0.1" placeholder="min." autocomplete="off" aria-labelledby="search-salt-label search-word-min" data-i18n-attr="placeholder:kcal.min">
+                <span class="kcal-filter__dash" aria-hidden="true">–</span>
+                <input class="input kcal-filter__input" id="search-salt-max" form="search-form" type="number" inputmode="decimal" min="0" max="50" step="0.1" placeholder="max." autocomplete="off" aria-labelledby="search-salt-label search-word-max" data-i18n-attr="placeholder:kcal.max">
+              </div>
+            </details>
           <p class="muted" data-i18n="search.intro">Zoekt tegelijk in je eigen recepten in Mealie, bij Albert Heijn, bij Jumbo, Picnic en Crisp zodra die gekoppeld zijn, en in de menu's van HelloFresh en Marley Spoon van deze week en de komende weken (daar is geen koppeling voor nodig). Bekijk een recept voor de ingrediënten en de bereiding, of plan het in je weekmenu; een recept van een winkel komt dan ook in Mealie.</p>
           <div id="search-message"></div>
           <div id="search-sections">
@@ -1982,8 +2064,8 @@
             </div>
             <div class="appearance-setting fold__section">
               <div class="appearance-setting__text">
-                <h3 id="appearance-calories-label" data-i18n="appearance.calories.title">Calorieën tonen</h3>
-                <p class="muted" id="appearance-calories-help" data-i18n="appearance.calories.help">Bij recepten en maaltijden de kcal per persoon en de voedingswaarden, en zoeken op calorieën. Uit: geen calorieën.</p>
+                <h3 id="appearance-calories-label" data-i18n="appearance.calories.title">Calorieën en voedingswaarden tonen</h3>
+                <p class="muted" id="appearance-calories-help" data-i18n="appearance.calories.help">Bij recepten en maaltijden de kcal per persoon, de voedingswaarden en het dagtotaal, en zoeken op voedingswaarden. Uit: niets daarvan.</p>
               </div>
               <input type="checkbox" role="switch" class="switch" id="appearance-calories" checked aria-labelledby="appearance-calories-label" aria-describedby="appearance-calories-help">
             </div>

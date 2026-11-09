@@ -280,11 +280,12 @@ def create_app() -> Quart:
     @app.get("/api/mealie/recipes")
     async def mealie_recipes_search():
         async def found() -> dict[str, Any]:
-            # Met een grens op de calorieën (issue #283) zoekt de cache van recipe_nutrition.py, anders Mealie zelf.
-            kcal_min, kcal_max = recipe_nutrition.kcal_range(request.args.get("kcalMin"), request.args.get("kcalMax"))
-            if kcal_min is None and kcal_max is None:
+            # Met een grens op een voedingswaarde (kcalMin, proteinMax, saltMax ..., zie nutrition.FILTERS) zoekt de cache van
+            # recipe_nutrition.py, anders Mealie zelf.
+            limits = recipe_nutrition.bounds(request.args)
+            if not limits:
                 return await mealie.search_recipes(request.args.get("q"), request.args.get("page") or 1)
-            return await recipe_nutrition.search(request.args.get("q"), kcal_min, kcal_max, request.args.get("page") or 1)
+            return await recipe_nutrition.search(request.args.get("q"), limits, request.args.get("page") or 1)
 
         return await mealie_action(found, tr("Zoeken in Mealie mislukt", "Searching Mealie failed"))
 
@@ -379,7 +380,10 @@ def create_app() -> Quart:
             return (request.args.get(name) or "").strip().lower() in {"1", "true", "yes"}
 
         try:
-            return jsonify(await ah_recipes.get(force=flag("refresh"), fetch_if_missing=not flag("cached")))
+            data = await ah_recipes.get(force=flag("refresh"), fetch_if_missing=not flag("cached"))
+            if flag("refresh") and data.get("nutritionPending") and not data.get("ahError"):
+                ah_recipes.start_fill()  # de voedingswaarden die nog ontbreken, met pauzes op de achtergrond (4.5.0)
+            return jsonify(data)
         except Exception as exc:
             app.logger.exception("AH saved recipes error")
             return jsonify({"error": str(exc) or tr("Bewaarde recepten ophalen mislukt", "Could not fetch saved recipes")}), 424
@@ -417,7 +421,10 @@ def create_app() -> Quart:
     @app.get("/api/ah/recipes/<int:recipe_id>")
     async def ah_recipe_detail(recipe_id: int):
         try:
-            return jsonify(await ah.recipe_detail(recipe_id))
+            detail = await ah.recipe_detail(recipe_id)
+            # Staat het recept bij je bewaarde recepten, dan krijgt de kaart daar nu ook de voedingswaarden.
+            await ah_recipes.remember_nutrition(recipe_id, {item["key"]: item["quantity"] for item in detail.get("nutrition") or []})
+            return jsonify(detail)
         except Exception:  # noqa: BLE001 - de fout kan het antwoord van AH bevatten: alleen in het logboek
             app.logger.exception("AH recipe error")
             return jsonify({"error": tr("Het recept ophalen bij AH is mislukt", "Could not fetch the recipe from AH")}), 424

@@ -42,7 +42,7 @@ function searchParts(store) {
 
 // De regel onder de naam op een kaart, als HTML: tijd, personen, waardering en labels, met de kcal per persoon erachter.
 function storeRecipeMeta(recipe) {
-  return factsWithKcal(
+  const meta = factsWithKcal(
     [
       recipe.minutes ? t("rsearch.minutes", { count: recipe.minutes }) : "",
       recipe.portions ? t("rsearch.portions", { count: recipe.portions }) : "",
@@ -51,6 +51,7 @@ function storeRecipeMeta(recipe) {
     ],
     [["kcal.per_serving", recipeKcal(recipe)]],
   );
+  return meta + nutritionBrief(recipe.nutrition, Boolean(meta)); // eiwit, suiker en zout, als de kaart ze heeft
 }
 
 // Inplannen: een recept uit Mealie direct, een recept van een winkel of maaltijdbox eerst in Mealie (of hergebruikt).
@@ -162,7 +163,7 @@ async function runRecipeSearch(event) {
   event.preventDefault();
   const query = $("#recipe-query").value.trim();
   // Met een grens op de calorieën mag de zoekterm leeg zijn; dan zoekt alleen Mealie (de winkels geven geen kcal in hun lijst).
-  const kcal = kcalQuery($("#search-kcal-min"), $("#search-kcal-max"));
+  const kcal = nutritionQuery("search");
   if (!query && !kcal) return;
   recipeSearch.query = query;
   recipeSearch.kcal = kcal;
@@ -273,7 +274,7 @@ function renderStoreRecipeDetail(store, recipe, host) {
       <div id="${prefix}-import-result"></div>
       ${cookView}
       ${recipe.tip ? `<h3>${escapeHtml(t("rsearch.tip"))}</h3><p>${escapeHtml(recipe.tip)}</p>` : ""}
-      ${nutritionLine(recipe.nutrition)}
+      ${nutritionTable(recipe.nutrition, { headingLevel: 3 })}
     </div>`;
   if (!fromMealie) $(`#${prefix}-import`).addEventListener("click", (event) => importStoreRecipe(store, recipe.id, event.currentTarget, $(`#${prefix}-import-result`)));
 }

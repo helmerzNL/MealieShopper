@@ -4,6 +4,44 @@ Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar
 
 ## v4.7.0
 
+### Nieuw in 4.7.0
+
+Issue: [#283](https://github.com/helmerzNL/MealieShopper/issues/283), vervolg op pull requests [#288](https://github.com/helmerzNL/MealieShopper/pull/288) en [#289](https://github.com/helmerzNL/MealieShopper/pull/289).
+
+*English summary: besides the kcal, MealieShopper now uses all nutrition values: protein, fat (saturated), carbohydrates (sugars), fibre and salt. Salt is shown in grams, as on a package (sodium × 2.5); Mealie and the stores keep sodium. A recipe and a planned meal show a **Nutrition** table per serving, and for a planned meal also the total for the planned servings. Recipe cards (Find recipes, the recipe picker and your saved AH recipes) show protein, sugar and salt next to the kcal. Every day in the week menu shows what one person gets that day (the sum per serving of the meals with a recipe, with a note when meals have no nutrition). The recipe picker and Find recipes have **More filters**: min/max per serving for protein, fat, carbohydrates, sugars, fibre and salt, next to the kcal. The nutrition cache keeps all values (rows from before 4.7.0 are fetched once more); `GET /api/mealie/recipes` reads `<name>Min`/`<name>Max` for every value and returns `nutrition` on the cards and `withoutValues`. MCP: `search_mealie_recipes` takes `protein_min`/`_max`, `fat_…`, `carbs_…`, `sugar_…`, `fiber_…` and `salt_min`/`salt_max` and returns `nutritionPerServing`; `get_week_menu` returns `nutritionPerServing`, `nutritionTotal` and `days[].perPerson`; `list_saved_ah_recipes` returns `nutritionPerServing`. Saved AH recipes get their nutrition: AH's list has none, so MealieShopper keeps it per recipe, filled when you open a recipe, from the offers recipe index and after **Refresh** in the background (60 at a time, 1.5 s apart, stopping when AH refuses). Jumbo cards show the kcal Jumbo gives. The switch is now called **Show calories and nutrition**.*
+
+- **Een tabel met voedingswaarden.** Onder een recept (bij Recepten zoeken, Winkels, Maaltijdboxen en in het venster van een maaltijd) staat de tabel *Voedingswaarden*: energie, eiwit, vet (waarvan verzadigd), koolhydraten (waarvan suikers), vezels en zout, per portie. Bij een geplande maaltijd heeft de tabel ook een kolom *Totaal (N porties)*, die meerekent met de porties. Dit vervangt de regel "Per portie: …".
+- **Zout in gram.** Op een verpakking staat zout. Mealie en de winkels geven natrium in mg, en dat blijft MealieShopper ook bewaren. Bij het tonen, filteren en in MCP rekent het om: zout = natrium × 2,5 (`nutrition.salt_g`).
+- **Kort op de kaarten.** Achter de kcal staan eiwit, suiker en zout (*490 kcal p.p. · 27 g eiwit · 6 g suiker · 0,5 g zout*): bij Recepten zoeken, in de receptkiezer en bij je bewaarde AH-recepten. Elk deel blijft bij elkaar op een smalle kaart.
+- **Dagtotaal in het weekmenu.** Onder elke dag staat wat één persoon die dag binnenkrijgt: de som per portie van de maaltijden met een recept (*Per persoon: 800 kcal · 45 g eiwit · 15 g suiker · 2,8 g zout*). Een notitie telt niet mee. Heeft een recept geen voedingswaarden, dan staat erbij hoeveel maaltijden er ontbreken.
+- **Meer filters.** In de receptkiezer en bij Recepten zoeken staat onder *Kcal per persoon* een inklapbaar blok **Meer filters**: min en max per persoon voor eiwit, vet, koolhydraten, suikers, vezels (gram) en zout (gram, één decimaal).
+  - `GET /api/mealie/recipes` leest `<naam>Min` en `<naam>Max` voor elke waarde (`recipe_nutrition.bounds`, met de namen en grenzen uit `nutrition.FILTERS`).
+  - Een recept zonder een gevraagde waarde valt weg (`withoutValues`; `withoutKcal` uit 4.4 blijft als gelijke waarde).
+  - De kaarten van Mealie hebben nu `nutrition` naast `kcal`.
+- **De cache bewaart alle waarden.** `mealie_recipe_nutrition` heeft een kolom `nutrition` (JSON). Een rij van vóór 4.7.0 (alleen de kcal) haalt de volgende ronde nog één keer op, zonder de cache te legen. `/api/mealplan` geeft per maaltijd ook `nutritionTotal`.
+- **Bewaarde recepten van AH tonen hun voedingswaarden.** De lijst van AH heeft ze niet. Daarom bewaart `ah_saved_recipes` ze per recept (kolom `nutrition`).
+  - Ze worden gevuld als je een recept opent, als de receptindex van de aanbiedingen het leest, en na **Vernieuwen** op de achtergrond (`ah_recipes.start_fill`).
+  - Die laatste ronde haalt hooguit 60 recepten per keer op, met 1,5 seconde ertussen, en stopt bij 403 of 429.
+  - Een vernieuwing laat de voedingswaarden staan, en een recept zonder voedingswaarden bij AH komt niet terug.
+  - Onder de lijst staat hoeveel recepten er nog volgen. MCP `list_saved_ah_recipes` geeft `nutritionPerServing`.
+- **Jumbo.** De kaarten van Jumbo hebben het veld `calories` (per portie); dat wordt nu `kcal` op de kaart.
+- **Picnic en Crisp:** in hun antwoorden staan, voor zover nagegaan, geen voedingswaarden. Daar verandert niets.
+- **MCP.**
+  - `search_mealie_recipes` heeft `protein_min`/`_max`, `fat_…`, `carbs_…`, `sugar_…`, `fiber_…` (gram) en `salt_min`/`salt_max` (gram zout) naast `kcal_min`/`kcal_max`.
+  - Per recept geeft het `nutritionPerServing` (`kcal`, `proteinG`, `fatG`, `saturatedFatG`, `carbsG`, `sugarG`, `fiberG`, `saltG`).
+  - `get_week_menu` geeft per maaltijd `nutritionPerServing` en `nutritionTotal`, en per dag `days[].perPerson` met `mealsWithoutNutrition`.
+- **De schakelaar** heet nu **Calorieën en voedingswaarden tonen** (de sleutel blijft `showCalories`). Uit verbergt hij ook de tabel, de korte waarden, het dagtotaal en de extra filters.
+- **Handleiding en README's** (NL en EN):
+  - het kopje *Calorieën en voedingswaarden*;
+  - het weekmenu, Recepten zoeken, Voorkeuren en de MCP-tools.
+- **Tests:**
+  - `tests/test_nutrition.py`: zout, filters, optellen, de korte vorm.
+  - `tests/test_recipe_nutrition.py`: alle waarden in de cache, een rij van vóór 4.7.0, `bounds` voor elke waarde, zoeken op eiwit, suiker en zout, en de route.
+  - `tests/test_ah_recipes_cache.py`: de voedingswaarden van bewaarde recepten, het aanvullen met zijn grens, pauze en stop, en het vullen bij het openen.
+  - `tests/test_mcp.py`: de nieuwe parameters, `nutritionPerServing`, `days`, de bewaarde recepten.
+  - `tests/test_calories_ui.py` en `tests/test_meal_recipe_ui.py` (in Node): de tabel, de korte vorm, het dagtotaal en de filters.
+  - Nieuwe gevallen in `test_meal_plan_edit.py` en `test_jumbo_recipes.py`.
+
 ### Nieuw en gewijzigd in 4.7.0
 
 Pull request: [#293](https://github.com/helmerzNL/MealieShopper/pull/293).

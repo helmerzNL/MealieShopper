@@ -856,7 +856,11 @@ async def get_meal_plan_with_recipes(start_date: str, end_date: str) -> list[dic
             {"perServing": round(per_serving), "total": nutrition.total(per_serving, (enriched["servings"] or {}).get("planned"))}
             if per_serving is not None else None
         )
-        enriched["nutrition"] = nutrition.items(detail.get("nutrition")) if detail else []  # per portie, voor het venster
+        found = nutrition.values(detail.get("nutrition")) if detail else {}
+        enriched["nutrition"] = nutrition.items(found)  # per portie, voor het venster
+        # En voor de geplande porties samen (de kolom Totaal in het venster); None zonder porties of voedingswaarden.
+        total = nutrition.scaled(found, (enriched["servings"] or {}).get("planned"))
+        enriched["nutritionTotal"] = nutrition.items(total) if total else None
         enriched["imageUrl"] = _image_path(detail) or _image_path(recipe)
         # Voor het recept in een venster (een tik op de maaltijd): de bereidingstijd en de link naar het recept in Mealie.
         enriched["recipeMinutes"] = _minutes(detail.get("totalTime")) if detail else None
@@ -1218,18 +1222,16 @@ async def search_recipes(query: Any, page: Any = 1, per_page: int = SEARCH_PAGE)
     total = data.get("total") if isinstance(data, dict) and isinstance(data.get("total"), int) else len(items)
     total_pages = data.get("total_pages") if isinstance(data, dict) else None
     more = number < total_pages if isinstance(total_pages, int) else len(items) >= size
-    return {"recipes": await with_kcal([recipe_card(item) for item in items]), "total": total, "page": number, "more": bool(more)}
+    return {"recipes": await with_nutrition([recipe_card(item) for item in items]), "total": total, "page": number, "more": bool(more)}
 
 
-async def with_kcal(cards: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Zet de bekende kcal per portie bij de kaarten (`kcal`, of None); de lijst van Mealie zelf heeft ze niet."""
+async def with_nutrition(cards: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Zet de bekende voedingswaarden per portie bij de kaarten: `kcal` (of None) en `nutrition` (items, zie nutrition.py).
+    De lijst van Mealie zelf heeft ze niet; ze komen uit de cache van recipe_nutrition.py."""
     from . import recipe_nutrition  # late import, zie get_recipe
 
     known = await recipe_nutrition.lookup([card["slug"] for card in cards])
-    for card in cards:
-        kcal = known.get(card["slug"])
-        card["kcal"] = round(kcal) if kcal is not None else None
-    return cards
+    return [recipe_nutrition.card_with(card, known.get(card["slug"]) or {}) for card in cards]
 
 
 async def recipe_detail(slug: Any) -> dict[str, Any]:
