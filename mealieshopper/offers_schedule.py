@@ -122,12 +122,22 @@ async def run_all(trigger: str, now: datetime | None = None, *, wait_for_images:
         await image_cache.prefetch_async(limit=image_cache.PREFETCH_LIMIT)
     await _record(trigger, result, now)
     # Als laatste: de extraatjes hierboven schrijven in catalogustabellen en veranderen de ETag, dus pas nu heeft opwarmen zin.
+    # De nachtelijke run wacht erop (niets heeft haast), de knop niet: die geeft antwoord en warmt op in een eigen task.
     if _warmer is not None:
-        try:
-            await _warmer()
-        except Exception:  # noqa: BLE001 - opwarmen is een extraatje
-            log.warning("Aanbiedingen opwarmen na de synchronisatie mislukt", exc_info=True)
+        if wait_for_images:
+            await _warm()
+        else:
+            tasks.spawn("warm-offers", _warm())
     return result
+
+
+async def _warm() -> None:
+    if _warmer is None:
+        return
+    try:
+        await _warmer()
+    except Exception:  # noqa: BLE001 - opwarmen is een extraatje
+        log.warning("Aanbiedingen opwarmen na de synchronisatie mislukt", exc_info=True)
 
 
 async def sync_now(trigger: str = "manual") -> dict[str, Any]:
