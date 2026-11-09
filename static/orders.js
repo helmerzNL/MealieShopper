@@ -233,6 +233,8 @@ function renderOrders() {
   const jumbo = ordersAreJumbo();
   $("#ah-orders-intro").hidden = jumbo;
   $("#jumbo-orders-intro").hidden = !jumbo;
+  $("#ah-orders-intro-more").hidden = jumbo;
+  $("#jumbo-orders-intro-more").hidden = !jumbo;
   $("#ah-filter-receipts-label").hidden = jumbo; // winkelbonnen van Jumbo kan MealieShopper nog niet tonen
   const rows = purchaseRows();
   const hits = purchaseHits();

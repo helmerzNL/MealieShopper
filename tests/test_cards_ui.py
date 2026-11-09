@@ -116,7 +116,7 @@ class BasketMarkupTest(unittest.TestCase):
     def test_the_explanation_folds_away(self):
         block = HTML[HTML.index('<details class="help" id="basket-help">'):]
         block = block[: block.index("</details>")]
-        self.assertIn('<summary data-i18n="basket.help">Hoe werkt dit?</summary>', block)
+        self.assertIn('<summary data-i18n="common.help">Hoe werkt dit?</summary>', block)
         self.assertIn('id="basket-intro"', block)
 
     def test_every_store_shows_its_figures(self):

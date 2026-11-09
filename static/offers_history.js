@@ -499,7 +499,7 @@ function offerHistoryDetail(product) {
       <thead><tr><th scope="col">${escapeHtml(t("offers.history.table.period"))}</th><th scope="col">${escapeHtml(t("offers.history.table.price_each"))}</th><th scope="col">${escapeHtml(t("offers.history.table.folder_name"))}</th></tr></thead>
       <tbody>${lineRows}</tbody>
     </table>
-    <p class="muted ohc-note">${escapeHtml(t("offers.history.line_note"))}</p>`
+    <details class="help ohc-note"><summary>${escapeHtml(t("common.help"))}</summary><p class="muted">${escapeHtml(t("offers.history.line_note"))}</p></details>`
         : ""
     }
     ${offerHistoryPurchasesTable(product)}`;
