@@ -54,6 +54,8 @@ CREATE TABLE IF NOT EXISTS jumbo_orders_meta (
   key TEXT PRIMARY KEY,
   synced_at TEXT NOT NULL
 );
+CREATE INDEX IF NOT EXISTS jumbo_orders_unsynced ON jumbo_orders (order_id) WHERE items_synced = 0;
+CREATE INDEX IF NOT EXISTS jumbo_order_items_product ON jumbo_order_items (product_id);
 """
 
 ITEM_COLUMNS = ("product_id", "title", "brand", "unit_size", "quantity", "amount", "price", "price_before_bonus", "bonus", "taxonomy", "image")
@@ -63,9 +65,15 @@ ITEM_COLUMNS = ("product_id", "title", "brand", "unit_size", "quantity", "amount
 async def _connect() -> AsyncIterator[aiosqlite.Connection]:
     """Een verbinding met het schema en de migratie. Sluit zonder commit, zoals `auth.connect`."""
     async with auth.connect() as conn:
-        await conn.executescript(SCHEMA)
-        await ah_orders._ensure_columns(conn, "jumbo_order_items", ah_orders.REGULAR_COLUMNS)
+        await auth.ensure_schema(conn, "jumbo_orders", _setup)
         yield conn
+
+
+async def _setup(conn: aiosqlite.Connection) -> None:
+    """Het schema en de migratie, een keer per proces (`auth.ensure_schema`)."""
+    await conn.executescript(SCHEMA)
+    await ah_orders._ensure_columns(conn, "jumbo_order_items", ah_orders.REGULAR_COLUMNS)
+    await conn.commit()
 
 
 def _now() -> str:

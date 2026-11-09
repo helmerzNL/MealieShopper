@@ -229,21 +229,31 @@ COLUMN_MIGRATIONS: tuple[tuple[str, str, str], ...] = (
 )
 COLUMNS_SQL = "PRAGMA table_info({table})"
 ADD_COLUMN_SQL = "ALTER TABLE {table} ADD COLUMN {column} {kind}"
-OFFERS_INDEX_SQL = "CREATE INDEX IF NOT EXISTS offers_store ON offers (store, position)"
+# De indexen op `offers`, na `_drop_offers_key` (een herbouwde tabel verliest ze): de lijst per winkel op volgorde, en een product
+# opzoeken (de prijsgeschiedenis, `history_of`, `prices._pinned`).
+OFFERS_INDEX_SQL = """
+CREATE INDEX IF NOT EXISTS offers_store ON offers (store, position);
+CREATE INDEX IF NOT EXISTS offers_product ON offers (store, product_id);
+"""
 
 
 async def prepare(conn: aiosqlite.Connection) -> aiosqlite.Connection:
     """Het schema van de aanbiedingen en zijn migraties op een open aiosqlite-verbinding, zoals `_connect` ze toepast. Ook voor
-    `prices._connect`, dat `offer_history` en de rest van de aanbiedingen nodig heeft."""
+    `prices._connect`, dat `offer_history` en de rest van de aanbiedingen nodig heeft. Een keer per proces (`auth.ensure_schema`)."""
+    await auth.ensure_schema(conn, "offers", _setup)
+    return conn
+
+
+async def _setup(conn: aiosqlite.Connection) -> None:
     await conn.executescript(SCHEMA)
     for table, column, kind in COLUMN_MIGRATIONS:
         if column not in {row["name"] for row in await conn.execute_fetchall(COLUMNS_SQL.format(table=table))}:
             await conn.execute(ADD_COLUMN_SQL.format(table=table, column=column, kind=kind))
     await _drop_offers_key(conn)
-    await conn.execute(OFFERS_INDEX_SQL)
+    await conn.executescript(OFFERS_INDEX_SQL)
+    await conn.commit()
     await _repair_open_ends(conn)
     await _repair_picnic_recipe_images(conn)
-    return conn
 
 
 @asynccontextmanager
@@ -253,8 +263,7 @@ async def _connect() -> AsyncIterator[aiosqlite.Connection]:
         yield await prepare(conn)
 
 
-# De databases waarvan de einddatums al zijn nagekeken, zodat dat per proces een keer gebeurt en niet bij elke verbinding.
-_OPEN_ENDS_REPAIRED: set[str] = set()
+# De reparaties hieronder draaien met `_setup` een keer per proces en database (`auth.ensure_schema`), niet bij elke verbinding.
 OPEN_ENDS_SQL = "UPDATE {table} SET valid_until = NULL WHERE valid_until >= ?"
 
 
@@ -262,18 +271,12 @@ async def _repair_open_ends(conn: aiosqlite.Connection) -> None:
     """Een aanbieding die voor v2.75.0 werd opgeslagen kan AH's "doorlopend" (2999-12-31) nog als einddatum hebben. Sinds v2.75.0 maakt
     `ah._bonus_end` daar None van, maar oude rijen houden die datum: een lopende rij tot de volgende synchronisatie, een afgesloten rij voor
     altijd. Dan loopt de grafiek van de Prijsgeschiedenis tot het jaar 2999 en telt `prices` de aanbieding als nog lopend."""
-    key = str(auth.db_path())
-    if key in _OPEN_ENDS_REPAIRED:
-        return
     cutoff = f"{ah.OPEN_ENDED_YEAR:04d}"
     for table in ("offers", "offer_history"):
         await conn.execute(OPEN_ENDS_SQL.format(table=table), (cutoff,))
     await conn.commit()
-    _OPEN_ENDS_REPAIRED.add(key)
 
 
-# De databases waarvan de receptfoto's van Picnic al zijn nagekeken, ook een keer per proces.
-_PICNIC_IMAGES_REPAIRED: set[str] = set()
 PICNIC_IMAGES_SQL = "SELECT recipe_id, image FROM offer_recipes WHERE source = 'picnic' AND image LIKE '%/static/images/recipes/%'"
 PICNIC_IMAGE_UPDATE_SQL = "UPDATE offer_recipes SET image = ? WHERE source = 'picnic' AND recipe_id = ?"
 
@@ -286,14 +289,10 @@ async def _repair_picnic_recipe_images(conn: aiosqlite.Connection) -> None:
     """Een recept van Picnic dat voor v3.7.2 in de index kwam, heeft een foto met een maatnaam (`…/recipes/<hash>/large.png`). Een
     nieuwer recept heeft die maat niet en dan bleef de foto weg (#236). De index wordt alleen op verzoek opnieuw ingelezen, dus zetten
     we de adressen hier om naar de maat in pixels (`picnic.current_image`); dan haalt ook de afbeeldingencache de goede op."""
-    key = str(auth.db_path())
-    if key in _PICNIC_IMAGES_REPAIRED:
-        return
     changed = _picnic_image_changes(await conn.execute_fetchall(PICNIC_IMAGES_SQL))
     if changed:
         await conn.executemany(PICNIC_IMAGE_UPDATE_SQL, changed)
         await conn.commit()
-    _PICNIC_IMAGES_REPAIRED.add(key)
 
 
 OFFERS_KEY_SQL = "PRAGMA table_info(offers)"
@@ -581,7 +580,7 @@ async def sync(store: Any) -> dict[str, Any]:
         await conn.execute("DELETE FROM offers WHERE store = ?", (store,))
         await conn.executemany(
             """
-            INSERT OR REPLACE INTO offers
+            INSERT INTO offers
               (store, product_id, position, title, brand, unit_size, price, price_before, promo_label, image, url, valid_from, valid_until, category,
                personal, activated)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -1215,7 +1214,11 @@ async def report_mismatch(store: Any, ingredient: Any, offer_id: Any, reason: An
         if offer is None:
             raise ValueError(tr("Dit product staat niet meer in de aanbiedingen", "This product is no longer in the offers"))
         await conn.execute(
-            "INSERT OR REPLACE INTO offer_rejections (store, product_id, head, ingredient, title, reported_at, reason, source) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            """
+            INSERT INTO offer_rejections (store, product_id, head, ingredient, title, reported_at, reason, source) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(store, product_id, head) DO UPDATE SET ingredient = excluded.ingredient, title = excluded.title,
+              reported_at = excluded.reported_at, reason = excluded.reason, source = excluded.source
+            """,
             (store, str(offer_id), head, str(ingredient).strip(), offer["title"], _now(), " ".join(str(reason or "").split())[:300], source),
         )
         await conn.commit()
@@ -1643,7 +1646,11 @@ async def sync_recipes() -> dict[str, Any]:
         for source, items in collected.items():
             await conn.execute("DELETE FROM offer_recipes WHERE source = ?", (source,))
             await conn.executemany(
-                "INSERT OR REPLACE INTO offer_recipes (source, recipe_id, title, image, url, ingredients, course) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                """
+                INSERT INTO offer_recipes (source, recipe_id, title, image, url, ingredients, course) VALUES (?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(source, recipe_id) DO UPDATE SET title = excluded.title, image = excluded.image, url = excluded.url,
+                  ingredients = excluded.ingredients, course = excluded.course
+                """,
                 [(source, item["id"], item["title"], item["image"], item["url"], json.dumps(item["ingredients"]), item.get("course"))
                  for item in items],
             )

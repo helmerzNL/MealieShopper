@@ -533,6 +533,7 @@ class SuggestionsTest(TempDataDirTest):
             conn.execute("CREATE TABLE offer_rejections (store TEXT NOT NULL, product_id TEXT NOT NULL, head TEXT NOT NULL, ingredient TEXT NOT NULL, "
                          "title TEXT NOT NULL, reported_at TEXT NOT NULL, PRIMARY KEY (store, product_id, head))")
             conn.execute("INSERT INTO offer_rejections VALUES ('ah', '1', 'kipfilet', '400 g kipfilet', 'AH Kipfilet', '2026-10-22T20:00:00+00:00')")
+        auth.forget_runtime_state()  # de migratie loopt bij de start van de app, een keer per proces
         listed = run(offers.list_mismatches("ah"))
         self.assertEqual((listed["total"], listed["reports"][0]["source"], listed["reports"][0]["reason"]), (1, "app", ""))
         run(offers.report_mismatch("ah", "4 tomaten", "3", "geen tomaat", source="assistant"))
@@ -606,6 +607,7 @@ class SuggestionsTest(TempDataDirTest):
             conn.execute("CREATE TABLE offer_recipes (source TEXT NOT NULL, recipe_id TEXT NOT NULL, title TEXT NOT NULL, image TEXT, url TEXT, ingredients TEXT NOT NULL, PRIMARY KEY (source, recipe_id))")
             conn.execute("INSERT INTO offer_recipes VALUES ('mealie', 'old', 'Oud recept', '', '', '[\"4 tomaten\"]')")
             conn.commit()
+        auth.forget_runtime_state()  # de migratie loopt bij de start van de app, een keer per proces
         with closing(db(offers)) as conn:
             self.assertIn("course", {row["name"] for row in conn.execute("PRAGMA table_info(offer_recipes)")})
             self.assertIsNone(conn.execute("SELECT course FROM offer_recipes").fetchone()["course"])
@@ -625,7 +627,7 @@ class SuggestionsTest(TempDataDirTest):
                 "INSERT INTO offer_recipes (source, recipe_id, title, image, url, ingredients) VALUES (?, ?, 'R', ?, '', '[\"kip\"]')",
                 [(source, recipe_id, image) for (source, recipe_id), image in rows.items()],
             )
-        offers._PICNIC_IMAGES_REPAIRED.clear()  # zoals een nieuwe start van de app
+        auth.forget_runtime_state()  # zoals een nieuwe start van de app
         with closing(db(offers)) as conn:
             images = {(row["source"], row["recipe_id"]): row["image"] for row in conn.execute("SELECT source, recipe_id, image FROM offer_recipes")}
         self.assertEqual(images, {**rows, ("picnic", "new"): f"{base}/recipes/ac1b02/1000x1000.png"})

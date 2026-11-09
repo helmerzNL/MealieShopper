@@ -73,6 +73,9 @@ CREATE TABLE IF NOT EXISTS oauth_tokens (
   last_used_at TEXT,
   FOREIGN KEY (client_id) REFERENCES oauth_clients(client_id) ON DELETE CASCADE
 );
+CREATE INDEX IF NOT EXISTS oauth_codes_client ON oauth_codes (client_id);
+CREATE INDEX IF NOT EXISTS oauth_tokens_user ON oauth_tokens (user_id);
+CREATE INDEX IF NOT EXISTS oauth_tokens_client ON oauth_tokens (client_id);
 """
 
 
@@ -92,7 +95,7 @@ async def _connect() -> AsyncIterator[aiosqlite.Connection]:
     await auth.ensure_db()
     async with auth.connect() as conn:
         await conn.execute("PRAGMA foreign_keys = ON")
-        await conn.executescript(SCHEMA)
+        await auth.ensure_schema(conn, "oauth", SCHEMA)
         yield conn
 
 

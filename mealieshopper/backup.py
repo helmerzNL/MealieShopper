@@ -287,7 +287,7 @@ async def _ajobs_connect() -> AsyncIterator[aiosqlite.Connection]:
     """Async tweeling van `_jobs_connect`, voor de event loop. Sluit zonder commit, zoals `auth.connect`."""
     await auth.ensure_db()
     async with auth.connect() as conn:
-        await conn.executescript(JOB_SCHEMA)
+        await auth.ensure_schema(conn, "backup_jobs", JOB_SCHEMA)
         yield conn
 
 

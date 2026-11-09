@@ -123,6 +123,17 @@ ITEM_COLUMNS = ("product_id", "title", "brand", "unit_size", "quantity", "amount
 # `regular_price` NULL met een `regular_checked_at`: bepaald, maar er was geen gewone prijs bekend. Ook op `jumbo_order_items`.
 REGULAR_COLUMNS: tuple[tuple[str, str], ...] = (("regular_price", "REAL"), ("regular_checked_at", "TEXT"))
 
+# De indexen, na de migraties (de index op `image` heeft die kolom nodig). De deelindexen (`WHERE ...`) houden alleen de rijen die
+# nog werk vragen: wat de teller op het dashboard en de nachtelijke rondes telkens opzoeken, ook als er duizenden bonnen staan.
+INDEXES = """
+CREATE INDEX IF NOT EXISTS ah_orders_unsynced ON ah_orders (order_id) WHERE items_synced = 0;
+CREATE INDEX IF NOT EXISTS ah_order_items_product ON ah_order_items (product_id);
+CREATE INDEX IF NOT EXISTS ah_receipts_unsynced ON ah_receipts (date_time) WHERE details_synced = 0;
+CREATE INDEX IF NOT EXISTS ah_receipt_items_product ON ah_receipt_items (product_id);
+CREATE INDEX IF NOT EXISTS ah_receipt_products_product ON ah_receipt_products (product_id);
+CREATE INDEX IF NOT EXISTS ah_receipt_products_unimaged ON ah_receipt_products (product_id) WHERE image IS NULL;
+"""
+
 
 @asynccontextmanager
 async def _connect() -> AsyncIterator[aiosqlite.Connection]:
@@ -130,11 +141,18 @@ async def _connect() -> AsyncIterator[aiosqlite.Connection]:
     `product_links` (`product_links.ensure`). Sluit zonder commit, zoals `auth.connect`."""
     await auth.ensure_db()
     async with auth.connect() as conn:
-        await conn.executescript(SCHEMA)
-        await _ensure_columns(conn, "ah_receipt_products", (("image", "TEXT"),))
-        for table in ("ah_order_items", "ah_receipt_items"):
-            await _ensure_columns(conn, table, REGULAR_COLUMNS)
+        await auth.ensure_schema(conn, "ah_orders", _setup)
         yield await product_links.ensure(conn)
+
+
+async def _setup(conn: aiosqlite.Connection) -> None:
+    """Het schema en de migraties, een keer per proces (`auth.ensure_schema`)."""
+    await conn.executescript(SCHEMA)
+    await _ensure_columns(conn, "ah_receipt_products", (("image", "TEXT"),))
+    for table in ("ah_order_items", "ah_receipt_items"):
+        await _ensure_columns(conn, table, REGULAR_COLUMNS)
+    await conn.executescript(INDEXES)
+    await conn.commit()
 
 
 async def _ensure_columns(conn: aiosqlite.Connection, table: str, columns: tuple[tuple[str, str], ...]) -> None:

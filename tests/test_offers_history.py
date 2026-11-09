@@ -184,7 +184,7 @@ class HistoryTest(TempDataDirTest):
         with sqlite3.connect(auth.db_path()) as conn:
             conn.execute("UPDATE offer_history SET valid_until = '2999-12-31'")
             conn.execute("UPDATE offers SET valid_until = '2999-12-31'")
-        getattr(offers, "_OPEN_ENDS_REPAIRED", set()).clear()  # zoals een nieuwe start van de app
+        auth.forget_runtime_state()  # zoals een nieuwe start van de app
         products = {p["title"]: p for p in (await offers.history("ah"))["products"]}
         running, ended = products["Magnum Almond 2-pack"]["episodes"][0], products["Kipfilet"]["episodes"][0]
         self.assertEqual((running["end"], running["open"]), (None, True))
@@ -194,7 +194,7 @@ class HistoryTest(TempDataDirTest):
 
     async def test_the_open_end_repair_runs_once_per_database(self):
         await self.sync(item("1", "Kipfilet"))
-        offers._OPEN_ENDS_REPAIRED.clear()
+        auth.forget_runtime_state()
         await offers.history("ah")
         with sqlite3.connect(auth.db_path()) as conn:
             conn.execute("UPDATE offer_history SET valid_until = '2999-12-31'")

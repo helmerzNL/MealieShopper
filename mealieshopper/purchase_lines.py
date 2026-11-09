@@ -112,7 +112,13 @@ async def _tables(conn: aiosqlite.Connection) -> set[str]:
     }
 
 
-async def _count(conn: aiosqlite.Connection, sql: str, ids: list[str], before_day: str) -> dict[str, int]:
+def _native_id(store: str, product_id: str) -> Any:
+    """Het product-id zoals `<store>_order_items` het bewaart (AH INTEGER, de rest TEXT), zoals `prices.native_id`; prices importeert
+    deze module, dus de regel staat hier nog een keer."""
+    return int(product_id) if store == "ah" and product_id.isdigit() else product_id
+
+
+async def _count(conn: aiosqlite.Connection, sql: str, ids: list[Any], before_day: str) -> dict[str, int]:
     marks: str = ", ".join("?" * len(ids))
     return {
         str(row[0]): int(row[1])
@@ -154,8 +160,8 @@ async def times_before(
             f"""
             SELECT CAST(i.product_id AS TEXT), COUNT(DISTINCT i.order_id) FROM {store}_order_items i
             JOIN {store}_orders o ON o.order_id = i.order_id
-            WHERE CAST(i.product_id AS TEXT) IN ({{marks}}) AND {_ORDER_DAY} < ? GROUP BY 1""",
-            ids,
+            WHERE i.product_id IN ({{marks}}) AND {_ORDER_DAY} < ? GROUP BY 1""",
+            [_native_id(store, product_id) for product_id in ids],  # zonder CAST, zodat de index op product_id werkt
             before_day,
         )
     if (

@@ -51,6 +51,7 @@ CREATE TABLE IF NOT EXISTS crisp_orders_meta (
   key TEXT PRIMARY KEY,
   synced_at TEXT NOT NULL
 );
+CREATE INDEX IF NOT EXISTS crisp_orders_unsynced ON crisp_orders (order_id) WHERE items_synced = 0;
 """
 
 ITEM_COLUMNS = ("product_id", "title", "unit_size", "quantity", "price", "list_price", "image")
@@ -60,7 +61,7 @@ ITEM_COLUMNS = ("product_id", "title", "unit_size", "quantity", "price", "list_p
 async def _connect() -> AsyncIterator[aiosqlite.Connection]:
     """Een verbinding met het schema. Sluit zonder commit, zoals `auth.connect`."""
     async with auth.connect() as conn:
-        await conn.executescript(SCHEMA)
+        await auth.ensure_schema(conn, "crisp_orders", SCHEMA)
         yield conn
 
 

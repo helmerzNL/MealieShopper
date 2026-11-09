@@ -70,11 +70,17 @@ _refresh: dict[str, Any] = {"done": 0, "total": 0, "error": "", "failedAt": 0.0}
 async def _connect() -> AsyncIterator[aiosqlite.Connection]:
     """Een verbinding met de tabellen van de cache. Sluit zonder commit, zoals `auth.connect`."""
     async with auth.connect() as conn:
-        await conn.executescript(SCHEMA)
-        for table, column, kind in COLUMN_MIGRATIONS:
-            if column not in {row["name"] for row in await conn.execute_fetchall(f"PRAGMA table_info({table})")}:
-                await conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {kind}")
+        await auth.ensure_schema(conn, "recipe_nutrition", _setup)
         yield conn
+
+
+async def _setup(conn: aiosqlite.Connection) -> None:
+    """Het schema en de kolommen die later kwamen, een keer per proces (`auth.ensure_schema`)."""
+    await conn.executescript(SCHEMA)
+    for table, column, kind in COLUMN_MIGRATIONS:
+        if column not in {row["name"] for row in await conn.execute_fetchall(f"PRAGMA table_info({table})")}:
+            await conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {kind}")
+    await conn.commit()
 
 
 def _values(row: Any) -> dict[str, float]:

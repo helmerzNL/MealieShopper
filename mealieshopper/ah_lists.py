@@ -66,17 +66,22 @@ async def _connect() -> AsyncIterator[aiosqlite.Connection]:
     zoals `auth.connect`, behalve de migratie: die staat vast voordat de verbinding wordt teruggegeven."""
     async with auth.connect() as conn:
         await conn.execute("PRAGMA foreign_keys = ON")
-        await conn.executescript(SCHEMA)
-        columns: set[str] = {row["name"] for row in await conn.execute_fetchall("PRAGMA table_info(ah_list_items)")}
-        if "default_quantity" not in columns:  # database van voor de aanpasbare aantallen
-            try:
-                for sql in MIGRATE_DEFAULT_QUANTITY:
-                    await conn.execute(sql)
-            except sqlite3.OperationalError as exc:  # een andere verbinding was ons net voor
-                if "duplicate column" not in str(exc):
-                    raise
-            await conn.commit()
+        await auth.ensure_schema(conn, "ah_lists", _setup)
         yield conn
+
+
+async def _setup(conn: aiosqlite.Connection) -> None:
+    """Het schema en de migratie, een keer per proces (`auth.ensure_schema`)."""
+    await conn.executescript(SCHEMA)
+    columns: set[str] = {row["name"] for row in await conn.execute_fetchall("PRAGMA table_info(ah_list_items)")}
+    if "default_quantity" not in columns:  # database van voor de aanpasbare aantallen
+        try:
+            for sql in MIGRATE_DEFAULT_QUANTITY:
+                await conn.execute(sql)
+        except sqlite3.OperationalError as exc:  # een andere verbinding was ons net voor
+            if "duplicate column" not in str(exc):
+                raise
+        await conn.commit()
 
 
 def _now() -> str:
