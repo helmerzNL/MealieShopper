@@ -135,7 +135,8 @@ def short_label(label: Any) -> Any:
     return " ".join(text.split())
 
 
-STORES = ("ah", "jumbo", "picnic", "crisp")
+# Gelijk aan `offers.STORES` (een test controleert dat); deze module importeert niets van de app, zodat hij in een thread kan draaien.
+STORES = ("ah", "jumbo", "picnic", "crisp", "lidl", "aldi")
 TEXT_FIELDS = ("source_title", "title", "description", "unit_size", "promo_label", "product_id")
 
 

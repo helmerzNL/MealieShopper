@@ -171,7 +171,7 @@ class HistoryTest(TempDataDirTest):
         self.assertEqual((await offers.history("ah", "50%"))["total"], 0, "% is geen jokerteken")
         self.assertEqual((await offers.history("ah", "a\\b"))["total"], 0)
         with self.assertRaises(ValueError):
-            await offers.history("lidl")
+            await offers.history("nope")
 
     async def test_duplicates_in_one_sync_count_once(self):
         await self.sync(item("1", "Kipfilet"), item("1", "Kipfilet"))
@@ -207,7 +207,7 @@ class HistoryTest(TempDataDirTest):
         client = self.client_for(create_app())
         reply = (await client.get("/api/offers/history?store=ah&q=kip&limit=5")).get_json()
         self.assertEqual((reply["total"], reply["products"][0]["timesOnOffer"]), (1, 1))
-        self.assertEqual((await client.get("/api/offers/history?store=lidl")).status_code, 400)
+        self.assertEqual((await client.get("/api/offers/history?store=nope")).status_code, 400)
         self.assertEqual((await client.get("/api/offers/history?limit=abc")).status_code, 200)
 
 

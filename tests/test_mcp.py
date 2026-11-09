@@ -578,7 +578,7 @@ class OfferReviewToolsTest(McpTestCase):
         self.assertEqual((await self.data("review_offer_matches", {"store": "ah"}))["total"], 2)
 
     async def test_bad_input_is_a_readable_error(self):
-        for name, args in (("review_offer_matches", {"store": "lidl"}), ("report_offer_mismatch", {"store": "ah", "ingredient": "kipfilet"}),
+        for name, args in (("review_offer_matches", {"store": "nope"}), ("report_offer_mismatch", {"store": "ah", "ingredient": "kipfilet"}),
                            ("report_offer_mismatch", {"store": "ah", "ingredient": "kipfilet", "offer_id": "999"})):
             self.assertTrue((await self.call(self.token, name, args))["isError"], name)
 

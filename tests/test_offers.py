@@ -238,9 +238,9 @@ class OffersStoreTest(TempDataDirTest):
         for store in offers.STORES:
             self.assertTrue(run(offers.load(store))["supported"], store)
         with self.assertRaises(ValueError):
-            run(offers.sync("lidl"))
+            run(offers.sync("nope"))
         with self.assertRaises(ValueError):
-            run(offers.load("lidl"))
+            run(offers.load("nope"))
 
 
 class OffersWeekTest(TempDataDirTest):
@@ -519,7 +519,7 @@ class SuggestionsTest(TempDataDirTest):
     def test_reporting_validates_store_ingredient_and_product(self):
         self.reported_setup()
         with self.assertRaises(ValueError):
-            run(offers.report_mismatch("lidl", "kipfilet", "1"))
+            run(offers.report_mismatch("nope", "kipfilet", "1"))
         with self.assertRaises(ValueError):
             run(offers.report_mismatch("ah", "zout", "1"))  # een basisingrediënt koppelt niet, dus valt er niets te melden
         with self.assertRaises(ValueError):
@@ -1009,7 +1009,7 @@ class OffersTabMarkupTest(AppTestCase):
         self.assertNotIn("· ${escapeHtml(t(`offers.source", card, "de bron mag niet als winkel van de aanbieding lezen")
         status = script[script.index("async function showOfferRecipes"):script.index("async function offersIndexRecipes")]
         self.assertIn('t("offers.recipes.heading"', status, "boven de recepten staat van welke winkel de aanbiedingen zijn")
-        self.assertIn("STORES[offersState.store].name", status)
+        self.assertIn("storeDisplayName(offersState.store)", status)
         self.assertNotIn("offers.recipes.using", script)
 
 
@@ -1407,7 +1407,7 @@ class OffersRoutesTest(TempDataDirTest):
             self.assertIn("2031-02-03", await offers.signature("ah"))
         with mock.patch.object(offers.about, "version", return_value="9.9.9"):
             self.assertTrue((await offers.signature("ah")).endswith("9.9.9"))
-        self.assertEqual((await self.client.get("/api/offers?store=lidl", headers={"If-None-Match": etag})).status_code, 400)
+        self.assertEqual((await self.client.get("/api/offers?store=nope", headers={"If-None-Match": etag})).status_code, 400)
 
     async def test_the_recipes_subtab_is_hidden_unless_switched_on(self):
         import re
@@ -1424,8 +1424,8 @@ class OffersRoutesTest(TempDataDirTest):
         self.assertEqual((await self.client.get("/api/offers/recipes?store=ah")).status_code, 200, "de API blijft werken")
 
     async def test_unknown_store_is_a_400_and_a_store_failure_a_424(self):
-        self.assertEqual((await self.client.get("/api/offers?store=lidl")).status_code, 400)
-        self.assertEqual((await self.client.post("/api/offers/sync", json={"store": "lidl"})).status_code, 400)
+        self.assertEqual((await self.client.get("/api/offers?store=nope")).status_code, 400)
+        self.assertEqual((await self.client.post("/api/offers/sync", json={"store": "nope"})).status_code, 400)
 
         def not_linked():
             raise RuntimeError("Jumbo account niet gekoppeld")

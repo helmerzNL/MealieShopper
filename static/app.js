@@ -109,7 +109,8 @@ function $(selector) {
 // Een productfoto van een winkel via de eigen cache (/api/images/<token>, zie image_cache.py): de server haalt hem een keer op
 // en serveert hem daarna van schijf, zodat de browser niet bij de winkel hotlinkt. Een adres van een andere host (Mealie, een
 // maaltijdbox) blijft zoals het is. Het token is het adres in URL-veilige base64 zonder "=".
-const STORE_IMAGE_HOSTS = [/(^|\.)static\.ah\.nl$/, /(^|\.)jumbo\.com$/, /\.picnicinternational\.com$/, /(^|\.)crispapp\.nl$/];
+// Lidl en Aldi: alleen de hosts van hun productfoto's (de server controleert ook het pad, zie image_cache.store_for).
+const STORE_IMAGE_HOSTS = [/(^|\.)static\.ah\.nl$/, /(^|\.)jumbo\.com$/, /\.picnicinternational\.com$/, /(^|\.)crispapp\.nl$/, /^www\.lidl\.nl$/, /^imgproxy-retcat\.assets\.schwarz$/, /^s7g10\.scene7\.com$/];
 
 function storeImage(url) {
   if (!url) return url;
@@ -1339,6 +1340,27 @@ const STORES = {
   jumbo: { name: "Jumbo", api: "jumbo", linked: "jumbo", button: "plan.add_cart_jumbo", ready: "cart.ready_jumbo" },
   crisp: { name: "Crisp", api: "crisp", linked: "crisp", button: "plan.add_cart_crisp", ready: "cart.ready_crisp" },
 };
+
+// Winkels zonder webwinkel: van hen zijn er alleen de aanbiedingen, zonder koppeling, mandje of zoeken (offers.OFFER_ONLY_STORES).
+// Ze staan bewust niet in STORES: die lijst voedt het mandje, Winkels en de voorkeurssupermarkt.
+const OFFER_ONLY_STORES = {
+  lidl: { name: "Lidl" },
+  aldi: { name: "Aldi" },
+};
+
+// De naam van een winkel, ook van een winkel met alleen aanbiedingen.
+function storeDisplayName(key) {
+  return (STORES[key] || OFFER_ONLY_STORES[key])?.name || key;
+}
+
+function offersOnlyStore(key) {
+  return Object.hasOwn(OFFER_ONLY_STORES, key);
+}
+
+// Een winkel die zonder koppeling te kiezen is bij Aanbiedingen: AH (de Bonus werkt zonder inlog) en de winkels met alleen aanbiedingen.
+function storeWithoutLink(key) {
+  return key === "ah" || offersOnlyStore(key);
+}
 
 function currentStore() {
   return STORES[state.store] || STORES.ah;

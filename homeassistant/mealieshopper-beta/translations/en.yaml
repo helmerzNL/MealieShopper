@@ -40,7 +40,7 @@ configuration:
     description: Let the app check GitHub for a newer release and tell the administrator. Nothing about you or the installation is sent. On by default. Home Assistant shows add-on updates itself.
   audit_log:
     name: Audit log
-    description: Store the traffic with Albert Heijn, Picnic, Jumbo and Crisp and the requests of AI assistants in the audit log (Settings > Audit log). On by default.
+    description: Store the traffic with Albert Heijn, Picnic, Jumbo, Crisp, Lidl and Aldi and the requests of AI assistants in the audit log (Settings > Audit log). On by default.
   audit_retention_days:
     name: Audit log retention (days)
     description: After how many days entries are deleted. Default 30; 0 never deletes on its own.

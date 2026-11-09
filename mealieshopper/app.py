@@ -805,8 +805,8 @@ def create_app() -> Quart:
         # Doet één zoekopdracht bij de winkel, in dezelfde vorm voor elke winkel (prices.link_candidates).
         try:
             return jsonify(await prices.link_candidates(request.args.get("store"), request.args.get("q") or ""))
-        except ValueError:
-            return jsonify({"error": tr("Onbekende winkel (kies ah, picnic, jumbo of crisp)", "Unknown store (choose ah, picnic, jumbo or crisp)")}), 400
+        except ValueError as exc:  # een onbekende winkel, of een winkel met alleen aanbiedingen (Lidl, Aldi): de tekst is van onszelf
+            return jsonify({"error": str(exc)}), 400
         except Exception:  # noqa: BLE001 - de winkel gaf een fout: niet gekoppeld, of niet bereikbaar
             app.logger.exception("Zoeken om te koppelen mislukt")
             return jsonify({"error": tr("Zoeken mislukt", "Search failed")}), 424

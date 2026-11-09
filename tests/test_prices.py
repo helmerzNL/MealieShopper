@@ -9,7 +9,7 @@ os.environ.setdefault("MEALIESHOPPER_DATA_DIR", tempfile.mkdtemp())
 
 from mealieshopper import ah, ah_orders, auth, mcp, offers, picnic_orders, price_import, prices, product_links  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
-from helpers import AppTestCase, db, in_db, returned, run  # noqa: E402
+from helpers import AppTestCase, db, in_db, returned, run, served  # noqa: E402
 
 TODAY = "2026-10-20"
 
@@ -100,7 +100,7 @@ class RecordTest(PricesCase):
     def test_products_without_id_title_or_regular_price_are_skipped(self):
         found = [{"title": "Geen id", "price": 1}, {"id": "3", "price": 1}, {"id": "4", "title": "Bonus", "price": 1, "isBonus": True}, "rommel"]
         self.assertEqual(run(prices.record("ah", found)), 0)
-        self.assertEqual(run(prices.record("lidl", [{"id": "1", "title": "X", "price": 1}])), 0)
+        self.assertEqual(run(prices.record("nope", [{"id": "1", "title": "X", "price": 1}])), 0)
         self.assertEqual(self.rows(), [])
 
     def test_a_failure_never_breaks_the_search(self):
@@ -333,7 +333,7 @@ class HistoryTest(PricesCase):
         self.assertEqual(await self.history(store="jumbo"), {"products": [], "total": 0, "unsynced": {"jumbo": {"orders": 0, "receipts": 0}}})  # geen tabellen
         self.assertEqual((await prices.history(None, "melk", 10))["total"], 1)
         with self.assertRaises(ValueError):
-            await prices.history("lidl")
+            await prices.history("nope")
 
 
 class RouteAndToolTest(PricesCase):
@@ -342,7 +342,7 @@ class RouteAndToolTest(PricesCase):
         client = self.client_for(create_app())
         reply = (await client.get("/api/prices/history?store=ah&q=kip&limit=5")).get_json()
         self.assertEqual((reply["total"], reply["products"][0]["regularPrice"]), (1, 5.49))
-        self.assertEqual((await client.get("/api/prices/history?store=lidl")).status_code, 400)
+        self.assertEqual((await client.get("/api/prices/history?store=nope")).status_code, 400)
         self.assertEqual((await client.get("/api/prices/history?limit=abc")).status_code, 200)
 
     async def test_one_product_by_id_skips_the_search_and_the_lookup(self):
@@ -372,7 +372,7 @@ class RouteAndToolTest(PricesCase):
         self.assertEqual(product["purchases"], [{"date": "2026-10-07", "pricePerItem": 0.89, "quantity": 2, "source": "order"}])
         self.assertIn("hint", data)
         with self.assertRaises(mcp.ToolError):
-            await mcp.TOOLS["get_price_history"]["handler"]({"store": "lidl"})
+            await mcp.TOOLS["get_price_history"]["handler"]({"store": "nope"})
 
 
 
@@ -929,7 +929,24 @@ class CompareTest(PricesCase):
     async def test_the_route_refuses_an_unknown_product(self):
         client = self.client_for(create_app())
         self.assertEqual((await client.get("/api/prices/compare?store=ah&id=404")).status_code, 400)
-        self.assertEqual((await client.get("/api/prices/compare?store=lidl&id=1")).status_code, 400)
+        self.assertEqual((await client.get("/api/prices/compare?store=nope&id=1")).status_code, 400)
+
+    async def test_lidl_and_aldi_cannot_be_searched(self):
+        """Lidl en Aldi hebben geen webwinkel: vergelijken en koppelen zoeken bij de winkel, dus dat kan daar niet (400, geen verzoek)."""
+        with served(side_effect=AssertionError("geen verzoek naar buiten")):
+            for store in ("lidl", "aldi"):
+                with self.assertRaises(ValueError) as caught:
+                    await prices.compare(store, "1")
+                self.assertIn("alleen", str(caught.exception))
+                with self.assertRaises(ValueError):
+                    await prices.link_candidates(store, "melk")
+            client = self.client_for(create_app())
+            reply = await client.get("/api/prices/compare?store=lidl&id=1")
+            self.assertEqual(reply.status_code, 400)
+            self.assertIn("Lidl", reply.get_json()["error"])
+            reply = await client.get("/api/product-links/search?store=aldi&q=melk")
+            self.assertEqual(reply.status_code, 400)
+            self.assertIn("Aldi", reply.get_json()["error"])
 
 
 def ah_found(pid, title, price, size, brand="AH", bonus=None):

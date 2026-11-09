@@ -137,7 +137,7 @@ class AhSelectionTest(BulkCase):
         with self.assertRaises(ValueError):
             await recipe_bulk.start("ah", [], background=False)
         with self.assertRaises(ValueError):
-            await recipe_bulk.start("lidl", ["100"], background=False)
+            await recipe_bulk.start("nope", ["100"], background=False)
         self.assertEqual(recipe_bulk.progress()["state"], "idle")
         self.assertEqual(self.fetched, [])
 

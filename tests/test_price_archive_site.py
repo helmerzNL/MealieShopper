@@ -159,7 +159,7 @@ class SiteGistTest(ArchiveCase):
             ("a document that is not listed", unlisted_document, "bad_structure"),
             ("a missing part", missing_part, "missing_file"),
             ("another store's folder", package("uploadPath", "data/jumbo/ah.zip"), "bad_structure"),
-            ("an unknown store", package("store", "aldi"), "bad_structure"),
+            ("an unknown store", package("store", "nope"), "bad_structure"),
             ("a part outside the folder", part("file", "../geheim.b64"), "bad_structure"),
             ("a document outside the store", document("path", "jumbo/offers/2013-001.json"), "bad_structure"),
         ]
