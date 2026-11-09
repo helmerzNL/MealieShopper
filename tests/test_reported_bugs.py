@@ -448,6 +448,24 @@ console.log(JSON.stringify({{ thumb: offerThumb(offer), title: offerTitleLink(of
         self.assertIn('href="/offers/history?product=folder:1" data-route', html["title"])
 
 
+@unittest.skipUnless(shutil.which("node"), "Node is not installed")
+class OfferPopupLegendTest(unittest.TestCase):
+    """Melding van 2026-11-10: "in de popup mist de legenda van wat de dingen in de grafiek inhouden". De pagina Prijsgeschiedenis
+    had de legenda onder de grafiek, de popup bij een aanbieding niet."""
+
+    def test_2026_11_10_the_popup_has_the_legend_under_the_chart(self):
+        offer = {"id": "234871", "title": "Mutti Pizzasaus aromatica", "price": 2.49}
+        product = {"store": "ah", "productId": "234871", "title": offer["title"], "purchases": [{"date": "2026-03-07", "price": 1.87}], "episodes": []}
+        script = f"""{test_offers_scan_js.PRELUDE}
+console.log(JSON.stringify(offerPopupHtml({json.dumps(offer)}, {json.dumps(product)}, [])));"""
+        result = subprocess.run(["node", "-e", script], capture_output=True, text=True, timeout=30, check=False)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        html = json.loads(result.stdout)
+        self.assertIn('class="ohc-legend"', html)
+        self.assertLess(html.index('class="ohc-block"'), html.index('class="ohc-legend"'), "onder de grafiek")
+        self.assertLess(html.index('class="ohc-legend"'), html.index('class="ohc-table"'), "boven de aankopen")
+
+
 class PackFamiliesTest(PricesCase):
     """Melding van 2026-11-09: "rundergehakt van 300gr, 500gr of 1000gr hebben vaak losse prijzen waarbij de 300gr in de aanbieding
     is, dat maakt het nog niet goedkoper dan de bulk 1000gr verpakking"."""

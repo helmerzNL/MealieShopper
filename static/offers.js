@@ -771,7 +771,7 @@ function offerAsProduct(store, offer) {
 }
 
 // De inhoud van de popup en van het venster: de kop van de prijsgeschiedenis (compact), de verpakkingen als knoppen bij een familie,
-// de kerncijfers, de grafiek en de laatste aankopen, en de link naar de volledige prijsgeschiedenis. Zonder product (nog aan het
+// de kerncijfers, de grafiek met haar legenda en de laatste aankopen, en de link naar de volledige prijsgeschiedenis. Zonder product (nog aan het
 // laden, of mislukt) alleen de kop en een laadregel.
 function offerPopupHtml(offer, product, packs, activeId = null) {
   const store = offersState.store;
@@ -786,7 +786,7 @@ function offerPopupHtml(offer, product, packs, activeId = null) {
     : "";
   // `product`: het product uit de prijsgeschiedenis, null zolang het laadt, false als het laden mislukte.
   const body = product
-    ? `${offerHistoryStats(product)}${offerHistoryChartBlock(product, { width: OFFER_POPUP_WIDTH - 32, ranges: offerPopup.ranges })}${offerHistoryPurchasesTable(product, { limit: OFFER_POPUP_PURCHASES })}`
+    ? `${offerHistoryStats(product)}${offerHistoryChartBlock(product, { width: OFFER_POPUP_WIDTH - 32, ranges: offerPopup.ranges })}${offerHistoryLegend(product)}${offerHistoryPurchasesTable(product, { limit: OFFER_POPUP_PURCHASES })}`
     : `<p class="muted offer-popup__loading">${escapeHtml(t(product === false ? "offers.popup.none" : "offers.popup.loading"))}</p>`;
   return `<div class="offer-popup__inner">
       ${offerHistoryHead(shown, { compact: true, offer })}
