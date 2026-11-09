@@ -88,6 +88,38 @@ class RecipeJsonLdTest(unittest.TestCase):
             "saturatedFatContent": "8 g", "carbohydrateContent": "41 g", "sugarContent": "6 g", "sodiumContent": "200 mg",
         })
 
+    def test_against_the_shape_of_ah_the_first_question_brings_the_nutrition(self):
+        # Zo antwoordt AH (9 november 2026): `preparation.steps` is een lijst van teksten, dus `steps { text }` is een fout.
+        # In 4.4.0 stonden de voedingswaarden alleen in een variant met `{ text }` en kwamen ze nooit mee (#283).
+        n = lambda value, unit: {"value": value, "unit": unit}  # noqa: E731
+        recipe = dict(RECIPE, preparation={"steps": ["Kook de aardappelen.", "Stamp alles."]}, nutritions={"energy": n(490, "kcal"), "sodium": n(200, "mg")})
+
+        def like_ah(request):
+            query = json.loads(request.content)["query"]
+            if "steps { text }" in query:
+                return graphql_error('Field "steps" must not have a selection since type "String" has no subfields.')
+            return graphql_ok(recipe)
+
+        ld, post = self.build(like_ah)
+        self.assertEqual(post.call_count, 1, "de eerste vraag heeft de vorm van AH")
+        query = sent_json(post.calls.last)["query"]
+        self.assertIn("nutritions {", query)
+        self.assertNotIn("steps { text }", query)
+        self.assertEqual(ld["nutrition"], {"@type": "NutritionInformation", "calories": "490 kcal", "sodiumContent": "200 mg"})
+        self.assertEqual([step["text"] for step in ld["recipeInstructions"]], ["Kook de aardappelen.", "Stamp alles."])
+
+    def test_the_nutrition_comes_along_if_ah_switches_back_to_steps_with_text(self):
+        n = lambda value, unit: {"value": value, "unit": unit}  # noqa: E731
+        recipe = dict(RECIPE, nutritions={"energy": n(490, "kcal")})
+
+        def old_shape(request):
+            query = json.loads(request.content)["query"]
+            return graphql_ok(recipe) if "steps { text }" in query else graphql_error('Field "steps" of type "[Step]" must have a selection of subfields.')
+
+        ld, post = self.build(old_shape)
+        self.assertEqual(post.call_count, 2)
+        self.assertEqual(ld["nutrition"]["calories"], "490 kcal")
+
     def test_nutrition_in_other_units_is_converted_and_an_empty_block_is_left_out(self):
         self.assertEqual(ah.recipe_nutrition({"energy": {"value": 2092, "unit": "kJ"}, "sodium": {"value": 0.2, "unit": "g"}}),
                          {"calories": 2092 / 4.184, "sodiumContent": 200.0})
@@ -97,8 +129,9 @@ class RecipeJsonLdTest(unittest.TestCase):
         self.assertNotIn("nutrition", ld)
 
     def test_without_the_nutrition_field_the_import_still_works(self):
-        ld, post = self.build([graphql_error('Cannot query field "nutritions" on type "Recipe".'), graphql_ok(RECIPE)])
-        self.assertEqual(post.call_count, 2)
+        missing = graphql_error('Cannot query field "nutritions" on type "Recipe".')
+        ld, post = self.build([missing, missing, graphql_ok(RECIPE)])
+        self.assertEqual(post.call_count, 3, "beide vormen van de stappen met voedingswaarden, dan zonder")
         self.assertNotIn("nutritions", sent_json(post.calls.last)["query"])
         self.assertNotIn("nutrition", ld)
         self.assertEqual(ld["recipeYield"], "4 personen")
@@ -107,8 +140,8 @@ class RecipeJsonLdTest(unittest.TestCase):
         minimal = dict(RECIPE, preparation={"steps": ["Kook.", "Stamp."]})
         for key in ("servings", "images", "ovenTime", "waitTime"):
             minimal.pop(key)
-        ld, post = self.build([graphql_error("Unknown field")] * 3 + [graphql_ok(minimal)])
-        self.assertEqual(post.call_count, 4)
+        ld, post = self.build([graphql_error("Unknown field")] * 4 + [graphql_ok(minimal)])
+        self.assertEqual(post.call_count, 5)
         self.assertEqual([step["text"] for step in ld["recipeInstructions"]], ["Kook.", "Stamp."])
         self.assertNotIn("image", ld)
         self.assertNotIn("recipeYield", ld)

@@ -810,7 +810,7 @@ I18N.add("en", {
   "mealie.week_start_unknown": "As in Mealie (unknown, so {day})",
   "mealie.week_start_saved": "Saved. The meal plan now starts on the chosen day.",
   "mealie.nutrition.title": "Fill in the nutrition of AH recipes",
-  "mealie.nutrition.help": "Recipes you imported from Allerhande before version 4.4.0 have no nutrition in Mealie. This fetches it from Albert Heijn and puts it in Mealie: only for recipes with an Allerhande source link and without calories, and what is already there stays.",
+  "mealie.nutrition.help": "Recipes you imported from Allerhande before version 4.4.1 have no nutrition in Mealie. This fetches it from Albert Heijn and puts it in Mealie: only for recipes with an Allerhande source link and without calories, and what is already there stays.",
   "mealie.nutrition.start": "Fill in nutrition",
   "mealie.nutrition.stop": "Stop",
   "mealie.nutrition.running": "Working: {checked} of {total} AH recipes checked, {updated} filled in.",

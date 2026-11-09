@@ -2,9 +2,9 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub; een stabiele release krijgt de teksten van alle versies sinds de vorige stabiele release.
 
-## v4.4.1
+## v4.4.2
 
-### Gewijzigd en opgelost in 4.4.1
+### Gewijzigd en opgelost in 4.4.2
 
 *English summary: the first round of a design review of the interface. **Check your basket** no longer runs out of its card: the card uses the full width (it was capped at 680 px while a line needed more), a line has named areas that adapt to the width (one row on a wide screen, the drop-down under the ingredient on a laptop, stacked on a phone, with the checkbox and photo next to each other), so a product name in the drop-down is no longer cut off, and **Add to basket** and **Cancel** sit in a bar that stays in view at the bottom. In the **week menu** titles no longer break per syllable ("Boeren-koolstamp-pot"): in a narrow day card the photo sits above the text, and a day that already has a meal shows a small **+** next to the date instead of a full **Add** button under it (an empty day keeps that button). The hint "Cheaper per unit" on an offer is a tile instead of a pill over three lines, product photos on an offer card are an inset tile in the dark theme instead of a white block to the edge, and product names that are links (basket, orders, receipts, the compare window) are in the text colour with a faint underline instead of green and underlined. Nothing changed on the server. Reload the page once after updating.*
 
@@ -21,6 +21,19 @@ Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar
 - **Tests:** `tests/test_tabbar.py` controleert nu ook dat de balk van de controlelijst op een telefoon boven de menubalk blijft.
 - **Screenshots:** de scenario's van het mandje (`basket`, `basket-picnic`, `basket-jumbo`) liepen op de telefoon vast, omdat *Mandje* daar niet in de menubalk staat maar onder *Meer*. `openBasket` in `scripts/screenshots/scenarios/10-week-and-basket.js` kiest dan het menu-item.
 - **Nieuw adres voor de stijlen en scripts** (`MEALIESHOPPER_ASSET_VERSION`). Ververs de pagina één keer.
+
+## v4.4.1
+
+### Opgelost in 4.4.1
+
+Issue: [#283](https://github.com/helmerzNL/MealieShopper/issues/283); vervolg op pull request [#288](https://github.com/helmerzNL/MealieShopper/pull/288).
+
+*English summary: recipes from Albert Heijn now really get their nutrition. In 4.4.0 the nutrition was only asked for in a variant of the AH recipe query with `preparation { steps { text } }`, but AH gives `steps` as a list of strings, so that variant always failed and MealieShopper fell back to a variant without nutrition. Imports, the bulk import, *To week menu* and **Fill in nutrition** therefore brought no calories (for example "0 of 116 AH recipes filled in, 115 skipped"). The variants now start with the shape AH uses (`steps` without a selection), with the nutrition; the shape with `{ text }` stays behind it in case AH switches back. Every AH recipe is now one request instead of three. Run **Fill in nutrition** under **Settings, Link, Mealie** again: the recipes that were skipped come up again, as only recipes that already have calories are skipped.*
+
+- **Voedingswaarden van AH komen nu echt mee.** In 4.4.0 stond `nutritions` alleen in een variant van de receptvraag met `preparation { steps { text } }`. Bij AH is `steps` een lijst van teksten (op 9 november 2026 nagegaan), dus die variant gaf altijd *"Field steps must not have a selection"*, en MealieShopper viel terug op een variant zonder voedingswaarden. Daardoor kwamen er geen calorieën mee bij een import, de bulkimport, *Naar weekmenu* en **Voedingswaarden aanvullen** ("0 van 116 AH-recepten aangevuld, 115 overgeslagen").
+- **De volgorde van de varianten** (`ah.RECIPE_DETAIL_QUERIES`) begint nu met de vorm van AH: `steps` zonder selectie, met de voedingswaarden. Daarna komt dezelfde vraag met `steps { text }`, voor als AH die vorm terugzet, en dan de varianten zonder voedingswaarden. Een AH-recept kost nu één verzoek in plaats van drie.
+- **Opnieuw aanvullen.** Draai **Voedingswaarden aanvullen** onder *Instellingen, Koppelen, Mealie* opnieuw. De overgeslagen recepten komen dan weer aan bod: alleen een recept dat al calorieën heeft, wordt overgeslagen. Een recept dat AH niet meer kent, telt als mislukt.
+- **Tests:** `tests/test_recipe_import.py` heeft een nep-AH die `steps { text }` weigert, zoals AH zelf doet. De import krijgt dan in één verzoek de voedingswaarden en de stappen. Een tweede test laat zien dat de voedingswaarden ook meekomen als AH ooit weer `steps { text }` vraagt. De terugvaltests rekenen met vijf varianten.
 
 ## v4.4.0
 
