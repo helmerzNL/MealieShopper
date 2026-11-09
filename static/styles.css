@@ -1181,6 +1181,56 @@ a.subtab-menu__item[hidden] {
   line-height: 1.3;
 }
 
+/* De titel is de knop die het recept opent (recipeCardTitle, sinds 4.8.0). Zijn ::after beslaat de hele kaart, dus een tik
+   op de foto of de tekst opent het recept; Inplannen en het vakje van In bulk importeren liggen erboven (z-index 1). De
+   focusring staat om de kaart, niet om de tekst. */
+.recipe-card:has(.recipe-card__open) {
+  position: relative;
+  cursor: pointer;
+}
+
+.recipe-card__open {
+  display: inline;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.recipe-card__open::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+}
+
+.recipe-card__open:focus-visible {
+  outline: none;
+}
+
+.recipe-card:has(.recipe-card__open:focus-visible) {
+  outline: 3px solid var(--primary);
+  outline-offset: 2px;
+}
+
+.recipe-card .card-actions,
+.recipe-card .recipe-import-result {
+  position: relative;
+  z-index: 1;
+}
+
+/* In de selectiemodus (In bulk importeren) selecteert een tik de kaart, zoals eerst: de titel opent dan niets. */
+.recipe-card.is-selectable .recipe-card__open {
+  pointer-events: none;
+}
+
+.recipe-card.is-selectable .recipe-card__open::after {
+  content: none;
+}
+
 .recipe-card .recipe-card__headline {
   margin: 0;
   font-size: 14px;
@@ -1203,20 +1253,18 @@ a.subtab-menu__item[hidden] {
   font-weight: 600;
 }
 
-/* Bekijken en Inplannen onderaan elke receptkaart: even breed, en in een rij kaarten op dezelfde hoogte (de kaart is een
-   flexkolom en de knoppen duwen zich met margin-top: auto naar onderen). Is de kaart te smal voor twee naast elkaar
-   (een telefoon), dan staan ze onder elkaar, nog steeds even breed. */
+/* Onderaan elke receptkaart alleen Inplannen, secundair: in een rij kaarten op dezelfde hoogte (de kaart is een flexkolom en de
+   knop duwt zich met margin-top: auto naar onderen). Eerst stonden Bekijken en een groene Inplannen als twee volle knoppen op
+   elke kaart: op een scherm met twaalf recepten twaalf primaire knoppen. */
 .card-actions {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(104px, 1fr));
+  display: flex;
   gap: 8px;
   margin-top: auto;
 }
 
 .card-actions .button {
-  width: 100%;
   min-width: 0;
-  padding: 0 10px;
+  padding: 0 14px;
 }
 
 .recipe-import-result:empty {
@@ -2159,6 +2207,86 @@ html.no-calories .plan-servings__kcal {
   margin-top: 14px;
 }
 
+/* De kerncijfers van een mandje (basketStats, sinds 4.8.0), naar .stats van App-Guidance: een klein label in hoofdletters boven
+   een vet, tabulair getal, naast elkaar. */
+.stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 28px;
+  margin: 4px 0 14px;
+}
+
+.stats dt {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.stats dd {
+  margin: 2px 0 0;
+  font-size: 20px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+@media (max-width: 640px) {
+  .stats {
+    gap: 6px 20px;
+  }
+
+  .stats dd {
+    font-size: 17px;
+  }
+}
+
+/* Uitleg die je openklapt ("Hoe werkt dit?"): een regel tekst met een pijltje in plaats van alinea's boven de inhoud. Een gewoon
+   <details>, dus het werkt met muis, toetsenbord en op een telefoon. */
+details.help {
+  margin: 0 0 12px;
+}
+
+details.help > summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  color: var(--primary-strong);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  list-style: none;
+}
+
+details.help > summary::-webkit-details-marker {
+  display: none;
+}
+
+details.help > summary::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-right: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  transform: rotate(-45deg);
+  transition: transform 0.15s var(--ease);
+}
+
+details.help[open] > summary::before {
+  transform: rotate(45deg);
+}
+
+details.help > p {
+  margin: 4px 0 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  details.help > summary::before {
+    transition: none;
+  }
+}
+
 .basket-lines {
   list-style: none;
   margin: 10px 0;
@@ -2600,8 +2728,11 @@ select.input {
     flex-wrap: wrap;
   }
 
+  /* Geen minimumbreedte op een telefoon: in een kader (Maaltijdboxen) viel de knop Verversen anders naar een tweede regel. */
   .week-label {
     flex: 1 1 140px;
+    align-self: center;
+    min-width: 0;
   }
 
   .form-row .button,
@@ -3413,13 +3544,21 @@ button.plan-recipe:focus-visible {
   gap: 10px;
 }
 
-.recipe-grid--compact .recipe-card h3 {
+/* Ook de knop in de titel wordt op drie regels afgekapt (een knop is een eigen blok); zijn ::after valt daar niet onder, want die
+   hoort bij de kaart. Geen automatisch afbreken: dat brak titels per lettergreep af ("Boerenkoolstamp-pot"). */
+.recipe-grid--compact .recipe-card h3,
+.recipe-grid--compact .recipe-card__open {
   display: -webkit-box;
   -webkit-line-clamp: 3;
   -webkit-box-orient: vertical;
   overflow: hidden;
-  overflow-wrap: break-word;
-  hyphens: auto;
+  overflow-wrap: anywhere;
+  hyphens: manual;
+}
+
+/* De knop zo breed als de kaart, anders neemt hij de breedte van het langste woord aan en knipt de titel dat woord af. */
+.recipe-grid--compact .recipe-card__open {
+  width: 100%;
 }
 
 .recipe-import-result .message {
@@ -5234,12 +5373,6 @@ html.is-standalone body {
   font-size: 12px;
   box-shadow: none;
   vertical-align: middle;
-}
-
-/* De omlijnde variant (alleen de prijs vóór bonus van de winkel) houdt in een regel zijn rand: de regel hierboven wint anders van
-   .offer-badge--store. */
-.offer-badge.offer-badge--inline.offer-badge--store {
-  box-shadow: inset 0 0 0 2px currentColor;
 }
 
 .product-grid--small {
@@ -7115,6 +7248,11 @@ html.is-standalone body {
 }
 
 /* Aanbiedingen: de week, dezelfde als die van het weekmenu, en wat er al voor later bekend is. */
+/* Maaltijdboxen: ruimte tussen de uitleg en de weeknavigatie, zoals bij de andere kaders. */
+#mealkits-weeks {
+  margin-top: 14px;
+}
+
 .offers-week {
   margin: 8px 0 12px;
 }
@@ -7168,6 +7306,40 @@ html.is-standalone body {
   display: inline-flex;
   align-items: center;
   gap: 8px;
+}
+
+/* Het aantal achter de naam van een chip, gedempt ("Vlees 412"). Op de gekozen chip in de kleur van de tekst van die chip. */
+.offer-chip__count {
+  margin-left: 2px;
+  color: var(--muted);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+
+.offer-chip.is-active .offer-chip__count {
+  color: inherit;
+  opacity: 0.8;
+}
+
+/* Op een telefoon is de rij categorieën één regel die opzij scrolt: eerst stonden er tien regels chips voor het eerste product. */
+@media (max-width: 640px) {
+  .offer-cats--scroll {
+    flex-wrap: nowrap;
+    margin-inline: -16px;
+    padding: 2px 16px 6px;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scrollbar-width: none;
+  }
+
+  .offer-cats--scroll::-webkit-scrollbar {
+    display: none;
+  }
+
+  .offer-cats--scroll > .offer-chip {
+    flex: none;
+    white-space: nowrap;
+  }
 }
 
 .offer-chip__dot {
@@ -7523,77 +7695,53 @@ html.is-standalone body {
   outline: none;
 }
 
-/* De kortingsbadge: de kleurschaal van het userscript, hard en niet uit het thema, zodat hij in licht en donker gelijk blijft.
-   Omlijnd als het de claim van de winkel is en niet een gemeten verschil. */
+/* De kortingsbadge, naar het oordeel (offerBadge, sinds 4.8.0; daarvoor de vijf kleuren van het userscript, met rood voor een kleine
+   korting). Echt voordelig: vol groen uit de statuskleuren, die de accentkleur niet volgen. Een klein voordeel: neutraal. Geen
+   korting: gedempt, met het woord in plaats van "0%". De claim van de winkel (geen gemeten verschil): een stippelrand. De randen
+   zijn een border en geen box-shadow, zodat ze ook in een regel van tekst blijven (.offer-badge--inline zet de schaduw uit). */
 .offer-badge {
   position: absolute;
   top: 8px;
   left: 8px;
   z-index: 1;
+  border: 1px solid transparent;
   border-radius: 8px;
   padding: 3px 7px;
   font-size: 14px;
   font-weight: 800;
   line-height: 1;
   font-variant-numeric: tabular-nums;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
   cursor: help;
 }
 
-.offer-badge--50 {
-  background: #16803c;
-  color: #fff;
+.offer-badge--good {
+  border-color: var(--success-text);
+  background: var(--success-text);
+  color: var(--surface);
 }
 
-.offer-badge--35 {
-  background: #7ac943;
-  color: #102a12;
+.offer-badge--small {
+  border-color: var(--border-strong);
+  background: var(--surface);
+  color: var(--text);
 }
 
-.offer-badge--20 {
-  background: #ffd447;
-  color: #332600;
-}
-
-.offer-badge--10 {
-  background: #ff8a00;
-  color: #fff;
-}
-
-.offer-badge--1 {
-  background: #d64545;
-  color: #fff;
-}
-
-.offer-badge--0 {
-  background: #e5e7eb;
-  color: #374151;
-  box-shadow: inset 0 0 0 1px #c9ced6;
+.offer-badge--none {
+  border-color: var(--border);
+  background: var(--surface-muted);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
 }
 
 .offer-badge--store {
-  background: #fff;
-  box-shadow: inset 0 0 0 2px currentColor;
+  border: 2px dashed currentColor;
+  background: var(--surface);
 }
 
-.offer-badge--store.offer-badge--50 {
-  color: #16803c;
-}
-
-.offer-badge--store.offer-badge--35 {
-  color: #4f9a1f;
-}
-
-.offer-badge--store.offer-badge--20 {
-  color: #b88f00;
-}
-
-.offer-badge--store.offer-badge--10 {
-  color: #c25e00; /* het oranje van de schaal is als tekst op wit te licht; dit is dezelfde tint, donker genoeg om te lezen */
-}
-
-.offer-badge--store.offer-badge--1 {
-  color: #d64545;
+.offer-badge--store.offer-badge--good {
+  color: var(--success-text);
 }
 
 /* Het prijslabel uit de geschiedenis, rechtsonder op het plaatje. */
@@ -7856,26 +8004,25 @@ html.is-standalone body {
   font-variant-numeric: tabular-nums;
 }
 
+/* Onderaan de kaart twee icoonknoppen rechts (Vergelijk verpakkingen, Prijsgeschiedenis), zoals in de compacte rij; ze vallen
+   iets over de rand van de kaart, zodat het icoon op de lijn van de tekst staat en het tikvlak toch 44 px is. */
 .offer-card__foot {
   display: flex;
-  flex-wrap: wrap;
-  justify-content: space-between;
-  align-items: baseline;
-  gap: 2px 8px;
-  white-space: nowrap;
-  margin-top: auto;
-  padding-top: 8px;
-  border-top: 1px solid var(--border);
-  font-size: 13px;
-  line-height: 1.2;
+  justify-content: flex-end;
+  gap: 4px;
+  margin: auto -6px -6px;
+  padding-top: 2px;
 }
 
-.offer-card__foot .link-button {
-  min-height: 0;
-  margin: 0;
-  padding: 0;
-  font-size: 13px;
-  line-height: 1.2;
+.offer-card__foot .icon-button {
+  border-color: transparent;
+  background: none;
+  box-shadow: none;
+  color: var(--muted);
+}
+
+.offer-card__foot .icon-button:hover {
+  color: var(--primary-strong);
 }
 
 /* Een persoonlijke aanbieding (AH: de Bonus Box): groen als je haar in de AH-app hebt geactiveerd, geel als dat nog moet. */
@@ -8104,9 +8251,21 @@ html.is-standalone body {
   display: none;
 }
 
-.offer-cats--sort {
-  flex: 1 1 auto;
-  margin-top: 2px;
+/* Sorteren: een keuzelijst met een zichtbaar label, naast de raster/lijst-schakelaar (sinds 4.8.0; daarvoor vijf chips). */
+.offers-sort {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.offers-sort .input {
+  width: auto;
+  min-width: 0;
+  color: var(--text);
+  font-weight: 500;
 }
 
 /* Een segmentknop: iconen naast elkaar in één rand, de actieve gevuld zoals een actief subtab. De weergaven van de aankopen
@@ -8226,8 +8385,9 @@ html.is-standalone body {
   white-space: nowrap;
 }
 
+/* De actie van de winkel in de compacte rij: vet, in de kleur van de tekst (rood is voor fouten, sinds 4.8.0). */
 .offer-row__promo {
-  color: var(--danger);
+  color: var(--text);
   font-weight: 700;
 }
 
@@ -8307,18 +8467,6 @@ html.is-standalone body {
 
   .offer-card__thumb {
     height: 110px;
-  }
-
-  /* Op een smalle kaart staan de twee links onder elkaar, elk op een eigen regel. */
-  .offer-card__foot {
-    flex-direction: column;
-    align-items: flex-start;
-    white-space: normal;
-  }
-
-  .offer-card__foot .link-button {
-    font-size: 12.5px;
-    text-align: left;
   }
 
   /* De compacte regel op een telefoon (zo'n 300 pixels voor de regel): links het plaatje met de badge eronder, rechts de naam
@@ -8405,42 +8553,27 @@ html.is-standalone body {
   cursor: not-allowed;
 }
 
-/* Het oordeel bij een aanbieding (#178): groen is echt voordelig, geel een klein voordeel, grijs geen voordeel, oranje een andere
-   verpakking die per eenheid goedkoper is. */
+/* De inzichten bij een aanbieding (#178), sinds 4.8.0 in twee tonen: goed nieuws (laagste prijs in een jaar, en het prijslabel
+   laagste ooit of in 12 of 6 maanden) in de groene statuskleur, de rest neutraal (n× dit jaar, boven de laagste van het jaar,
+   een andere verpakking die per eenheid goedkoper is). Geel en rood zijn voor waarschuwingen en fouten. Of het echt een aanbieding
+   is, zegt de badge op het plaatje. */
 .product-card .verdict {
   width: fit-content;
   margin-top: 4px;
   border-radius: 999px;
   padding: 1px 8px;
-  font-size: 12px;
-  font-weight: 600;
-}
-
-.product-card .verdict--good {
-  background: var(--success-bg);
-  box-shadow: inset 0 0 0 1px var(--success-border);
-  color: var(--success-text);
-}
-
-.product-card .verdict--small {
-  background: var(--warning-bg);
-  box-shadow: inset 0 0 0 1px var(--warning-border);
-  color: var(--warning-text);
-}
-
-.product-card .verdict--none {
   background: var(--surface-muted);
   box-shadow: inset 0 0 0 1px var(--border);
   color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
 }
 
 /* Deze hint loopt vaak over twee of drie regels: een tegel met de radius van een bedieningselement, geen pil. */
 .product-card .verdict--pack {
   border-radius: var(--radius-control);
   padding: 3px 8px;
-  background: var(--warning-bg);
-  box-shadow: inset 0 0 0 1px var(--warning-border);
-  color: var(--warning-text);
+  color: var(--text);
   white-space: normal;
 }
 
@@ -8451,16 +8584,37 @@ html.is-standalone body {
 }
 
 .product-card .verdict--year-above {
-  background: var(--surface-muted);
-  box-shadow: inset 0 0 0 1px var(--border);
-  color: var(--muted);
   white-space: normal;
 }
 
-.product-card .verdict--often {
-  background: var(--warning-bg);
-  box-shadow: inset 0 0 0 1px var(--warning-border);
-  color: var(--warning-text);
+/* De rij met inzichten onder de prijs op een kaart: het prijslabel (niet meer op het plaatje) en de chips, naast elkaar. */
+.offer-insights {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 6px;
+}
+
+.offer-insights .verdict {
+  margin-top: 0;
+}
+
+.offer-insights .offer-label {
+  position: static;
+  max-width: 100%;
+}
+
+/* De actie van de winkel ("2 voor 2,99", "1+1 gratis") op een kaart: een vette regel tekst. Eerst was het een rode pil, die
+   hetzelfde zei als de badge en rood gebruikte voor iets goeds. .bonus wordt elders ook gebruikt, dus alleen hier. */
+.offer-card .bonus {
+  margin-top: 4px;
+  padding: 0;
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 700;
 }
 
 /* De verpakkingen van een product onder de kaart: maat, prijs en prijs per eenheid, de goedkoopste vet, een punt bij een aanbieding. */

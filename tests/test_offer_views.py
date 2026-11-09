@@ -28,24 +28,31 @@ const I18N = { formatNumber: (n) => String(n) };
 @unittest.skipUnless(shutil.which("node"), "Node is niet geïnstalleerd")
 class CategoryChipsTest(unittest.TestCase):
     def run_js(self, expression):
-        functions = "\n".join(function_source(CATEGORIES_JS, name) for name in ("categoryLabel", "categoryChipLabel", "categoryChip", "categoryChips"))
+        functions = "\n".join(function_source(CATEGORIES_JS, name) for name in ("categoryLabel", "chipCount", "categoryChip", "categoryChips"))
         script = f"{STUBS}\n{functions}\nconsole.log({expression});"
         result = subprocess.run(["node", "-e", script], capture_output=True, text=True, timeout=30, check=False)
         self.assertEqual(result.returncode, 0, result.stderr)
         return result.stdout
 
     def test_the_chips_carry_the_category_class_the_dot_and_the_active_state(self):
-        html = self.run_js('categoryChips({ categories: [{ id: "vlees", count: 2 }, { id: "vis", count: 1 }], active: "vis", total: 3, allLabel: "Alle (3)" })')
+        html = self.run_js('categoryChips({ categories: [{ id: "vlees", count: 2 }, { id: "vis", count: 1 }], active: "vis", total: 3 })')
         self.assertIn('class="offer-chip cat--all', html)
         self.assertIn('class="offer-chip cat--vlees" data-cat="vlees" aria-pressed="false"', html)
         self.assertIn('class="offer-chip cat--vis is-active" data-cat="vis" aria-pressed="true"', html)
         self.assertEqual(html.count('<i class="offer-chip__dot"'), 3)
+        # Sinds 4.8.0 de naam en daarachter gedempt het aantal ("Vlees 412"), niet meer "412x Vlees".
+        self.assertIn('offers.cat.vlees{} <span class="offer-chip__count">2</span>', html)
 
     def test_the_all_chip_is_first_and_active_by_default(self):
-        html = self.run_js('categoryChips({ categories: [{ id: "vis", count: 1 }], active: "all", total: 1, allLabel: "Alle (1)" })')
+        html = self.run_js('categoryChips({ categories: [{ id: "vis", count: 1 }], active: "all", total: 1 })')
         self.assertLess(html.index('data-cat="all"'), html.index('data-cat="vis"'))
         self.assertIn('class="offer-chip cat--all is-active" data-cat="all" aria-pressed="true"', html)
-        self.assertIn("Alle (1)", html)
+        self.assertIn('offers.all{} <span class="offer-chip__count">1</span>', html)
+
+    def test_a_chip_without_a_count_has_only_its_name(self):
+        # In een hovervenster (popover.js) staat een categorie zonder aantal.
+        html = self.run_js('categoryChip({ id: "vis", label: "Vis" }, { tag: "span" })')
+        self.assertIn('<span class="offer-chip cat--vis"><i class="offer-chip__dot" aria-hidden="true"></i>Vis</span>', html)
 
     def test_offers_render_their_chips_through_the_shared_function(self):
         self.assertIn("categoryChips(", OFFERS_JS)

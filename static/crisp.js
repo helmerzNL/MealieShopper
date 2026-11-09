@@ -439,17 +439,19 @@ function renderCrispBasket(cart, note = "") {
         </li>`;
     })
     .join("");
-  const totals = [
-    cart.totalPrice != null ? t("picnic.basket_total", { amount: formatPrice(cart.totalPrice) }) : "",
-    cart.checkoutTotal ? t("picnic.basket_checkout", { amount: formatPrice(cart.checkoutTotal) }) : "",
-  ].filter(Boolean);
-  const minimum = items.length && cart.stillNeeded ? t("crisp.basket_minimum", { amount: formatPrice(cart.stillNeeded), minimum: formatPrice(cart.minimumOrder || 0) }) : "";
+  const stats = items.length
+    ? basketStats([
+        [t("basket.stat.total"), cart.totalPrice != null ? formatPrice(cart.totalPrice) : ""],
+        [t("basket.stat.to_pay"), cart.checkoutTotal ? formatPrice(cart.checkoutTotal) : ""],
+        [t("basket.stat.products"), cart.totalCount ? I18N.formatNumber(cart.totalCount) : ""],
+        [t("basket.stat.minimum", { minimum: formatPrice(cart.minimumOrder || 0) }), cart.stillNeeded ? formatPrice(cart.stillNeeded) : ""],
+      ])
+    : "";
   box.innerHTML = `
+    ${stats}
     ${items.length ? `<div class="toolbar"><button class="button button--secondary" id="crisp-basket-clear" type="button">${escapeHtml(t("picnic.basket_clear"))}</button></div>` : ""}
     ${note ? `<div class="message success">${escapeHtml(note)}</div>` : ""}
     ${items.length ? `<ul class="basket-lines">${lines}</ul>` : `<p class="muted">${escapeHtml(t("basket.crisp_empty"))}</p>`}
-    ${totals.length ? `<p><strong>${escapeHtml(totals.join(" · "))}</strong></p>` : ""}
-    ${minimum ? `<p class="muted">${escapeHtml(minimum)}</p>` : ""}
     <p class="muted">${escapeHtml(t("basket.crisp_hint"))}</p>`;
   $("#crisp-basket-clear")?.addEventListener("click", () => clearCrispBasket(items));
   box.querySelectorAll(".basket-line[data-id]").forEach((line) => {

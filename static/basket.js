@@ -9,6 +9,14 @@ function basketStores() {
   return BASKET_STORES.filter((key) => key === "ah" || state.linkedStores[key]);
 }
 
+// De kerncijfers bovenaan een mandje (sinds 4.8.0; daarvoor een regel tekst met het totaal ergens in het midden): een klein label
+// boven een vet, tabulair getal, naar .stats van App-Guidance. rows: [[label, waarde], ...]; een lege waarde valt weg.
+function basketStats(rows) {
+  const shown = rows.filter(([, value]) => value !== "" && value != null);
+  if (!shown.length) return "";
+  return `<dl class="stats">${shown.map(([label, value]) => `<div><dt>${escapeHtml(label)}</dt><dd>${escapeHtml(value)}</dd></div>`).join("")}</dl>`;
+}
+
 function basketTabActive() {
   return Boolean(document.querySelector("#basket.is-active"));
 }

@@ -36,11 +36,11 @@ function renderMealKitCard(recipe) {
   const store = mealKits.provider;
   return `
     <article class="recipe-card" data-mealkit-recipe="${escapeHtml(recipe.key)}">
-      ${recipe.image ? `<img src="${escapeHtml(recipe.image)}" alt="${escapeHtml(recipe.name)}" loading="lazy" referrerpolicy="no-referrer" data-hide-on-error>` : ""}
-      <h3>${escapeHtml(recipe.name)}</h3>
+      ${recipe.image ? `<img src="${escapeHtml(recipe.image)}" alt="" loading="lazy" referrerpolicy="no-referrer" data-hide-on-error>` : ""}
+      ${recipeCardTitle(recipe.name, `${store}:${recipe.key}`)}
       ${recipe.headline ? `<p class="recipe-card__headline">${escapeHtml(recipe.headline)}</p>` : ""}
       ${meta ? `<p class="muted">${escapeHtml(meta)}</p>` : ""}
-      ${recipeCardActions(`${store}:${recipe.key}`, planSourceAttrs(store, recipe.key, recipe.name, recipe.image))}
+      ${recipeCardActions(planSourceAttrs(store, recipe.key, recipe.name, recipe.image), recipe.name)}
     </article>`;
 }
 
@@ -64,7 +64,8 @@ function renderMealKits() {
   $("#mealkits-week").textContent = menu ? mealKitWeekLabel(menu.week) : "";
   $("#mealkits-previous").disabled = !menu;
   $("#mealkits-next").disabled = !menu;
-  $("#mealkits-this-week").disabled = !menu || menu.week === menu.currentWeek;
+  // Deze week alleen als je een andere week bekijkt (verborgen in plaats van uitgeschakeld, sinds 4.8.0).
+  $("#mealkits-this-week").hidden = !menu || menu.week === menu.currentWeek;
   $("#mealkits-filter").disabled = !menu;
   $("#mealkits-search-all").disabled = !menu || !query;
   $("#mealkits-recipes").innerHTML = shown.map(renderMealKitCard).join("");
