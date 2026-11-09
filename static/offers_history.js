@@ -366,9 +366,33 @@ function offerHistoryImages(product) {
     </section>`;
 }
 
-function offerHistoryDetail(product) {
+// De kop van een product: plaatje, naam, merk en verpakking, de status (nu in de aanbieding, vanaf, of niet) met de link naar de
+// winkel en Vergelijk verpakkingen. `compact` (de popup bij een aanbieding) zet een grotere foto links en laat de vergelijkknop weg.
+function offerHistoryHead(product, { compact = false } = {}) {
   const meta = [product.brand, product.unitSize].filter(Boolean).join(" · ");
   const image = ((product.savedImages || [])[0] || {}).url || product.image;
+  const status = product.onOfferNow ? t("offers.history.now")
+    : product.upcoming ? offerHistoryUpcomingText(product.upcoming, true)
+    : t((product.observed || []).length && !(product.episodes || []).length ? "offers.history.no_confirmed_offer" : "offers.history.not_now");
+  const link = product.url
+    ? `<a href="${escapeHtml(product.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(t("offers.history.open", { store: STORES[product.store].name }))}</a>`
+    : "";
+  const compare = !compact && product.regularPerUnit
+    ? `<button class="link-button" type="button" data-compare="${escapeHtml(product.productId)}" data-store="${escapeHtml(product.store)}">${escapeHtml(t("offers.compare.open"))}</button>`
+    : "";
+  return `<div class="ohc-head${compact ? " ohc-head--compact" : ""}">
+      ${image ? `<img src="${escapeHtml(storeImage(image))}" alt="" loading="lazy" data-hide-on-error>` : ""}
+      <div>
+        <h3>${escapeHtml(product.title)}</h3>
+        ${meta ? `<p class="muted">${escapeHtml(meta)}</p>` : ""}
+        <p class="${product.onOfferNow || product.upcoming ? "bonus" : "muted"}">${escapeHtml(status)}${link ? ` · ${link}` : ""}</p>
+        ${compare}
+      </div>
+    </div>`;
+}
+
+// De kerncijfers: keer in de aanbieding, laagste en hoogste actieprijs, gewone prijs, wat je betaalde, laatst gezien.
+function offerHistoryStats(product) {
   const lastDay = offerHistoryDay(product.lastActivity || product.lastSeen);
   const lastSeen = lastDay === null ? "" : offerHistoryDayText(lastDay, true);
   const number = (value) => typeof value === "number";
@@ -393,6 +417,36 @@ function offerHistoryDetail(product) {
     number(product.averagePaid) && product.timesBought > 1 ? offerHistoryStat(t("offers.history.stat.average_paid"), offerHistoryPrice(product.averagePaid)) : "",
     lastSeen ? offerHistoryStat(t("offers.history.stat.last"), lastSeen) : "",
   ].join("");
+  return `<dl class="ohc-stats">${stats}</dl>`;
+}
+
+// De aankopen als tabel, nieuwste eerst: datum, betaald per stuk, aantal en de bron met een link naar de bestelling of bon. Met
+// `limit` de laatste zoveel, met eronder hoeveel er nog meer zijn. Leeg zonder aankopen.
+function offerHistoryPurchasesTable(product, { limit = 0 } = {}) {
+  const purchases = (product.purchases || []).slice().reverse();
+  const shown = limit > 0 ? purchases.slice(0, limit) : purchases;
+  if (!shown.length) return "";
+  const rows = shown
+    .map((purchase) => {
+      const day = offerHistoryDay(purchase.date);
+      // De bron linkt naar de bestelling of kassabon zelf, als de app die kan tonen.
+      const source = escapeHtml(offerHistorySource(purchase.source));
+      const path = purchasePath(product.store, purchase.source, purchase.ref);
+      const sourceCell = path ? `<a href="${escapeHtml(path)}" data-route>${source}</a>` : source;
+      return `<tr><td>${escapeHtml(day === null ? "" : offerHistoryDayText(day, true))}</td><td>${escapeHtml(offerHistoryPrice(purchase.price))}</td><td>${escapeHtml(offerHistoryQuantity(purchase))}</td><td>${sourceCell}</td></tr>`;
+    })
+    .join("");
+  const more = purchases.length > shown.length ? `<p class="muted ohc-note">${escapeHtml(t("offers.history.purchases_more", { count: I18N.formatNumber(purchases.length - shown.length) }))}</p>` : "";
+  const receipt = shown.some((purchase) => purchase.source === "receipt") ? `<p class="muted ohc-note">${escapeHtml(t("offers.history.receipt_note"))}</p>` : "";
+  return `<table class="ohc-table">
+      <caption>${escapeHtml(t("offers.history.table.purchases"))}</caption>
+      <thead><tr><th scope="col">${escapeHtml(t("offers.history.table.date"))}</th><th scope="col">${escapeHtml(t("offers.history.table.paid"))}</th><th scope="col">${escapeHtml(t("offers.history.table.quantity"))}</th><th scope="col">${escapeHtml(t("offers.history.table.source"))}</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+    ${more}${receipt}`;
+}
+
+function offerHistoryDetail(product) {
   const offerRows = (product.episodes || [])
     .slice()
     .reverse()
@@ -409,18 +463,6 @@ function offerHistoryDetail(product) {
         `<tr><td>${escapeHtml(offerHistoryPeriodText(line))}</td><td>${escapeHtml(typeof line.price === "number" ? offerHistoryPrice(line.price) : "")}</td><td>${escapeHtml(String(line.title || "").replace(/^Folder: /, ""))}${line.promoLabel ? `<small class="ohc-line-action">${escapeHtml(line.promoLabel)}</small>` : ""}</td></tr>`
     )
     .join("");
-  const purchaseRows = (product.purchases || [])
-    .slice()
-    .reverse()
-    .map((purchase) => {
-      const day = offerHistoryDay(purchase.date);
-      // De bron linkt naar de bestelling of kassabon zelf, als de app die kan tonen.
-      const source = escapeHtml(offerHistorySource(purchase.source));
-      const path = purchasePath(product.store, purchase.source, purchase.ref);
-      const sourceCell = path ? `<a href="${escapeHtml(path)}" data-route>${source}</a>` : source;
-      return `<tr><td>${escapeHtml(day === null ? "" : offerHistoryDayText(day, true))}</td><td>${escapeHtml(offerHistoryPrice(purchase.price))}</td><td>${escapeHtml(offerHistoryQuantity(purchase))}</td><td>${sourceCell}</td></tr>`;
-    })
-    .join("");
   const observedRows = (product.observed || []).slice().reverse().map((point) => {
     const day = offerHistoryDay(point.date);
     const source = /^https?:\/\//i.test(point.sourceUrl || "")
@@ -428,23 +470,9 @@ function offerHistoryDetail(product) {
       : "";
     return `<tr><td>${escapeHtml(day === null ? "" : offerHistoryDayText(day, true))}</td><td>${escapeHtml(offerHistoryPrice(point.price))}</td><td>${escapeHtml(point.unitSize || "")}</td><td>${source}</td></tr>`;
   }).join("");
-  const status = product.onOfferNow ? t("offers.history.now")
-    : product.upcoming ? offerHistoryUpcomingText(product.upcoming, true)
-    : t((product.observed || []).length && !(product.episodes || []).length ? "offers.history.no_confirmed_offer" : "offers.history.not_now");
-  const link = product.url
-    ? `<a href="${escapeHtml(product.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(t("offers.history.open", { store: STORES[product.store].name }))}</a>`
-    : "";
   return `
-    <div class="ohc-head">
-      ${image ? `<img src="${escapeHtml(storeImage(image))}" alt="" loading="lazy" data-hide-on-error>` : ""}
-      <div>
-        <h3>${escapeHtml(product.title)}</h3>
-        ${meta ? `<p class="muted">${escapeHtml(meta)}</p>` : ""}
-        <p class="${product.onOfferNow || product.upcoming ? "bonus" : "muted"}">${escapeHtml(status)}${link ? ` · ${link}` : ""}</p>
-        ${product.regularPerUnit ? `<button class="link-button" type="button" data-compare="${escapeHtml(product.productId)}" data-store="${escapeHtml(product.store)}">${escapeHtml(t("offers.compare.open"))}</button>` : ""}
-      </div>
-    </div>
-    <dl class="ohc-stats">${stats}</dl>
+    ${offerHistoryHead(product)}
+    ${offerHistoryStats(product)}
     ${offerHistoryChartBlock(product)}
     ${offerHistoryLegend(product)}
     ${observedRows ? `<p class="muted ohc-note">${escapeHtml(t("offers.history.observed_note"))}</p>
@@ -473,16 +501,7 @@ function offerHistoryDetail(product) {
     <p class="muted ohc-note">${escapeHtml(t("offers.history.line_note"))}</p>`
         : ""
     }
-    ${
-      purchaseRows
-        ? `<table class="ohc-table">
-      <caption>${escapeHtml(t("offers.history.table.purchases"))}</caption>
-      <thead><tr><th scope="col">${escapeHtml(t("offers.history.table.date"))}</th><th scope="col">${escapeHtml(t("offers.history.table.paid"))}</th><th scope="col">${escapeHtml(t("offers.history.table.quantity"))}</th><th scope="col">${escapeHtml(t("offers.history.table.source"))}</th></tr></thead>
-      <tbody>${purchaseRows}</tbody>
-    </table>
-    ${(product.purchases || []).some((purchase) => purchase.source === "receipt") ? `<p class="muted ohc-note">${escapeHtml(t("offers.history.receipt_note"))}</p>` : ""}`
-        : ""
-    }`;
+    ${offerHistoryPurchasesTable(product)}`;
 }
 
 function offerHistoryRangeLabel(key) {

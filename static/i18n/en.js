@@ -157,6 +157,7 @@ I18N.add("en", {
   "offers.history.range.1y": "1 year",
   "offers.history.range.3y": "3 years",
   "offers.history.range.all": "All",
+  "offers.history.purchases_more": "And {count} more earlier purchases in the price history.",
   "offers.history.stat.times": "Times on offer",
   "offers.history.stat.lowest": "Lowest offer price",
   "offers.history.stat.highest": "Highest offer price",

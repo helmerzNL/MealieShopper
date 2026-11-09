@@ -6404,6 +6404,16 @@ html.is-standalone body {
   background: var(--surface-muted);
 }
 
+.ohc-head--compact {
+  align-items: flex-start;
+}
+
+.ohc-head--compact img {
+  width: 160px;
+  height: 160px;
+  background: #fff;
+}
+
 .ohc-head h3,
 .ohc-head p {
   margin: 0;

@@ -157,6 +157,7 @@ I18N.add("nl", {
   "offers.history.range.1y": "1 jaar",
   "offers.history.range.3y": "3 jaar",
   "offers.history.range.all": "Alles",
+  "offers.history.purchases_more": "En nog {count} eerdere aankopen in de prijsgeschiedenis.",
   "offers.history.stat.times": "Keer in de aanbieding",
   "offers.history.stat.lowest": "Laagste actieprijs",
   "offers.history.stat.highest": "Hoogste actieprijs",
