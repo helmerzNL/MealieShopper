@@ -2,6 +2,7 @@
 <html lang="nl">
   <head>
     <meta charset="utf-8">
+    <meta name="ms-asset-version" content="{{ config.ASSET_VERSION }}">
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
     <script>
       // Onderste menubalk in de geinstalleerde app (PWA) op een klein scherm. Met ?tabbar=1 zie je hem
@@ -219,14 +220,9 @@
       </div>
     </dialog>
 
-    <dialog id="offer-zoom-dialog" class="product-dialog photo-dialog offer-zoom-dialog" aria-labelledby="offer-zoom-title">
+    <dialog id="offer-zoom-dialog" class="product-dialog offer-zoom-dialog" aria-label="Prijsgeschiedenis" data-i18n-attr="aria-label:offers.tab.history">
       <div class="product-dialog__inner">
-        <img id="offer-zoom-image" class="photo-dialog__image" alt="">
-        <div>
-          <h3 id="offer-zoom-title"></h3>
-          <p class="muted" id="offer-zoom-meta"></p>
-        </div>
-        <div class="offer-zoom__chart" id="offer-zoom-dialog-chart"></div>
+        <div id="offer-zoom-dialog-body" class="offer-popup__dialog"></div>
         <div class="product-dialog__actions">
           <button class="button button--secondary" type="button" id="offer-zoom-close" data-i18n="common.close">Sluiten</button>
         </div>
@@ -716,21 +712,54 @@
           <p class="muted offers-note" id="offers-note" hidden></p>
           <p class="muted offers-later" id="offers-later" hidden><span id="offers-later-text"></span> <button class="link-button link-button--inline" id="offers-later-show" type="button" data-i18n="offers.later.show">Bekijk de week erna</button></p>
           <div id="offers-message"></div>
+          <div class="offers-layout">
+          <aside class="offers-filters" id="offers-filters" aria-label="Filters" data-i18n-attr="aria-label:offers.filters.title">
+            <div class="offers-filters__head">
+              <h3 data-i18n="offers.filters.title">Filters</h3>
+              <button class="icon-button offers-filters__close" id="offers-filters-close" type="button" aria-label="Sluiten" data-i18n-attr="aria-label:common.close">&times;</button>
+            </div>
+            <section class="offers-filters__section">
+              <h4 data-i18n="offers.filters.brand">Merk</h4>
+              <div class="offer-cats offer-cats--filters" id="offers-filter-brands"></div>
+              <button class="link-button" id="offers-filter-brands-more" type="button" hidden></button>
+            </section>
+            <section class="offers-filters__section">
+              <label class="ohc-filter"><input type="checkbox" id="offers-filter-bought" role="switch"><span data-i18n="offers.filters.bought">Eerder gekocht</span></label>
+              <label class="ohc-filter"><input type="checkbox" id="offers-filter-year-low" role="switch"><span data-i18n="offers.filters.year_low">Laagste prijs in een jaar</span></label>
+              <label class="ohc-filter"><input type="checkbox" id="offers-filter-rare" role="switch"><span data-i18n="offers.filters.rare">Zelden in de aanbieding</span></label>
+            </section>
+            <section class="offers-filters__section offers-filters__field">
+              <label for="offers-filter-discount" data-i18n="offers.filters.min_discount">Minimale korting</label>
+              <div class="offers-filters__range"><input type="range" id="offers-filter-discount" min="0" max="75" step="5" value="0"><output id="offers-filter-discount-out" for="offers-filter-discount"></output></div>
+            </section>
+            <section class="offers-filters__section offers-filters__field">
+              <label for="offers-filter-unit-price" data-i18n="offers.filters.max_unit">Prijs per eenheid, hooguit</label>
+              <div class="offers-filters__unit"><input class="input" type="number" id="offers-filter-unit-price" min="0" step="0.5" inputmode="decimal" placeholder="10"><select class="input" id="offers-filter-unit" aria-label="Eenheid" data-i18n-attr="aria-label:offers.filters.unit"></select></div>
+            </section>
+            <section class="offers-filters__section">
+              <h4 data-i18n="offers.filters.store">Winkel</h4>
+              <div class="offers-personal" id="offers-personal" hidden>
+                <label class="ohc-filter">
+                  <input type="checkbox" id="offers-personal-only" role="switch">
+                  <span id="offers-personal-label" data-i18n="offers.personal.switch">Alleen Bonus Box</span>
+                </label>
+                <span class="muted offers-personal__note" id="offers-personal-note"></span>
+              </div>
+              <label class="ohc-filter">
+                <input type="checkbox" id="offers-good-only" role="switch">
+                <span data-i18n="offers.good_only">Alleen echt voordelig</span>
+              </label>
+            </section>
+            <button class="button button--secondary offers-filters__clear" id="offers-filters-clear" type="button" data-i18n="offers.filters.clear">Alles wissen</button>
+          </aside>
+          <div class="offers-filters__backdrop" id="offers-filters-backdrop" hidden></div>
+          <div class="offers-main">
           <div class="offers-tools">
             <input class="input offers-tools__search" id="offers-search" type="search" autocomplete="off" placeholder="Zoek in de aanbiedingen" aria-label="Zoek in de aanbiedingen" data-i18n-attr="placeholder:offers.search;aria-label:offers.search">
-            <div class="offers-personal" id="offers-personal" hidden>
-              <label class="ohc-filter">
-                <input type="checkbox" id="offers-personal-only" role="switch">
-                <span id="offers-personal-label" data-i18n="offers.personal.switch">Alleen Bonus Box</span>
-              </label>
-              <span class="muted offers-personal__note" id="offers-personal-note"></span>
-            </div>
-            <label class="ohc-filter">
-              <input type="checkbox" id="offers-good-only" role="switch">
-              <span data-i18n="offers.good_only">Alleen echt voordelig</span>
-            </label>
+            <button class="offer-chip offers-filters__toggle" id="offers-filters-toggle" type="button" aria-expanded="false" aria-controls="offers-filters"><span data-i18n="offers.filters.title">Filters</span><span id="offers-filters-count"></span></button>
             <div id="offers-sort" class="offer-cats offer-cats--sort" role="group" aria-label="Sorteren" data-i18n-attr="aria-label:offers.sort.label">
-              <button class="offer-chip is-active" type="button" data-sort="store" aria-pressed="true" data-i18n="offers.sort.store">Winkelvolgorde</button>
+              <button class="offer-chip is-active" type="button" data-sort="best" aria-pressed="true" data-i18n="offers.sort.best">Beste eerst</button>
+              <button class="offer-chip" type="button" data-sort="store" aria-pressed="false" data-i18n="offers.sort.store">Winkelvolgorde</button>
               <button class="offer-chip" type="button" data-sort="discount" aria-pressed="false" data-i18n="offers.sort.discount">Hoogste korting</button>
               <button class="offer-chip" type="button" data-sort="unit" aria-pressed="false" data-i18n="offers.sort.unit">Laagste prijs per eenheid</button>
               <button class="offer-chip" type="button" data-sort="lowest" aria-pressed="false" data-i18n="offers.sort.lowest">Laagste ooit eerst</button>
@@ -741,10 +770,13 @@
             </div>
           </div>
           <div id="offers-categories" class="offer-cats" role="group" aria-label="Categorieën" data-i18n-attr="aria-label:offers.categories"></div>
+          <div id="offers-active-filters" class="offer-cats offer-cats--active-filters" role="group" aria-label="Actieve filters" data-i18n-attr="aria-label:offers.filters.active" hidden></div>
           <div id="offers-loading" class="offers-loading" role="status" aria-live="polite" hidden></div>
           <div id="offers-products" class="product-grid product-grid--offers"></div>
-          <div id="offer-zoom" class="offer-zoom" hidden aria-hidden="true"></div>
+          <div id="offer-popup" class="offer-popup" hidden></div>
           <p><button class="button button--secondary" id="offers-more" type="button" hidden data-i18n="offers.more">Meer</button></p>
+          </div>
+          </div>
         </div>
         </div>
         <div id="offers-suggestions" class="subpanel">

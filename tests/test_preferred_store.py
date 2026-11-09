@@ -53,6 +53,7 @@ const loads = [];
 let active = true;
 let historyChanged = 0;
 function offersTabActive() { return active; }
+function offersHistoryActive() { return false; }
 function showOffers() { loads.push(offersState.store); }
 function offerHistoryStoreChanged() { historyChanged++; }
 function routerSync() {}
@@ -193,7 +194,7 @@ class PreferredStoreTest(unittest.TestCase):
     def test_offers_wait_for_the_link_of_the_preferred_store_instead_of_showing_albert_heijn_first(self):
         body = function_source(OFFERS_JS, "showOffers")
         self.assertIn("offersState.waiting = !offersState.chosen && !preferredSupermarketKnown();", body)
-        self.assertLess(body.index("if (offersState.waiting) {"), body.index("await jsonFetch"))
+        self.assertLess(body.index("if (offersState.waiting) {"), body.index("await offersRequest"))
         render = function_source(OFFERS_JS, "renderOffersStore")
         self.assertIn("offersFollowPreferred();", render)
         self.assertIn("if (offersState.waiting && preferredSupermarketKnown() && offersTabActive()", render, "daarna alsnog laden")

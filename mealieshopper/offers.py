@@ -357,7 +357,7 @@ async def signature(store: Any, week: Any = None) -> str:
         meta = await auth.fetchone(conn, "SELECT synced_at FROM offers_meta WHERE store = ?", (store,))
     # Een nieuwe of verbroken koppeling verandert wat er over de persoonlijke aanbiedingen (de Bonus Box) bij de lijst staat.
     personal = "personal" if await personal_linked(store) else ""
-    return "|".join((store, meta["synced_at"] if meta else "", date.today().isoformat(), monday, personal, about.version()))
+    return "|".join((store, meta["synced_at"] if meta else "", date.today().isoformat(), monday, personal, about.version(), await about.build_commit()))
 
 
 def _for_week(offers: list[dict[str, Any]], week: Any) -> tuple[list[dict[str, Any]], dict[str, Any]]:
@@ -727,11 +727,40 @@ async def history_of(store: Any, product_ids: Iterable[Any]) -> dict[str, dict[s
     async with _connect() as conn:
         for start in range(0, len(ids), 500):
             chunk = ids[start:start + 500]
+            marks = ",".join("?" * len(chunk))
             rows += await conn.execute_fetchall(
-                f"SELECT * FROM offer_history WHERE store = ? AND product_id IN ({','.join('?' * len(chunk))}) ORDER BY product_id, first_seen, id",
+                f"SELECT * FROM offer_history WHERE store = ? AND product_id IN ({marks}) ORDER BY product_id, first_seen, id",
                 (store, *chunk),
             )
+            rows += _not_yet_recorded(await conn.execute_fetchall(
+                f"""SELECT * FROM offers WHERE store = ? AND product_id IN ({marks}) AND product_id NOT IN
+                    (SELECT product_id FROM offer_history WHERE store = ? AND ended_at IS NULL) ORDER BY personal""",
+                (store, *chunk, store),
+            ))
+    rows.sort(key=lambda row: (row["product_id"], row["first_seen"]))
     return {product["productId"]: product for product in _history_products(rows).values()}
+
+
+def _not_yet_recorded(rows: Iterable[Any]) -> list[dict[str, Any]]:
+    """Aanbiedingen uit de lokale kopie die vandaag gelden maar nog geen open periode in `offer_history` hebben, als rij van
+    `offer_history`. De nieuwe bonusweek begint om middernacht, en de synchronisatie die hem vastlegt (`_started`,
+    `_record_history`) komt pas 's nachts. Tot dan telt de aanbieding zo al mee in de prijsgeschiedenis, met dezelfde keuze als
+    `_started`: elk product een keer, de gewone bonus voor de Bonus Box (`rows` gesorteerd op `personal`). De synchronisatie maakt
+    er daarna een echte rij van, en dan valt deze weg."""
+    today = date.today()
+    now = _now()
+    found: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        start = deals.parse_date(row["valid_from"])
+        end = deals.parse_date(row["valid_until"])
+        if (start is not None and start > today) or (end is not None and end < today) or row["product_id"] in found:
+            continue
+        found[row["product_id"]] = {
+            **{key: row[key] for key in row.keys()},  # noqa: SIM118 - sqlite3.Row: `in row` zoekt in de waarden
+            "first_seen": f"{start.isoformat()}T00:00:00+00:00" if start else now, "last_seen": now, "ended_at": None,
+            "syncs": 0, "continued": 0,
+        }
+    return list(found.values())
 
 
 def _history_products(rows: Iterable[Any]) -> dict[tuple[str, str], dict[str, Any]]:

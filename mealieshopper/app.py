@@ -14,9 +14,11 @@ from quart import Quart, Response, jsonify, redirect, render_template, request, 
 
 from . import about, ah, ah_explore, ah_lists, ah_orders, ah_planner, ah_recipes, ai_match, ai_review, audit, auth_password, backup, crisp, crisp_orders, factory_reset, hellofresh, image_cache, jumbo, jumbo_explore, jumbo_lists, jumbo_orders, jumbo_recipes, marleyspoon, mcp_http, mealie, mealie_images, offers, offers_schedule, onboarding, picnic, picnic_explore, picnic_orders, picnic_recipes, price_archive, price_import, prices, product_images, product_links, profile, recipe_bulk, recipe_nutrition, server_settings, updates, users
 from . import auth, deals, http_client, tasks
+from . import assets
 from .body_limits import DEFAULT_MAX_BODY, SizedRequest
 from .forwarded import ForwardedHeaders
 from .keep_running import FinishAfterDisconnect
+from .response_cache import ResponseCache
 from .i18n import tr
 
 
@@ -89,7 +91,8 @@ def _ah_proxy_cookie(headers: Iterable[str]) -> str | None:
 
 def create_app() -> Quart:
     app = Quart(__name__, template_folder="../templates", static_folder="../static")
-    app.config["ASSET_VERSION"] = environ.get("MEALIESHOPPER_ASSET_VERSION", "20261109-1")
+    # De versie van de statische bestanden: uit hun inhoud (assets.py), tenzij MEALIESHOPPER_ASSET_VERSION hem vastzet.
+    app.config["ASSET_VERSION"] = environ.get("MEALIESHOPPER_ASSET_VERSION") or assets.asset_version(Path(app.static_folder or "static"))
     # Quart bewaart statische bestanden standaard 12 uur in de browser (Flask niet). Met 0 vraagt de browser elke keer na of het
     # bestand veranderd is (ETag, 304), zoals voorheen. None helpt niet: dan valt de browser terug op zijn eigen schatting.
     app.config["SEND_FILE_MAX_AGE_DEFAULT"] = 0
@@ -144,6 +147,7 @@ def create_app() -> Quart:
         # De dagelijkse aanbiedingen-run hoort niet in de tests: die maken de app vaak aan.
         if not environ.get("MEALIESHOPPER_TESTING"):
             offers_schedule.start()
+            tasks.spawn("warm-catalogues", prices.warm_catalogues())  # de eerste /api/offers na een start wacht niet op de catalogus
 
     # Fouten van externe diensten (AH, Mealie) geven we terug als 424 in
     # plaats van 502: reverse proxies (Cloudflare, SWAG, NPM) vervangen een 502
@@ -199,7 +203,8 @@ def create_app() -> Quart:
 
     @app.get("/healthz")
     async def healthz():
-        return jsonify({"ok": True})
+        # assetVersion: een tabblad dat al open stond, vergelijkt hem met zijn eigen versie (router.js, routerStale).
+        return jsonify({"ok": True, "assetVersion": app.config["ASSET_VERSION"]})
 
     @app.get("/api/about")
     async def about_info():
@@ -662,6 +667,8 @@ def create_app() -> Quart:
 
     # --- aanbiedingen en receptvoorstellen: lezen uit de lokale kopie, vernieuwen op verzoek ----------------
 
+    offers_cache = ResponseCache()
+
     async def offers_action(action: Callable[[], Any], error_text: str) -> Response | tuple[Response, int]:
         try:
             result: Any = action()
@@ -696,7 +703,11 @@ def create_app() -> Quart:
             await prices.annotate(data["store"], data["offers"])  # het oordeel bij elke aanbieding (#178), een fout laat de lijst staan
             return data
 
-        response = await offers_action(load_with_verdicts, tr("Aanbiedingen laden mislukt", "Loading the offers failed"))
+        # Dezelfde ETag is dezelfde lijst: een tweede browser of apparaat, en aanvragen die tegelijk binnenkomen, krijgen de lijst die
+        # er al ligt of op komst is, in plaats van het prijsoordeel opnieuw uit te rekenen (response_cache.py).
+        response = await offers_action(
+            lambda: offers_cache.get((store, week), etag, load_with_verdicts), tr("Aanbiedingen laden mislukt", "Loading the offers failed")
+        )
         if isinstance(response, Response) and response.status_code == 200:
             response.headers.update(headers)
         return response
@@ -710,13 +721,15 @@ def create_app() -> Quart:
 
     @app.get("/api/prices/history")
     async def prices_history():
-        # ?bought=1: alleen de producten die je minstens één keer kocht.
+        # ?bought=1: alleen de producten die je minstens één keer kocht. ?pin=<id>: dat product staat er altijd in (een link van een
+        # aanbieding of bon naar de prijsgeschiedenis), ?product=<id>: alleen dat product (de hover bij een aanbieding).
         bought = (request.args.get("bought") or "").strip().lower() in {"1", "true", "yes"}
         return await offers_action(
             # Namen op de bon die bij de zoekterm passen en nog bij geen product horen, zoekt dit meteen op bij AH (zuinig: zie
             # ah_orders.resolve_receipt_names).
             lambda: prices.history(request.args.get("store") or None, request.args.get("q") or "", request.args.get("limit") or 50, bought=bought,
-                                   lookup=ah_orders.resolve_receipt_names, product=request.args.get("product") or None),
+                                   lookup=ah_orders.resolve_receipt_names, product=request.args.get("product") or None,
+                                   pin=request.args.get("pin") or None),
             tr("Prijsgeschiedenis laden mislukt", "Loading the price history failed"),
         )
 

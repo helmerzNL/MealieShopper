@@ -114,6 +114,12 @@ async def build_info() -> dict[str, str]:
     return _build_info
 
 
+async def build_commit() -> str:
+    """De commit van deze build, voor de ETag van /api/offers: twee builds van dezelfde versie geven anders dezelfde ETag, en een
+    browser houdt na een deploy de oude lijst vast."""
+    return (await build_info())["commit"]
+
+
 def reset() -> None:
     """Vergeet de bewaarde versie en build (tests)."""
     global _build_info

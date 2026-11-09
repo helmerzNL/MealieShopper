@@ -570,15 +570,22 @@ class TidyTest(ArchiveCase):
         summary, _ = await self.run_import(gist_zip(tar_gz(files)))
         return summary, [row for row in self.rows("offer_history") if row["store"] == "ah"]
 
-    async def test_a_combination_offer_is_left_out(self):
+    async def test_a_combination_offer_is_kept_as_a_line_offer_of_its_own(self):
+        # Een actie voor de hele lijn ("Alle Dr. Oetker Casa di Mama pizza's") is in een folderarchief het grootste deel. Met
+        # keep_unlinked blijft hij, als eigen folderproduct, zonder prijs als er niet één verpakking is, en met de prijzen uit de bron.
         summary, rows = (await self.import_ah(
             offer(1, source_title="AH Runderhamburger 2 stuks of gehaktschnitzel Hongaarse stijl 4 stuks"),
-            offer(2, source_title="Alle Ajax", description="2e halve prijs, diverse soorten"),
+            offer(2, source_title="Alle Ajax", description="2e halve prijs, diverse soorten", unit_size=None),
             offer(3, source_title="AH Runderhamburger 4 stuks"),
+            offer(4, source_title="Alle Dr. Oetker Casa di Mama pizza's", description="2 dozen", unit_size=None, price=None, price_before=None,
+                  promo_label="Folder | 2 dozen | bron: oud=2 stuks 5.38, actie=3.50 | prijs onzeker"),
         ))
-        self.assertEqual([row["product_id"] for row in rows], ["folder:ah0003"])
-        self.assertEqual(summary["tidied"]["groups"], 2)
-        self.assertEqual(by_store(summary)["ah"]["offers"]["new"], 1)
+        by_id = {row["product_id"]: row for row in rows}
+        self.assertEqual(sorted(by_id), ["folder:ah0001", "folder:ah0002", "folder:ah0003", "folder:ah0004"])
+        self.assertEqual((summary["tidied"]["groups"], summary["tidied"]["lineOffers"]), (0, 3))
+        self.assertEqual((by_id["folder:ah0002"]["price"], by_id["folder:ah0002"]["price_before"]), (1.02, 2.0), "de prijs per stuk blijft")
+        self.assertEqual(by_id["folder:ah0004"]["promo_label"], "2 dozen, actie 3.50, was 2 stuks 5.38")
+        self.assertEqual(by_store(summary)["ah"]["offers"]["new"], 4)
 
     async def test_without_a_known_pack_the_price_is_left_out(self):
         summary, rows = (await self.import_ah(
@@ -590,13 +597,32 @@ class TidyTest(ArchiveCase):
         self.assertIsNotNone(by_id["folder:ah0002"]["price"])  # een aantal stuks telt als verpakking
         self.assertEqual(summary["tidied"]["unknownPack"], 1)
 
+    async def test_an_uncertain_link_becomes_its_own_folder_product(self):
+        # Met keep_unlinked komt een onzekere koppeling erin, maar niet bij het product waar het archief hem op woorden aan hing:
+        # "AH Goudse oude kaas 48" uit 2009 hoort niet bij "AH Oude kaas L".
+        uncertain = dict(product_id="579426", title="AH Oude kaas L", brand="AH", unit_size="400 g", price=None, price_before=None,
+                         match_kind="approximate", promo_label="Folder | Van de versafdeling | bron: oud=11.50, actie=5.75 | koppeling onzeker: AH Oude kaas L")
+        summary, rows = await self.import_ah(
+            offer(1, source_title="AH Goudse oude kaas 48", **uncertain),
+            offer(2, source_title="AH goudse  oude kaas 48", valid_from="2009-07-06", valid_until="2009-07-12", **uncertain),
+            offer(3, source_title=None, **uncertain),
+        )
+        self.assertEqual((summary["tidied"]["detached"], summary["tidied"]["uncertain"]), (2, 1), "zonder naam uit de folder: eruit")
+        self.assertNotIn("579426", {row["product_id"] for row in rows})
+        detached = [row for row in rows if row["url"].startswith(FOLDER)]
+        self.assertEqual(len({row["product_id"] for row in detached}), 1, "dezelfde naam in de folder: hetzelfde product")
+        self.assertTrue(detached[0]["product_id"].startswith("folder:"))
+        self.assertEqual({row["title"] for row in detached}, {"Folder: AH Goudse oude kaas 48", "Folder: AH goudse  oude kaas 48"})
+        self.assertEqual({(row["brand"], row["unit_size"], row["promo_label"]) for row in detached}, {("Folderarchief", None, "Van de versafdeling")})
+
     async def test_own_format_lines_are_tidied_by_their_title(self):
         summary, _ = (await self.run_import(own([
             {"type": "offer", **{k: v for k, v in offer(1, "jumbo", title="Folder: Alle Ajax").items() if k != "source_title"}},
             {"type": "offer", **offer(2, "jumbo")},
         ])))
-        self.assertEqual(summary["tidied"]["groups"], 1)
-        self.assertEqual([row["product_id"] for row in self.rows("offer_history")], ["folder:jumbo0002"])
+        self.assertEqual((summary["tidied"]["groups"], summary["tidied"]["lineOffers"]), (0, 1))
+        titles = {row["product_id"]: row["title"] for row in self.rows("offer_history")}
+        self.assertEqual(titles, {"folder:jumbo0001": "Folder: Alle Ajax", "folder:jumbo0002": "Folder: Product 2"})
 
     def add_own_products(self):
         with closing(self.connect()) as conn, conn:
@@ -622,9 +648,9 @@ class TidyTest(ArchiveCase):
         self.assertEqual(summary["tidied"]["exact"], 1)
         linked = [row for row in rows if row["product_id"] == "8001" and row["url"].startswith(FOLDER)]
         self.assertEqual([(row["url"].rsplit("/", 1)[1], row["title"], row["price"]) for row in linked], [("product-1", "AH Biologisch halfvolle melk", 1.29)])
-        # Combi's komen er nooit in, ook niet als ze een product van jou noemen.
-        self.assertEqual(summary["tidied"]["groups"], 2)
-        self.assertEqual({row["product_id"] for row in rows} & {"folder:ah0003", "folder:ah0004"}, set())
+        # Een combi komt nooit bij een product van jou, ook niet als hij het noemt: met keep_unlinked als eigen folderproduct.
+        self.assertEqual((summary["tidied"]["groups"], summary["tidied"]["lineOffers"]), (0, 2))
+        self.assertEqual({row["product_id"] for row in rows} & {"folder:ah0003", "folder:ah0004"}, {"folder:ah0003", "folder:ah0004"})
         # Met keep_unlinked blijft de regel zonder koppeling als eigen product, zonder prijs (geen verpakking).
         unlinked = [row for row in rows if row["product_id"] == "folder:ah0002"]
         self.assertEqual([(row["price"], row["price_before"]) for row in unlinked], [(None, None)])
@@ -638,8 +664,13 @@ class TidyTest(ArchiveCase):
                   promo_label="Folder | VOOR: 1.39Los | bron: oud=1.79, actie=1.39"),
             offer(2, product_id="169238", title="AH Runderhamburger 2st", source_title="AH Runderhamburgers of schnitzels", price=None, price_before=None),
         ))
-        self.assertEqual([(row["product_id"], row["title"], row["promo_label"]) for row in rows], [("4183", "AH Bloemkool", "voor: 1.39 Los")])
-        self.assertEqual(summary["tidied"]["groups"], 1)  # ook een gekoppelde combi komt er niet in
+        by_title = {row["title"]: row for row in rows}
+        self.assertEqual((by_title["AH Bloemkool"]["product_id"], by_title["AH Bloemkool"]["promo_label"]), ("4183", "voor: 1.39 Los"))
+        # Een combi die het archief al aan een product hing, komt los van dat product: als eigen folderproduct.
+        combi = by_title["Folder: AH Runderhamburgers of schnitzels"]
+        self.assertTrue(combi["product_id"].startswith("folder:"))
+        self.assertEqual((summary["tidied"]["groups"], summary["tidied"]["lineOffers"]), (0, 1))
+        self.assertNotIn("169238", {row["product_id"] for row in rows})
         self.assertEqual((summary["tidied"]["exact"], summary["tidied"]["linkedByArchive"]), (0, 1))
 
     async def test_a_line_it_cannot_read_is_left_to_the_checks(self):
@@ -686,6 +717,15 @@ class LinkedOnlyTest(ArchiveCase):
         self.assertEqual([(row["store"], row["product_id"], row["title"], row["brand"], row["source"]) for row in prices_in],
                          [("picnic", "s1002", "Prijs 2", None, "public_observed_unknown")])
         self.assertEqual((job["summary"]["offers"], job["summary"]["prices"]), (2, 1))
+
+    async def test_a_combination_offer_stays_out(self):
+        files = gist_files(**{"ah-corrected/observations.jsonl": jsonl([
+            offer(1, source_title="Alle Dr. Oetker Casa di Mama pizza's", unit_size=None),
+            offer(2, product_id="169238", title="AH Runderhamburger 2st", source_title="AH Runderhamburgers of schnitzels"),
+        ])})
+        summary, _ = await self.run_import(gist_zip(tar_gz(files)))
+        self.assertEqual((summary["tidied"]["groups"], summary["tidied"]["lineOffers"]), (2, 0))
+        self.assertEqual([row for row in self.rows("offer_history") if row["store"] == "ah"], [])
 
     async def test_an_archive_price_needs_the_same_name_and_pack(self):
         self.add_own_products()
