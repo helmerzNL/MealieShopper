@@ -2355,7 +2355,7 @@ async function checkAhConnection() {
 // pagina: van waar het begint tot waar de pagina ophoudt, met wat er onder het element nog komt (de rand van het kader, de
 // marge van de pagina) meegerekend. Op een scherm smaller dan `minWidth` of voor een verborgen element null: dan scrolt de
 // pagina gewoon. De aankopentabel (orders.js) en de prijsgeschiedenis (offers_history.js) gebruiken dit.
-function pageFitHeight(element, { minWidth = 1024, min = 240 } = {}) {
+function pageFitHeight(element, { minWidth = 1200, min = 240 } = {}) {
   if (!window.matchMedia(`(min-width: ${minWidth}px)`).matches || !element.offsetParent) return null;
   const rect = element.getBoundingClientRect();
   const shell = document.querySelector("main.shell").getBoundingClientRect();

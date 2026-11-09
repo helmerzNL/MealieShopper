@@ -578,7 +578,7 @@ function renderOfferHistory() {
 // kolommen beginnen tot waar de pagina ophoudt (pageFitHeight in app.js, gemeten aan de kolommen samen, want de lijst alleen
 // kan korter zijn dan het product) en scrolt daarbinnen. Op een smal scherm geldt het maximum uit styles.css.
 function offerHistoryFitList(list) {
-  const height = pageFitHeight(list.parentElement, { minWidth: 900 });
+  const height = pageFitHeight(list.parentElement, { minWidth: 1200 });
   const value = height === null ? "" : `${height}px`;
   list.style.maxHeight = value;
   $("#offers-history-detail").style.maxHeight = value;

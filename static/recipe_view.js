@@ -532,7 +532,7 @@ function openCookMode(root, opener) {
   dialog.dataset.cookView = root.dataset.cookView;
   $("#cook-mode-ingredients-list").innerHTML = cookIngredientsHtml(recipe, progress, 4);
   $("#cook-mode-ingredients").hidden = !recipe.ingredients.length;
-  const wide = typeof window.matchMedia === "function" && window.matchMedia("(min-width: 900px)").matches;
+  const wide = typeof window.matchMedia === "function" && window.matchMedia("(min-width: 860px)").matches;
   cookModePanel(wide && recipe.ingredients.length > 0);
   cookModeRender();
   if (!dialog.open) dialog.showModal();
@@ -622,7 +622,7 @@ $("#cook-mode-ingredients").addEventListener("click", () => cookModePanel($("#co
 $("#cook-mode").addEventListener("close", cookModeClosed);
 // Esc sluit de kookmodus; op een smal scherm sluit hij eerst het ingrediëntenpaneel dat over de stap ligt.
 $("#cook-mode").addEventListener("cancel", (event) => {
-  const narrow = typeof window.matchMedia === "function" && !window.matchMedia("(min-width: 900px)").matches;
+  const narrow = typeof window.matchMedia === "function" && !window.matchMedia("(min-width: 860px)").matches;
   if (narrow && !$("#cook-mode-panel").hidden) {
     event.preventDefault();
     cookModePanel(false);
