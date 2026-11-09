@@ -1,5 +1,5 @@
 // Weekmenu naar de winkel, mandjes, recepten zoeken, winkelkeuze en maaltijdboxen.
-const { DISHES, WEEK, product, perUnit, openSubtab } = require("../demo");
+const { DISHES, WEEK, product, perUnit, openSubtab, openBasket } = require("../demo");
 // Je eigen recepten in Mealie staan bij Recepten zoeken bovenaan (dezelfde als in de receptkiezer van het weekmenu).
 const { mealieRecipes } = require("./01-plan");
 
@@ -149,17 +149,6 @@ const jumboCart = {
   ],
   totalPrice: 12.18,
 };
-
-// Kies een winkel in de keuzelijst bovenaan het tabblad Mandje.
-async function openBasket(page, store) {
-  // Op een telefoon staat Mandje niet in de menubalk maar onder Meer (het menu van de avatar): dan dat menu-item, dat naar /cart gaat.
-  const tab = page.locator('[data-tab="basket"]');
-  if (await tab.isVisible()) await tab.click();
-  else await page.evaluate(() => document.querySelector('[data-user-action="basket"]').click());
-  await page.waitForSelector("#basket-store");
-  if (store) await page.selectOption("#basket-store", store);
-  await page.waitForTimeout(700);
-}
 
 // ---- Recepten zoeken
 

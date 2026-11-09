@@ -79,4 +79,16 @@ async function openSubtab(page, id) {
   else await page.evaluate((sub) => document.querySelector(`[data-subtab="${sub}"]`).click(), id);
 }
 
-module.exports = { svg, dish, product, DISHES, base, WEEK, mealieUrl, VERSION, NEWER, perUnit, openSubtab };
+// Het tabblad Mandje openen en een winkel kiezen in de keuzelijst bovenaan. Gedeeld door de mandjes van AH, Picnic, Jumbo en
+// Crisp.
+async function openBasket(page, store) {
+  // Op een telefoon staat Mandje niet in de menubalk maar onder Meer (het menu van de avatar): dan dat menu-item, dat naar /cart gaat.
+  const tab = page.locator('[data-tab="basket"]');
+  if (await tab.isVisible()) await tab.click();
+  else await page.evaluate(() => document.querySelector('[data-user-action="basket"]').click());
+  await page.waitForSelector("#basket-store");
+  if (store) await page.selectOption("#basket-store", store);
+  await page.waitForTimeout(700);
+}
+
+module.exports = { svg, dish, product, DISHES, base, WEEK, mealieUrl, VERSION, NEWER, perUnit, openSubtab, openBasket };
