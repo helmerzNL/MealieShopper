@@ -6,6 +6,8 @@ Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar
 
 ### Nieuw in 4.5.0
 
+Pull request: [#290](https://github.com/helmerzNL/MealieShopper/pull/290).
+
 *English summary: MealieShopper now shows the offers of **Lidl** and **Aldi**, without an account. Neither sells groceries online, so there is no basket, search or link: the offers come from their public offers pages (lidl.nl and aldi.nl, pages their `robots.txt` allows), once per sync, with MealieShopper's own User-Agent. They are in the store menu of **Offers** for everyone, in the daily sync, the price history of the offers, the recipe suggestions, the AI features for the offers, the MCP tools for offers and price history, and the price archive export and import. Lidl Plus prices count as the offer when there is no regular offer, labelled "-31% met Lidl Plus". Non-food and plants are left out. Compare pack sizes, Import old purchases, product links and the preferred supermarket stay with the stores that have an online shop. When a percentage label is one cent off the store's own price (rounding), the store's price now wins for every store. The research into Lidl and the other Dutch supermarkets (Plus, Hoogvliet, Dirk, Spar and more) is in `docs/onderzoek-lidl.md` and `docs/onderzoek-supermarkten.md`. Reload the page once after updating.*
 
 - **Lidl en Aldi bij Aanbiedingen.** Lidl en Aldi verkopen geen boodschappen online, dus een mandje vullen kan niet. Hun aanbiedingen van de week kan MealieShopper wel tonen, zonder account:
