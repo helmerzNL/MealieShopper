@@ -94,7 +94,7 @@ Pull request: [#295](https://github.com/helmerzNL/MealieShopper/pull/295).
 
 ### Nieuw in 4.7.0
 
-Issue: [#283](https://github.com/helmerzNL/MealieShopper/issues/283), vervolg op pull requests [#288](https://github.com/helmerzNL/MealieShopper/pull/288) en [#289](https://github.com/helmerzNL/MealieShopper/pull/289).
+Pull request: [#294](https://github.com/helmerzNL/MealieShopper/pull/294). Issue: [#283](https://github.com/helmerzNL/MealieShopper/issues/283), vervolg op pull requests [#288](https://github.com/helmerzNL/MealieShopper/pull/288) en [#289](https://github.com/helmerzNL/MealieShopper/pull/289).
 
 *English summary: besides the kcal, MealieShopper now uses all nutrition values: protein, fat (saturated), carbohydrates (sugars), fibre and salt. Salt is shown in grams, as on a package (sodium × 2.5); Mealie and the stores keep sodium. A recipe and a planned meal show a **Nutrition** table per serving, and for a planned meal also the total for the planned servings. Recipe cards (Find recipes, the recipe picker and your saved AH recipes) show protein, sugar and salt next to the kcal. Every day in the week menu shows what one person gets that day (the sum per serving of the meals with a recipe, with a note when meals have no nutrition). The recipe picker and Find recipes have **More filters**: min/max per serving for protein, fat, carbohydrates, sugars, fibre and salt, next to the kcal. The nutrition cache keeps all values (rows from before 4.7.0 are fetched once more); `GET /api/mealie/recipes` reads `<name>Min`/`<name>Max` for every value and returns `nutrition` on the cards and `withoutValues`. MCP: `search_mealie_recipes` takes `protein_min`/`_max`, `fat_…`, `carbs_…`, `sugar_…`, `fiber_…` and `salt_min`/`salt_max` and returns `nutritionPerServing`; `get_week_menu` returns `nutritionPerServing`, `nutritionTotal` and `days[].perPerson`; `list_saved_ah_recipes` returns `nutritionPerServing`. Saved AH recipes get their nutrition: AH's list has none, so MealieShopper keeps it per recipe, filled when you open a recipe, from the offers recipe index and after **Refresh** in the background (60 at a time, 1.5 s apart, stopping when AH refuses). Jumbo cards show the kcal Jumbo gives. The switch is now called **Show calories and nutrition**.*
 
@@ -155,7 +155,7 @@ Pull request: [#293](https://github.com/helmerzNL/MealieShopper/pull/293).
 
 ### Nieuw in 4.6.0
 
-Pull request #292. Bevat ook de releases 4.1.2 tot 4.1.10 (prijsgeschiedenis) die nog niet in `beta` stonden, en de merge van `beta` 4.5.0.
+Pull request: [#292](https://github.com/helmerzNL/MealieShopper/pull/292), van wolph. Bevat ook de releases 4.1.2 tot 4.1.10 (prijsgeschiedenis) die nog niet in `beta` stonden, en de merge van `beta` 4.5.0.
 
 *English summary: The **Offers** page gets a filter sidebar, sorts the best offers first, merges the packs of one product into one card and shows the full price history in a panel when you point at a card. **Best first** is the new default order: an offer whose price is the lowest of the past twelve months comes on top. That lowest comes from four sources (the product's earlier offers, the leaflet offers for the whole range per item, your purchases and the tracked regular prices), this week's offer itself does not count, and the app only makes the claim once it has followed the product for a year. Minced beef of 300, 500 and 1000 grams are three products with three prices: the card view now shows such a pack family as one card with a row per pack, the cheapest per unit marked, and an offer that is pricier per unit than another pack is not on top. The sidebar filters on brand, bought before, lowest price in a year, rarely on offer, minimum discount and price per unit, remembered per store. A hover on a card opens a 640 px panel with the key figures, the chart with its range buttons, the last eight purchases and pack buttons. `/api/offers` for 447 AH offers: 1.6 s cold, 8 ms from the cache.*
 
@@ -251,7 +251,7 @@ Pull request: [#291](https://github.com/helmerzNL/MealieShopper/pull/291).
 
 ### Opgelost in 4.4.1
 
-Issue: [#283](https://github.com/helmerzNL/MealieShopper/issues/283); vervolg op pull request [#288](https://github.com/helmerzNL/MealieShopper/pull/288).
+Pull request: [#289](https://github.com/helmerzNL/MealieShopper/pull/289). Issue: [#283](https://github.com/helmerzNL/MealieShopper/issues/283); vervolg op pull request [#288](https://github.com/helmerzNL/MealieShopper/pull/288).
 
 *English summary: recipes from Albert Heijn now really get their nutrition. In 4.4.0 the nutrition was only asked for in a variant of the AH recipe query with `preparation { steps { text } }`, but AH gives `steps` as a list of strings, so that variant always failed and MealieShopper fell back to a variant without nutrition. Imports, the bulk import, *To week menu* and **Fill in nutrition** therefore brought no calories (for example "0 of 116 AH recipes filled in, 115 skipped"). The variants now start with the shape AH uses (`steps` without a selection), with the nutrition; the shape with `{ text }` stays behind it in case AH switches back. Every AH recipe is now one request instead of three. Run **Fill in nutrition** under **Settings, Link, Mealie** again: the recipes that were skipped come up again, as only recipes that already have calories are skipped.*
 
@@ -264,7 +264,7 @@ Issue: [#283](https://github.com/helmerzNL/MealieShopper/issues/283); vervolg op
 
 ### Nieuw in 4.4.0
 
-Issue: [#283](https://github.com/helmerzNL/MealieShopper/issues/283).
+Pull request: [#288](https://github.com/helmerzNL/MealieShopper/pull/288). Issue: [#283](https://github.com/helmerzNL/MealieShopper/issues/283).
 
 *English summary: MealieShopper now shows **calories**. A recipe and a planned meal show the kcal per serving and the nutrition per serving, from Mealie or, for a store or meal kit recipe, from that store; a meal also shows the total for the planned servings ("490 kcal per serving · 980 kcal in total"). **Plan a meal** and **Edit meal** let you choose the number of servings (4 becomes 2): MealieShopper stores it in Mealie as `recipeScale`, like Mealie's planner (needs Mealie 3.29), and the ingredients and the kcal total follow; per serving it stays the same. The recipe picker and **Find recipes** have a **Kcal per serving** min/max filter; in Find recipes the search term may then be empty and only your Mealie recipes are searched, since the stores give no calories in their search results. Because Mealie's recipe list has no nutrition and Mealie stores it as text, MealieShopper keeps the kcal per recipe in a cache of its own (`mealie_recipe_nutrition`, filled from every recipe it fetches from Mealie and refreshed by `updatedAt` at most every ten minutes when you search by calories; not part of the backup). The MCP tool `search_mealie_recipes` takes `kcal_min` and `kcal_max` (kcal per serving) and may then be called without a query, and returns `kcalPerServing`; `get_week_menu` returns `kcalPerServing` and `kcalTotal`, and `plan_meal` takes `servings`. Recipes imported from **Albert Heijn** now take their nutrition along into Mealie (the AH GraphQL `recipe.nutritions`, per serving), also in the bulk import and *To week menu*; the administrator fills in older AH recipes with **Fill in nutrition** under **Settings, Link, Mealie** (only recipes with an Allerhande source link and without calories; what is there stays). **Jumbo** salt is no longer stored as sodium: 1 g of salt becomes 400 mg of sodium. A new switch **Show calories** under **Settings, Preferences, Appearance** (on by default, per user) hides all of it.*
 
@@ -366,6 +366,8 @@ Pull request: [#282](https://github.com/helmerzNL/MealieShopper/pull/282).
 
 ### Opgelost in 4.1.10
 
+Pull request: [#292](https://github.com/helmerzNL/MealieShopper/pull/292), van wolph (in `beta` gekomen met 4.6.0).
+
 *English summary: The **Price history** shows the past offers of a product with their prices again, and the chart is readable. In 4.1.9 the leaflet offers for a whole range went back to 2009 and stretched the chart over seventeen years: seven purchases, the regular price and the current offer of Dr. Oetker Casa di mama pizza salami shared the last few pixels, and the leaflet offers were dashes without a price, because the import dropped the price of a line without a known pack. Now the import keeps the archive prices of a line offer, and `line_offers.per_piece` makes every offer a price per item: from the offer text (*2 voor 6.00* is 3.00, *1+1 gratis* half the regular price), and a total the archive stored for several items is recognised by the regular price in the weeks around it. An offer whose regular price is far from the weeks around it (*Diverse Dr. Oetker* brownies at 2.09 next to a pizza of 4.19) is left out. The chart shows the period of the product's own data by default, with buttons for 1 year, 3 years and all. Leaflet offers are orange bars on their price per item and count in times on offer, with the number from the archive shown apart. The regular price also comes from imported purchases (*Import old purchases*). With the production data the pizza shows 70 times on offer (69 from the archive, 66 with a price per item), and its purchases at 3.00 and 2.15 fall on the leaflet weeks of 2 for 6.00 and 1+1 free.*
 
 - **Elke folderactie een prijs per stuk.** In 4.1.9 waren de folderacties streepjes zonder prijs: de import gooide de prijs van een regel zonder bekende verpakking weg, ook bij een lijnactie. Nu blijven de prijzen van het archief, en `line_offers.per_piece` maakt er per product een prijs per stuk van. Uit de actietekst (*2 voor 6.00* is 3,00, *1+1 gratis* en *2e halve prijs* uit de gewone prijs, *was 2 stuks 8.58* is 4,29 gewoon), en anders uit het archief. Een prijs die het archief als totaal van meer stuks gaf (*2 voor 6.00* als 6,00 en 8,58), herkent hij aan de gewone prijs van de zes lijnacties het dichtst in de tijd. Een lijnactie waarvan de gewone prijs meer dan 30 procent afwijkt van die weken, gold een ander product van het merk en valt weg (*Diverse Dr. Oetker*, brownies van 2,09 naast een pizza van 4,19).
@@ -378,6 +380,8 @@ Pull request: [#282](https://github.com/helmerzNL/MealieShopper/pull/282).
 ## v4.1.9
 
 ### Opgelost in 4.1.9
+
+Pull request: [#292](https://github.com/helmerzNL/MealieShopper/pull/292), van wolph (in `beta` gekomen met 4.6.0).
 
 *English summary: The **Price history** now shows the leaflet offers for a whole range. Dr. Oetker Casa di mama pizza salame extra piccante was on offer about four times a year since 2009, but the history showed it once. The leaflet archive names those offers for the range (*Alle Dr. Oetker Casa di Mama pizza's*, *Dr. Oetker Casa di Mama en Tradizionale*), and the import dropped every such combination offer: 62,155 of the 95,155 AH lines and 27,092 of the 37,398 Jumbo lines. With **Also keep lines that belong to none of your products** they now stay as leaflet products of their own, and `line_offers.py` puts them with every product whose name holds all words of the offer, with strict rules for lists, house brands, organic products, packs and multipacks. They show as a separate count, an orange dash at the bottom of the chart and a table of their own, and do not count as offers of the product itself. With the production data the pizza shows 70 leaflet offers for the range, every year from 2009 to 2026.*
 
@@ -392,6 +396,8 @@ Pull request: [#282](https://github.com/helmerzNL/MealieShopper/pull/282).
 
 ### Opgelost in 4.1.8
 
+Pull request: [#292](https://github.com/helmerzNL/MealieShopper/pull/292), van wolph (in `beta` gekomen met 4.6.0).
+
 *English summary: An offer that started at midnight now counts in the **Price history** right away. The new bonus week begins at midnight, but `offer_history` only records it at the nightly sync, so until then a product on offer since that night showed *0 times on offer*, no price and no chart. Now `offers.history_of` counts an offer from the local copy that is valid today and has no open period yet as a running period, the same row the sync records later. With the production data: Dr. Oetker Casa di mama pizza salame extra piccante shows once on offer, on offer now, €3.65 with a regular price of €4.29, and a chart.*
 
 - **Een aanbieding die om middernacht begon, telt meteen.** De nieuwe bonusweek begint om middernacht, maar `offer_history` legt hem pas vast bij de synchronisatie van die nacht (`offers._started`). Tot dan stond een product dat sinds die nacht in de aanbieding is in de prijsgeschiedenis met *0 keer in de aanbieding*, zonder prijs en zonder grafiek. In 4.1.7 stond er alleen *Vanaf 9 nov in de aanbieding*. Nu telt `offers.history_of` zo'n aanbieding uit de lokale kopie, die vandaag geldt en nog geen open periode heeft, als lopende periode (`_not_yet_recorded`), met dezelfde keuze als de synchronisatie: elk product een keer, de gewone bonus voor de Bonus Box. De synchronisatie maakt er daarna een echte rij van. *Vanaf ... in de aanbieding* staat er alleen nog bij een aanbieding die nog moet beginnen.
@@ -400,6 +406,8 @@ Pull request: [#282](https://github.com/helmerzNL/MealieShopper/pull/282).
 ## v4.1.7
 
 ### Opgelost in 4.1.7
+
+Pull request: [#292](https://github.com/helmerzNL/MealieShopper/pull/292), van wolph (in `beta` gekomen met 4.6.0).
 
 *English summary: A link to the **Price history** always opens its own product again. With the production data 3,090 of the 5,705 products the app links to (from offers, orders and receipts) were not found by their id in 4.1.6: products only in an order that is not delivered yet (AH Sweet Palermo rode puntpaprika), products only known through the link of a receipt article number, and offers that started at midnight but were not in the history yet. Now all 5,705 are. A tab that stayed open across a deploy kept running the old scripts (one tab still ran 3.13.1 from 6 November) and searched by name. Now the page knows the version of its scripts, `/healthz` tells the server's, and the next click after a deploy loads the whole page. The asset version now follows the content of `static/` instead of a number raised by hand. Every bug report of the last day has a regression test in `tests/test_reported_bugs.py`.*
 
@@ -410,6 +418,8 @@ Pull request: [#282](https://github.com/helmerzNL/MealieShopper/pull/282).
 ## v4.1.6
 
 ### Gewijzigd in 4.1.6
+
+Pull request: [#292](https://github.com/helmerzNL/MealieShopper/pull/292), van wolph (in `beta` gekomen met 4.6.0).
 
 *English summary: With **Also keep lines that belong to none of your products** (`keep_unlinked`), a line the archive linked to a product by words (*koppeling onzeker*) no longer attaches to that product. It comes in as a leaflet product of its own, named after the leaflet (*Folder: AH Goudse oude kaas 48*), so "AH Oude kaas L" no longer gets an offer from 2009 without a price that stretched its chart over 17 empty years. The importer now also reads a folder `observations/` as prices: the Picnic and Crisp gists for data.mealieshopper.nl put their 44,128 and 43 price observations there, and before this they were refused as a damaged archive.*
 
@@ -422,6 +432,8 @@ Pull request: [#282](https://github.com/helmerzNL/MealieShopper/pull/282).
 
 ### Sneller in 4.1.5
 
+Pull request: [#292](https://github.com/helmerzNL/MealieShopper/pull/292), van wolph (in `beta` gekomen met 4.6.0).
+
 *English summary: The **Price history** answers a search in about 70 milliseconds instead of 2 to 3 seconds. Every search built the catalogue of the store again: all receipt lines linked to their products (twice, once more for looking up receipt names) and the names and pack sizes of every product from the offers, saved prices, orders and receipts (300,000 names with the production data). The catalogue is now kept per store and day until something under it changes. SQLite triggers on the tables it reads (`prices.CATALOGUE_TABLES`) raise a version in `catalogue_changes` on every insert, update and delete, whichever code or connection writes, so a sync, an import or a link of your own is in the next search. The first search after such a change, or on a new day, builds it again once (about 1 second on a laptop). The offers list uses the same catalogue for its price verdict. Results are the same to the byte. Bulk writes to those tables cost about 15 to 30 percent more because of the triggers (100,000 offer rows: 0.52 to 0.60 seconds).*
 
 - **De catalogus blijft bewaard.** `prices.history` bouwde bij elke zoekopdracht de catalogus van de winkel opnieuw op: alle bonregels gekoppeld aan hun product (`_receipt_rows`, en voor het opzoeken van namen op de bon nog een keer) en de namen en verpakkingen van elk product uit de aanbiedingen, de bewaarde prijzen, de bestellingen en de bonnen (`_known_products`, met de productiedata 300.000 namen). Nu bewaart `prices._catalogue` hem per winkel en dag. De zoekterm filtert daarna (`_candidates`). Met de productiedata: van 2,2 seconden naar 0,06 seconden per zoekopdracht, met dezelfde uitkomst tot op de byte (acht zoekopdrachten, alleen eerder gekocht, en het oordeel bij de aanbiedingen van AH en Jumbo).
@@ -433,6 +445,8 @@ Pull request: [#282](https://github.com/helmerzNL/MealieShopper/pull/282).
 
 ### Opgelost in 4.1.4
 
+Pull request: [#292](https://github.com/helmerzNL/MealieShopper/pull/292), van wolph (in `beta` gekomen met 4.6.0).
+
 *English summary: Opening the **Price history** from an offer showed nothing for an offer of next week, and looked the product up by name only. The link names the product by id (`product=`), but the page searched with the name, so a product whose name differs in the history, or that only has an offer yet to start, was not there. On a Sunday with a week that starts on Sunday, the offers page shows next week's bonus, so every card had this. The page now sends the product from the address along (`pin`): the server puts it at the top, also when the name does not match or with **Only bought before** on. An offer that has yet to start (it only enters the history when it starts) now makes a product findable and shows as *On offer from 9 Nov* with its price and deal, in the list and above the product.*
 
 - **De link van een aanbieding noemt het product op id.** `/offers/history?q=<naam>&product=<id>` zocht alleen op de naam. Het id koos daarna een product uit de uitkomst. Paste de naam niet, of had het product alleen een aanbieding die nog moet beginnen, dan bleef de lijst leeg. Nu stuurt de pagina het id mee als `pin` (`GET /api/prices/history?...&pin=<id>`): dat product staat er altijd in, bovenaan, ook als de naam niet past of **Alleen eerder gekocht** aan staat. De andere producten met die naam staan eronder, dus klikken door de lijst werkt zoals voorheen. Een nieuwe zoekterm laat het product los. Het adres zet `pin` voordat het subtab opent, zodat ook de eerste aanvraag het product noemt (dat ging in 4.1.2 na het openen).
@@ -443,6 +457,8 @@ Pull request: [#282](https://github.com/helmerzNL/MealieShopper/pull/282).
 ## v4.1.3
 
 ### Sneller in 4.1.3
+
+Pull request: [#292](https://github.com/helmerzNL/MealieShopper/pull/292), van wolph (in `beta` gekomen met 4.6.0).
 
 *English summary: The **Offers** page opens faster. With the production data (138,000 offer periods, 696 AH offers this week) the server worked out the price verdict over the whole history of the store on every request: 2.7 seconds of computing on a laptop, about 10 seconds on the home server, and the rest of the app waited because it ran on the event loop. It now reads the history of only the offered products (AH 2.7 to 0.7 seconds, Jumbo 1.3 to 0.05 seconds, the same result to the byte), keeps the list per ETag on the server, so a second browser or device gets it at once, and computes requests that arrive together only once. The page itself asked for the list three times when it opened: twice for the same week and once more when the first day of the week arrived from Mealie. It now waits for that day (at most three seconds) and asks once.*
 
@@ -456,6 +472,8 @@ Pull request: [#282](https://github.com/helmerzNL/MealieShopper/pull/282).
 ## v4.1.2
 
 ### Opgelost in 4.1.2
+
+Pull request: [#292](https://github.com/helmerzNL/MealieShopper/pull/292), van wolph (in `beta` gekomen met 4.6.0).
 
 *English summary: The **Price history** lists every store again, also one without a linked account. Prices from a price archive or from receipts of such a store (Picnic, Jumbo or Crisp without a login) were in the database but out of reach: the store menu of the Offers page only offered AH and the linked stores, and an address such as `/offers/history?store=crisp` waited for a link that never came. In the price history the menu now offers all stores and its links stay on the price history. Choosing a store there loads only its price history, not the offers of the week. Going back to Offers or Recipes with an unlinked store chosen opens the preferred supermarket, as before.*
 
