@@ -16,7 +16,7 @@ import json
 from typing import Any, Awaitable, Callable
 from urllib.parse import urlsplit
 
-from . import ah, ah_lists, offers, ah_orders, ah_recipes, auth, crisp, jumbo, jumbo_lists, jumbo_orders, jumbo_recipes, mealie, picnic, picnic_orders, picnic_recipes, prices, recipe_nutrition, server_settings
+from . import ah, ah_lists, offers, ah_orders, ah_recipes, auth, crisp, jumbo, jumbo_lists, jumbo_orders, jumbo_recipes, mealie, nutrition, picnic, picnic_orders, picnic_recipes, prices, recipe_nutrition, server_settings
 
 LATEST_PROTOCOL = "2025-06-18"
 SUPPORTED_PROTOCOLS = ("2025-06-18", "2025-03-26", "2024-11-05")
@@ -57,6 +57,32 @@ def _text(value: Any, limit: int = 300) -> str:
     return " ".join(str(value or "").split())[:limit]
 
 
+# Voedingswaarden voor een AI: per portie of samen, met de eenheid in de naam en zout in gram (uit natrium, zie nutrition.py).
+_NUTRITION_OUT = (
+    ("kcal", "calories", 0), ("proteinG", "proteinContent", 1), ("fatG", "fatContent", 1), ("saturatedFatG", "saturatedFatContent", 1),
+    ("carbsG", "carbohydrateContent", 1), ("sugarG", "sugarContent", 1), ("fiberG", "fiberContent", 1),
+)
+
+
+def _found(items: Any) -> dict[str, float]:
+    """De waarden uit een lijst `[{key, quantity, unit}]` (zoals een kaart, maaltijd of recept ze geeft)."""
+    return {item["key"]: float(item["quantity"]) for item in items or [] if isinstance(item, dict) and item.get("key") in nutrition.UNITS
+            and isinstance(item.get("quantity"), (int, float))}
+
+
+def _nutrition_out(found: dict[str, float]) -> dict[str, Any] | None:
+    """`{kcal, proteinG, fatG, saturatedFatG, carbsG, sugarG, fiberG, saltG}` (None per onbekende waarde), of None zonder waarden."""
+    if not found:
+        return None
+    out: dict[str, Any] = {}
+    for name, field, decimals in _NUTRITION_OUT:
+        amount = found.get(field)
+        out[name] = None if amount is None else (round(amount) if not decimals else round(amount, decimals))
+    salt = nutrition.salt_g(found.get("sodiumContent"))
+    out["saltG"] = None if salt is None else round(salt, 2)
+    return out
+
+
 async def tool_week_menu(args: dict[str, Any]) -> Any:
     if args.get("start_date") in (None, ""):
         # Alleen dan is de eerste dag van de week nodig (die kan Mealie vragen).
@@ -84,6 +110,9 @@ async def tool_week_menu(args: dict[str, Any]) -> Any:
                 # De calorieën per portie (per persoon) en voor die porties samen; None als Mealie ze niet heeft.
                 "kcalPerServing": (entry.get("kcal") or {}).get("perServing"),
                 "kcalTotal": (entry.get("kcal") or {}).get("total"),
+                # Alle voedingswaarden, per portie en voor de geplande porties samen (zout in gram).
+                "nutritionPerServing": _nutrition_out(_found(entry.get("nutrition"))),
+                "nutritionTotal": _nutrition_out(_found(entry.get("nutritionTotal"))),
                 "ingredients": [
                     _text(item.get("display") or item.get("note"))
                     for item in detail.get("recipeIngredient") or []
@@ -91,7 +120,20 @@ async def tool_week_menu(args: dict[str, Any]) -> Any:
                 ],
             }
         )
-    return {"from": start.isoformat(), "to": end.isoformat(), "meals": meals}
+    # Per dag wat één persoon binnenkrijgt: de som per portie van de maaltijden met een recept. Een notitie telt niet mee;
+    # een recept zonder voedingswaarden wel, als `mealsWithoutNutrition`.
+    per_day: dict[str, dict[str, Any]] = {}
+    for entry in entries:
+        if not (entry.get("recipe") or entry.get("recipeId")) or not entry.get("date"):
+            continue
+        day = per_day.setdefault(entry["date"], {"totals": {}, "without": 0})
+        found = _found(entry.get("nutrition"))
+        if found:
+            nutrition.add(day["totals"], found)
+        else:
+            day["without"] += 1
+    days = [{"date": date, "perPerson": _nutrition_out(day["totals"]), "mealsWithoutNutrition": day["without"]} for date, day in sorted(per_day.items())]
+    return {"from": start.isoformat(), "to": end.isoformat(), "meals": meals, "days": days}
 
 
 MCP_KCAL_WAIT = 25.0  # seconden die een zoekopdracht op calorieën op de eerste ronde van recipe_nutrition.py wacht
@@ -99,31 +141,33 @@ MCP_KCAL_WAIT = 25.0  # seconden die een zoekopdracht op calorieën op de eerste
 
 async def tool_search_mealie_recipes(args: dict[str, Any]) -> Any:
     query = _text(args.get("query"), 200)
-    kcal_min, kcal_max = recipe_nutrition.kcal_range(args.get("kcal_min"), args.get("kcal_max"))
-    filtered = kcal_min is not None or kcal_max is not None
-    if not query and not filtered:
-        raise ToolError("Geef een zoekterm op, of kcal_min of kcal_max")
+    limits = recipe_nutrition.bounds(args, mcp=True)
+    if not query and not limits:
+        raise ToolError("Geef een zoekterm op, of een grens op een voedingswaarde (bijvoorbeeld kcal_max of protein_min)")
     limit = _int_arg(args, "limit", 20, 1, 50)
-    if filtered:
-        data = await recipe_nutrition.search(query, kcal_min, kcal_max, 1, limit, wait=MCP_KCAL_WAIT)
+    if limits:
+        data = await recipe_nutrition.search(query, limits, 1, limit, wait=MCP_KCAL_WAIT)
     else:
         data = await mealie.search_recipes(query, 1, limit)
     answer: dict[str, Any] = {
         "total": data["total"],
         "recipes": [
             {"slug": r["slug"], "name": r["name"], "minutes": r["minutes"], "portions": r["portions"],
-             "kcalPerServing": r.get("kcal"), "tags": r["tags"], "url": await mealie.recipe_page_url(r["slug"])}
+             "kcalPerServing": r.get("kcal"), "nutritionPerServing": _nutrition_out(_found(r.get("nutrition"))),
+             "tags": r["tags"], "url": await mealie.recipe_page_url(r["slug"])}
             for r in data["recipes"]
         ],
     }
-    if filtered:
-        answer["withoutKcal"] = data["withoutKcal"]
-        if data["withoutKcal"]:
-            answer["note"] = f"{data['withoutKcal']} recepten hebben geen calorieën in Mealie en staan er niet bij."
+    if limits:
+        missing = data["withoutValues"]
+        answer["withoutValues"] = missing
+        answer["withoutKcal"] = missing  # de naam uit 4.4
+        if missing:
+            answer["note"] = f"{missing} recepten hebben de gevraagde voedingswaarden niet in Mealie en staan er niet bij."
         if data.get("indexing"):
             progress = data["indexing"]
             answer["note"] = (
-                f"MealieShopper leest de calorieën van de recepten nog in ({progress['done']} van {progress['total']}); "
+                f"MealieShopper leest de voedingswaarden van de recepten nog in ({progress['done']} van {progress['total']}); "
                 "vraag het over een minuut opnieuw voor de volledige lijst."
             )
     return answer
@@ -207,7 +251,8 @@ async def tool_saved_recipes(args: dict[str, Any]) -> Any:
     result = {
         "total": len(recipes),
         "syncedAt": data.get("syncedAt"),
-        "recipes": [{"title": r["title"], "url": r["url"]} for r in recipes[:MAX_LIST_ITEMS]],
+        # De voedingswaarden per portie zodra MealieShopper ze bij AH heeft opgehaald (zie ah_recipes.start_fill), anders null.
+        "recipes": [{"title": r["title"], "url": r["url"], "nutritionPerServing": _nutrition_out(_found(r.get("nutrition")))} for r in recipes[:MAX_LIST_ITEMS]],
     }
     if group is not None:
         result["group"] = group["name"]
@@ -701,9 +746,23 @@ def _schema(properties: dict[str, Any] | None = None, required: list[str] | None
 
 READ_ONLY = {"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": True}
 
+# De grenzen op voedingswaarden voor search_mealie_recipes: <naam>_min en <naam>_max per waarde uit nutrition.FILTERS.
+_NUTRITION_WORDS = {
+    "kcal": "kcal", "protein": "gram eiwit", "fat": "gram vet", "carbs": "gram koolhydraten", "sugar": "gram suikers",
+    "fiber": "gram vezels", "salt": "gram zout",
+}
+_NUTRITION_BOUNDS: dict[str, Any] = {
+    f"{name}_{side}": {
+        "type": "number" if decimals else "integer", "minimum": 0, "maximum": top,
+        "description": f"{'Minimaal' if side == 'min' else 'Maximaal'} aantal {_NUTRITION_WORDS[name]} per persoon (per portie).",
+    }
+    for name, (_field, top, decimals) in nutrition.FILTERS.items()
+    for side in ("min", "max")
+}
+
 TOOLS: dict[str, dict[str, Any]] = {
     "get_week_menu": {
-        "description": "Het weekmenu uit Mealie: per dag en maaltijd het id, het recept (of de notitie), de porties, de calorieën (kcalPerServing per persoon en kcalTotal voor de porties samen, als Mealie ze heeft), de link en de ingrediënten (omgerekend naar de porties uit de planner van Mealie). Standaard de huidige week, vanaf de eerste dag van de week die in MealieShopper of Mealie is ingesteld (anders maandag). Plannen gaat met plan_meal, weghalen met remove_planned_meal.",
+        "description": "Het weekmenu uit Mealie: per dag en maaltijd het id, het recept (of de notitie), de porties, de calorieën (kcalPerServing per persoon en kcalTotal voor de porties samen, als Mealie ze heeft), alle voedingswaarden (nutritionPerServing en nutritionTotal: kcal, eiwit, vet, verzadigd vet, koolhydraten, suikers en vezels in gram, zout in gram), de link en de ingrediënten (omgerekend naar de porties uit de planner van Mealie). In days staat per dag wat één persoon binnenkrijgt (perPerson, de som per portie van de maaltijden met een recept) en hoeveel maaltijden geen voedingswaarden hebben. Standaard de huidige week, vanaf de eerste dag van de week die in MealieShopper of Mealie is ingesteld (anders maandag). Plannen gaat met plan_meal, weghalen met remove_planned_meal.",
         "inputSchema": _schema(
             {
                 "start_date": {"type": "string", "description": "Eerste dag, JJJJ-MM-DD. Standaard de eerste dag van deze week (zoals ingesteld in MealieShopper of Mealie, anders maandag)."},
@@ -714,12 +773,11 @@ TOOLS: dict[str, dict[str, Any]] = {
         "handler": tool_week_menu,
     },
     "search_mealie_recipes": {
-        "description": "Zoek in de eigen recepten in Mealie, op een zoekterm en/of op calorieën per persoon (kcal_min, kcal_max). Geeft per recept de slug (nodig voor plan_meal), naam, bereidingstijd, personen, kcal per persoon (kcalPerServing, als Mealie die heeft), tags en link. Met een kcal-grens vallen recepten zonder calorieën weg (withoutKcal telt ze).",
+        "description": "Zoek in de eigen recepten in Mealie, op een zoekterm en/of op voedingswaarden per persoon (per portie): kcal, eiwit, vet, koolhydraten, suikers en vezels in gram, zout in gram (bijvoorbeeld protein_min 30 en salt_max 1.5). Geeft per recept de slug (nodig voor plan_meal), naam, bereidingstijd, personen, kcal per persoon (kcalPerServing), alle voedingswaarden (nutritionPerServing, als Mealie ze heeft), tags en link. Met een grens vallen recepten zonder die voedingswaarde weg (withoutValues telt ze).",
         "inputSchema": _schema(
             {
-                "query": {"type": "string", "description": "Zoekterm, bijvoorbeeld 'curry'. Mag leeg zijn als kcal_min of kcal_max is opgegeven."},
-                "kcal_min": {"type": "integer", "minimum": 0, "maximum": recipe_nutrition.MAX_KCAL, "description": "Minimaal aantal kcal per persoon (per portie)."},
-                "kcal_max": {"type": "integer", "minimum": 0, "maximum": recipe_nutrition.MAX_KCAL, "description": "Maximaal aantal kcal per persoon (per portie), bijvoorbeeld 600."},
+                "query": {"type": "string", "description": "Zoekterm, bijvoorbeeld 'curry'. Mag leeg zijn als er een grens op een voedingswaarde is opgegeven."},
+                **_NUTRITION_BOUNDS,
                 "limit": {"type": "integer", "minimum": 1, "maximum": 50, "description": "Aantal recepten, standaard 20."},
             },
         ),

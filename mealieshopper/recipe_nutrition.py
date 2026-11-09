@@ -19,6 +19,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import math
 import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -36,7 +37,6 @@ INDEX_TTL = 600  # seconden: zo lang geldt de cache als bij, daarna leest een zo
 RETRY_AFTER = 60  # seconden na een mislukte ronde (Mealie onbereikbaar) voordat een zoekopdracht het opnieuw probeert
 STALE_WITHOUT_STAMP = 24 * 3600  # een recept zonder `updatedAt` halen we na een dag opnieuw op
 MAX_RECIPES = 2000  # zoveel recepten lezen we hooguit in
-MAX_KCAL = 5000  # de hoogste grens die je kunt opgeven, per portie
 SEARCH_WAIT = 15.0  # seconden die een zoekopdracht op de eerste ronde wacht; daarna komt wat er al is, met de voortgang
 
 SCHEMA = """
@@ -57,6 +57,11 @@ CREATE TABLE IF NOT EXISTS mealie_recipe_nutrition_meta (
 );
 """
 
+# Kolommen die later kwamen, zoals `offers.COLUMN_MIGRATIONS`: (tabel, kolom, soort).
+# - `nutrition` (4.5.0): alle voedingswaarden als JSON (`{veld: getal}`, zie nutrition.values). Een rij van daarvoor heeft NULL
+#   en wordt bij de volgende ronde opnieuw opgehaald.
+COLUMN_MIGRATIONS: tuple[tuple[str, str, str], ...] = (("mealie_recipe_nutrition", "nutrition", "TEXT"),)
+
 _refresh_task: asyncio.Task[Any] | None = None
 _refresh: dict[str, Any] = {"done": 0, "total": 0, "error": "", "failedAt": 0.0}
 
@@ -66,7 +71,22 @@ async def _connect() -> AsyncIterator[aiosqlite.Connection]:
     """Een verbinding met de tabellen van de cache. Sluit zonder commit, zoals `auth.connect`."""
     async with auth.connect() as conn:
         await conn.executescript(SCHEMA)
+        for table, column, kind in COLUMN_MIGRATIONS:
+            if column not in {row["name"] for row in await conn.execute_fetchall(f"PRAGMA table_info({table})")}:
+                await conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {kind}")
         yield conn
+
+
+def _values(row: Any) -> dict[str, float]:
+    """De voedingswaarden van een rij; een rij van vóór 4.5.0 (`nutrition` NULL) heeft alleen de kcal."""
+    raw = row["nutrition"]
+    if raw is None:
+        return {"calories": row["kcal"]} if row["kcal"] is not None else {}
+    try:
+        found = json.loads(raw)
+    except ValueError:
+        return {}
+    return {key: float(amount) for key, amount in found.items() if key in nutrition.UNITS and isinstance(amount, (int, float))} if isinstance(found, dict) else {}
 
 
 def _stamp(recipe: dict[str, Any]) -> str:
@@ -89,35 +109,36 @@ async def remember(recipe: dict[str, Any]) -> None:
         if not recipe_id or not slug:
             return
         card = mealie.recipe_card(recipe)
+        found = nutrition.values(recipe.get("nutrition"))
         async with _connect() as conn:
             await conn.execute(
                 """
-                INSERT INTO mealie_recipe_nutrition (recipe_id, slug, name, updated_at, kcal, card, fetched_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO mealie_recipe_nutrition (recipe_id, slug, name, updated_at, kcal, card, fetched_at, nutrition)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(recipe_id) DO UPDATE SET slug = excluded.slug, name = excluded.name, updated_at = excluded.updated_at,
-                  kcal = excluded.kcal, card = excluded.card, fetched_at = excluded.fetched_at
+                  kcal = excluded.kcal, card = excluded.card, fetched_at = excluded.fetched_at, nutrition = excluded.nutrition
                 """,
-                (recipe_id, slug, card["name"], _stamp(recipe), nutrition.kcal(recipe.get("nutrition")), json.dumps(card), time.time()),
+                (recipe_id, slug, card["name"], _stamp(recipe), found.get("calories"), json.dumps(card), time.time(), json.dumps(found)),
             )
             await conn.commit()
     except Exception:  # noqa: BLE001 - een cache die niet bijgewerkt wordt, is geen reden om het recept niet te tonen
         log.debug("Calorieën van een recept niet bewaard", exc_info=True)
 
 
-async def lookup(slugs: list[str]) -> dict[str, float | None]:
-    """De bekende kcal per portie bij deze slugs (alleen de recepten die al in de cache staan)."""
+async def lookup(slugs: list[str]) -> dict[str, dict[str, float]]:
+    """De bekende voedingswaarden per portie bij deze slugs (alleen de recepten die al in de cache staan)."""
     wanted = [str(slug) for slug in slugs if slug]
     if not wanted:
         return {}
     try:
         async with _connect() as conn:
             rows = await conn.execute_fetchall(
-                f"SELECT slug, kcal FROM mealie_recipe_nutrition WHERE slug IN ({','.join('?' * len(wanted))})", wanted
+                f"SELECT slug, kcal, nutrition FROM mealie_recipe_nutrition WHERE slug IN ({','.join('?' * len(wanted))})", wanted
             )
-    except Exception:  # noqa: BLE001 - zonder cache zijn er gewoon geen calorieën bij de kaarten
-        log.debug("Calorieën van de recepten niet gelezen", exc_info=True)
+    except Exception:  # noqa: BLE001 - zonder cache zijn er gewoon geen voedingswaarden bij de kaarten
+        log.debug("Voedingswaarden van de recepten niet gelezen", exc_info=True)
         return {}
-    return {row["slug"]: row["kcal"] for row in rows}
+    return {row["slug"]: _values(row) for row in rows}
 
 
 def refresh_running() -> asyncio.Task[Any] | None:
@@ -156,13 +177,13 @@ async def _run_refresh() -> None:
             if meta is not None and meta["base"] != base:
                 await conn.execute("DELETE FROM mealie_recipe_nutrition")  # een ander Mealie: begin opnieuw
                 await conn.commit()
-            rows = await conn.execute_fetchall("SELECT recipe_id, updated_at, fetched_at FROM mealie_recipe_nutrition")
-        known = {row["recipe_id"]: (row["updated_at"], row["fetched_at"]) for row in rows}
+            rows = await conn.execute_fetchall("SELECT recipe_id, updated_at, fetched_at, nutrition FROM mealie_recipe_nutrition")
+        known = {row["recipe_id"]: (row["updated_at"], row["fetched_at"], row["nutrition"]) for row in rows}
         now = time.time()
 
         def stale(summary: dict[str, Any]) -> bool:
             row = known.get(str(summary.get("id") or ""))
-            if row is None:
+            if row is None or row[2] is None:  # nieuw, of van vóór 4.5.0 (alleen de kcal)
                 return True
             stamp = _stamp(summary)
             return stamp != row[0] if stamp else now - row[1] > STALE_WITHOUT_STAMP
@@ -223,34 +244,61 @@ async def _fresh(wait: float) -> dict[str, int] | None:
 # --- zoeken -----------------------------------------------------------------------------------------------------
 
 
-def kcal_bound(value: Any) -> int | None:
-    """Een grens uit een verzoek: een heel getal van 0 tot en met `MAX_KCAL`, of None als er niets staat."""
+Limits = dict[str, tuple[float | None, float | None]]
+
+
+def _bound(value: Any, top: int, decimals: int) -> float | None:
+    """Eén grens uit een verzoek: een getal van 0 tot en met `top`, afgerond op `decimals`, of None als er niets staat."""
     if value is None or isinstance(value, bool) or (isinstance(value, str) and not value.strip()):
         return None
     try:
-        number = int(float(str(value).strip().replace(",", ".")))
+        amount = float(str(value).strip().replace(",", "."))
     except (TypeError, ValueError):
-        raise ValueError(tr("Geef de calorieën op als een getal.", "Give the calories as a number.")) from None
-    return max(0, min(MAX_KCAL, number))
+        amount = math.nan
+    if not math.isfinite(amount):
+        raise ValueError(tr("Geef de voedingswaarden op als een getal.", "Give the nutrition values as numbers."))
+    amount = max(0.0, min(float(top), amount))
+    return round(amount, decimals) if decimals else float(int(amount))
 
 
-def kcal_range(low: Any, high: Any) -> tuple[int | None, int | None]:
-    """De grenzen van een zoekopdracht; staat de ondergrens boven de bovengrens, dan draaien we ze om."""
-    minimum, maximum = kcal_bound(low), kcal_bound(high)
-    if minimum is not None and maximum is not None and minimum > maximum:
-        minimum, maximum = maximum, minimum
-    return minimum, maximum
+def bounds(source: Any, *, mcp: bool = False) -> Limits:
+    """De grenzen van een zoekopdracht per waarde (zie `nutrition.FILTERS`): `<naam>Min` en `<naam>Max` uit een verzoek, of
+    met `mcp` `<naam>_min` en `<naam>_max`. Alleen wat er staat; een ondergrens boven de bovengrens draaien we om."""
+    found: Limits = {}
+    for name, (_field, top, decimals) in nutrition.FILTERS.items():
+        keys = (f"{name}_min", f"{name}_max") if mcp else (f"{name}Min", f"{name}Max")
+        low, high = (_bound(source.get(key), top, decimals) for key in keys)
+        if low is None and high is None:
+            continue
+        if low is not None and high is not None and low > high:
+            low, high = high, low
+        found[name] = (low, high)
+    return found
+
+
+def fits(found: dict[str, float], limits: Limits) -> bool:
+    """Of een recept binnen alle grenzen valt; een recept zonder een gevraagde waarde valt erbuiten."""
+    for name, (low, high) in limits.items():
+        amount = nutrition.value_of(found, name)
+        if amount is None or (low is not None and amount < low - 1e-9) or (high is not None and amount > high + 1e-9):
+            return False
+    return True
+
+
+def card_with(card: dict[str, Any], found: dict[str, float]) -> dict[str, Any]:
+    """Een kaart met de kcal per portie (`kcal`, of None) en alle voedingswaarden (`nutrition`, zie nutrition.items)."""
+    kcal = found.get("calories")
+    return {**card, "kcal": round(kcal) if kcal is not None else None, "nutrition": nutrition.items(found)}
 
 
 async def search(
-    query: Any, kcal_min: int | None, kcal_max: int | None, page: Any = 1, per_page: int = mealie.SEARCH_PAGE,
-    wait: float = SEARCH_WAIT,
+    query: Any, limits: Limits, page: Any = 1, per_page: int = mealie.SEARCH_PAGE, wait: float = SEARCH_WAIT,
 ) -> dict[str, Any]:
-    """Je recepten in Mealie met een kcal per portie tussen `kcal_min` en `kcal_max` (elk mag None zijn).
+    """Je recepten in Mealie die binnen de grenzen vallen (`limits`, zie `bounds`), per portie.
 
     Met een zoekterm bepaalt Mealie welke recepten passen en in welke volgorde; zonder zoekterm komen alle recepten uit de
-    cache, op naam. Een recept zonder bekende kcal valt weg en telt mee in `withoutKcal`. Loopt de eerste ronde nog, dan staat
-    de voortgang in `indexing` (`{done, total}`) en komt wat er al bekend is.
+    cache, op naam. Een recept zonder een gevraagde waarde valt weg en telt mee in `withoutValues` (en, zoals in 4.4,
+    `withoutKcal`). Loopt de eerste ronde nog, dan staat de voortgang in `indexing` (`{done, total}`) en komt wat er al bekend is.
     """
     await mealie.ensure_configured()
     try:
@@ -260,28 +308,27 @@ async def search(
     size = max(1, min(100, int(per_page)))
     indexing = await _fresh(wait)
     async with _connect() as conn:
-        rows = await conn.execute_fetchall("SELECT slug, name, kcal, card FROM mealie_recipe_nutrition")
+        rows = await conn.execute_fetchall("SELECT slug, name, kcal, card, nutrition FROM mealie_recipe_nutrition")
     if not rows and indexing is None and _refresh["error"]:
         raise RuntimeError(_refresh["error"])
-    known = {row["slug"]: row for row in rows}
+    known = {row["slug"]: _values(row) for row in rows}
     text = " ".join(str(query or "").split())[:200]
     if text:
-        found = await mealie.list_recipes(MAX_RECIPES, search=text)
-        candidates = [(mealie.recipe_card(summary), (known.get(summary["slug"]) or {"kcal": None})["kcal"]) for summary in found]
+        listed = await mealie.list_recipes(MAX_RECIPES, search=text)
+        candidates = [(mealie.recipe_card(summary), known.get(summary["slug"]) or {}) for summary in listed]
     else:
-        candidates = [(json.loads(row["card"]), row["kcal"]) for row in sorted(rows, key=lambda row: _sort_name(row["name"]))]
+        candidates = [(json.loads(row["card"]), known[row["slug"]]) for row in sorted(rows, key=lambda row: _sort_name(row["name"]))]
 
-    def fits(kcal: float | None) -> bool:
-        return kcal is not None and (kcal_min is None or kcal >= kcal_min) and (kcal_max is None or kcal <= kcal_max)
-
-    matches = [{**card, "kcal": round(kcal)} for card, kcal in candidates if kcal is not None and fits(kcal)]
+    matches = [card_with(card, found) for card, found in candidates if fits(found, limits)]
+    missing = sum(1 for _, found in candidates if any(nutrition.value_of(found, name) is None for name in limits))
     start = (number - 1) * size
     return {
         "recipes": matches[start:start + size],
         "total": len(matches),
         "page": number,
         "more": start + size < len(matches),
-        "withoutKcal": sum(1 for _, kcal in candidates if kcal is None),
+        "withoutValues": missing,
+        "withoutKcal": missing,
         "indexing": indexing,
     }
 

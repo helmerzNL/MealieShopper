@@ -34,6 +34,16 @@ def recipe(number, name, kcal=None, stamp="2026-11-01T10:00:00", **extra):
     return {**summary(number, name, stamp), "nutrition": nutrition, "recipeIngredient": [], **extra}
 
 
+def kcal(found):
+    """De kcal per slug uit `lookup` (dat alle voedingswaarden geeft)."""
+    return {slug: values.get("calories") for slug, values in found.items()}
+
+
+def K(low=None, high=None):
+    """Grenzen op alleen de kcal, zoals `bounds` ze geeft."""
+    return {"kcal": (low, high)}
+
+
 def page(items):
     return httpx.Response(200, json={"page": 1, "per_page": 100, "total": len(items), "total_pages": 1, "items": items})
 
@@ -87,9 +97,10 @@ class CacheTest(NutritionCase):
         await recipe_nutrition.remember(recipe(1, "Lasagne", 490))
         await recipe_nutrition.remember(recipe(2, "Zonder", None))
         await recipe_nutrition.remember({"slug": "zonder-id", "nutrition": {"calories": "100"}})
-        self.assertEqual(await recipe_nutrition.lookup(["recept-1", "recept-2", "zonder-id", "onbekend"]), {"recept-1": 490, "recept-2": None})
+        found = await recipe_nutrition.lookup(["recept-1", "recept-2", "zonder-id", "onbekend"])
+        self.assertEqual(found, {"recept-1": {"calories": 490, "fatContent": 10}, "recept-2": {"fatContent": 10}}, "alle voedingswaarden")
         await recipe_nutrition.remember(recipe(1, "Lasagne", 510))
-        self.assertEqual(await recipe_nutrition.lookup(["recept-1"]), {"recept-1": 510}, "een nieuwere versie vervangt de oude")
+        self.assertEqual(kcal(await recipe_nutrition.lookup(["recept-1"])), {"recept-1": 510}, "een nieuwere versie vervangt de oude")
         self.assertEqual(await recipe_nutrition.lookup([]), {})
 
     async def test_every_recipe_fetched_from_mealie_goes_into_the_cache(self):
@@ -98,7 +109,7 @@ class CacheTest(NutritionCase):
             self.mock_mealie(api)
             fetched = await mealie.get_recipe("recept-1")
         self.assertEqual(fetched["name"], "Lasagne")
-        self.assertEqual(await recipe_nutrition.lookup(["recept-1"]), {"recept-1": 490})
+        self.assertEqual(kcal(await recipe_nutrition.lookup(["recept-1"])), {"recept-1": 490})
 
     async def test_a_failing_cache_does_not_break_fetching_a_recipe(self):
         self.add(recipe(1, "Lasagne", 490))
@@ -118,7 +129,7 @@ class CacheTest(NutritionCase):
             await self.refresh()
         self.assertEqual(sorted(self.details), ["recept-2", "recept-4"], "alleen het gewijzigde en het nieuwe recept")
         self.assertEqual(
-            await recipe_nutrition.lookup(["recept-1", "recept-2", "recept-3", "recept-4"]),
+            kcal(await recipe_nutrition.lookup(["recept-1", "recept-2", "recept-3", "recept-4"])),
             {"recept-1": 490, "recept-2": 650, "recept-4": 250},
         )
         self.assertEqual(recipe_nutrition.refresh_progress(), {"done": 2, "total": 2})
@@ -132,16 +143,16 @@ class CacheTest(NutritionCase):
         with routes() as api:
             self.mock_mealie(api)
             await self.refresh()
-        self.assertEqual(await recipe_nutrition.lookup(["recept-9", "recept-1"]), {"recept-1": 490})
+        self.assertEqual(kcal(await recipe_nutrition.lookup(["recept-9", "recept-1"])), {"recept-1": 490})
 
     async def test_a_failing_round_keeps_the_error_and_waits_before_trying_again(self):
         with routes() as api:
             listing = api.get(LIST).mock(return_value=httpx.Response(500, json={"detail": "kapot"}))
             with self.assertRaises(RuntimeError):
-                await recipe_nutrition.search("", 0, 600)
+                await recipe_nutrition.search("", K(0, 600))
             self.assertEqual(listing.call_count, 1)
             with self.assertRaises(RuntimeError):
-                await recipe_nutrition.search("", 0, 600)
+                await recipe_nutrition.search("", K(0, 600))
         self.assertEqual(listing.call_count, 1, "binnen RETRY_AFTER geen nieuwe ronde")
 
 
@@ -156,7 +167,7 @@ class SearchTest(NutritionCase):
     async def test_without_a_query_all_recipes_by_name_within_the_bounds(self):
         with routes() as api:
             self.mock_mealie(api)
-            found = await recipe_nutrition.search(None, 400, 600)
+            found = await recipe_nutrition.search(None, K(400, 600))
         self.assertEqual([(r["name"], r["kcal"]) for r in found["recipes"]], [("Bami", 500), ("Lasagne", 490)])
         self.assertEqual((found["total"], found["page"], found["more"], found["withoutKcal"], found["indexing"]), (2, 1, False, 1, None))
         card = found["recipes"][1]
@@ -166,21 +177,21 @@ class SearchTest(NutritionCase):
     async def test_only_a_minimum_or_only_a_maximum(self):
         with routes() as api:
             self.mock_mealie(api)
-            self.assertEqual([r["name"] for r in (await recipe_nutrition.search("", 600, None))["recipes"]], ["curry"])
-            self.assertEqual([r["name"] for r in (await recipe_nutrition.search("", None, 400))["recipes"]], ["Appeltaart"])
+            self.assertEqual([r["name"] for r in (await recipe_nutrition.search("", K(600, None)))["recipes"]], ["curry"])
+            self.assertEqual([r["name"] for r in (await recipe_nutrition.search("", K(None, 400)))["recipes"]], ["Appeltaart"])
 
     async def test_pages(self):
         with routes() as api:
             self.mock_mealie(api)
-            first = await recipe_nutrition.search("", 0, 5000, page=1, per_page=2)
-            second = await recipe_nutrition.search("", 0, 5000, page=2, per_page=2)
+            first = await recipe_nutrition.search("", K(0, 5000), page=1, per_page=2)
+            second = await recipe_nutrition.search("", K(0, 5000), page=2, per_page=2)
         self.assertEqual(([r["name"] for r in first["recipes"]], first["more"]), (["Appeltaart", "Bami"], True))
         self.assertEqual(([r["name"] for r in second["recipes"]], second["more"]), (["curry", "Lasagne"], False))
 
     async def test_with_a_query_mealie_decides_what_matches_and_the_order(self):
         with routes() as api:
             self.mock_mealie(api, search_order=["recept-2", "recept-4", "recept-1"])
-            found = await recipe_nutrition.search("  pasta   saus ", None, 700)
+            found = await recipe_nutrition.search("  pasta   saus ", K(None, 700))
             searched = [call for call in api.calls if "search" in call.request.url.params]
         self.assertEqual([r["name"] for r in found["recipes"]], ["curry", "Lasagne"])
         self.assertEqual(found["withoutKcal"], 1)
@@ -189,12 +200,12 @@ class SearchTest(NutritionCase):
     async def test_a_fresh_cache_does_not_read_the_list_again(self):
         with routes() as api:
             self.mock_mealie(api)
-            await recipe_nutrition.search("", 0, 600)
+            await recipe_nutrition.search("", K(0, 600))
             calls = len(api.calls)
-            await recipe_nutrition.search("", 0, 700)
+            await recipe_nutrition.search("", K(0, 700))
             self.assertEqual(len(api.calls), calls, "binnen INDEX_TTL komt alles uit de cache")
             with mock.patch.object(recipe_nutrition, "INDEX_TTL", 0):
-                await recipe_nutrition.search("", 0, 700)
+                await recipe_nutrition.search("", K(0, 700))
             self.assertGreater(len(api.calls), calls)
 
     async def test_while_the_first_round_runs_the_progress_comes_along(self):
@@ -208,23 +219,69 @@ class SearchTest(NutritionCase):
 
         with routes() as api, mock.patch.object(mealie, "get_recipe", side_effect=slow):
             self.mock_mealie(api)
-            found = await recipe_nutrition.search("", 0, 5000, wait=0.2)
+            found = await recipe_nutrition.search("", K(0, 5000), wait=0.2)
             self.assertEqual(found["indexing"], {"done": 1, "total": 5})
             self.assertEqual([r["name"] for r in found["recipes"]], ["Appeltaart"], "wat er al is")
             gate.set()
             await recipe_nutrition.refresh_running()
-            found = await recipe_nutrition.search("", 0, 5000, wait=0.2)
+            found = await recipe_nutrition.search("", K(0, 5000), wait=0.2)
         self.assertIsNone(found["indexing"])
         self.assertEqual(found["total"], 4)
 
     async def test_bounds_from_a_request(self):
-        self.assertEqual(recipe_nutrition.kcal_range("400", "600"), (400, 600))
-        self.assertEqual(recipe_nutrition.kcal_range("600", "400"), (400, 600), "omgedraaid")
-        self.assertEqual(recipe_nutrition.kcal_range("", None), (None, None))
-        self.assertEqual(recipe_nutrition.kcal_range("-5", "99999"), (0, recipe_nutrition.MAX_KCAL))
-        self.assertEqual(recipe_nutrition.kcal_range("450,5", " "), (450, None))
-        with self.assertRaises(ValueError):
-            recipe_nutrition.kcal_range("veel", None)
+        self.assertEqual(recipe_nutrition.bounds({"kcalMin": "400", "kcalMax": "600"}), {"kcal": (400, 600)})
+        self.assertEqual(recipe_nutrition.bounds({"kcalMin": "600", "kcalMax": "400"}), {"kcal": (400, 600)}, "omgedraaid")
+        self.assertEqual(recipe_nutrition.bounds({"kcalMin": "", "kcalMax": None, "q": "pasta"}), {})
+        self.assertEqual(recipe_nutrition.bounds({"kcalMin": "-5", "kcalMax": "99999"}), {"kcal": (0, 5000)})
+        self.assertEqual(recipe_nutrition.bounds({"kcalMin": "450,5"}), {"kcal": (450, None)})
+        # Elke voedingswaarde, zout met één decimaal; MCP schrijft <naam>_min en <naam>_max.
+        self.assertEqual(
+            recipe_nutrition.bounds({"proteinMin": "30", "sugarMax": "12.7", "saltMax": "1,55", "fiberMin": "4", "carbsMax": "80", "fatMax": "25"}),
+            {"protein": (30, None), "fat": (None, 25), "carbs": (None, 80), "sugar": (None, 12), "fiber": (4, None), "salt": (None, 1.6)},
+        )
+        self.assertEqual(recipe_nutrition.bounds({"protein_min": 30, "salt_max": 1.5, "proteinMin": 99}, mcp=True), {"protein": (30, None), "salt": (None, 1.5)})
+        for bad in ({"kcalMin": "veel"}, {"saltMax": "nan"}, {"proteinMin": "inf"}):
+            with self.assertRaises(ValueError):
+                recipe_nutrition.bounds(bad)
+
+    async def test_on_every_nutrition_value_and_salt_from_sodium(self):
+        self.recipes.clear()
+        n = lambda kcal, protein, sugar, sodium: {"calories": str(kcal), "proteinContent": str(protein), "sugarContent": sugar, "sodiumContent": sodium}  # noqa: E731
+        self.add(
+            recipe(1, "Kip", nutrition=n(600, 42, "5", "400")),       # 1 g zout
+            recipe(2, "Pasta", nutrition=n(700, 20, "15", "800")),    # 2 g zout
+            recipe(3, "Salade", nutrition=n(350, 31, "4", None)),     # geen natrium
+            recipe(4, "Vis", nutrition=n(500, 35, "3", "560")),       # 1,4 g zout
+        )
+        with routes() as api:
+            self.mock_mealie(api)
+            protein = await recipe_nutrition.search("", {"protein": (30, None)})
+            salty = await recipe_nutrition.search("", {"protein": (30, None), "salt": (None, 1.4)})
+            sweet = await recipe_nutrition.search("", {"sugar": (None, 4)})
+        self.assertEqual([r["name"] for r in protein["recipes"]], ["Kip", "Salade", "Vis"])
+        self.assertEqual(([r["name"] for r in salty["recipes"]], salty["withoutValues"]), (["Kip", "Vis"], 1), "zonder natrium valt de salade weg")
+        self.assertEqual(salty["withoutKcal"], salty["withoutValues"], "de naam uit 4.4 blijft")
+        self.assertEqual([r["name"] for r in sweet["recipes"]], ["Salade", "Vis"])
+        fish = salty["recipes"][1]
+        self.assertEqual(fish["kcal"], 500)
+        self.assertIn({"key": "sodiumContent", "quantity": 560, "unit": "mg"}, fish["nutrition"])
+
+    async def test_a_row_from_before_all_values_is_fetched_again(self):
+        # Een rij van 4.4 had alleen de kcal (`nutrition` NULL): de volgende ronde haalt hem opnieuw op, zonder de cache te legen.
+        self.recipes.clear()
+        self.add(recipe(1, "Lasagne", 490))
+        async with recipe_nutrition._connect() as conn:
+            await conn.execute(
+                "INSERT INTO mealie_recipe_nutrition (recipe_id, slug, name, updated_at, kcal, card, fetched_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (uuid(1), "recept-1", "Lasagne", "2026-11-01T10:00:00", 490, json.dumps({"slug": "recept-1", "name": "Lasagne"}), time.time()),
+            )
+            await conn.commit()
+        self.assertEqual(await recipe_nutrition.lookup(["recept-1"]), {"recept-1": {"calories": 490}}, "tot dan alleen de kcal")
+        with routes() as api:
+            self.mock_mealie(api)
+            await self.refresh()
+        self.assertEqual(self.details, ["recept-1"])
+        self.assertEqual(await recipe_nutrition.lookup(["recept-1"]), {"recept-1": {"calories": 490, "fatContent": 10}})
 
 
 class RouteTest(NutritionCase):
@@ -232,6 +289,13 @@ class RouteTest(NutritionCase):
         super().setUp()
         self.add(recipe(1, "Lasagne", 490), recipe(2, "Curry", 650))
         self.client = self.client_for(create_app())
+
+    async def test_the_search_route_filters_on_any_value(self):
+        with routes() as api:
+            self.mock_mealie(api)
+            answer = (await self.client.get("/api/mealie/recipes?fatMin=10&kcalMax=600")).get_json()
+            self.assertEqual([r["name"] for r in answer["recipes"]], ["Lasagne"])
+            self.assertEqual((await self.client.get("/api/mealie/recipes?saltMax=1,5")).get_json()["withoutValues"], 2, "geen natrium bekend")
 
     async def test_the_search_route_filters_on_kcal_when_a_bound_is_given(self):
         with routes() as api:
@@ -302,7 +366,7 @@ class BackfillTest(NutritionCase):
             {key: status[key] for key in ("state", "total", "checked", "updated", "skipped", "failed")},
             {"state": "done", "total": 4, "checked": 4, "updated": 1, "skipped": 3, "failed": 0},
         )
-        self.assertEqual(await recipe_nutrition.lookup(["recept-1"]), {"recept-1": 490})
+        self.assertEqual(kcal(await recipe_nutrition.lookup(["recept-1"])), {"recept-1": 490})
         self.assertEqual(record.call_args.kwargs["detail"]["updated"], 1)
 
     async def test_a_refusal_of_ah_stops(self):

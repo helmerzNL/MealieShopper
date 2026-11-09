@@ -88,5 +88,34 @@ class WriteTest(unittest.TestCase):
         self.assertIsNone(nutrition.total(490, 0))
 
 
+class SaltAndTotalsTest(unittest.TestCase):
+    VALUES = {"calories": 490.0, "proteinContent": 27.0, "sugarContent": 6.0, "sodiumContent": 200.0}
+
+    def test_salt_is_sodium_times_two_and_a_half_in_grams(self):
+        self.assertEqual(nutrition.salt_g(200), 0.5)
+        self.assertEqual(nutrition.sodium_mg(1.5), 600)
+        self.assertIsNone(nutrition.salt_g(None))
+        self.assertIsNone(nutrition.sodium_mg(None))
+
+    def test_the_value_of_a_filter_and_salt_comes_from_sodium(self):
+        self.assertEqual(nutrition.value_of(self.VALUES, "kcal"), 490)
+        self.assertEqual(nutrition.value_of(self.VALUES, "protein"), 27)
+        self.assertEqual(nutrition.value_of(self.VALUES, "salt"), 0.5)
+        self.assertIsNone(nutrition.value_of(self.VALUES, "fiber"))
+        self.assertEqual(list(nutrition.FILTERS), ["kcal", "protein", "fat", "carbs", "sugar", "fiber", "salt"])
+
+    def test_brief_for_a_card(self):
+        self.assertEqual(nutrition.brief(self.VALUES), {"kcal": 490, "protein": 27, "sugar": 6, "salt": 0.5})
+        self.assertEqual(nutrition.brief({}), {"kcal": None, "protein": None, "sugar": None, "salt": None})
+
+    def test_totals_add_up_and_scale(self):
+        totals = nutrition.add({}, self.VALUES)
+        nutrition.add(totals, {"calories": 510.0, "fiberContent": 4.0, "servingSize": 300})
+        self.assertEqual(totals, {"calories": 1000, "proteinContent": 27, "sugarContent": 6, "sodiumContent": 200, "fiberContent": 4})
+        self.assertEqual(nutrition.scaled(self.VALUES, 2)["sodiumContent"], 400)
+        self.assertIsNone(nutrition.scaled(self.VALUES, None))
+        self.assertIsNone(nutrition.scaled({}, 2))
+
+
 if __name__ == "__main__":
     unittest.main()

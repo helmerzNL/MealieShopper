@@ -634,49 +634,134 @@ function recipeKcal(recipe) {
   return Number(value) > 0 ? Number(value) : null;
 }
 
-// De namen van de voedingswaarden (de velden van schema.org, zie mealieshopper/nutrition.py).
-const NUTRITION_LABELS = {
-  calories: "nutrition.calories",
-  proteinContent: "nutrition.proteinContent",
-  fatContent: "nutrition.fatContent",
-  saturatedFatContent: "nutrition.saturatedFatContent",
-  unsaturatedFatContent: "nutrition.unsaturatedFatContent",
-  transFatContent: "nutrition.transFatContent",
-  carbohydrateContent: "nutrition.carbohydrateContent",
-  sugarContent: "nutrition.sugarContent",
-  fiberContent: "nutrition.fiberContent",
-  sodiumContent: "nutrition.sodiumContent",
-  cholesterolContent: "nutrition.cholesterolContent",
-};
+// ---- Voedingswaarden (vervolg op #283): per portie uit Mealie of de winkel, als `[{key, quantity, unit}]` (zie
+// mealieshopper/nutrition.py). Natrium (mg) tonen we als zout in gram, zoals op een verpakking: zout = natrium x 2,5.
+const SODIUM_MG_PER_SALT_G = 400;
 
-// "Per portie: Energie 490 kcal · Eiwit 27 g ..." onder een recept; verborgen als Calorieën tonen uit staat.
-function nutritionLine(items) {
-  const parts = (items || [])
-    .filter((item) => item && item.quantity != null)
-    .map((item) => `${NUTRITION_LABELS[item.key] ? t(NUTRITION_LABELS[item.key]) : item.name || item.key || ""} ${I18N.formatNumber(item.quantity)} ${item.unit || ""}`.trim());
-  return parts.length ? `<p class="muted nutrition-facts">${escapeHtml(t("rsearch.nutrition", { values: parts.join(" \u00b7 ") }))}</p>` : "";
+// De rijen van de tabel in de volgorde van een etiket: [veld, naam, ingesprongen ("waarvan ...")]. `salt` komt uit natrium.
+const NUTRITION_ROWS = [
+  ["calories", "nutrition.calories", false],
+  ["proteinContent", "nutrition.proteinContent", false],
+  ["fatContent", "nutrition.fatContent", false],
+  ["saturatedFatContent", "nutrition.saturatedFatContent", true],
+  ["unsaturatedFatContent", "nutrition.unsaturatedFatContent", true],
+  ["transFatContent", "nutrition.transFatContent", true],
+  ["carbohydrateContent", "nutrition.carbohydrateContent", false],
+  ["sugarContent", "nutrition.sugarContent", true],
+  ["fiberContent", "nutrition.fiberContent", false],
+  ["salt", "nutrition.salt", false],
+  ["cholesterolContent", "nutrition.cholesterolContent", false],
+];
+
+// De waarden als `{veld: getal}`, met `salt` (g) uit `sodiumContent` (mg).
+function nutritionValues(items) {
+  const values = {};
+  for (const item of items || []) {
+    if (item?.key && Number.isFinite(Number(item.quantity))) values[item.key] = Number(item.quantity);
+  }
+  if (values.sodiumContent != null) values.salt = values.sodiumContent / SODIUM_MG_PER_SALT_G;
+  return values;
 }
 
-// Of de calorieën te zien zijn (Instellingen, Voorkeuren, Weergave); zonder theme.js (in de tests) wel.
+// Een hoeveelheid met eenheid: kcal heel, gram met een decimaal onder de 10, zout met twee decimalen onder de 1 g.
+function nutrientAmount(key, value) {
+  const amount = Number(value);
+  if (value == null || !Number.isFinite(amount)) return "";
+  if (key === "calories") return `${I18N.formatNumber(Math.round(amount))} kcal`;
+  const digits = key === "salt" && amount < 1 ? 2 : amount < 10 ? 1 : 0;
+  const factor = 10 ** digits;
+  return `${I18N.formatNumber(Math.round(amount * factor) / factor)} ${key === "cholesterolContent" ? "mg" : "g"}`;
+}
+
+// De tabel "Voedingswaarden" onder een recept: per portie, en met `servings` (geplande porties, niet 1) ook het totaal.
+function nutritionTable(items, { servings = null, headingLevel = 4 } = {}) {
+  const values = nutritionValues(items);
+  const rows = NUTRITION_ROWS.filter(([key]) => values[key] != null);
+  if (!rows.length) return "";
+  const count = Number(servings) > 0 && Number(servings) !== 1 ? Number(servings) : 0;
+  const head = `<tr><th scope="col"><span class="visually-hidden">${escapeHtml(t("nutrition.title"))}</span></th><th scope="col">${escapeHtml(t("nutrition.per_serving"))}</th>${
+    count ? `<th scope="col">${escapeHtml(tn("nutrition.total", count))}</th>` : ""
+  }</tr>`;
+  const body = rows
+    .map(([key, label, sub]) => `<tr${sub ? ' class="nutrition-table__sub"' : ""}><th scope="row">${escapeHtml(t(label))}</th><td>${escapeHtml(nutrientAmount(key, values[key]))}</td>${
+      count ? `<td>${escapeHtml(nutrientAmount(key, values[key] * count))}</td>` : ""
+    }</tr>`)
+    .join("");
+  return `<section class="nutrition-facts"><h${headingLevel} class="nutrition-facts__title">${escapeHtml(t("nutrition.title"))}</h${headingLevel}>
+    <table class="nutrition-table"><thead>${head}</thead><tbody>${body}</tbody></table></section>`;
+}
+
+// "27 g eiwit", "6 g suiker" en "0,5 g zout" uit de waarden (nutritionValues), voor zover bekend.
+function nutritionBriefParts(values) {
+  return [
+    ["proteinContent", "nutrition.brief_protein"],
+    ["sugarContent", "nutrition.brief_sugar"],
+    ["salt", "nutrition.brief_salt"],
+  ]
+    .filter(([key]) => values[key] != null)
+    .map(([key, label]) => t(label, { amount: nutrientAmount(key, values[key]) }));
+}
+
+// Kort, voor een kaart: "27 g eiwit · 6 g suiker · 0,5 g zout" achter de kcal (`after`: met de punt ervoor, zoals kcalSpan).
+function nutritionBrief(items, after = true) {
+  const parts = nutritionBriefParts(nutritionValues(items)).map((part) => `<span class="nutrition-brief__part">${escapeHtml(part)}</span>`);
+  return parts.length ? `<span class="kcal nutrition-brief${after ? " kcal--after" : ""}">${parts.join(" \u00b7 ")}</span>` : "";
+}
+
+// Wat één persoon op een dag binnenkrijgt: de som per portie van de maaltijden met een recept. Een notitie telt niet mee; een
+// recept zonder voedingswaarden telt in `without`.
+function dayNutrition(entries) {
+  const totals = {};
+  let without = 0;
+  for (const entry of entries || []) {
+    if (!entry.recipe && !entry.recipeId) continue;
+    const values = nutritionValues(entry.nutrition);
+    if (!Object.keys(values).length) {
+      without += 1;
+      continue;
+    }
+    for (const [key, value] of Object.entries(values)) totals[key] = (totals[key] || 0) + value;
+  }
+  return { totals, without };
+}
+
+// De regel onder een dag in het weekmenu: "Per persoon: 1.850 kcal · 85 g eiwit · ...", of "" zonder voedingswaarden.
+function dayNutritionLine(entries) {
+  const { totals, without } = dayNutrition(entries);
+  if (!Object.keys(totals).length) return "";
+  const parts = [totals.calories != null ? nutrientAmount("calories", totals.calories) : "", ...nutritionBriefParts(totals)].filter(Boolean);
+  const note = without ? ` ${tn("nutrition.day_without", without)}` : "";
+  return `<p class="day-card__nutrition">${escapeHtml(t("nutrition.day_total", { values: parts.join(" \u00b7 ") }) + note)}</p>`;
+}
+
+// Of de calorieën en voedingswaarden te zien zijn (Instellingen, Voorkeuren, Weergave); zonder theme.js (in de tests) wel.
 function caloriesShown() {
   return typeof THEME === "undefined" || THEME.appearance().showCalories !== false;
 }
 
-// De grenzen van een filter op calorieën uit twee velden: `kcalMin=..&kcalMax=..` voor de zoekroute, of "" zonder filter.
-function kcalQuery(minInput, maxInput) {
+// De filters op voedingswaarden: [naam in het verzoek, decimalen]. De velden heten #<scope>-<naam>-min en -max.
+const NUTRITION_FILTERS = [["kcal", 0], ["protein", 0], ["fat", 0], ["carbs", 0], ["sugar", 0], ["fiber", 0], ["salt", 1]];
+
+// De grenzen uit de velden van een scherm (`plan` of `search`): `kcalMin=..&saltMax=..` voor de zoekroute, of "" zonder filter.
+function nutritionQuery(scope) {
   if (!caloriesShown()) return "";
   const params = [];
-  for (const [name, input] of [["kcalMin", minInput], ["kcalMax", maxInput]]) {
-    const value = String(input?.value ?? "").trim();
-    if (value !== "" && Number.isFinite(Number(value))) params.push(`${name}=${encodeURIComponent(Math.max(0, Math.round(Number(value))))}`);
+  for (const [name, digits] of NUTRITION_FILTERS) {
+    for (const side of ["min", "max"]) {
+      const value = String(document.getElementById(`${scope}-${name}-${side}`)?.value ?? "").trim().replace(",", ".");
+      if (value === "" || !Number.isFinite(Number(value))) continue;
+      const factor = 10 ** digits;
+      params.push(`${name}${side === "min" ? "Min" : "Max"}=${encodeURIComponent(Math.max(0, Math.round(Number(value) * factor) / factor))}`);
+    }
   }
   return params.join("&");
 }
 
-// Wat er bij een zoekopdracht op calorieën nog bij hoort: de cache vult zich nog, of recepten zonder kcal vielen weg.
+// Wat er bij een zoekopdracht op voedingswaarden nog bij hoort: de cache vult zich nog, of recepten zonder die waarden vielen weg.
 function kcalSearchNote(answer) {
   if (answer?.indexing) return t("kcal.indexing", { done: I18N.formatNumber(answer.indexing.done), total: I18N.formatNumber(answer.indexing.total) });
-  return answer?.withoutKcal ? tn("kcal.without", answer.withoutKcal) : "";
+  const missing = answer?.withoutValues ?? answer?.withoutKcal;
+  return missing ? tn("kcal.without", missing) : "";
 }
 
 // De volgorde van de maaltijden op een dag, zoals Mealie ze ook toont.
@@ -731,7 +816,7 @@ function renderMealRecipeBody(entry) {
   return `
     ${description ? `<p class="meal-recipe__description">${escapeHtml(description)}</p>` : ""}
     ${renderCookView(recipe, { headingLevel: 4, noIngredients: t("rsearch.no_ingredients_mealie"), noSteps: t("rsearch.no_steps_mealie") })}
-    ${nutritionLine(entry.nutrition)}`;
+    ${nutritionTable(entry.nutrition, { servings: entry.servings?.planned, headingLevel: 4 })}`;
 }
 
 function openMealRecipe(entry) {
@@ -788,6 +873,7 @@ function renderMealPlan(entries) {
             ${byDay[date] ? addButton(date, true) : ""}
           </div>
           ${(byDay[date] || []).sort((a, b) => rank(a) - rank(b)).map(renderMeal).join("")}
+          ${dayNutritionLine(byDay[date])}
           ${byDay[date] ? "" : addButton(date, false)}
         </article>
       `
@@ -993,7 +1079,8 @@ function renderPlanKind() {
 }
 
 function planRecipeRow(recipe) {
-  const meta = factsWithKcal([recipe.minutes ? t("rsearch.minutes", { count: recipe.minutes }) : "", ...(recipe.tags || [])], [["kcal.per_serving", recipeKcal(recipe)]]);
+  const facts = factsWithKcal([recipe.minutes ? t("rsearch.minutes", { count: recipe.minutes }) : "", ...(recipe.tags || [])], [["kcal.per_serving", recipeKcal(recipe)]]);
+  const meta = facts + nutritionBrief(recipe.nutrition, Boolean(facts));
   return `${recipe.image ? `<img src="${escapeHtml(recipe.image)}" alt="" width="48" height="48" loading="lazy" data-hide-on-error>` : `<span class="plan-recipe__placeholder" aria-hidden="true">${mdiIcon(MDI_PLUS, "")}</span>`}
     <span class="plan-recipe__text"><strong>${escapeHtml(recipe.name || recipe.slug)}</strong>${meta ? `<small>${meta}</small>` : ""}</span>`;
 }
@@ -1073,7 +1160,7 @@ function renderPlanResults() {
 // dan zoekt het venster na twee seconden opnieuw.
 async function searchPlanRecipes() {
   const query = $("#plan-recipe-query").value.trim();
-  const kcal = kcalQuery($("#plan-kcal-min"), $("#plan-kcal-max"));
+  const kcal = nutritionQuery("plan");
   const seq = ++planDialog.searchSeq;
   clearTimeout(planDialog.searchTimer);
   message("#plan-message", "");
@@ -2669,11 +2756,15 @@ async function addOpenAhListToCart() {
 function renderSavedRecipeCard(recipe) {
   const image = recipe.image || "";
   const id = ahRecipeNumber(recipe);
+  // De voedingswaarden per portie, zodra MealieShopper ze bij AH heeft opgehaald (ah_recipes.start_fill na Synchroniseren).
+  const kcal = factsWithKcal([], [["kcal.per_serving", recipeKcal(recipe)]]);
+  const meta = kcal + nutritionBrief(recipe.nutrition, Boolean(kcal));
   return `
     <article class="recipe-card"${id ? ` data-store-recipe="ah:${escapeHtml(id)}"` : ""}>
       ${image ? `<img src="${escapeHtml(storeImage(image))}" alt="${escapeHtml(recipe.title || "")}" loading="lazy" data-hide-on-error>` : ""}
       <h3>${escapeHtml(recipe.title || t("recipe.unknown"))}</h3>
-      ${id ? recipeCardActions(`ah:${id}`, planSourceAttrs("ah", id, recipe.title, image)) : ""}
+      ${meta ? `<p class="muted">${meta}</p>` : ""}
+      ${id ? recipeCardActions(`ah:${id}`, planSourceAttrs("ah", id, recipe.title, image, recipe)) : ""}
     </article>
   `;
 }
@@ -2721,8 +2812,11 @@ function updateSavedRecipesStatus(data) {
   const total = Number(data.total ?? state.ahRecipes.length);
   const when = formatSyncTime(data.syncedAt);
   state.ahRecipesMeta = data;
+  // Voedingswaarden die nog bij AH opgehaald moeten worden (telkens een deel na Synchroniseren, zie ah_recipes.start_fill).
+  const pending = Number(data.nutritionPending) || 0;
   $("#ah-recipes-status").textContent =
-    tn("saved.status", total) + (when ? t("saved.status_when", { when }) : "") + t("saved.status_hint");
+    tn("saved.status", total) + (when ? t("saved.status_when", { when }) : "") + t("saved.status_hint") +
+    (pending && caloriesShown() ? ` ${tn("saved.nutrition_pending", pending)}` : "");
 }
 
 // `cachedOnly`: alleen de lokale kopie tonen, nooit AH vragen (zo opent het tabblad zonder AH-verkeer).
@@ -3078,8 +3172,8 @@ $("#plan-recipe-chosen").addEventListener("click", (event) => {
 $("#plan-recipe-chosen").addEventListener("change", (event) => {
   if (event.target.id === "plan-servings") setPlanServings(event.target.value);
 });
-// Het filter op calorieën (kcal per persoon) in de receptkiezer: zoeken zodra je stopt met typen.
-["#plan-kcal-min", "#plan-kcal-max"].forEach((selector) => {
+// De filters op voedingswaarden (kcal per persoon en Meer filters) in de receptkiezer: zoeken zodra je stopt met typen.
+["#plan-kcal-min", "#plan-kcal-max", ...NUTRITION_FILTERS.slice(1).flatMap(([name]) => [`#plan-${name}-min`, `#plan-${name}-max`])].forEach((selector) => {
   $(selector).addEventListener("input", () => {
     clearTimeout(planDialog.searchTimer);
     planDialog.searchTimer = setTimeout(searchPlanRecipes, 400);

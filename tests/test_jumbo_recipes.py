@@ -111,6 +111,10 @@ class RecipeTest(TempDataDirTest):
         both = jumbo_recipes.nutrition_values([{"name": "Zout", "quantity": 1, "unit": "g"}, {"name": "Natrium", "quantity": 380, "unit": "mg"}])
         self.assertEqual(both, {"sodiumContent": 380}, "natrium van Jumbo zelf gaat voor")
 
+    def test_a_card_has_its_kcal_per_portion_when_jumbo_knows_it(self):
+        cards = jumbo_recipes.summaries({"items": [dict(card("700001", "Pasta"), calories=699.4), card("700002", "Soep"), dict(card("700003", "Taart"), calories=True)]})
+        self.assertEqual([c["kcal"] for c in cards], [699, None, None], "0 en iets anders dan een getal is onbekend")
+
     def test_an_unknown_recipe_is_an_error(self):
         for raw in (None, {}, {"title": 5}):
             with self.assertRaises(RuntimeError):

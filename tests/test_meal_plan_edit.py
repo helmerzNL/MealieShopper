@@ -316,6 +316,10 @@ class ServingsTest(MealPlanTestCase):
         self.assertEqual(double["kcal"], {"perServing": 490, "total": 3920})
         self.assertEqual(half["kcal"], {"perServing": 490, "total": 980})
         self.assertEqual(half["nutrition"], [{"key": "calories", "quantity": 490, "unit": "kcal"}, {"key": "fatContent", "quantity": 23, "unit": "g"}])
+        # Alle voedingswaarden ook voor de geplande porties samen (de kolom Totaal in het venster).
+        self.assertEqual(half["nutritionTotal"], [{"key": "calories", "quantity": 980, "unit": "kcal"}, {"key": "fatContent", "quantity": 46, "unit": "g"}])
+        self.assertIsNone((await self.week(1, servings=None, nutrition={"calories": "490"}))[0]["nutritionTotal"], "zonder porties geen totaal")
+        self.assertIsNone((await self.week(1, nutrition={}))[0]["nutritionTotal"])
         self.assertEqual((await self.week(1, servings=None, nutrition={"calories": "490 kcal"}))[0]["kcal"], {"perServing": 490, "total": None})
         for nutrition in (None, {}, {"calories": None}, {"calories": "0"}):
             self.assertIsNone((await self.week(1, nutrition=nutrition))[0]["kcal"], nutrition)
@@ -474,7 +478,7 @@ class RecipeSearchTest(MealPlanTestCase):
         self.assertEqual(data["recipes"], [{
             "id": "pasta-pesto", "slug": "pasta-pesto", "recipeId": RECIPE_ID, "name": "Pasta pesto",
             "image": f"/api/mealie/recipes/{RECIPE_ID}/image?v=abc1", "minutes": 75, "portions": 4, "rating": 4, "tags": ["Pasta", "Snel", "Vega"],
-            "kcal": None,  # nog niet in de cache van recipe_nutrition.py
+            "kcal": None, "nutrition": [],  # nog niet in de cache van recipe_nutrition.py
         }])
         self.assertEqual(sent_params(get.calls.last), {"page": "1", "perPage": "24", "search": "pasta"}, "Mealie sorteert zoekresultaten zelf")
 
