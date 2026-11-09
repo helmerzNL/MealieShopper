@@ -20,6 +20,9 @@ const OFFERS_STATUS = {
     picnic: { linked: true, syncedAt: "2026-10-28T04:00:48Z", total: 186 },
     jumbo: { linked: true, syncedAt: "2026-10-28T04:01:09Z", total: 354 },
     crisp: { linked: true, syncedAt: "2026-10-28T04:01:22Z", total: 97 },
+    // Lidl en Aldi (sinds 4.6.0) hebben geen koppeling nodig; de server geeft elke winkel uit offers.STORES terug.
+    lidl: { linked: true, syncedAt: "2026-10-28T04:01:35Z", total: 143 },
+    aldi: { linked: true, syncedAt: "2026-10-28T04:01:47Z", total: 118 },
   },
 };
 

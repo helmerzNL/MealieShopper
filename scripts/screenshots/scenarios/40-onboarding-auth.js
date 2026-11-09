@@ -1,5 +1,6 @@
 // Installatiehulp, inloggen, uitnodiging, toestemmingsscherm, beveiliging en gebruikers.
 const { execFileSync } = require("child_process");
+const { openSubtab } = require("../demo");
 
 const HOST = "mealieshopper.example.nl";
 const SERVER = `https://${HOST}`;
@@ -55,7 +56,7 @@ async function openProfile(page, subtab) {
   await trigger.click();
   await page.click('[data-user-action="profile"]');
   await page.waitForTimeout(300);
-  if (subtab) await page.click(`[data-subtab="${subtab}"]`);
+  if (subtab) await openSubtab(page, subtab);
   await page.waitForTimeout(500);
 }
 
@@ -247,7 +248,7 @@ module.exports = [
       await trigger.click();
       await page.click('[data-user-action="settings"]');
       await page.waitForTimeout(300);
-      await page.click('[data-subtab="settings-users"]');
+      await openSubtab(page, "settings-users");
       await page.waitForTimeout(600);
       await page.fill("#invite-name", "mila");
       await toTop(page, "#users-list", device === "phone" ? 70 : 90); // de lijst met gebruikers, daaronder het uitnodigformulier

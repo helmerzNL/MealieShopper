@@ -370,9 +370,17 @@ class AppearanceMarkupTest(unittest.TestCase):
         self.assertEqual(re.findall(r'name="appearance-store" value="(\w+)"', panel), ["ah", "jumbo", "picnic", "crisp"])
         self.assertRegex(panel, r'name="appearance-store" value="ah" checked>', "standaard Albert Heijn")
         self.assertIn('<input type="range" id="appearance-glass" min="0" max="100" step="1" value="60"', panel)
-        self.assertEqual(panel.count("<fieldset"), 5)
-        self.assertEqual(panel.count("<legend"), 5)
+        # Taal (sinds 4.7.0, in het blok Weergave): elke taal in die taal zelf, en geen data-lang op de rondjes, want dan zou
+        # i18n.js ze als knop behandelen (aria-pressed).
+        self.assertEqual(re.findall(r'name="appearance-lang" value="(\w+)"><span lang="(\w+)">', panel), [("nl", "nl"), ("en", "en")])
+        self.assertNotRegex(panel, r'name="appearance-lang"[^>]*data-lang')
+        display = panel[panel.index('id="appearance-display-box"'):panel.index('id="appearance-theme-box"')]
+        self.assertIn('id="appearance-lang"', display)
+        self.assertEqual(panel.count("<fieldset"), 6)
+        self.assertEqual(panel.count("<legend"), 6)
         script = (STATIC / "appearance.js").read_text(encoding="utf-8")
+        self.assertIn('I18N.setLang(event.target.value)', script)
+        self.assertIn("input.checked = input.value === I18N.lang();", script)
         self.assertIn('type="radio" name="appearance-accent"', script)
         self.assertIn('type="color"', script)
         self.assertIn('"/api/profile/preferences"', script)
