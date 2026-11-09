@@ -12,6 +12,12 @@ import ipaddress
 from typing import Any
 from urllib.parse import urlsplit
 
+# Namen die alleen binnen je eigen netwerk bestaan (ook onboarding.py gebruikt deze lijst voor de passkey-uitleg).
+PRIVATE_SUFFIXES: tuple[str, ...] = (
+    ".localhost", ".local", ".lan", ".home", ".home.arpa", ".internal", ".localdomain", ".intranet", ".private", ".corp", ".box",
+    ".svc", ".cluster.local",
+)
+
 SCHEME_MESSAGE: str = "Geef een recept-URL op die met http:// of https:// begint"
 PRIVATE_MESSAGE: str = "Dit adres staat op een eigen netwerk. Importeer alleen recepten van het internet."
 
@@ -21,14 +27,16 @@ class UnsafeUrl(ValueError):
 
 
 def private_host(hostname: str) -> bool:
-    """Een adres op je eigen netwerk: localhost, een lokaal domein, een naam zonder punt, of een niet-openbaar IP-adres."""
+    """Een adres op je eigen netwerk: localhost, een lokaal domein, een naam zonder punt, een niet-openbaar IP-adres, of een
+    getal dat geen canoniek adres is ("127.1", "0x7f.0.0.1", "0177.0.0.1": de resolver maakt daar wel een adres van)."""
     host: str = hostname.strip("[]").rstrip(".").casefold()
-    if host == "localhost" or host.endswith((".localhost", ".local", ".lan", ".internal", ".home.arpa")) or "." not in host and ":" not in host:
+    if host == "localhost" or host.endswith(PRIVATE_SUFFIXES) or "." not in host and ":" not in host:
         return True
     try:
         address = ipaddress.ip_address(host)
     except ValueError:
-        return False
+        last: str = host.rsplit(".", 1)[-1]
+        return last.isdigit() or last.startswith("0x")  # een numerieke naam die niet canoniek is: weigeren
     return not address.is_global
 
 
