@@ -2,6 +2,15 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub; een stabiele release krijgt de teksten van alle versies sinds de vorige stabiele release.
 
+## v4.1.8
+
+### Opgelost in 4.1.8
+
+*English summary: An offer that started at midnight now counts in the **Price history** right away. The new bonus week begins at midnight, but `offer_history` only records it at the nightly sync, so until then a product on offer since that night showed *0 times on offer*, no price and no chart. Now `offers.history_of` counts an offer from the local copy that is valid today and has no open period yet as a running period, the same row the sync records later. With the production data: Dr. Oetker Casa di mama pizza salame extra piccante shows once on offer, on offer now, €3.65 with a regular price of €4.29, and a chart.*
+
+- **Een aanbieding die om middernacht begon, telt meteen.** De nieuwe bonusweek begint om middernacht, maar `offer_history` legt hem pas vast bij de synchronisatie van die nacht (`offers._started`). Tot dan stond een product dat sinds die nacht in de aanbieding is in de prijsgeschiedenis met *0 keer in de aanbieding*, zonder prijs en zonder grafiek. In 4.1.7 stond er alleen *Vanaf 9 nov in de aanbieding*. Nu telt `offers.history_of` zo'n aanbieding uit de lokale kopie, die vandaag geldt en nog geen open periode heeft, als lopende periode (`_not_yet_recorded`), met dezelfde keuze als de synchronisatie: elk product een keer, de gewone bonus voor de Bonus Box. De synchronisatie maakt er daarna een echte rij van. *Vanaf ... in de aanbieding* staat er alleen nog bij een aanbieding die nog moet beginnen.
+- **Tests:** in `tests/test_reported_bugs.py` de pizza die om middernacht in de aanbieding kwam: een keer in de aanbieding, nu in de aanbieding, met de periode en de gewone prijs. Zonder de fix geeft de test precies de melding: 0 keer, niet nu in de aanbieding.
+
 ## v4.1.7
 
 ### Opgelost in 4.1.7

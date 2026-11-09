@@ -757,13 +757,14 @@ async def _catalogue(conn: aiosqlite.Connection, store: str, today: str) -> _Cat
 
 
 async def _upcoming(conn: aiosqlite.Connection, store: str, ids: list[str], today: str) -> dict[str, dict[str, Any]]:
-    """Per product de eerstvolgende aanbieding die nog niet in de geschiedenis staat (`_UPCOMING_SQL`), met wat de kaart van de
-    aanbieding ook toont."""
+    """Per product de eerstvolgende aanbieding die nog moet beginnen, met wat de kaart van de aanbieding ook toont. Een aanbieding
+    die al begon maar nog niet in de geschiedenis staat, telt `offers.history_of` als lopende periode."""
     found: dict[str, dict[str, Any]] = {}
     if not ids:
         return found
     rows = await conn.execute_fetchall(
-        _UPCOMING_SQL.format(columns="*") + f" AND product_id IN ({_in(ids)}) ORDER BY valid_from, personal", (store, today, today, store, *ids)
+        _UPCOMING_SQL.format(columns="*") + f" AND valid_from > ? AND product_id IN ({_in(ids)}) ORDER BY valid_from, personal",
+        (store, today, today, store, today, *ids)
     )
     for row in rows:
         found.setdefault(str(row["product_id"]), {

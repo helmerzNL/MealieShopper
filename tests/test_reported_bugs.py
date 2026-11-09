@@ -20,7 +20,7 @@ from helpers import db  # helpers zet ook het pad naar de app
 import test_history_stores_js  # als module: anders draait pytest die tests hier nog een keer
 from test_prices import PricesCase, offer
 
-from mealieshopper import ah_orders, assets, price_archive_tidy, prices
+from mealieshopper import ah_orders, assets, offers, price_archive_tidy, prices
 from mealieshopper.app import create_app
 
 ROOT: Path = Path(__file__).resolve().parents[1]
@@ -164,10 +164,24 @@ class PriceHistoryLinkTest(PricesCase):
         found = (
             await prices.history("ah", "bospeen", 30, today=days(1), pin="188141")
         )["products"]
-        self.assertEqual(
-            (found[0]["productId"], found[0]["upcoming"]["validFrom"]),
-            ("188141", days(1)),
-        )
+        self.assertEqual(found[0]["productId"], "188141")  # hoe hij dan telt: zie de test hieronder
+
+    async def test_2026_11_09_offer_that_started_at_midnight_counts_and_has_a_chart(self):
+        # "werkt nogsteeds niet zo te zien. ik zie hier staan 0 keer in de aanbieding en ik zie geen prijs grafiek" (4.1.8): de
+        # bonusweek begon om middernacht, offer_history krijgt hem pas bij de synchronisatie van die nacht.
+        await self.sync_offer(f"{TODAY}T05:00:00+00:00", offer("233387", "Dr. Oetker Casa di mama pizza salame extra piccante", 3.65, 4.29,
+                                                              "Bonus Box 15% korting", validFrom=days(1), validUntil=days(7)))
+
+        class Tomorrow(date):
+            @classmethod
+            def today(cls):
+                return date.today() + timedelta(days=1)
+
+        with mock.patch.object(offers, "date", Tomorrow):
+            product = (await prices.history("ah", "Dr. Oetker", 30, today=days(1), pin="233387"))["products"][0]
+        self.assertEqual((product["productId"], product["timesOnOffer"], product["onOfferNow"], product["upcoming"]), ("233387", 1, True, None))
+        self.assertEqual([(e["start"], e["price"], e["priceBefore"]) for e in product["episodes"]], [(days(1), 3.65, 4.29)])
+        self.assertEqual(product["regularPrice"], 4.29, "de prijs ervoor geeft de grafiek een gewone prijs")
 
     async def test_an_unknown_id_changes_nothing(self):
         await prices.record("ah", [{"id": "1", "title": "AH Pindakaas", "price": 2.99}])
