@@ -772,13 +772,24 @@ function renderMealPlan(entries) {
   const dates = [...new Set([...getWeekBounds(state.weekOffset).days, ...Object.keys(byDay)])].sort();
   const today = localIsoDate(new Date());
   const rank = (entry) => (MEAL_ORDER.indexOf(entry.entryType) + 1 || MEAL_ORDER.length + 1);
+  // Toevoegen: op een lege dag de enige handeling, dus een volle knop onderaan; op een dag met maaltijden een kleine "+" in de
+  // kop, zodat de dag niet twee keer zo hoog wordt. Het aria-label noemt de dag in beide gevallen.
+  const addButton = (date, compact) => {
+    const label = escapeHtml(t("plan.add_on", { day: formatDate(date) }));
+    return compact
+      ? `<button class="day-card__add day-card__add--compact" type="button" data-plan-add="${date}" aria-label="${label}" title="${escapeHtml(t("plan.add"))}">${mdiIcon(MDI_PLUS, "")}</button>`
+      : `<button class="day-card__add" type="button" data-plan-add="${date}" aria-label="${label}">${mdiIcon(MDI_PLUS, "")}<span>${escapeHtml(t("plan.add"))}</span></button>`;
+  };
   $("#meal-days").innerHTML = dates
     .map(
       (date) => `
         <article class="day-card${date === today ? " day-card--today" : ""}${byDay[date] ? "" : " day-card--empty"}">
-          <h3>${escapeHtml(formatDate(date))}${date === today ? `<span class="day-card__today">${escapeHtml(t("plan.today"))}</span>` : ""}</h3>
+          <div class="day-card__head">
+            <h3>${escapeHtml(formatDate(date))}${date === today ? `<span class="day-card__today">${escapeHtml(t("plan.today"))}</span>` : ""}</h3>
+            ${byDay[date] ? addButton(date, true) : ""}
+          </div>
           ${(byDay[date] || []).sort((a, b) => rank(a) - rank(b)).map(renderMeal).join("")}
-          <button class="day-card__add" type="button" data-plan-add="${date}" aria-label="${escapeHtml(t("plan.add_on", { day: formatDate(date) }))}">${mdiIcon(MDI_PLUS, "")}<span>${escapeHtml(t("plan.add"))}</span></button>
+          ${byDay[date] ? "" : addButton(date, false)}
         </article>
       `
     )
@@ -1699,14 +1710,14 @@ function renderCartReview(rows) {
   const doubts = rows.filter((row) => row.candidates.length && row.candidates[0].doubt).length;
   $("#cart-result").innerHTML = `
     <div class="box cart-review">
-      <div class="toolbar">
-        <h2>${escapeHtml(t("cart.review_title"))}</h2>
-        <button class="button" id="confirm-cart"></button>
-        <button class="button button--secondary" id="cancel-cart">${escapeHtml(t("common.cancel"))}</button>
-      </div>
+      <h2>${escapeHtml(t("cart.review_title"))}</h2>
       <p class="muted">${escapeHtml(doubts ? tn("cart.doubts", doubts) : t("cart.review_intro"))}</p>
       ${missingCount ? `<p class="muted" id="review-missing-hint">${escapeHtml(tn("cart.missing_hint", missingCount))}</p>` : ""}
       <div class="review-list">${rows.map((row, index) => reviewRowHtml(row, index)).join("")}</div>
+      <div class="cart-review__actions">
+        <button class="button" id="confirm-cart"></button>
+        <button class="button button--secondary" id="cancel-cart">${escapeHtml(t("common.cancel"))}</button>
+      </div>
     </div>
   `;
 
@@ -1840,6 +1851,8 @@ function renderCartReview(rows) {
         "afterbegin",
         `<div class="message error">${escapeHtml(error.message)}</div>`
       );
+      // De knop staat in de balk onderaan; de melding staat boven de lijst en moet dus in beeld komen.
+      $("#cart-result .message.error").scrollIntoView({ block: "center" });
       updateConfirm();
     }
   });

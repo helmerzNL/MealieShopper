@@ -170,9 +170,14 @@ AH_NUTRITION = {
 _RECIPE_NUTRITIONS = "nutritions {\n" + "".join(f"        {name} {{ value unit }}\n" for name in AH_NUTRITION) + "      }"
 
 # Receptdetails voor het importeren in Mealie. De laatste variant bevat alleen velden
-# waarvan bekend is dat ze werken; de eerdere voegen portie, afbeelding en (de eerste)
+# waarvan bekend is dat ze werken; de eerdere voegen portie, afbeelding en (de eerste twee)
 # voedingswaarden toe en proberen beide vormen van `preparation.steps`. Kent AH een veld
 # niet meer, dan valt `_graphql_variants` terug op de volgende variant.
+# Bij AH is `steps` een lijst van teksten (op 9 november 2026 nagegaan): `steps { text }`
+# geeft "must not have a selection". Die vorm staat dus telkens achteraan, voor als AH hem
+# ooit terugzet. In 4.4.0 stonden de voedingswaarden alleen in een variant met `{ text }`,
+# zodat ze nooit meekwamen (#283).
+_RECIPE_EXTRA = "ovenTime\n      waitTime\n      servings { number }\n      images { url }"
 RECIPE_DETAIL_QUERIES = tuple(
     """
   query Recipe($id: Int!) {
@@ -192,9 +197,10 @@ RECIPE_DETAIL_QUERIES = tuple(
   }
 """ % (extra, steps)
     for extra, steps in (
-        ("ovenTime\n      waitTime\n      servings { number }\n      images { url }\n      " + _RECIPE_NUTRITIONS, " { text }"),
-        ("ovenTime\n      waitTime\n      servings { number }\n      images { url }", " { text }"),
-        ("ovenTime\n      waitTime\n      servings { number }\n      images { url }", ""),
+        (_RECIPE_EXTRA + "\n      " + _RECIPE_NUTRITIONS, ""),
+        (_RECIPE_EXTRA + "\n      " + _RECIPE_NUTRITIONS, " { text }"),
+        (_RECIPE_EXTRA, ""),
+        (_RECIPE_EXTRA, " { text }"),
         ("", ""),
     )
 )

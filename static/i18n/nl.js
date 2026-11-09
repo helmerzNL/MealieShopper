@@ -812,7 +812,7 @@ I18N.add("nl", {
   "mealie.week_start_unknown": "Zoals in Mealie (onbekend, dus {day})",
   "mealie.week_start_saved": "Opgeslagen. Het weekmenu begint nu op de gekozen dag.",
   "mealie.nutrition.title": "Voedingswaarden van AH-recepten aanvullen",
-  "mealie.nutrition.help": "Recepten die je vóór versie 4.4.0 uit Allerhande importeerde, hebben in Mealie geen voedingswaarden. Dit haalt ze bij Albert Heijn op en zet ze in Mealie: alleen bij recepten met een Allerhande-bronlink en zonder calorieën, en wat er al staat, blijft staan.",
+  "mealie.nutrition.help": "Recepten die je vóór versie 4.4.1 uit Allerhande importeerde, hebben in Mealie geen voedingswaarden. Dit haalt ze bij Albert Heijn op en zet ze in Mealie: alleen bij recepten met een Allerhande-bronlink en zonder calorieën, en wat er al staat, blijft staan.",
   "mealie.nutrition.start": "Voedingswaarden aanvullen",
   "mealie.nutrition.stop": "Stoppen",
   "mealie.nutrition.running": "Bezig: {checked} van {total} AH-recepten bekeken, {updated} aangevuld.",
