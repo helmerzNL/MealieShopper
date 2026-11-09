@@ -416,7 +416,7 @@ function renderOffersStore() {
   $("#offers-store-list").innerHTML = available
     .map(
       (key) =>
-        `<a class="subtab-menu__item${offersState.store === key ? " is-active" : ""}" data-store="${key}" href="${escapeHtml(offersPath(offersHistoryActive() ? "history" : "", { store: offersStoreParam(key) }))}" data-nav>${escapeHtml(STORES[key].name)}</a>`
+        `<a class="subtab-menu__item${offersState.store === key ? " is-active" : ""}" data-store="${key}" href="${escapeHtml(offersPath(offersHistoryActive() ? "history" : "", { store: offersStoreParam(key) }))}" data-nav>${escapeHtml(storeDisplayName(key))}</a>`
     )
     .join("");
   if (typeof routerRetry === "function") routerRetry();
