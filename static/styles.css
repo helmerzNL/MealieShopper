@@ -1921,16 +1921,97 @@ html.no-cook-mode .cook-ingredient input:checked + .cook-ingredient__text {
   white-space: nowrap; /* "490 kcal p.p." bij elkaar; afbreken mag wel bij de punt ervoor */
 }
 
+/* De korte voedingswaarden op een kaart mogen wel afbreken: ze zijn langer dan één kcal-waarde. */
+.nutrition-brief {
+  white-space: normal;
+}
+
+.nutrition-brief__part {
+  white-space: nowrap;
+}
+
 .kcal--after::before {
   content: "\20\b7\20"; /* " · " */
   white-space: pre-wrap;
 }
 
 html.no-calories .kcal,
+html.no-calories .day-card__nutrition,
 html.no-calories .nutrition-facts,
 html.no-calories .kcal-filter,
+html.no-calories .nutrition-filter,
 html.no-calories .plan-servings__kcal {
   display: none;
+}
+
+/* De voedingswaarden onder een recept als een kleine tabel, zoals op een etiket: per portie en (bij geplande porties) totaal. */
+.nutrition-facts {
+  margin-top: 16px;
+}
+
+.nutrition-facts__title {
+  margin: 0 0 6px;
+}
+
+.nutrition-table {
+  width: 100%;
+  max-width: 440px;
+  border-collapse: collapse;
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+}
+
+.nutrition-table th,
+.nutrition-table td {
+  padding: 5px 8px;
+  border-bottom: 1px solid var(--border);
+  text-align: right;
+}
+
+.nutrition-table th[scope="row"] {
+  font-weight: 500;
+  text-align: left;
+}
+
+.nutrition-table thead th {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.nutrition-table th:first-child {
+  padding-left: 0;
+}
+
+.nutrition-table__sub th[scope="row"] {
+  padding-left: 16px;
+  color: var(--muted);
+  font-weight: 400;
+}
+
+/* Het dagtotaal onder een dag in het weekmenu. */
+.day-card__nutrition {
+  margin: 2px 0 8px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+/* Meer filters (eiwit, vet, koolhydraten, suikers, vezels, zout): ingeklapt onder de kcal. */
+.nutrition-filter > summary {
+  width: fit-content;
+  color: var(--primary-strong);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.nutrition-filter[open] {
+  display: grid;
+  gap: 8px;
+}
+
+.nutrition-filter .kcal-filter__label {
+  min-width: 132px;
 }
 
 /* Het filter op calorieën: "Kcal per persoon [min.] – [max.]", in de receptkiezer en bij Recepten zoeken. */
@@ -1957,7 +2038,11 @@ html.no-calories .plan-servings__kcal {
 }
 
 .kcal-filter--search {
-  margin: 10px 0 14px;
+  margin: 10px 0 8px;
+}
+
+#search-nutrition-filter {
+  margin-bottom: 14px;
 }
 
 .kcal-filter__note {

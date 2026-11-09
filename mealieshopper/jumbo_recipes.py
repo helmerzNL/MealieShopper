@@ -103,6 +103,7 @@ def summaries(data: Any) -> list[dict[str, Any]]:
         persons = node.get("numberOfPersons")
         author = node.get("author")
         count = node.get("numberOfIngredients")
+        calories = node.get("calories")  # per portie, zoals "Energie" in het recept zelf; 0 is onbekend
         recipes.append(
             {
                 "id": recipe_id,
@@ -112,6 +113,7 @@ def summaries(data: Any) -> list[dict[str, Any]]:
                 "portions": persons if isinstance(persons, int) and persons > 0 else None,
                 "rating": rating.get("value") if isinstance(rating, dict) and isinstance(rating.get("value"), (int, float)) and rating.get("value") else None,
                 "ingredientCount": count if isinstance(count, int) and count > 0 else None,
+                "kcal": round(calories) if isinstance(calories, (int, float)) and not isinstance(calories, bool) and calories > 0 else None,
                 "course": node.get("course") or None,
                 "author": author.get("name") if isinstance(author, dict) and author.get("name") else None,
                 "url": _site(node.get("link")),
