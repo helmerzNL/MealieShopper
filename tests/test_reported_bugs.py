@@ -10,13 +10,15 @@ import os
 import shutil
 import subprocess
 import tempfile
+import inspect
+import re
 import unittest
 from contextlib import closing
 from datetime import date, timedelta
 from pathlib import Path
 from unittest import mock
 
-from helpers import db  # helpers zet ook het pad naar de app
+from helpers import AppTestCase, db  # helpers zet ook het pad naar de app
 import test_history_stores_js  # als module: anders draait pytest die tests hier nog een keer
 import test_offers_scan_js  # idem: de Node-opbouw van offers.js
 from test_prices import PricesCase, offer
@@ -292,6 +294,44 @@ class BestOffersTest(PricesCase):
 
 
 @unittest.skipUnless(shutil.which("node"), "Node is niet geinstalleerd")
+class JsonBodyTest(AppTestCase):
+    """Melding van 2026-11-07: `/api/backup/jobs` en `/api/price-archive/jobs` gaven een 500 op een JSON-body die geen object is.
+    Elke POST-route die een JSON-body leest, krijgt hier `"x"` en geeft dan een 400 (request_body.json_object), of de status uit
+    de uitzonderingslijst voor routes die de body anders lezen. Een nieuwe route zonder vermelding laat de test falen."""
+
+    # Routes die de body niet als JSON-object lezen, met de status die ze op `"x"` geven: de uploadroutes controleren eerst het
+    # token in het pad (404 voor een onbekend token), de OAuth-routes van de MCP-server lezen een formulier of JSON (404 zolang
+    # OAuth niet is ingesteld, en `/oauth/revoke` geeft altijd 200, zoals RFC 7009 vraagt).
+    BODY_EXEMPT: dict[str, int] = {
+        "/api/backup/uploads/<token>/stage": 404,
+        "/api/price-archive/uploads/<token>/stage": 404,
+        "/oauth/register": 404,
+        "/oauth/token": 404,
+        "/oauth/revoke": 200,
+    }
+
+    async def test_2026_11_07_a_non_object_json_body_never_gives_a_500(self):
+        # Zonder inloggen (zoals een installatie zonder wachtwoord of passkey), anders stopt elke route al op een 401.
+        patcher = mock.patch.dict(os.environ, {"PASSKEY_AUTH_ENABLED": "false"})
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        app = create_app()
+        client = self.client_for(app)
+        wrong: list[str] = []
+        for rule in sorted(app.url_map.iter_rules(), key=lambda r: r.rule):
+            if "POST" not in (rule.methods or set()) or rule.endpoint == "static":
+                continue
+            source = inspect.getsource(app.view_functions[rule.endpoint])
+            if "get_json" not in source and "json_object" not in source and "form_or_json" not in source:
+                continue  # leest geen body
+            path = re.sub(r"<[^>]+>", "1", rule.rule)
+            response = await client.post(path, data='"x"', headers={"Content-Type": "application/json"})
+            expected = self.BODY_EXEMPT.get(rule.rule, 400)
+            if response.status_code != expected:
+                wrong.append(f"{rule.rule} -> {response.status_code} (verwacht {expected})")
+        self.assertEqual(wrong, [], "\n".join(wrong))
+
+
 class OffersFiltersTest(unittest.TestCase):
     """Meldingen over de filters op de aanbiedingenpagina."""
 

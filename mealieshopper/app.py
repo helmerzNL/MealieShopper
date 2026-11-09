@@ -12,7 +12,7 @@ import sqlite3
 import httpx
 from quart import Quart, Response, jsonify, redirect, render_template, request, send_file, send_from_directory
 
-from . import about, ah, ah_explore, ah_lists, ah_orders, ah_planner, ah_recipes, ai_match, ai_review, audit, auth_password, backup, crisp, crisp_orders, factory_reset, hellofresh, image_cache, jumbo, jumbo_explore, jumbo_lists, jumbo_orders, jumbo_recipes, marleyspoon, mcp_http, mealie, mealie_images, offers, offers_schedule, onboarding, picnic, picnic_explore, picnic_orders, picnic_recipes, price_archive, price_import, prices, product_images, product_links, profile, recipe_bulk, recipe_nutrition, server_settings, updates, users
+from . import about, ah, ah_explore, ah_lists, ah_orders, ah_planner, ah_recipes, ai_match, ai_review, audit, auth_password, backup, crisp, crisp_orders, factory_reset, hellofresh, image_cache, jumbo, jumbo_explore, jumbo_lists, jumbo_orders, jumbo_recipes, marleyspoon, mcp_http, mealie, mealie_images, offers, offers_schedule, onboarding, picnic, picnic_explore, picnic_orders, picnic_recipes, price_archive, price_import, prices, product_images, product_links, profile, recipe_bulk, recipe_nutrition, request_body, server_settings, updates, users
 from . import auth, deals, http_client, tasks
 from . import assets
 from .body_limits import DEFAULT_MAX_BODY, SizedRequest
@@ -165,6 +165,8 @@ def create_app() -> Quart:
     users.register_routes(app, public_base_url)
     mcp_http.register_routes(app, public_base_url)
 
+    request_body.register(app)  # een JSON-body die geen object is: 400 in plaats van 500
+
     @app.errorhandler(sqlite3.Error)
     @app.errorhandler(OSError)
     async def database_error(exc):
@@ -260,17 +262,17 @@ def create_app() -> Quart:
 
     @app.post("/api/mealplan")
     async def mealplan_create():
-        body = await request.get_json(silent=True) or {}
+        body = await request_body.json_object()
         return await mealie_action(lambda: mealie.create_meal_plan_entry(body), tr("Plannen mislukt", "Planning failed"), 201)
 
     @app.post("/api/mealplan/random")
     async def mealplan_random():
-        body = await request.get_json(silent=True) or {}
+        body = await request_body.json_object()
         return await mealie_action(lambda: mealie.random_meal_plan_entry(body), tr("Verrassen mislukt", "Surprise failed"), 201)
 
     @app.patch("/api/mealplan/<int:entry_id>")
     async def mealplan_update(entry_id: int):
-        body = await request.get_json(silent=True) or {}
+        body = await request_body.json_object()
         return await mealie_action(lambda: mealie.update_meal_plan_entry(entry_id, body), tr("Wijzigen mislukt", "Changing failed"))
 
     @app.delete("/api/mealplan/<int:entry_id>")
@@ -330,7 +332,7 @@ def create_app() -> Quart:
         return await auth.current_user() if await auth.auth_required() else None
 
     async def bulk_start(whole: bool) -> tuple[Response, int]:
-        body = await request.get_json(silent=True) or {}
+        body = await request_body.json_object()
 
         async def start() -> Any:
             # Binnen bulk_action: een fout bij het opzoeken van de gebruiker geeft dezelfde 424 als een fout bij het starten.
@@ -518,7 +520,7 @@ def create_app() -> Quart:
 
     @app.patch("/api/ah/lists/<list_id>/items/<int:position>")
     async def ah_list_item_quantity(list_id: str, position: int):
-        body = await request.get_json(silent=True) or {}
+        body = await request_body.json_object()
         try:
             snapshot = await ah_lists.set_quantity(list_id, position, body.get("quantity"))
         except ValueError as exc:
@@ -808,7 +810,7 @@ def create_app() -> Quart:
 
     @app.post("/api/prices/import")
     async def prices_import_run():
-        body = await request.get_json(silent=True) or {}
+        body = await request_body.json_object()
         return await import_action(lambda: price_import.run(body.get("data"), body.get("store") or "ah", dry_run=bool(body.get("dryRun"))))
 
     @app.delete("/api/prices/import")
@@ -852,7 +854,7 @@ def create_app() -> Quart:
 
     @app.put("/api/product-links")
     async def product_links_save():
-        body = await request.get_json(silent=True) or {}
+        body = await request_body.json_object()
 
         async def save() -> dict[str, Any]:
             return {"link": await product_links.save(body.get("store"), body.get("name"), body.get("product"), body.get("article"))}
@@ -876,7 +878,7 @@ def create_app() -> Quart:
 
     @app.post("/api/offers/sync")
     async def offers_sync():
-        body = await request.get_json(silent=True) or {}
+        body = await request_body.json_object()
         return await offers_action(lambda: offers.sync(body.get("store") or "ah"), tr("Aanbiedingen ophalen mislukt", "Fetching the offers failed"))
 
     @app.get("/api/offers/status")
@@ -898,7 +900,7 @@ def create_app() -> Quart:
     @app.route("/api/offers/rejections", methods=["POST", "DELETE"])
     async def offers_rejections():
         # Een koppeling als onjuist melden (POST) of de melding weer intrekken (DELETE).
-        body = await request.get_json(silent=True) or {}
+        body = await request_body.json_object()
         action = offers.report_mismatch if request.method == "POST" else offers.undo_mismatch
         return await offers_action(
             lambda: action(body.get("store") or "ah", body.get("ingredient"), body.get("offerId")),
@@ -920,7 +922,7 @@ def create_app() -> Quart:
 
     @app.put("/api/offers/ai")
     async def offers_ai_save():
-        body = await request.get_json(silent=True) or {}
+        body = await request_body.json_object()
         async def save_and_report() -> dict[str, Any]:
             await ai_review.save(body)
             return await ai_status()
@@ -929,12 +931,12 @@ def create_app() -> Quart:
 
     @app.post("/api/offers/ai/test")
     async def offers_ai_test():
-        body = await request.get_json(silent=True) or {}
+        body = await request_body.json_object()
         return await offers_action(lambda: ai_review.test(body.get("provider")), tr("De AI testen mislukt", "Testing the AI failed"))
 
     @app.post("/api/offers/ai/review")
     async def offers_ai_review():
-        body = await request.get_json(silent=True) or {}
+        body = await request_body.json_object()
         return await offers_action(
             lambda: ai_review.review(body.get("store") or "ah", body.get("max") or ai_review.DEFAULT_MAX_PAIRS),
             tr("Beoordelen met AI mislukt", "Reviewing with AI failed"),
@@ -949,7 +951,7 @@ def create_app() -> Quart:
 
     @app.post("/api/offers/ai/search")
     async def offers_ai_search():
-        body = await request.get_json(silent=True) or {}
+        body = await request_body.json_object()
         return await offers_action(
             lambda: ai_match.start(body.get("store") or "ah", body.get("max") or ai_match.DEFAULT_MAX_RECIPES),
             tr("Recepten zoeken met AI mislukt", "Searching recipes with AI failed"),
@@ -970,7 +972,7 @@ def create_app() -> Quart:
 
     @app.post("/api/mealie/auth")
     async def mealie_auth():
-        body = await request.get_json(silent=True) or {}
+        body = await request_body.json_object()
         try:
             return jsonify(await mealie.link(body.get("url"), body.get("token")))
         except (ValueError, RuntimeError) as exc:
@@ -982,7 +984,7 @@ def create_app() -> Quart:
 
     @app.post("/api/mealie/import")
     async def import_recipe():
-        body = await request.get_json(silent=True) or {}
+        body = await request_body.json_object()
         url = (body.get("url") or "").strip()
         if not url:
             return jsonify({"error": tr("URL ontbreekt", "URL is missing")}), 400
@@ -1019,7 +1021,7 @@ def create_app() -> Quart:
         alle supermarkten: `search(query, limit)` en `make_candidate(product, quantity, unit)`
         zijn de enige winkelspecifieke delen.
         """
-        body = await request.get_json(silent=True) or {}
+        body = await request_body.json_object()
         items = body.get("items") or []
         if not items:
             return jsonify({"error": tr("Geen ingredienten opgegeven", "No ingredients given")}), 400
@@ -1081,7 +1083,7 @@ def create_app() -> Quart:
 
     @app.post("/api/ah/cart")
     async def ah_cart():
-        body = await request.get_json(silent=True) or {}
+        body = await request_body.json_object()
         items = body.get("items") or []
         if not items:
             return jsonify({"error": tr("Geen ingredienten opgegeven", "No ingredients given")}), 400
@@ -1188,7 +1190,7 @@ def create_app() -> Quart:
 
     async def store_cart(store: Any, error: Any, auth_error: type) -> Any:
         """Zoek (indien nodig) de producten en zet ze in het mandje van de winkel; nooit een bestelling."""
-        body = await request.get_json(silent=True) or {}
+        body = await request_body.json_object()
         items = body.get("items") or []
         if not items:
             return jsonify({"error": tr("Geen ingredienten opgegeven", "No ingredients given")}), 400
@@ -1246,7 +1248,7 @@ def create_app() -> Quart:
 
     @app.post("/api/picnic/auth")
     async def picnic_auth():
-        body = await request.get_json(silent=True) or {}
+        body = await request_body.json_object()
         try:
             return jsonify(await picnic.login(body.get("email"), body.get("password") or ""))
         except Exception as exc:  # noqa: BLE001
@@ -1254,7 +1256,7 @@ def create_app() -> Quart:
 
     @app.post("/api/picnic/auth/2fa/request")
     async def picnic_auth_2fa_request():
-        body = await request.get_json(silent=True) or {}
+        body = await request_body.json_object()
         try:
             await picnic.request_2fa_code(body.get("channel") or "SMS")
             return jsonify({"requested": True})
@@ -1263,7 +1265,7 @@ def create_app() -> Quart:
 
     @app.post("/api/picnic/auth/2fa/verify")
     async def picnic_auth_2fa_verify():
-        body = await request.get_json(silent=True) or {}
+        body = await request_body.json_object()
         try:
             return jsonify(await picnic.verify_2fa(body.get("code")))
         except Exception as exc:  # noqa: BLE001
@@ -1339,7 +1341,7 @@ def create_app() -> Quart:
     @app.put("/api/picnic/cart/items/<product_id>")
     async def picnic_cart_set_quantity(product_id: str):
         # Een exact aantal; 0 haalt het product uit het mandje. Plaatst nooit een bestelling.
-        body = await request.get_json(silent=True) or {}
+        body = await request_body.json_object()
         try:
             return jsonify(await picnic.set_quantity(product_id, body.get("quantity")))
         except Exception as exc:  # noqa: BLE001
@@ -1348,7 +1350,7 @@ def create_app() -> Quart:
     @app.post("/api/picnic/cart/clear")
     async def picnic_cart_clear():
         # Het hele mandje leegmaken vraagt om een expliciete bevestiging, ook van andere aanroepers.
-        body = await request.get_json(silent=True) or {}
+        body = await request_body.json_object()
         if body.get("confirm") is not True:
             return jsonify({"error": tr("Bevestiging ontbreekt", "Confirmation is missing")}), 400
         try:
@@ -1439,7 +1441,7 @@ def create_app() -> Quart:
 
     @app.post("/api/crisp/auth")
     async def crisp_auth():
-        body = await request.get_json(silent=True) or {}
+        body = await request_body.json_object()
         try:
             return jsonify(await crisp.start_login(body.get("email"), body.get("country") or "nl"))
         except Exception as exc:  # noqa: BLE001
@@ -1447,7 +1449,7 @@ def create_app() -> Quart:
 
     @app.post("/api/crisp/auth/verify")
     async def crisp_auth_verify():
-        body = await request.get_json(silent=True) or {}
+        body = await request_body.json_object()
         try:
             return jsonify(await crisp.verify_login(body.get("code")))
         except Exception as exc:  # noqa: BLE001
@@ -1485,7 +1487,7 @@ def create_app() -> Quart:
     @app.put("/api/crisp/cart/items/<product_id>")
     async def crisp_cart_set_quantity(product_id: str):
         # Het aantal van één product in het echte Crisp-mandje; 0 haalt het weg. Nooit een bestelling.
-        body = await request.get_json(silent=True) or {}
+        body = await request_body.json_object()
         try:
             return jsonify(await crisp.set_quantity(product_id, body.get("quantity")))
         except Exception as exc:  # noqa: BLE001
@@ -1494,7 +1496,7 @@ def create_app() -> Quart:
     @app.post("/api/crisp/cart/clear")
     async def crisp_cart_clear():
         # Het mandje leegmaken vraagt om een expliciete bevestiging, zoals bij Picnic.
-        body = await request.get_json(silent=True) or {}
+        body = await request_body.json_object()
         if body.get("confirm") is not True:
             return jsonify({"error": tr("Bevestiging ontbreekt", "Confirmation is missing")}), 400
         try:
@@ -1709,7 +1711,7 @@ def create_app() -> Quart:
 
     @app.post("/api/jumbo/auth")
     async def jumbo_auth():
-        body = await request.get_json(silent=True) or {}
+        body = await request_body.json_object()
         try:
             return jsonify(await jumbo.link_account(body.get("code") or body.get("token") or ""))
         except Exception as exc:  # noqa: BLE001
@@ -1775,7 +1777,7 @@ def create_app() -> Quart:
 
     @app.patch("/api/jumbo/lists/<list_id>/items/<int:position>")
     async def jumbo_list_item_quantity(list_id: str, position: int):
-        body = await request.get_json(silent=True) or {}
+        body = await request_body.json_object()
         try:
             snapshot = await jumbo_lists.set_quantity(list_id, position, body.get("quantity"))
         except ValueError as exc:
@@ -1823,7 +1825,7 @@ def create_app() -> Quart:
     @app.post("/api/jumbo/list")
     async def jumbo_list_add():
         """Zet ingrediënten op het Jumbo-lijstje in plaats van in het mandje. Wat er al staat slaan we over."""
-        body = await request.get_json(silent=True) or {}
+        body = await request_body.json_object()
         items = body.get("items") or []
         if not items:
             return jsonify({"error": tr("Geen ingredienten opgegeven", "No ingredients given")}), 400
@@ -1932,7 +1934,7 @@ def create_app() -> Quart:
 
     @app.post("/api/ah/auth")
     async def ah_auth():
-        body = await request.get_json(silent=True) or {}
+        body = await request_body.json_object()
         raw = (body.get("code") or body.get("token") or "").strip()
         if not raw:
             return jsonify({"error": tr("Geen code of token opgegeven", "No code or token given")}), 400
@@ -1944,7 +1946,7 @@ def create_app() -> Quart:
 
     @app.post("/api/ah/auth/verify")
     async def ah_auth_verify():
-        body = await request.get_json(silent=True) or {}
+        body = await request_body.json_object()
         token = (body.get("refreshToken") or "").strip()
         if not token:
             return jsonify({"error": tr("Geen token opgegeven", "No token given")}), 400

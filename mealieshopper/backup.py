@@ -48,7 +48,7 @@ from cryptography.fernet import Fernet, InvalidToken
 from cryptography.hazmat.primitives.kdf.scrypt import Scrypt
 from quart import Quart, Response, jsonify, request
 
-from . import about, ah_lists, ah_orders, ah_recipes, ai_review, auth, crisp, crisp_orders, hellofresh, jumbo, jumbo_lists, jumbo_orders, marleyspoon, mealie, offers, offers_schedule, picnic, picnic_orders, price_import, prices, product_images, product_links, profile, server_settings, tasks, thread_db, uploads
+from . import about, ah_lists, ah_orders, ah_recipes, ai_review, auth, crisp, crisp_orders, hellofresh, jumbo, jumbo_lists, jumbo_orders, marleyspoon, mealie, offers, offers_schedule, picnic, picnic_orders, price_import, prices, product_images, product_links, profile, request_body, server_settings, tasks, thread_db, uploads
 from .i18n import tr
 
 log = logging.getLogger(__name__)
@@ -1005,7 +1005,7 @@ def register_routes(app: Quart) -> None:
 
     @app.post("/api/backup")
     async def backup_create() -> Response | tuple[Response, int]:
-        body = await request.get_json(silent=True) or {}
+        body = await request_body.json_object()
         links = bool(body.get("links", True))
         passphrase = str(body.get("passphrase") or "")
         leave_out = [part for part in OPTIONAL_PARTS if body.get(part, True) is False]  # standaard gaat alles mee
@@ -1083,7 +1083,7 @@ def register_routes(app: Quart) -> None:
 
     @app.post("/api/backup/jobs")
     async def backup_start() -> tuple[Response, int]:
-        body = await request.get_json(silent=True) or {}
+        body = await request_body.json_object()
         try:
             job = await start_job(
                 str(body.get("token") or ""), str(body.get("passphrase") or ""),
