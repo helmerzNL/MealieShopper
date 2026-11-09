@@ -103,7 +103,7 @@ class PurchaseSortTest(unittest.TestCase):
                        'id="order-sort-list"', 'data-sort-key="name"', 'id="order-options-menu"', 'id="order-options-toggle"', 'id="order-options-list"',
                        'data-size="large"', 'id="order-status"'):
             self.assertIn(needle, html)
-        self.assertNotIn("purchase", html.replace("purchase-bar__tools", "").replace("purchase-view-switch", "").replace("purchase-status", "").replace("purchase-options", ""))
+        self.assertNotIn("purchase", html.replace("purchase-bar__tools", "").replace("purchase-status", "").replace("purchase-options", ""))
 
     def test_the_list_bar_keeps_its_status_line_id_and_draws_every_choice(self):
         html = self.run_js('console.log(JSON.stringify(viewBarMarkup("purchase", { views: [{ id: "table", icon: MDI_VIEW_TABLE, label: "<Tabel>" }], sorts: [], sizes: false, options: [{ key: "names", label: "Productnamen" }] })));')

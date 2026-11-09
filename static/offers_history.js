@@ -499,7 +499,7 @@ function offerHistoryDetail(product) {
       <thead><tr><th scope="col">${escapeHtml(t("offers.history.table.period"))}</th><th scope="col">${escapeHtml(t("offers.history.table.price_each"))}</th><th scope="col">${escapeHtml(t("offers.history.table.folder_name"))}</th></tr></thead>
       <tbody>${lineRows}</tbody>
     </table>
-    <p class="muted ohc-note">${escapeHtml(t("offers.history.line_note"))}</p>`
+    <details class="help ohc-note"><summary>${escapeHtml(t("common.help"))}</summary><p class="muted">${escapeHtml(t("offers.history.line_note"))}</p></details>`
         : ""
     }
     ${offerHistoryPurchasesTable(product)}`;
@@ -578,7 +578,7 @@ function renderOfferHistory() {
 // kolommen beginnen tot waar de pagina ophoudt (pageFitHeight in app.js, gemeten aan de kolommen samen, want de lijst alleen
 // kan korter zijn dan het product) en scrolt daarbinnen. Op een smal scherm geldt het maximum uit styles.css.
 function offerHistoryFitList(list) {
-  const height = pageFitHeight(list.parentElement, { minWidth: 900 });
+  const height = pageFitHeight(list.parentElement, { minWidth: 1200 });
   const value = height === null ? "" : `${height}px`;
   list.style.maxHeight = value;
   $("#offers-history-detail").style.maxHeight = value;

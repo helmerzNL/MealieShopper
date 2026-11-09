@@ -2,6 +2,31 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub; een stabiele release krijgt de teksten van alle versies sinds de vorige stabiele release.
 
+## v4.9.0
+
+### Gewijzigd in 4.9.0
+
+Pull request: [#296](https://github.com/helmerzNL/MealieShopper/pull/296).
+
+*English summary: the fourth and last round of the design review: the system underneath, so the interface stays consistent. **Eight font sizes** (`--text-xs` 12 to `--text-2xl` 24) instead of 21 loose values, with almost no visible change; the paste field of the order import is 16 px, so iOS no longer zooms in. **Radius tokens** for small, control, card, large and pill. **Three breakpoints**, 640 (phone), 860 (menu on the left) and 1200 (wide), in CSS and JavaScript: cook mode and the recipe dialog switch at 860, the two-column price history, the filter drawer of Offers and the table heights at 1200, and the compact offers list now looks at its own width (a container query), so product names no longer collapse at 1280 px with the menu and the filters open. **One segmented control** for the view of Offers, the views of purchases and orders and Recipe or Note in the plan dialog, with 44 px segments and a focus ring that is no longer cut off; the open sub-tab gets `aria-current`. **Explanations shortened**: every screen and settings block starts with one line, the rest is folded away behind *How does this work?*; warnings and errors stay in view.*
+
+- **Typeschaal van acht stappen.** Er stonden 21 verschillende lettergroottes in de stylesheet (10 tot 32 px, plus rem). Nu zijn er acht tokens: `--text-xs` 12, `--text-sm` 13, `--text-md` 14, `--text-ui` 15, `--text-base` 16, `--text-lg` 18, `--text-xl` 20 en `--text-2xl` 24. Tussenwaarden schuiven naar de dichtstbijzijnde stap (11 naar 12, 12,5 naar 13, 17 naar 18, 21 naar 20, 26 naar 24), dus je ziet vrijwel geen verschil. Letterlijk blijven alleen het label van de menubalk, de maat van een teken-icoon, de kolomkoppen van de kassabon en de initialen in de grote avatar, elk met een opmerking.
+  - **Fout gerepareerd:** het plakveld bij *Oude bestellingen importeren* was 0,85rem; iOS zoomde in zodra je erin tikte. Het is nu 16 px, zoals elk invoerveld.
+- **Radius-tokens.** Naast `--radius-control` (8) en `--radius-card` (12) zijn er `--radius-sm` (4), `--radius-lg` (16) en `--radius-pill` (999). Alleen rondjes, de menubalk en de miniaturen in Weergave houden een eigen waarde.
+- **Drie breekpunten: 640, 860 en 1200 px** (met 641 en 1199 als tegenhanger), in plaats van tien.
+  - 480, 560 en 639 worden 640 (productvenster, kcal-filter, plan-venster, koppelfeiten, regel in het mandje, regel van een bestelling); de kop van de kookmodus wisselt bij 641 in plaats van 720.
+  - De kookmodus zet de ingrediënten vanaf 860 px naast de stap (was 900), het receptvenster wordt vanaf 860 px breed (was 1000) en de hover-popup bij Aanbiedingen werkt vanaf 860 px (was 900).
+  - Vanaf 1200 px: de prijsgeschiedenis in twee kolommen (was 900; naast het menu links was de productkolom te smal), de filterkolom van Aanbiedingen naast de kaarten (was 1100), en de tabellen en de kassabon die in hun eigen vak scrollen (was 1024).
+  - **De compacte lijst van Aanbiedingen** kijkt naar zijn eigen breedte (een container query) in plaats van naar het scherm: bij 1280 px met het menu en de filters open viel de productnaam terug tot "Vol…". Is de lijst smaller dan 800 px, dan staat de geschiedenis onder de naam.
+- **Eén segmentbediening** (`.segmented`) voor de weergave van Aanbiedingen (kaarten of lijst), de weergaven van aankopen en bestellingen en *Recept* of *Notitie* in het plan-venster. Hetzelfde ingedeukte spoor als de subtabs, met segmenten van 44 px. De weergaveknoppen van Aanbiedingen waren 40 × 36 px en hun focusring werd afgeknipt.
+  - **Fout gerepareerd:** de weergaveknoppen van aankopen en bestellingen waren subtabs; een klik op een subtab in hetzelfde scherm haalde ook bij die knoppen de markering weg.
+  - Het open subtab krijgt `aria-current="page"`, zodat een schermlezer het ook hoort en niet alleen een kleur ziet.
+- **Uitleg ingekort.** Elk scherm en elk blok bij Instellingen begint met één regel die zegt wat het is; de rest staat ingeklapt achter **Hoe werkt dit?**. Dat geldt voor Recepten zoeken, de Weekplanner van AH (met de link naar Voorkeuren), de bestellingen van AH, Jumbo, Picnic en Crisp, de lijstjes, de recepten en favorieten van de winkels, Maaltijdboxen, de prijsgeschiedenis (ook de uitleg bij de folderregels), en bij Instellingen voor Aanbiedingen synchroniseren, AI-beoordeling, de eerste dag van de week, voedingswaarden aanvullen, de inlog van AH, Jumbo, Picnic en Crisp, de vier verkenners (één gedeelde regel), Gebruikers, Auditlog, Back-up, Prijsarchief importeren en exporteren en AI-apps.
+  - Waarschuwingen, foutmeldingen, wat destructief is en statusregels blijven in beeld, net als de privacyregel van de AI-beoordeling en de instructie bij het vinkje van het prijsarchief.
+  - De zin over bekijken en inplannen stond vijf keer in de woordenboeken en staat er nu één keer. De statusregel van de bewaarde AH-recepten is korter (Vernieuwen staat er als knop naast).
+- **Handleiding** (NL en EN): het uitlegpatroon en de nieuwe breekpunten. **Huisstijl**: de typeschaal, de radius-tokens, de breekpunten, de segmentbediening en het uitlegpatroon.
+- **Tests:** in `tests/test_brand.py` de typeschaal (geen letterlijke grootte buiten de uitzonderingen), de radius-tokens en de drie breekpunten in CSS en JS; het nieuwe `tests/test_system_ui.py` (de segmentbediening, `aria-current`, elk uitklapblok met *Hoe werkt dit?*, waarschuwingen buiten de blokken); `tests/test_nav_tree.py`, `tests/test_link_menu.py`, `tests/test_cards_ui.py`, `tests/test_purchase_sort.py` en `tests/test_i18n.py` gaan mee.
+
 ## v4.8.0
 
 ### Gewijzigd in 4.8.0

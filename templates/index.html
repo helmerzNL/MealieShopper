@@ -394,9 +394,9 @@
           <label class="field"><span data-i18n="plan.day">Dag</span><input class="input" id="plan-date" type="date" required></label>
           <label class="field"><span data-i18n="plan.meal">Maaltijd</span><select class="input" id="plan-type"></select></label>
         </div>
-        <div class="plan-kind" role="radiogroup" aria-label="Wat plan je?" data-i18n-attr="aria-label:plan.kind">
-          <label class="plan-kind__option"><input type="radio" name="plan-kind" value="recipe" checked><span data-i18n="plan.kind_recipe">Recept</span></label>
-          <label class="plan-kind__option"><input type="radio" name="plan-kind" value="note"><span data-i18n="plan.kind_note">Notitie</span></label>
+        <div class="segmented" role="radiogroup" aria-label="Wat plan je?" data-i18n-attr="aria-label:plan.kind">
+          <label class="segmented__item"><input type="radio" name="plan-kind" value="recipe" checked><span data-i18n="plan.kind_recipe">Recept</span></label>
+          <label class="segmented__item"><input type="radio" name="plan-kind" value="note"><span data-i18n="plan.kind_note">Notitie</span></label>
         </div>
         <div id="plan-recipe-part" class="plan-dialog__part">
           <div id="plan-recipe-chosen" class="plan-recipe-chosen" hidden></div>
@@ -657,7 +657,11 @@
                 <input class="input kcal-filter__input" id="search-salt-max" form="search-form" type="number" inputmode="decimal" min="0" max="50" step="0.1" placeholder="max." autocomplete="off" aria-labelledby="search-salt-label search-word-max" data-i18n-attr="placeholder:kcal.max">
               </div>
             </details>
-          <p class="muted" data-i18n="search.intro">Zoekt tegelijk in je eigen recepten in Mealie, bij Albert Heijn, bij Jumbo, Picnic en Crisp zodra die gekoppeld zijn, en in de menu's van HelloFresh en Marley Spoon van deze week en de komende weken (daar is geen koppeling voor nodig). Bekijk een recept voor de ingrediënten en de bereiding, of plan het in je weekmenu; een recept van een winkel komt dan ook in Mealie.</p>
+          <p class="muted" data-i18n="search.intro">Zoekt in één keer in Mealie, bij je winkels en in de weekmenu's van HelloFresh en Marley Spoon.</p>
+          <details class="help">
+            <summary data-i18n="common.help">Hoe werkt dit?</summary>
+            <p class="muted" data-i18n="search.intro_more">Albert Heijn doet altijd mee, Jumbo, Picnic en Crisp zodra ze gekoppeld zijn; voor de menu's van HelloFresh en Marley Spoon (deze week en de komende weken) is geen koppeling nodig. Bekijk een recept voor de ingrediënten en de bereiding, of plan het in je weekmenu; een recept van een winkel komt dan ook in Mealie.</p>
+          </details>
           <div id="search-message"></div>
           <div id="search-sections">
             <section class="search-store" id="search-mealie" hidden>
@@ -723,7 +727,11 @@
         </nav>
         <div class="box box--wide" id="mealkits-view">
           <h2 data-i18n="nav.mealkits">Maaltijdboxen</h2>
-          <p class="muted" id="mealkits-intro">De openbare weekmenu's van HelloFresh Nederland. Bekijk een recept, of plan het in je weekmenu; dan komt het ook in Mealie. Er is geen account of koppeling nodig.</p>
+          <p class="muted" id="mealkits-intro">De openbare weekmenu's van HelloFresh Nederland, zonder account of koppeling.</p>
+          <details class="help">
+            <summary data-i18n="common.help">Hoe werkt dit?</summary>
+            <p class="muted" data-i18n="recipes.plan_note">Bekijk een recept voor de ingrediënten en de bereiding, of plan het in je weekmenu; dan komt het ook in Mealie.</p>
+          </details>
           <div class="toolbar" id="mealkits-weeks">
             <button class="icon-button" id="mealkits-previous" type="button" aria-label="Vorige week" data-i18n-attr="aria-label:mealkits.previous"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15.41,16.58L10.83,12L15.41,7.41L14,6L8,12L14,18L15.41,16.58Z"/></svg></button>
             <div class="week-label"><strong id="mealkits-week" aria-live="polite"></strong></div>
@@ -762,7 +770,7 @@
             <button class="icon-button" id="basket-refresh" type="button" aria-label="Vernieuwen" title="Vernieuwen" data-i18n-attr="aria-label:basket.refresh;title:basket.refresh"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12,18A6,6 0 0,1 6,12C6,11 6.25,10.03 6.7,9.2L5.24,7.74C4.46,8.97 4,10.43 4,12A8,8 0 0,0 12,20V23L16,19L12,15M12,4V1L8,5L12,9V6A6,6 0 0,1 18,12C18,13 17.75,13.97 17.3,14.8L18.76,16.26C19.54,15.03 20,13.57 20,12A8,8 0 0,0 12,4Z"/></svg></button>
           </div>
           <details class="help" id="basket-help">
-            <summary data-i18n="basket.help">Hoe werkt dit?</summary>
+            <summary data-i18n="common.help">Hoe werkt dit?</summary>
             <p class="muted" id="basket-intro"></p>
           </details>
           <div id="basket-message"></div>
@@ -852,9 +860,9 @@
                 <option value="lowest" data-i18n="offers.sort.lowest">Laagste ooit eerst</option>
               </select>
             </label>
-            <div id="offers-view" class="segment-control" role="group" aria-label="Weergave" data-i18n-attr="aria-label:offers.view.label">
-              <button class="segment-control__button" type="button" data-view="cards" aria-pressed="true" title="Kaarten" aria-label="Kaarten" data-i18n-attr="title:offers.view.cards;aria-label:offers.view.cards"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 11H11V3H3M5 5H9V9H5M13 21H21V13H13M15 15H19V19H15M3 21H11V13H3M5 15H9V19H5M13 3V11H21V3M19 9H15V5H19Z"/></svg></button>
-              <button class="segment-control__button" type="button" data-view="compact" aria-pressed="false" title="Compact" aria-label="Compact" data-i18n-attr="title:offers.view.compact;aria-label:offers.view.compact"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 5V19H20V5H3M7 7V9H5V7H7M5 13V11H7V13H5M5 15H7V17H5V15M18 17H9V15H18V17M18 13H9V11H18V13M18 9H9V7H18V9Z"/></svg></button>
+            <div id="offers-view" class="segmented" role="group" aria-label="Weergave" data-i18n-attr="aria-label:offers.view.label">
+              <button class="segmented__item segmented__item--icon" type="button" data-view="cards" aria-pressed="true" title="Kaarten" aria-label="Kaarten" data-i18n-attr="title:offers.view.cards;aria-label:offers.view.cards"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 11H11V3H3M5 5H9V9H5M13 21H21V13H13M15 15H19V19H15M3 21H11V13H3M5 15H9V19H5M13 3V11H21V3M19 9H15V5H19Z"/></svg></button>
+              <button class="segmented__item segmented__item--icon" type="button" data-view="compact" aria-pressed="false" title="Compact" aria-label="Compact" data-i18n-attr="title:offers.view.compact;aria-label:offers.view.compact"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 5V19H20V5H3M7 7V9H5V7H7M5 13V11H7V13H5M5 15H7V17H5V15M18 17H9V15H18V17M18 13H9V11H18V13M18 9H9V7H18V9Z"/></svg></button>
             </div>
           </div>
           <div id="offers-categories" class="offer-cats offer-cats--scroll" role="group" aria-label="Categorieën" data-i18n-attr="aria-label:offers.categories"></div>
@@ -897,7 +905,11 @@
         <div id="offers-history" class="subpanel">
         <div class="box box--wide">
           <h2 data-i18n="offers.history.title">Prijsgeschiedenis</h2>
-          <p class="muted" data-i18n="offers.history.explain">Zoek een product om te zien wanneer het in de aanbieding was en voor welke prijs, wat het normaal kost en wat je ervoor betaalde. De aanbiedingen lopen vanaf de eerste synchronisatie; je bestellingen en kassabonnen tellen mee zodra de app ze heeft opgehaald.</p>
+          <p class="muted" data-i18n="offers.history.explain">Zoek een product om te zien wanneer het in de aanbieding was en voor welke prijs.</p>
+          <details class="help">
+            <summary data-i18n="common.help">Hoe werkt dit?</summary>
+            <p class="muted" data-i18n="offers.history.explain_more">Je ziet ook wat het normaal kost en wat je ervoor betaalde. De aanbiedingen lopen vanaf de eerste synchronisatie; je bestellingen en kassabonnen tellen mee zodra de app ze heeft opgehaald.</p>
+          </details>
           <form id="offers-history-form" role="search">
             <label class="searchbar">
               <span class="visually-hidden" data-i18n="offers.history.search">Zoek een product</span>
@@ -966,7 +978,7 @@
             <svg class="searchbar__icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M9.5,3A6.5,6.5 0 0,1 16,9.5C16,11.11 15.41,12.59 14.44,13.73L14.71,14H15.5L20.5,19L19,20.5L14,15.5V14.71L13.73,14.44C12.59,15.41 11.11,16 9.5,16A6.5,6.5 0 0,1 3,9.5A6.5,6.5 0 0,1 9.5,3M9.5,5C7,5 5,7 5,9.5C5,12 7,14 9.5,14C12,14 14,12 14,9.5C14,7 12,5 9.5,5Z"/></svg>
             <input class="input" id="ah-recipe-filter" type="search" placeholder="Zoek in je recepten" autocomplete="off" enterkeyhint="search" disabled data-i18n-attr="placeholder:ah.recipes.search_ph">
           </label>
-          <p class="muted" id="ah-recipes-status">Je bewaarde Allerhande-recepten worden bij AH opgehaald en daarna in MealieShopper bewaard. Dit gebruikt je AH-koppeling onder Instellingen &gt; Koppelen &gt; Albert Heijn.</p>
+          <p class="muted" id="ah-recipes-status">Je bewaarde Allerhande-recepten: opgehaald bij AH via je koppeling en daarna bewaard in MealieShopper.</p>
           <div class="bulk-tools" data-bulk-tools="ah" hidden>
             <button class="button button--secondary" type="button" data-bulk-select="ah" aria-pressed="false" hidden data-i18n="bulk.select">Selecteren</button>
             <button class="button button--secondary" type="button" data-bulk-group="ah" hidden></button>
@@ -999,8 +1011,12 @@
             <button class="button button--secondary" id="load-ah-planner" type="button" data-i18n="ah.planner.refresh">Ophalen bij AH</button>
             <button class="button" id="ah-planner-to-meal-plan" type="button" disabled data-i18n="ah.planner.to_meal_plan">Naar weekmenu</button>
           </div>
-          <p class="muted" id="ah-planner-intro" data-i18n="ah.planner.intro">Wat je in de weekplanner van de AH-app hebt gepland, vanaf vandaag. MealieShopper leest alleen mee: plannen doe je in de AH-app. Naar weekmenu zet alles op dezelfde dag in het weekmenu: Allerhande-recepten (zo nodig eerst geïmporteerd in Mealie) en losse producten, als het recept met die naam in Mealie, als eigen recept of samen als menu. Eigen AH-recepten gaan niet mee.</p>
-          <p class="muted ah-planner__settings"><a href="/settings/preferences" data-route data-i18n="ah.planner.settings_link">Hoe losse producten meegaan, stel je in bij Voorkeuren, Supermarkt.</a></p>
+          <p class="muted" id="ah-planner-intro" data-i18n="ah.planner.intro">Wat je in de weekplanner van de AH-app hebt gepland, vanaf vandaag. Plannen doe je in de AH-app.</p>
+          <details class="help">
+            <summary data-i18n="common.help">Hoe werkt dit?</summary>
+            <p class="muted" data-i18n="ah.planner.intro_more">Naar weekmenu zet alles op dezelfde dag in het weekmenu: Allerhande-recepten (zo nodig eerst geïmporteerd in Mealie) en losse producten, als het recept met die naam in Mealie, als eigen recept of samen als menu. Eigen AH-recepten gaan niet mee.</p>
+            <p class="muted ah-planner__settings"><a href="/settings/preferences" data-route data-i18n="ah.planner.settings_link">Hoe losse producten meegaan, stel je in bij Voorkeuren, Supermarkt.</a></p>
+          </details>
           <p class="muted" id="ah-planner-status" role="status" aria-live="polite"></p>
           <div id="ah-planner-message"></div>
           <div id="ah-planner-days" class="day-grid"></div>
@@ -1027,7 +1043,11 @@
             <svg class="searchbar__icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M9.5,3A6.5,6.5 0 0,1 16,9.5C16,11.11 15.41,12.59 14.44,13.73L14.71,14H15.5L20.5,19L19,20.5L14,15.5V14.71L13.73,14.44C12.59,15.41 11.11,16 9.5,16A6.5,6.5 0 0,1 3,9.5A6.5,6.5 0 0,1 9.5,3M9.5,5C7,5 5,7 5,9.5C5,12 7,14 9.5,14C12,14 14,12 14,9.5C14,7 12,5 9.5,5Z"/></svg>
             <input class="input" id="ah-list-filter" type="search" placeholder="Zoek in je lijstjes" autocomplete="off" enterkeyhint="search" data-i18n-attr="placeholder:ah.lists.search_ph">
           </label>
-          <p class="muted" data-i18n="ah.lists.intro">Synchroniseer een lijstje om er een kopie van in MealieShopper te bewaren. Die kopie blijft zichtbaar als de koppeling met de winkel niet werkt. Zoeken kijkt naar de naam van het lijstje en naar de producten in gesynchroniseerde lijstjes.</p>
+          <p class="muted" data-i18n="ah.lists.intro">Synchroniseer een lijstje om er een kopie van in MealieShopper te bewaren.</p>
+          <details class="help">
+            <summary data-i18n="common.help">Hoe werkt dit?</summary>
+            <p class="muted" data-i18n="ah.lists.intro_more">Die kopie blijft zichtbaar als de koppeling met de winkel niet werkt. Zoeken kijkt naar de naam van het lijstje en naar de producten in gesynchroniseerde lijstjes.</p>
+          </details>
           <div id="ah-lists-warning"></div>
           <div id="ah-lists" class="list-grid"></div>
         </div>
@@ -1054,8 +1074,13 @@
             <button class="icon-button" id="sync-orders" type="button" aria-label="Synchroniseren" title="Synchroniseren" data-i18n-attr="aria-label:common.sync;title:common.sync"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12,18A6,6 0 0,1 6,12C6,11 6.25,10.03 6.7,9.2L5.24,7.74C4.46,8.97 4,10.43 4,12A8,8 0 0,0 12,20V23L16,19L12,15M12,4V1L8,5L12,9V6A6,6 0 0,1 18,12C18,13 17.75,13.97 17.3,14.8L18.76,16.26C19.54,15.03 20,13.57 20,12A8,8 0 0,0 12,4Z"/></svg></button>
             <button class="button button--secondary orders-import" id="orders-import" type="button" data-admin-only><svg class="mdi" viewBox="0 0 24 24" aria-hidden="true" data-mdi="mdiArchiveOutline"><path d="M20 21H4V10H6V19H18V10H20V21M3 3H21V9H3V3M9.5 11H14.5C14.78 11 15 11.22 15 11.5V13H9V11.5C9 11.22 9.22 11 9.5 11M5 5V7H19V5H5Z"/></svg><span data-i18n="offers.import.open">Oude aankopen importeren</span></button>
           </div>
-          <p class="muted" id="ah-orders-intro" data-i18n="orders.intro">Je aankomende en afgelopen bestellingen bij Albert Heijn en je kassabonnen uit de winkel. Ze worden bewaard in MealieShopper, dus je kunt ze ook zonder verbinding met AH bekijken. Synchroniseren haalt alleen nieuwe gegevens op.</p>
-          <p class="muted" id="jumbo-orders-intro" hidden data-i18n="orders.intro_jumbo">Je Jumbo-bestellingen met de producten. Ze worden bewaard in MealieShopper, dus je kunt ze ook zonder verbinding met Jumbo bekijken. Synchroniseren haalt de lijst en de producten van de nieuwste bestellingen op; herhaal het tot alles binnen is.</p>
+          <p class="muted" id="ah-orders-intro" data-i18n="orders.intro">Je bestellingen bij Albert Heijn en je kassabonnen uit de winkel.</p>
+          <p class="muted" id="jumbo-orders-intro" hidden data-i18n="orders.intro_jumbo">Je Jumbo-bestellingen met de producten.</p>
+          <details class="help">
+            <summary data-i18n="common.help">Hoe werkt dit?</summary>
+            <p class="muted" id="ah-orders-intro-more" data-i18n="orders.intro_more">Ze worden bewaard in MealieShopper, dus je kunt ze ook zonder verbinding met AH bekijken. Synchroniseren haalt alleen nieuwe gegevens op.</p>
+            <p class="muted" id="jumbo-orders-intro-more" hidden data-i18n="orders.intro_jumbo_more">Ze worden bewaard in MealieShopper, dus je kunt ze ook zonder verbinding met Jumbo bekijken. Synchroniseren haalt de lijst en de producten van de nieuwste bestellingen op; herhaal het tot alles binnen is.</p>
+          </details>
           <label class="searchbar">
             <span class="visually-hidden" data-i18n="orders.search">Zoek in je aankopen</span>
             <svg class="searchbar__icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M9.5,3A6.5,6.5 0 0,1 16,9.5C16,11.11 15.41,12.59 14.44,13.73L14.71,14H15.5L20.5,19L19,20.5L14,15.5V14.71L13.73,14.44C12.59,15.41 11.11,16 9.5,16A6.5,6.5 0 0,1 3,9.5A6.5,6.5 0 0,1 9.5,3M9.5,5C7,5 5,7 5,9.5C5,12 7,14 9.5,14C12,14 14,12 14,9.5C14,7 12,5 9.5,5Z"/></svg>
@@ -1129,7 +1154,11 @@
             <svg class="searchbar__icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M9.5,3A6.5,6.5 0 0,1 16,9.5C16,11.11 15.41,12.59 14.44,13.73L14.71,14H15.5L20.5,19L19,20.5L14,15.5V14.71L13.73,14.44C12.59,15.41 11.11,16 9.5,16A6.5,6.5 0 0,1 3,9.5A6.5,6.5 0 0,1 9.5,3M9.5,5C7,5 5,7 5,9.5C5,12 7,14 9.5,14C12,14 14,12 14,9.5C14,7 12,5 9.5,5Z"/></svg>
             <input class="input" id="picnic-recipe-filter" type="search" placeholder="Zoek in de recepten" autocomplete="off" enterkeyhint="search" disabled data-i18n-attr="placeholder:picnic.recipes.search">
           </label>
-          <p class="muted" data-i18n="picnic.recipes.intro">Je recepten uit de Picnic-app: Koken > Bewaard, Opnieuw bestellen en het kookboek. Bekijk een recept voor de ingrediënten en de bereiding, of plan het in je weekmenu; dan komt het ook in Mealie.</p>
+          <p class="muted" data-i18n="picnic.recipes.intro">Je recepten uit de Picnic-app: Koken > Bewaard, Opnieuw bestellen en het kookboek.</p>
+          <details class="help">
+            <summary data-i18n="common.help">Hoe werkt dit?</summary>
+            <p class="muted" data-i18n="recipes.plan_note">Bekijk een recept voor de ingrediënten en de bereiding, of plan het in je weekmenu; dan komt het ook in Mealie.</p>
+          </details>
           <p class="muted" id="picnic-recipes-status"></p>
           <div id="picnic-recipes-message"></div>
           <div id="picnic-recipes" class="recipe-grid recipe-grid--compact"></div>
@@ -1155,7 +1184,11 @@
             <svg class="searchbar__icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M9.5,3A6.5,6.5 0 0,1 16,9.5C16,11.11 15.41,12.59 14.44,13.73L14.71,14H15.5L20.5,19L19,20.5L14,15.5V14.71L13.73,14.44C12.59,15.41 11.11,16 9.5,16A6.5,6.5 0 0,1 3,9.5A6.5,6.5 0 0,1 9.5,3M9.5,5C7,5 5,7 5,9.5C5,12 7,14 9.5,14C12,14 14,12 14,9.5C14,7 12,5 9.5,5Z"/></svg>
             <input class="input" id="picnic-favorite-filter" type="search" placeholder="Zoek in je favorieten" autocomplete="off" enterkeyhint="search" disabled data-i18n-attr="placeholder:picnic.favorites.search">
           </label>
-          <p class="muted" data-i18n="picnic.favorites.intro">Alleen de producten die je zelf als favoriet hebt opgeslagen in de Picnic-app. Met de knop zet je er één in je Picnic-mandje; bestellen doe je in de Picnic-app.</p>
+          <p class="muted" data-i18n="picnic.favorites.intro">De producten die je als favoriet hebt opgeslagen in de Picnic-app.</p>
+          <details class="help">
+            <summary data-i18n="common.help">Hoe werkt dit?</summary>
+            <p class="muted" data-i18n="picnic.favorites.intro_more">Met de knop zet je er één in je Picnic-mandje; bestellen doe je in de Picnic-app.</p>
+          </details>
           <p class="muted" id="picnic-favorites-status"></p>
           <div id="picnic-favorites-message"></div>
           <div id="picnic-favorites" class="product-grid"></div>
@@ -1169,7 +1202,12 @@
             <select id="jumbo-recipe-list" class="store-select" hidden aria-label="Lijst" data-i18n-attr="aria-label:jumbo.favorites.list"></select>
             <button class="button button--secondary" id="load-jumbo-favorites" type="button" data-i18n="common.load">Laden</button>
           </div>
-          <p class="muted" data-i18n="jumbo.favorites.intro">Je receptenlijsten op jumbo.com: Favorieten en je eigen lijstjes. Bekijk een recept voor de ingrediënten en de bereiding, of plan het in je weekmenu; dan komt het ook in Mealie. Zoeken in alle Jumbo-recepten doe je bij Recepten zoeken.</p>
+          <p class="muted" data-i18n="jumbo.favorites.intro">Je receptenlijsten op jumbo.com: Favorieten en je eigen lijstjes.</p>
+          <details class="help">
+            <summary data-i18n="common.help">Hoe werkt dit?</summary>
+            <p class="muted" data-i18n="recipes.plan_note">Bekijk een recept voor de ingrediënten en de bereiding, of plan het in je weekmenu; dan komt het ook in Mealie.</p>
+            <p class="muted" data-i18n="jumbo.favorites.intro_more">Zoeken in alle Jumbo-recepten doe je bij Recepten zoeken.</p>
+          </details>
           <p class="muted" id="jumbo-favorites-status"></p>
           <div class="bulk-tools" data-bulk-tools="jumbo" hidden>
             <button class="button button--secondary" type="button" data-bulk-select="jumbo" aria-pressed="false" hidden data-i18n="bulk.select">Selecteren</button>
@@ -1204,7 +1242,11 @@
             <button class="button button--secondary" id="sync-picnic-orders" type="button" data-i18n="common.sync">Synchroniseren</button>
             <button class="button button--secondary orders-import" id="picnic-orders-import" type="button" data-admin-only><svg class="mdi" viewBox="0 0 24 24" aria-hidden="true" data-mdi="mdiArchiveOutline"><path d="M20 21H4V10H6V19H18V10H20V21M3 3H21V9H3V3M9.5 11H14.5C14.78 11 15 11.22 15 11.5V13H9V11.5C9 11.22 9.22 11 9.5 11M5 5V7H19V5H5Z"/></svg><span data-i18n="offers.import.open">Oude aankopen importeren</span></button>
           </div>
-          <p class="muted" data-i18n="picnic.orders.intro">Je aankomende bezorgingen bij Picnic (live opgehaald) en je afgeleverde bestellingen. Die laatste bewaart MealieShopper lokaal, dus ze blijven te bekijken zonder verbinding met Picnic; Synchroniseren haalt alleen nieuwe gegevens op. Open een bestelling voor de producten en zet ze met één knop opnieuw in je Picnic-mandje; bestellen doe je in de Picnic-app.</p>
+          <p class="muted" data-i18n="picnic.orders.intro">Je aankomende bezorgingen en je afgeleverde bestellingen bij Picnic.</p>
+          <details class="help">
+            <summary data-i18n="common.help">Hoe werkt dit?</summary>
+            <p class="muted" data-i18n="picnic.orders.intro_more">Aankomende bezorgingen worden live opgehaald. Afgeleverde bestellingen bewaart MealieShopper lokaal, dus ze blijven te bekijken zonder verbinding met Picnic; Synchroniseren haalt alleen nieuwe gegevens op. Open een bestelling voor de producten en zet ze met één knop opnieuw in je Picnic-mandje; bestellen doe je in de Picnic-app.</p>
+          </details>
           <p class="muted" id="picnic-orders-synced"></p>
           <div id="picnic-orders-message"></div>
           <h3 data-i18n="picnic.orders.upcoming">Aankomend</h3>
@@ -1235,7 +1277,12 @@
             <svg class="searchbar__icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M9.5,3A6.5,6.5 0 0,1 16,9.5C16,11.11 15.41,12.59 14.44,13.73L14.71,14H15.5L20.5,19L19,20.5L14,15.5V14.71L13.73,14.44C12.59,15.41 11.11,16 9.5,16A6.5,6.5 0 0,1 3,9.5A6.5,6.5 0 0,1 9.5,3M9.5,5C7,5 5,7 5,9.5C5,12 7,14 9.5,14C12,14 14,12 14,9.5C14,7 12,5 9.5,5Z"/></svg>
             <input class="input" id="crisp-recipe-filter" type="search" placeholder="Zoek in de recepten" autocomplete="off" enterkeyhint="search" disabled data-i18n-attr="placeholder:picnic.recipes.search">
           </label>
-          <p class="muted" data-i18n="crisp.recipes.intro">Je favoriete recepten uit de Crisp-app (het hartje bij een recept). Bekijk een recept voor de ingrediënten en de bereiding, of plan het in je weekmenu; dan komt het ook in Mealie. Zoeken in alle Crisp-recepten doe je bij Recepten zoeken.</p>
+          <p class="muted" data-i18n="crisp.recipes.intro">Je favoriete recepten uit de Crisp-app (het hartje bij een recept).</p>
+          <details class="help">
+            <summary data-i18n="common.help">Hoe werkt dit?</summary>
+            <p class="muted" data-i18n="recipes.plan_note">Bekijk een recept voor de ingrediënten en de bereiding, of plan het in je weekmenu; dan komt het ook in Mealie.</p>
+            <p class="muted" data-i18n="crisp.recipes.intro_more">Zoeken in alle Crisp-recepten doe je bij Recepten zoeken.</p>
+          </details>
           <p class="muted" id="crisp-recipes-status"></p>
           <div class="bulk-tools" data-bulk-tools="crisp" hidden>
             <button class="button button--secondary" type="button" data-bulk-select="crisp" aria-pressed="false" hidden data-i18n="bulk.select">Selecteren</button>
@@ -1273,7 +1320,11 @@
             <svg class="searchbar__icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M9.5,3A6.5,6.5 0 0,1 16,9.5C16,11.11 15.41,12.59 14.44,13.73L14.71,14H15.5L20.5,19L19,20.5L14,15.5V14.71L13.73,14.44C12.59,15.41 11.11,16 9.5,16A6.5,6.5 0 0,1 3,9.5A6.5,6.5 0 0,1 9.5,3M9.5,5C7,5 5,7 5,9.5C5,12 7,14 9.5,14C12,14 14,12 14,9.5C14,7 12,5 9.5,5Z"/></svg>
             <input class="input" id="crisp-favorite-filter" type="search" placeholder="Zoek in je favorieten" autocomplete="off" enterkeyhint="search" disabled data-i18n-attr="placeholder:picnic.favorites.search">
           </label>
-          <p class="muted" data-i18n="crisp.favorites.intro">De producten die je in de Crisp-app hebt bewaard (Door jou bewaard). Met de knop zet je er één in je Crisp-mandje; bestellen doe je in de Crisp-app.</p>
+          <p class="muted" data-i18n="crisp.favorites.intro">De producten die je in de Crisp-app hebt bewaard (Door jou bewaard).</p>
+          <details class="help">
+            <summary data-i18n="common.help">Hoe werkt dit?</summary>
+            <p class="muted" data-i18n="crisp.favorites.intro_more">Met de knop zet je er één in je Crisp-mandje; bestellen doe je in de Crisp-app.</p>
+          </details>
           <p class="muted" id="crisp-favorites-status"></p>
           <div id="crisp-favorites-message"></div>
           <div id="crisp-favorites" class="product-grid"></div>
@@ -1287,7 +1338,11 @@
             <button class="button button--secondary" id="sync-crisp-orders" type="button" data-i18n="common.sync">Synchroniseren</button>
             <button class="button button--secondary orders-import" id="crisp-orders-import" type="button" data-admin-only><svg class="mdi" viewBox="0 0 24 24" aria-hidden="true" data-mdi="mdiArchiveOutline"><path d="M20 21H4V10H6V19H18V10H20V21M3 3H21V9H3V3M9.5 11H14.5C14.78 11 15 11.22 15 11.5V13H9V11.5C9 11.22 9.22 11 9.5 11M5 5V7H19V5H5Z"/></svg><span data-i18n="offers.import.open">Oude aankopen importeren</span></button>
           </div>
-          <p class="muted" data-i18n="crisp.orders.intro">Je aankomende bestellingen bij Crisp (live opgehaald) en je bezorgde bestellingen. Die laatste bewaart MealieShopper lokaal, dus ze blijven te bekijken zonder verbinding met Crisp; Synchroniseren haalt alleen nieuwe gegevens op. Open een bestelling voor de producten en zet ze met één knop opnieuw in je Crisp-mandje; bestellen doe je in de Crisp-app.</p>
+          <p class="muted" data-i18n="crisp.orders.intro">Je aankomende en je bezorgde bestellingen bij Crisp.</p>
+          <details class="help">
+            <summary data-i18n="common.help">Hoe werkt dit?</summary>
+            <p class="muted" data-i18n="crisp.orders.intro_more">Aankomende bestellingen worden live opgehaald. Bezorgde bestellingen bewaart MealieShopper lokaal, dus ze blijven te bekijken zonder verbinding met Crisp; Synchroniseren haalt alleen nieuwe gegevens op. Open een bestelling voor de producten en zet ze met één knop opnieuw in je Crisp-mandje; bestellen doe je in de Crisp-app.</p>
+          </details>
           <p class="muted" id="crisp-orders-synced"></p>
           <div id="crisp-orders-message"></div>
           <h3 data-i18n="picnic.orders.upcoming">Aankomend</h3>
@@ -1414,7 +1469,11 @@
         </div>
         <div class="box">
           <h2 data-i18n="ai.title">AI-assistenten koppelen</h2>
-          <p class="muted" data-i18n="ai.intro">Laat Claude, ChatGPT of Copilot je weekmenu, recepten en lijstjes bekijken, een maaltijd plannen en een recept in Mealie importeren. Je logt in met je eigen account en de assistent krijgt alleen jouw rechten.</p>
+          <p class="muted" data-i18n="ai.intro">Laat Claude, ChatGPT of Copilot je weekmenu, recepten en lijstjes gebruiken.</p>
+          <details class="help">
+            <summary data-i18n="common.help">Hoe werkt dit?</summary>
+            <p class="muted" data-i18n="ai.intro_more">De assistent kan een maaltijd plannen en een recept in Mealie importeren. Je logt in met je eigen account en de assistent krijgt alleen jouw rechten.</p>
+          </details>
           <div id="ai-message"></div>
           <div id="ai-body" hidden>
             <label class="field">
@@ -1468,7 +1527,11 @@
         <div class="box fold fold--compact" id="offers-sync-box">
           <h2 class="fold__title"><button type="button" class="fold__toggle" id="offers-sync-toggle" aria-expanded="true" aria-controls="offers-sync-body"><span data-i18n="offers.sync.title">Aanbiedingen</span><svg class="fold__chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="M7.41,8.58L12,13.17L16.59,8.58L18,10L12,16L6,10L7.41,8.58Z"/></svg></button></h2>
           <div class="fold__body" id="offers-sync-body">
-            <p class="muted" data-i18n="offers.sync.intro">MealieShopper haalt elke dag de aanbiedingen van Albert Heijn, Picnic, Jumbo, Crisp, Lidl en Aldi op (Picnic, Jumbo en Crisp zodra ze gekoppeld zijn; Lidl en Aldi zonder koppeling). Met de knop haal je ze meteen op.</p>
+            <p class="muted" data-i18n="offers.sync.intro">MealieShopper haalt de aanbiedingen elke dag op; met de knop haal je ze meteen op.</p>
+            <details class="help">
+              <summary data-i18n="common.help">Hoe werkt dit?</summary>
+              <p class="muted" data-i18n="offers.sync.intro_more">Het gaat om Albert Heijn, Picnic, Jumbo, Crisp, Lidl en Aldi: Picnic, Jumbo en Crisp zodra ze gekoppeld zijn, Lidl en Aldi zonder koppeling.</p>
+            </details>
             <div class="toolbar">
               <button class="button" id="offers-sync-all" type="button" data-i18n="offers.sync.button">Aanbiedingen synchroniseren</button>
             </div>
@@ -1480,8 +1543,13 @@
         <div class="box fold fold--compact" id="ai-login-box">
           <h2 class="fold__title"><button type="button" class="fold__toggle" id="ai-login-toggle" aria-expanded="false" aria-controls="ai-login-body"><span data-i18n="aireview.title">AI-beoordeling van koppelingen</span><svg class="fold__chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="M7.41,8.58L12,13.17L16.59,8.58L18,10L12,16L6,10L7.41,8.58Z"/></svg></button></h2>
           <div class="fold__body" id="ai-login-body" hidden>
-            <p class="muted" data-i18n="aireview.intro">Heb je een API-sleutel van Claude (Anthropic) of ChatGPT (OpenAI), dan kan een AI recepten zoeken bij de producten in de aanbieding van een winkel. Je start dat zelf met de knop Recepten zoeken met AI bij de receptvoorstellen: de AI koppelt de ingrediënten van je recepten (Mealie, Albert Heijn, Jumbo, Picnic en Crisp) aan producten uit de aanbieding. Die koppelingen vervangen de koppelingen van MealieShopper voor de recepten die de AI doorzocht heeft. Het is helemaal optioneel: zonder sleutel werkt alles zoals eerst.</p>
-            <p class="muted" data-i18n="aireview.privacy">Er gaat alleen tekst van producten uit de aanbieding en van ingrediënten naar de aanbieder (geen recepttitels, namen of adressen), en alleen als je zelf op de knop drukt. Een ronde doorzoekt maximaal 120 recepten en kost geld bij de aanbieder; je ziet vooraf een schatting en na afloop het aantal gebruikte tokens. De sleutel wordt versleuteld opgeslagen en nooit meer getoond.</p>
+            <p class="muted" data-i18n="aireview.intro">Met een API-sleutel van Claude (Anthropic) of ChatGPT (OpenAI) zoekt een AI recepten bij de aanbiedingen van een winkel. Helemaal optioneel.</p>
+            <p class="muted" data-i18n="aireview.privacy">Er gaat alleen tekst van producten en ingrediënten naar de aanbieder, alleen als je zelf op de knop drukt, en een ronde kost geld.</p>
+            <details class="help">
+              <summary data-i18n="common.help">Hoe werkt dit?</summary>
+              <p class="muted" data-i18n="aireview.intro_more">Je start het zelf met de knop Recepten zoeken met AI bij de receptvoorstellen: de AI koppelt de ingrediënten van je recepten (Mealie, Albert Heijn, Jumbo, Picnic en Crisp) aan producten uit de aanbieding. Die koppelingen vervangen de koppelingen van MealieShopper voor de recepten die de AI doorzocht heeft. Zonder sleutel werkt alles zoals eerst.</p>
+              <p class="muted" data-i18n="aireview.privacy_more">Er gaan geen recepttitels, namen of adressen mee. Een ronde doorzoekt maximaal 120 recepten; je ziet vooraf een schatting en na afloop het aantal gebruikte tokens. De sleutel wordt versleuteld opgeslagen en nooit meer getoond.</p>
+            </details>
             <form class="auth-form" id="ai-review-form" autocomplete="off">
               <label class="field">
                 <span data-i18n="aireview.provider">Gebruik</span>
@@ -1561,12 +1629,20 @@
               <span data-i18n="mealie.week_start_label">Eerste dag van de week</span>
               <select class="input" id="mealie-week-start"></select>
             </label>
-            <p class="muted" data-i18n="mealie.week_start_note">Het weekmenu (en de MCP-tool get_week_menu) begint op deze dag. Standaard volgt MealieShopper de eerste dag die je in Mealie bij je huishouden instelt; daar staat die standaard op zondag. Aanbiedingen houdt de bonusweek van maandag t/m zondag.</p>
+            <p class="muted" data-i18n="mealie.week_start_note">Het weekmenu begint op deze dag. Standaard is dat de eerste dag die je in Mealie bij je huishouden instelt.</p>
+            <details class="help">
+              <summary data-i18n="common.help">Hoe werkt dit?</summary>
+              <p class="muted" data-i18n="mealie.week_start_note_more">Ook de MCP-tool get_week_menu begint op deze dag. In Mealie staat die dag standaard op zondag. Aanbiedingen houdt de bonusweek van maandag t/m zondag.</p>
+            </details>
             <div id="mealie-week-start-message"></div>
             </div>
             <section class="fold__section mealie-nutrition" aria-labelledby="mealie-nutrition-title">
               <h3 id="mealie-nutrition-title" data-i18n="mealie.nutrition.title">Voedingswaarden van AH-recepten aanvullen</h3>
-              <p class="muted" data-i18n="mealie.nutrition.help">Recepten die je vóór versie 4.4.1 uit Allerhande importeerde, hebben in Mealie geen voedingswaarden. Dit haalt ze bij Albert Heijn op en zet ze in Mealie: alleen bij recepten met een Allerhande-bronlink en zonder calorieën, en wat er al staat, blijft staan.</p>
+              <p class="muted" data-i18n="mealie.nutrition.help">Vult de voedingswaarden aan van Allerhande-recepten die je vóór versie 4.4.1 importeerde.</p>
+              <details class="help">
+                <summary data-i18n="common.help">Hoe werkt dit?</summary>
+                <p class="muted" data-i18n="mealie.nutrition.help_more">Dit haalt ze bij Albert Heijn op en zet ze in Mealie: alleen bij recepten met een Allerhande-bronlink en zonder calorieën, en wat er al staat, blijft staan.</p>
+              </details>
               <div class="toolbar">
                 <button class="button button--secondary" id="mealie-nutrition-start" type="button" data-i18n="mealie.nutrition.start">Voedingswaarden aanvullen</button>
                 <button class="button button--secondary" id="mealie-nutrition-stop" type="button" hidden data-i18n="mealie.nutrition.stop">Stoppen</button>
@@ -1578,7 +1654,11 @@
         <div class="box fold fold--compact" id="ah-login-box">
           <h2 class="fold__title"><button type="button" class="fold__toggle" id="ah-login-toggle" aria-expanded="true" aria-controls="ah-login-body"><span data-i18n="ahlogin.title">Albert Heijn</span><svg class="fold__chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="M7.41,8.58L12,13.17L16.59,8.58L18,10L12,16L6,10L7.41,8.58Z"/></svg></button></h2>
           <div class="fold__body" id="ah-login-body">
-            <p class="muted" data-i18n="ahlogin.intro">Je logt rechtstreeks in op login.ah.nl, zodat je passkey en de AH-inlogknop gewoon werken. Dit gaat op een computer (niet op een telefoon of tablet), omdat je de browserconsole nodig hebt.</p>
+            <p class="muted" data-i18n="ahlogin.intro">Je logt rechtstreeks in op login.ah.nl, op een computer.</p>
+            <details class="help">
+              <summary data-i18n="common.help">Hoe werkt dit?</summary>
+              <p class="muted" data-i18n="ahlogin.intro_more">Zo werken je passkey en de AH-inlogknop gewoon. Een telefoon of tablet gaat niet, omdat je de browserconsole nodig hebt.</p>
+            </details>
             <ol class="steps">
               <li data-i18n-html="ahlogin.step1">Klik op <strong>Inloggen bij Albert Heijn</strong>. De AH-loginpagina opent in een nieuw tabblad.</li>
               <li data-i18n-html="ahlogin.step2">Open in dat tabblad de ontwikkelaarsconsole (<code>F12</code> of <code>Ctrl</code>+<code>Shift</code>+<code>J</code>, op een Mac <code>⌘</code>+<code>⌥</code>+<code>J</code>) <em>voordat</em> je inlogt.</li>
@@ -1601,7 +1681,11 @@
             </div>
             <div class="fold__section">
               <h3 data-i18n="explore.title">AH-routes verkennen</h3>
-              <p class="muted" data-i18n="explore.intro">Roept de onofficiële AH-routes voor het bestelmandje, bestellingen en kassabonnen aan en laat zien welke werken en welke velden erin zitten, ook welke statussen AH voor bestellingen kent. Er wordt niets gewijzigd of bewaard. Het rapport bevat geen namen, adressen, prijzen of id's en is veilig te delen. Het rapport laat ook zien hoe aanbiedingen eruitzien: de velden eromheen en de actieteksten en looptijd (geen prijzen of producten).</p>
+              <p class="muted" data-i18n="explore.short">Test of de onofficiële koppeling nog werkt. Er wordt niets gewijzigd of bewaard en het rapport is veilig te delen.</p>
+              <details class="help">
+                <summary data-i18n="common.help">Hoe werkt dit?</summary>
+                <p class="muted" data-i18n="explore.intro">Roept de onofficiële AH-routes voor het bestelmandje, bestellingen en kassabonnen aan en laat zien welke werken en welke velden erin zitten, ook welke statussen AH voor bestellingen kent en hoe aanbiedingen eruitzien (de velden eromheen, de actieteksten en de looptijd). Het rapport bevat geen namen, adressen, prijzen, producten of id's.</p>
+              </details>
               <button class="button" id="explore-run" type="button" data-i18n="explore.run">Verkennen</button>
               <div id="explore-message"></div>
               <div id="explore-report" hidden>
@@ -1615,7 +1699,11 @@
         <div class="box fold fold--compact" id="jumbo-login-box">
           <h2 class="fold__title"><button type="button" class="fold__toggle" id="jumbo-login-toggle" aria-expanded="true" aria-controls="jumbo-login-body"><span data-i18n="jumbo.title">Jumbo</span><svg class="fold__chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="M7.41,8.58L12,13.17L16.59,8.58L18,10L12,16L6,10L7.41,8.58Z"/></svg></button></h2>
           <div class="fold__body" id="jumbo-login-body">
-            <p class="muted" data-i18n="jumbo.intro">Jumbo heeft geen officiële koppeling. Je logt rechtstreeks in op Jumbo, in je eigen browser (op een computer, niet op een telefoon of tablet), omdat je de browserconsole nodig hebt. MealieShopper bewaart geen wachtwoord, alleen een sessie die Jumbo teruggeeft, versleuteld.</p>
+            <p class="muted" data-i18n="jumbo.intro">Jumbo heeft geen officiële koppeling: je logt in op Jumbo in je eigen browser, op een computer.</p>
+            <details class="help">
+              <summary data-i18n="common.help">Hoe werkt dit?</summary>
+              <p class="muted" data-i18n="jumbo.intro_more">Een telefoon of tablet gaat niet, omdat je de browserconsole nodig hebt. MealieShopper bewaart geen wachtwoord, alleen een sessie die Jumbo teruggeeft, versleuteld.</p>
+            </details>
             <ol class="steps">
               <li data-i18n-html="jumbo.step1">Klik op <strong>Inloggen bij Jumbo</strong>. De Jumbo-loginpagina opent in een nieuw tabblad.</li>
               <li data-i18n-html="jumbo.step2">Open in dat tabblad de ontwikkelaarsconsole (<code>F12</code> of <code>Ctrl</code>+<code>Shift</code>+<code>J</code>, op een Mac <code>⌘</code>+<code>⌥</code>+<code>J</code>) <em>voordat</em> je inlogt.</li>
@@ -1639,7 +1727,11 @@
             </div>
             <div class="fold__section">
               <h3 data-i18n="jumbo.explore_title">Jumbo-routes verkennen</h3>
-              <p class="muted" data-i18n="jumbo.explore_intro">Controleert eerst of Jumbo deze server toelaat en roept daarna de onofficiële Jumbo-routes voor zoeken en het winkelmandje aan. Er wordt niets gewijzigd of bewaard, ook het mandje vullen wordt alleen met een lege lijst geprobeerd. Het rapport bevat geen namen, prijzen of id's en is veilig te delen. Het rapport laat ook zien hoe aanbiedingen eruitzien: de velden eromheen en de actieteksten en looptijd (geen prijzen of producten).</p>
+              <p class="muted" data-i18n="explore.short">Test of de onofficiële koppeling nog werkt. Er wordt niets gewijzigd of bewaard en het rapport is veilig te delen.</p>
+              <details class="help">
+                <summary data-i18n="common.help">Hoe werkt dit?</summary>
+                <p class="muted" data-i18n="jumbo.explore_intro">Controleert eerst of Jumbo deze server toelaat en roept daarna de onofficiële Jumbo-routes voor zoeken en het winkelmandje aan; het mandje vullen wordt alleen met een lege lijst geprobeerd. Het rapport laat ook zien hoe aanbiedingen eruitzien (de velden eromheen, de actieteksten en de looptijd) en bevat geen namen, prijzen, producten of id's.</p>
+              </details>
               <button class="button" id="jumbo-explore-run" type="button" data-i18n="explore.run">Verkennen</button>
               <div id="jumbo-explore-message"></div>
               <div id="jumbo-explore-report" hidden>
@@ -1653,7 +1745,11 @@
         <div class="box fold fold--compact" id="picnic-login-box">
           <h2 class="fold__title"><button type="button" class="fold__toggle" id="picnic-login-toggle" aria-expanded="true" aria-controls="picnic-login-body"><span data-i18n="picnic.title">Picnic</span><svg class="fold__chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="M7.41,8.58L12,13.17L16.59,8.58L18,10L12,16L6,10L7.41,8.58Z"/></svg></button></h2>
           <div class="fold__body" id="picnic-login-body">
-            <p class="muted" data-i18n="picnic.intro">Picnic heeft geen officiële koppeling. MealieShopper logt in zoals de Picnic-app, met je e-mailadres en wachtwoord. Het wachtwoord wordt niet bewaard: alleen de sessie die Picnic teruggeeft, versleuteld.</p>
+            <p class="muted" data-i18n="picnic.intro">Picnic heeft geen officiële koppeling: je logt in zoals in de Picnic-app, met je e-mailadres en wachtwoord.</p>
+            <details class="help">
+              <summary data-i18n="common.help">Hoe werkt dit?</summary>
+              <p class="muted" data-i18n="picnic.intro_more">Het wachtwoord wordt niet bewaard: alleen de sessie die Picnic teruggeeft, versleuteld.</p>
+            </details>
             <form class="auth-form" id="picnic-form" autocomplete="off">
               <label class="field">
                 <span data-i18n="picnic.email">E-mailadres</span>
@@ -1688,7 +1784,11 @@
             </div>
             <div class="fold__section">
               <h3 data-i18n="picnic.explore_title">Picnic-routes verkennen</h3>
-              <p class="muted" data-i18n="picnic.explore_intro">Roept de onofficiële Picnic-routes voor zoeken, het winkelmandje, leveringen, recepten en favorieten aan en laat zien welke werken en welke velden erin zitten. Er wordt niets gewijzigd of bewaard. Het rapport bevat geen namen, adressen, prijzen of id's en is veilig te delen. Het rapport laat ook zien hoe aanbiedingen eruitzien: de velden eromheen en de actieteksten en looptijd (geen prijzen of producten).</p>
+              <p class="muted" data-i18n="explore.short">Test of de onofficiële koppeling nog werkt. Er wordt niets gewijzigd of bewaard en het rapport is veilig te delen.</p>
+              <details class="help">
+                <summary data-i18n="common.help">Hoe werkt dit?</summary>
+                <p class="muted" data-i18n="picnic.explore_intro">Roept de onofficiële Picnic-routes voor zoeken, het winkelmandje, leveringen, recepten en favorieten aan en laat zien welke werken en welke velden erin zitten, ook hoe aanbiedingen eruitzien (de velden eromheen, de actieteksten en de looptijd). Het rapport bevat geen namen, adressen, prijzen, producten of id's.</p>
+              </details>
               <button class="button" id="picnic-explore-run" type="button" data-i18n="explore.run">Verkennen</button>
               <div id="picnic-explore-message"></div>
               <div id="picnic-explore-report" hidden>
@@ -1702,7 +1802,11 @@
         <div class="box fold fold--compact" id="crisp-login-box">
           <h2 class="fold__title"><button type="button" class="fold__toggle" id="crisp-login-toggle" aria-expanded="true" aria-controls="crisp-login-body"><span data-i18n="crisp.title">Crisp</span><svg class="fold__chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="M7.41,8.58L12,13.17L16.59,8.58L18,10L12,16L6,10L7.41,8.58Z"/></svg></button></h2>
           <div class="fold__body" id="crisp-login-body">
-            <p class="muted" data-i18n="crisp.intro">Crisp heeft geen officiële koppeling. MealieShopper logt in zoals de Crisp-app: met je e-mailadres en een code die Crisp je mailt. Er is geen wachtwoord. MealieShopper bewaart alleen het apparaat-id waaraan Crisp je account koppelt, versleuteld.</p>
+            <p class="muted" data-i18n="crisp.intro">Crisp heeft geen officiële koppeling: je logt in zoals in de Crisp-app, met je e-mailadres en een code die Crisp je mailt.</p>
+            <details class="help">
+              <summary data-i18n="common.help">Hoe werkt dit?</summary>
+              <p class="muted" data-i18n="crisp.intro_more">Er is geen wachtwoord. MealieShopper bewaart alleen het apparaat-id waaraan Crisp je account koppelt, versleuteld.</p>
+            </details>
             <form class="auth-form" id="crisp-form" autocomplete="off">
               <label class="field">
                 <span data-i18n="crisp.country">Land</span>
@@ -1736,7 +1840,11 @@
             </div>
             <div class="fold__section">
               <h3 data-i18n="crisp.explore_title">Crisp-routes verkennen</h3>
-              <p class="muted" data-i18n="crisp.explore_intro">Roept de onofficiële Crisp-routes voor zoeken, producten, het winkelmandje, recepten, bestellingen, favorieten en aanbiedingen aan en laat zien welke werken en welke velden erin zitten. Er wordt niets gewijzigd of bewaard. Het rapport bevat geen namen, adressen, prijzen of id's en is veilig te delen.</p>
+              <p class="muted" data-i18n="explore.short">Test of de onofficiële koppeling nog werkt. Er wordt niets gewijzigd of bewaard en het rapport is veilig te delen.</p>
+              <details class="help">
+                <summary data-i18n="common.help">Hoe werkt dit?</summary>
+                <p class="muted" data-i18n="crisp.explore_intro">Roept de onofficiële Crisp-routes voor zoeken, producten, het winkelmandje, recepten, bestellingen, favorieten en aanbiedingen aan en laat zien welke werken en welke velden erin zitten. Het rapport bevat geen namen, adressen, prijzen of id's.</p>
+              </details>
               <button class="button" id="crisp-explore-run" type="button" data-i18n="explore.run">Verkennen</button>
               <div id="crisp-explore-message"></div>
               <div id="crisp-explore-report" hidden>
@@ -1752,7 +1860,11 @@
         <div id="settings-users" class="subpanel">
         <div class="box">
           <h2 data-i18n="users.title">Gebruikers</h2>
-          <p class="muted" data-i18n="users.intro">Jij bent de beheerder: jij koppelt Mealie en Albert Heijn en beheert de gebruikers. Anderen kunnen het weekmenu bekijken en plannen, de recepten en de lijstjes gebruiken en producten in het AH-mandje zetten, maar niets koppelen of beheren.</p>
+          <p class="muted" data-i18n="users.intro">Jij bent de beheerder: jij koppelt Mealie en Albert Heijn en beheert de gebruikers.</p>
+          <details class="help">
+            <summary data-i18n="common.help">Hoe werkt dit?</summary>
+            <p class="muted" data-i18n="users.intro_more">Anderen kunnen het weekmenu bekijken en plannen, de recepten en de lijstjes gebruiken en producten in het AH-mandje zetten, maar niets koppelen of beheren.</p>
+          </details>
           <div id="users-list" class="credential-list"></div>
           <div id="users-message"></div>
         </div>
@@ -1772,7 +1884,11 @@
         <div id="settings-audit" class="subpanel">
         <div class="box box--wide">
           <h2 data-i18n="audit.title">Auditlog</h2>
-          <p class="muted" data-i18n="audit.intro">Hier zie je wat MealieShopper met Albert Heijn, Picnic en Jumbo bespreekt en wat AI-assistenten (MCP) opvragen: elk verzoek met uitkomst, duur en antwoord. Een MCP-verzoek toont de winkelverzoeken die eruit volgden. Wachtwoorden, tokens en codes worden nooit bewaard.</p>
+          <p class="muted" data-i18n="audit.intro">Wat MealieShopper met Albert Heijn, Picnic en Jumbo bespreekt en wat AI-assistenten (MCP) opvragen.</p>
+          <details class="help">
+            <summary data-i18n="common.help">Hoe werkt dit?</summary>
+            <p class="muted" data-i18n="audit.intro_more">Elk verzoek staat erin met uitkomst, duur en antwoord. Een MCP-verzoek toont de winkelverzoeken die eruit volgden. Wachtwoorden, tokens en codes worden nooit bewaard.</p>
+          </details>
           <p class="muted" id="audit-privacy"></p>
           <div id="audit-notices"></div>
           <div class="audit-summary" id="audit-summary"></div>
@@ -1835,7 +1951,13 @@
         </div>
         <div class="box" id="backup-box">
           <h2 data-i18n="backup.title">Back-up en terugzetten</h2>
-          <p class="muted" data-i18n="backup.intro">Neem alle gegevens van deze installatie mee in één bestand en zet ze later terug, bijvoorbeeld op een nieuwe server: de koppelingen met Mealie, Albert Heijn, Picnic en Jumbo, je lijstjes, bestellingen en kassabonnen en de hele historie van de aanbiedingen. Dit is jouw eigen kopie; het vervangt geen back-up van de hele data-map.</p>
+          <p class="muted" data-i18n="backup.intro">Neem alle gegevens van deze installatie mee in één bestand en zet ze later terug, bijvoorbeeld op een nieuwe server.</p>
+          <details class="help">
+            <summary data-i18n="common.help">Hoe werkt dit?</summary>
+            <p class="muted" data-i18n="backup.intro_more">Daarin staan de koppelingen met Mealie, Albert Heijn, Picnic en Jumbo, je lijstjes, bestellingen en kassabonnen en de hele historie van de aanbiedingen. Dit is jouw eigen kopie; het vervangt geen back-up van de hele data-map.</p>
+            <p class="muted" data-i18n="backup.never">Wat inlogt op MealieShopper zit er nooit in: passkeys, wachtwoorden, tweestapsverificatie, herstelcodes, uitnodigingen en de toegang van AI-assistenten (MCP). Het auditlog en de bewaarde receptafbeeldingen ook niet; die bouwen zich vanzelf weer op.</p>
+            <p class="muted" data-i18n="backup.parts_hint">Zonder de aanbiedingen wordt het bestand kleiner. Bij het terugzetten blijven de aanbiedingen die er dan staan zoals ze zijn. De aanbiedingen van nu haalt de app bij de volgende synchronisatie weer op, de historie niet.</p>
+          </details>
           <h3 data-i18n="backup.make_title">Back-up maken</h3>
           <label class="check">
             <input type="checkbox" id="backup-links" checked>
@@ -1860,8 +1982,6 @@
             <input type="checkbox" id="backup-offer-history" checked>
             <span data-i18n="backup.offer_history_label">Neem de historie van aanbiedingen mee</span>
           </label>
-          <p class="muted" data-i18n="backup.parts_hint">Zonder de aanbiedingen wordt het bestand kleiner. Bij het terugzetten blijven de aanbiedingen die er dan staan zoals ze zijn. De aanbiedingen van nu haalt de app bij de volgende synchronisatie weer op, de historie niet.</p>
-          <p class="muted" data-i18n="backup.never">Wat inlogt op MealieShopper zit er nooit in: passkeys, wachtwoorden, tweestapsverificatie, herstelcodes, uitnodigingen en de toegang van AI-assistenten (MCP). Het auditlog en de bewaarde receptafbeeldingen ook niet; die bouwen zich vanzelf weer op.</p>
           <div class="security-actions">
             <button class="button" type="button" id="backup-make" data-i18n="backup.make">Back-up maken</button>
           </div>
@@ -1914,12 +2034,17 @@
         </div>
         <div class="box" id="price-archive-box">
           <h2 data-i18n="price_archive.title">Prijsarchief importeren</h2>
-          <p class="muted" data-i18n="price_archive.intro">Voeg historische prijzen toe aan de Prijsgeschiedenis, bijvoorbeeld het folderarchief van Albert Heijn, Jumbo, Picnic en Crisp. Wat de app zelf ophaalde blijft altijd staan, en dezelfde prijs komt er maar één keer in.</p>
+          <p class="muted" data-i18n="price_archive.intro">Voeg historische prijzen toe aan de Prijsgeschiedenis, bijvoorbeeld het folderarchief van de winkels.</p>
+          <details class="help">
+            <summary data-i18n="common.help">Hoe werkt dit?</summary>
+            <p class="muted" data-i18n="price_archive.intro_more">Er zijn folderarchieven van Albert Heijn, Jumbo, Picnic en Crisp. Wat de app zelf ophaalde blijft altijd staan, en dezelfde prijs komt er maar één keer in.</p>
+            <p class="muted" data-i18n="price_archive.formats">Kies de ZIP van het pakket of van de gist voor data.mealieshopper.nl zoals je hem downloadt, het .tar.gz-archief daaruit, een export van MealieShopper (ook die voor data.mealieshopper.nl en de ZIP van een GitHub-repo), of een .jsonl-bestand (ook als .jsonl.gz) in het formaat mealieshopper-price-archive. De handleiding beschrijft de formaten.</p>
+            <p class="muted" data-i18n="price_archive.keep_unlinked_more">Standaard komen alleen folderregels erin die precies bij een product van jou horen. Met het vinkje hieronder blijven ook de andere (behalve combi-aanbiedingen), bijvoorbeeld om alles weer te exporteren voor data.mealieshopper.nl.</p>
+          </details>
           <label class="field">
             <span data-i18n="price_archive.file_label">Prijsarchief</span>
             <input class="input" id="price-archive-file" type="file" accept=".zip,.gz,.tgz,.jsonl,application/zip,application/gzip">
           </label>
-          <p class="muted" data-i18n="price_archive.formats">Kies de ZIP van het pakket of van de gist voor data.mealieshopper.nl zoals je hem downloadt, het .tar.gz-archief daaruit, een export van MealieShopper (ook die voor data.mealieshopper.nl en de ZIP van een GitHub-repo), of een .jsonl-bestand (ook als .jsonl.gz) in het formaat mealieshopper-price-archive. De handleiding beschrijft de formaten.</p>
           <div class="security-actions">
             <button class="button button--secondary" type="button" id="price-archive-fetch" data-i18n="price_archive.fetch">Aanbiedingen ophalen</button>
           </div>
@@ -1928,7 +2053,7 @@
             <input type="checkbox" id="price-archive-keep-unlinked">
             <span data-i18n="price_archive.keep_unlinked_label">Ook regels bewaren die bij geen product van jou horen</span>
           </label>
-          <p class="muted" data-i18n="price_archive.keep_unlinked_note">Standaard komen alleen folderregels erin die precies bij een product van jou horen. Met dit vinkje blijven ook de andere (behalve combi-aanbiedingen), bijvoorbeeld om alles weer te exporteren voor data.mealieshopper.nl. Zet het vinkje voordat je een bestand kiest of ophaalt.</p>
+          <p class="muted" data-i18n="price_archive.keep_unlinked_note">Zet het vinkje voordat je een bestand kiest of ophaalt.</p>
           <div class="backup-confirm" id="price-archive-confirm" hidden>
             <h4 data-i18n="price_archive.confirm_title">Dit komt erbij</h4>
             <p class="muted" id="price-archive-source"></p>
@@ -1957,12 +2082,16 @@
         </div>
         <div class="box" id="price-export-box">
           <h2 data-i18n="price_export.title">Prijsarchief exporteren</h2>
-          <p class="muted" data-i18n="price_export.intro">Alle aanbiedingen en prijzen als ZIP, met een bestand per winkel en maand: om te delen, bijvoorbeeld in een GitHub-repo. Je persoonlijke aanbiedingen (Bonus Box) gaan er nooit in. Een andere MealieShopper importeert de ZIP weer met Prijsarchief importeren.</p>
+          <p class="muted" data-i18n="price_export.intro">Alle aanbiedingen en prijzen als ZIP, met een bestand per winkel en maand.</p>
+          <details class="help">
+            <summary data-i18n="common.help">Hoe werkt dit?</summary>
+            <p class="muted" data-i18n="price_export.intro_more">Om te delen, bijvoorbeeld in een GitHub-repo. Je persoonlijke aanbiedingen (Bonus Box) gaan er nooit in. Een andere MealieShopper importeert de ZIP weer met Prijsarchief importeren.</p>
+            <p class="muted" data-i18n="price_export.site_note">Of als losse JSON-bestanden per winkel, met een schema per winkel: in de vorm van data.mealieshopper.nl, klaar om in te sturen in de datarepo. In de ZIP staat hoe.</p>
+          </details>
           <div class="security-actions">
             <button class="button" type="button" id="price-export-make" data-i18n="price_export.go">Exporteren</button>
             <button class="button button--secondary" type="button" id="price-export-site" data-i18n="price_export.site_go">Exporteren voor data.mealieshopper.nl</button>
           </div>
-          <p class="muted" data-i18n="price_export.site_note">Of als losse JSON-bestanden per winkel, met een schema per winkel: in de vorm van data.mealieshopper.nl, klaar om in te sturen in de datarepo. In de ZIP staat hoe.</p>
           <div class="backup-progress" id="price-export-progress" role="status" hidden>
             <p id="price-export-progress-label"></p>
             <progress id="price-export-progress-bar" max="100"></progress>

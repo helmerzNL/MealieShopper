@@ -115,14 +115,14 @@ function viewState(prefix, defaults, allowed, { scopes = null } = {}) {
 
 // De balk als HTML. spec = { views: [{ id, icon, label }], sorts: [{ key, label, dir }], sizes: bool, options: [{ key, label }] },
 // met de labels al vertaald en per sorteersleutel de richting waarin hij begint (`dir`, "asc" of "desc"). Zonder sorteersleutels geen sorteermenu, zonder groottes en opties geen optiemenu. Wat er gekozen is
-// (aria-pressed, is-active, de vinkjes) zet syncViewBar.
+// (aria-pressed, de vinkjes) zet syncViewBar.
 function viewBarMarkup(prefix, spec) {
   const views = spec.views
-    .map((view) => `<button class="subtab" type="button" data-view="${escapeHtml(view.id)}" aria-pressed="false">${view.icon ? mdiIcon(view.icon) : ""}<span>${escapeHtml(view.label)}</span></button>`)
+    .map((view) => `<button class="segmented__item" type="button" data-view="${escapeHtml(view.id)}" aria-pressed="false">${view.icon ? mdiIcon(view.icon) : ""}<span>${escapeHtml(view.label)}</span></button>`)
     .join("");
   const sortMenu = spec.sorts.length ? viewSortMenu(prefix, spec.sorts) : "";
   const optionsMenu = spec.sizes || spec.options.length ? viewOptionsMenu(prefix, spec) : "";
-  return `<p class="muted purchase-status" id="${viewStatusId(prefix)}"></p><div class="purchase-bar__tools"><div class="purchase-view-switch" id="${prefix}-view-switch" role="group" aria-label="${escapeHtml(t("orders.view.label"))}">${views}</div>${sortMenu}${optionsMenu}</div>`;
+  return `<p class="muted purchase-status" id="${viewStatusId(prefix)}"></p><div class="purchase-bar__tools"><div class="segmented" id="${prefix}-view-switch" role="group" aria-label="${escapeHtml(t("orders.view.label"))}">${views}</div>${sortMenu}${optionsMenu}</div>`;
 }
 
 // De richting waarin een sorteersleutel begint, uit de spec van de balk. Zonder richting aflopend.
@@ -207,7 +207,6 @@ function syncViewBar(prefix, state, spec) {
   for (const button of document.querySelectorAll(`#${prefix}-view-switch [data-view]`)) {
     const active = button.dataset.view === state.view;
     button.setAttribute("aria-pressed", String(active));
-    button.classList.toggle("is-active", active);
   }
   const { key, dir } = state.sort;
   const current = $(`#${prefix}-sort-current`);
