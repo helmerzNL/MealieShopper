@@ -76,6 +76,7 @@ I18N.add("nl", {
   "offers.filters.clear": "Alles wissen",
   "offers.filters.remove": "Filter weghalen: {filter}",
   "offers.status.filtered": "Door de filters: {shown} van {total}.",
+  "offers.popup.none": "De prijsgeschiedenis kon niet geladen worden.",
   "offers.popup.loading": "Prijsgeschiedenis laden...",
   "offers.popup.full_history": "Volledige prijsgeschiedenis",
   "offers.popup.packs": "Verpakkingen",

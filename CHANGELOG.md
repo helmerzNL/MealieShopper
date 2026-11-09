@@ -17,7 +17,12 @@ Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar
 ### Verbeterd in 4.2.0
 
 - **De lijst ververst na een deploy en na een nieuwe prijsgeschiedenis.** De `ETag` van `/api/offers` had alleen de versie: twee builds van dezelfde versie gaven dezelfde `ETag`, en een browser hield na een deploy de oude lijst vast (`304`) zonder de nieuwe velden. Nu zit de commit van de build erin (`about.build_commit`) en de versie van de catalogus van de prijsgeschiedenis (`prices.signature`), zodat een nieuwe aankoop of een geimporteerd archief ook de aanbiedingen opnieuw laat rekenen.
-- Gemeten met de productiedata, 447 AH-aanbiedingen: `/api/offers` 1,6 seconde bij de eerste aanvraag (de laagste van het jaar, de families en de folderacties voor elke aanbieding), daarna 8 milliseconden uit de cache.
+- **De catalogus warmt op bij de start en na de synchronisatie.** Gemeten met de productiedata, 447 AH-aanbiedingen: `/api/offers` kostte 1,6 seconde lokaal en 4,5 seconde op de server bij de eerste aanvraag, waarvan ruim twee seconden het opbouwen van de catalogus van de prijsgeschiedenis (de lijnindex van het folderarchief en de bekende producten). Die bouwt `prices.warm_catalogues` nu alvast bij het starten van de app en na elke synchronisatie van de aanbiedingen, zodat de eerste bezoeker er niet op wacht. Daarna 8 milliseconden uit de cache.
+- **Een aanbieding zonder prijs per eenheid blijft zichtbaar in de kaartenweergave**, als eigen kaart: ze hoort niet bij de verpakkingen van haar familie en zou anders achter de kop van de familie verdwijnen. En de kop van een familie is de eerste verpakking die door de filters komt, niet een gedempte.
+- **Eerder gekocht geldt voor de hele familie**: de 1000 gram tegen gewone prijs gekocht houdt de 300 gram in de aanbieding in beeld (`family.bought` in `/api/offers`).
+- **Andere verpakkingen onbekend** werkt ook voor een product met een merk: de catalogus vouwt het merk achter de naam, en dat ging mis bij het herkennen van een verpakking zonder recente prijs.
+- **Popup:** een mislukte aanvraag van de prijsgeschiedenis blijft niet hangen op *laden* en wordt bij de volgende hover opnieuw geprobeerd, de popup wisselt niet meer van verpakking terwijl de muis van een verpakkingsregel naar de popup gaat, en zonder hover-popup (ook een venster smaller dan 900 pixels met een muis) opent een tik op het plaatje het venster.
+- **De filters volgen de winkel** bij elke wissel, ook via de voorkeurssupermarkt of een ontkoppelde winkel: de filters van de ene winkel stonden anders even op de andere en overschreven die.
 
 ### Verwijderd in 4.2.0
 

@@ -147,6 +147,7 @@ def create_app() -> Quart:
         # De dagelijkse aanbiedingen-run hoort niet in de tests: die maken de app vaak aan.
         if not environ.get("MEALIESHOPPER_TESTING"):
             offers_schedule.start()
+            tasks.spawn("warm-catalogues", prices.warm_catalogues())  # de eerste /api/offers na een start wacht niet op de catalogus
 
     # Fouten van externe diensten (AH, Mealie) geven we terug als 424 in
     # plaats van 502: reverse proxies (Cloudflare, SWAG, NPM) vervangen een 502

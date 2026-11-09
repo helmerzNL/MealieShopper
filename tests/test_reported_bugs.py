@@ -308,10 +308,36 @@ class OffersFiltersTest(unittest.TestCase):
         script = f"""{test_offers_scan_js.PRELUDE}
 offersState.filters = {json.dumps(filters)};
 const shown = offersFilteredWithFamilies({json.dumps(offers)});
-console.log(JSON.stringify({{ ids: shown.map((o) => o.id), chips: offersActiveFilterChips().map((c) => c.key) }}));"""
+const through = {json.dumps(offers)}.filter((o) => offersFilterMatch(o, offersState.filters)).length;
+console.log(JSON.stringify({{ ids: shown.map((o) => o.id), chips: offersActiveFilterChips().map((c) => c.key), count: `${{through}} van ${{{len(offers)}}}` }}));"""
         result = subprocess.run(["node", "-e", script], capture_output=True, text=True, timeout=30, check=False)
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(json.loads(result.stdout), {"ids": ["1", "2"], "chips": ["brand:Dr. Oetker", "minDiscount"]})
+        self.assertEqual(json.loads(result.stdout), {"ids": ["1", "2"], "chips": ["brand:Dr. Oetker", "minDiscount"], "count": "2 van 4"})
+
+    def test_2026_11_09_hover_shows_the_full_history_and_purchases(self):
+        # "met een hover wil ik direct de volledige prijshistorie en aankopen zien in een popup": de popup bij een aanbieding
+        # bevat de kerncijfers, de grafiek en de aankopen, en de link naar de volledige pagina.
+        offer = {"id": "514010", "title": "Dr. Oetker Casa di mama pizza salami", "brand": "Dr. Oetker", "unitSize": "390 g", "price": 3.65}
+        product = {"store": "ah", "productId": "514010", "title": offer["title"], "purchases": [{"date": "2026-09-01", "price": 2.15}], "episodes": []}
+        script = f"""{test_offers_scan_js.PRELUDE}
+console.log(JSON.stringify(offerPopupHtml({json.dumps(offer)}, {json.dumps(product)}, [])));"""
+        result = subprocess.run(["node", "-e", script], capture_output=True, text=True, timeout=30, check=False)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        html = json.loads(result.stdout)
+        for marker in ('class="ohc-stats"', 'class="ohc-block"', 'class="ohc-table"', "/offers/history?product=514010"):
+            self.assertIn(marker, html)
+
+
+class PackFamiliesTest(PricesCase):
+    """Melding van 2026-11-09: "rundergehakt van 300gr, 500gr of 1000gr hebben vaak losse prijzen waarbij de 300gr in de aanbieding
+    is, dat maakt het nog niet goedkoper dan de bulk 1000gr verpakking"."""
+
+    async def test_2026_11_09_packs_of_one_product_share_a_card_with_the_cheapest_per_unit(self):
+        await prices.record("ah", [{"id": "1000", "title": "AH Rundergehakt 1000 g", "price": 7.49, "unitSize": "1000 g", "brand": "AH"}], now="2026-11-08T08:00:00+00:00")
+        found = {item["id"]: item for item in await prices.annotate("ah", [offer("300", "AH Rundergehakt 300 g", 3.65, 4.29, "nu 3,65", unitSize="300 g", brand="AH")], today="2026-11-09")}
+        family = found["300"]["family"]
+        self.assertEqual([(p["productId"], p["cheapest"]) for p in family["packs"]], [("300", False), ("1000", True)])
+        self.assertEqual(found["300"]["verdict"]["cheaperPack"]["productId"], "1000", "de 300 g in de aanbieding is per kilo duurder dan de 1000 g")
 
 
 class SpeedTest(PricesCase):

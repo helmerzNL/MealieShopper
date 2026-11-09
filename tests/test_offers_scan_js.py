@@ -24,7 +24,7 @@ def popover_source(name):
 
 def function_source(name):
     match = re.search(
-        rf"^function {re.escape(name)}\(.*?^}}$", OFFERS_JS, re.DOTALL | re.MULTILINE
+        rf"^(?:async )?function {re.escape(name)}\(.*?^}}$", OFFERS_JS, re.DOTALL | re.MULTILINE
     )
     if not match:
         raise AssertionError(f"functie {name} niet gevonden")
@@ -66,11 +66,12 @@ PRELUDE = "\n".join(
             "offersUnitLabel",
             "offerPopupHtml",
             "offerAsProduct",
+            "loadOfferZoomHistory",
         )
     ]
     + [popover_source(name) for name in ("POPOVER_GAP", "POPOVER_EDGE", "POPOVER_SIDE_MIN", "offerPopupPlace")]
     + [
-        "const offersState = { sort: 'store', store: 'ah', filters: null };",
+        "const offersState = { sort: 'store', store: 'ah', filters: null, filtersStore: 'ah' };",
         "const t = (key, params) => key + (params ? ' ' + JSON.stringify(params) : '');",
         "const escapeHtml = (value) => String(value);",
         "const offerBadgeTitle = () => 'uitleg';",
@@ -249,6 +250,35 @@ class OffersScanNodeTest(unittest.TestCase):
                   {**self.FILTER_OFFER, "id": "c", "badge": {"percent": 5}}]
         found = self.run_js(f"offersState.filters = {json.dumps({**self.EMPTY_FILTERS, 'minDiscount': 25})}; const shown = offersFilteredWithFamilies({json.dumps(offers)}); console.log(JSON.stringify({{ ids: shown.map((o) => o.id), dimmed: shown.filter((o) => offersDimmed(o)).map((o) => o.id) }}));")
         self.assertEqual(found, {"ids": ["a", "b"], "dimmed": ["b"]})
+
+    def test_a_dimmed_offer_does_not_head_the_card(self):
+        fam = {"key": "ah|rundergehakt|ah", "packs": []}
+        offers = [{"id": "b", "family": fam, "verdict": {}}, {"id": "a", "family": fam, "verdict": {}}]
+        found = self.run_js(f"offersState.sort = 'best'; offersDimmedIds.add('b'); console.log(JSON.stringify(offerFamilies({json.dumps(offers)}).map((g) => g.head.id)));")
+        self.assertEqual(found, ["a"])
+
+    def test_bought_counts_for_the_whole_family(self):
+        offer = {**self.FILTER_OFFER, "bought": False, "family": {"key": "f", "packs": [], "bought": True}}
+        self.assertTrue(self.match(offer, {**self.EMPTY_FILTERS, "bought": True}))
+
+    def test_filters_follow_the_store(self):
+        found = self.run_js("offersState.store = 'ah'; offersFilters().brands.push('Unox'); offersState.store = 'jumbo'; const jumbo = offersFilters().brands.slice(); offersState.store = 'ah'; console.log(JSON.stringify({ jumbo, ah: offersFilters().brands }));")
+        self.assertEqual(found, {"jumbo": [], "ah": []})
+
+    def test_a_failed_history_fetch_is_not_cached_and_shows_a_line(self):
+        found = self.run_js(
+            "const jsonFetch = () => Promise.reject(new Error('down')); const offerPopupProducts = new Map(); const offerZoomCache = new Map();"
+            f"loadOfferZoomHistory('ah', '1').then((r) => console.log(JSON.stringify({{ result: r, cached: offerZoomCache.has('ah|1'), html: offerPopupHtml({json.dumps(self.POPUP_OFFER)}, r, []) }})));"
+        )
+        self.assertEqual((found["result"], found["cached"]), (False, False))
+        self.assertIn("offers.popup.none", found["html"])
+        self.assertNotIn("offers.popup.loading", found["html"])
+
+    def test_the_popup_keeps_its_pack_while_the_mouse_crosses_the_card(self):
+        self.assertIn("clearTimeout(offerPopup.timer);", OFFERS_JS.split('$("#offer-popup").addEventListener("mouseenter"')[1].split("});")[0])
+
+    def test_a_tap_opens_the_window_whenever_the_hover_popup_is_off(self):
+        self.assertIn("if (!thumb || offerPopupAllowed()) return;", OFFERS_JS)
 
     def test_brand_counts_ignore_the_brand_filter_itself(self):
         offers = [{**self.FILTER_OFFER, "id": "a"}, {**self.FILTER_OFFER, "id": "b", "brand": "Unox", "badge": {"percent": 5}}, {**self.FILTER_OFFER, "id": "c", "brand": "Unox"}]

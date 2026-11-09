@@ -53,8 +53,12 @@ function offersEmptyFilters() {
   return { brands: [], bought: false, minDiscount: 0, maxUnitPrice: { value: null, unit: "kg" }, yearLow: false, rare: false };
 }
 
+// De filters van de winkel van nu: wisselt de winkel (menu, adres of voorkeur), dan komen die van de nieuwe winkel.
 function offersFilters() {
-  if (!offersState.filters) offersState.filters = offersLoadFilters(offersState.store);
+  if (!offersState.filters || offersState.filtersStore !== offersState.store) {
+    offersState.filters = offersLoadFilters(offersState.store);
+    offersState.filtersStore = offersState.store;
+  }
   return offersState.filters;
 }
 
@@ -84,7 +88,7 @@ function offersSaveFilters() {
 // prijs per eenheid niet aan een grens; een grens in een andere eenheid dan die van het product raakt het niet.
 function offersFilterMatch(offer, filters) {
   if (filters.brands.length && !filters.brands.includes(offer.brand || "")) return false;
-  if (filters.bought && !offer.bought) return false;
+  if (filters.bought && !(offer.bought || (offer.family && offer.family.bought))) return false; // een verpakking van de familie gekocht telt
   if (filters.minDiscount > 0 && !(offer.badge && typeof offer.badge.percent === "number" && offer.badge.percent >= filters.minDiscount)) return false;
   const limit = filters.maxUnitPrice;
   if (limit && typeof limit.value === "number") {
@@ -256,7 +260,10 @@ function offerFamilies(sorted) {
   const groups = [...byKey.values()];
   if (offersState.sort === "store") return groups;
   groups.forEach((group) => {
-    const head = group.offers.find((offer) => !(offer.verdict && offer.verdict.cheaperPack)) || group.offers[0];
+    // De kop: de eerste aanbieding die door de filters komt en niet per eenheid duurder is dan een andere verpakking.
+    const live = group.offers.filter((offer) => !offersDimmed(offer));
+    const pool = live.length ? live : group.offers;
+    const head = pool.find((offer) => !(offer.verdict && offer.verdict.cheaperPack)) || pool[0];
     group.head = head;
     group.at = sorted.indexOf(head);
     group.offers = [head, ...group.offers.filter((offer) => offer !== head)];
@@ -421,7 +428,6 @@ function renderOffersStore() {
 function offersSwitchStore(store, { chosen = true } = {}) {
   offersState.chosen = chosen;
   offersState.store = offersStores().includes(store) ? store : "ah";
-  offersState.filters = null; // per winkel onthouden: offersFilters laadt die van de nieuwe winkel
   offersState.category = "all";
   offersState.course = "all";
   showOffers();
@@ -690,7 +696,10 @@ async function loadOfferZoomHistory(store, id) {
           if (product) offerPopupProducts.set(`${store}:${id}`, product);
           return product;
         })
-        .catch(() => null) // de popup is een extraatje: zonder geschiedenis blijft de kop staan
+        .catch(() => {
+          offerZoomCache.delete(key); // de volgende hover probeert het opnieuw
+          return false; // de popup is een extraatje: zonder geschiedenis blijft de kop staan, met een regel erbij
+        })
     );
   }
   return offerZoomCache.get(key);
@@ -720,9 +729,10 @@ function offerPopupHtml(offer, product, packs, activeId = null) {
         .map((pack) => `<button type="button" class="offer-chip offer-chip--small${String(pack.productId) === String(activeId) ? " is-active" : ""}" data-popup-pack="${escapeHtml(pack.productId)}" aria-pressed="${String(pack.productId) === String(activeId)}">${escapeHtml(pack.unitSize || pack.productId)}</button>`)
         .join("")}</div>`
     : "";
+  // `product`: het product uit de prijsgeschiedenis, null zolang het laadt, false als het laden mislukte.
   const body = product
     ? `${offerHistoryStats(product)}${offerHistoryChartBlock(product, { width: OFFER_POPUP_WIDTH - 32 })}${offerHistoryPurchasesTable(product, { limit: OFFER_POPUP_PURCHASES })}`
-    : `<p class="muted offer-popup__loading">${escapeHtml(t("offers.popup.loading"))}</p>`;
+    : `<p class="muted offer-popup__loading">${escapeHtml(t(product === false ? "offers.popup.none" : "offers.popup.loading"))}</p>`;
   return `<div class="offer-popup__inner">
       ${offerHistoryHead(shown, { compact: true })}
       ${buttons}
@@ -1418,7 +1428,8 @@ $("#offers-sort").addEventListener("click", (event) => {
   offersRedraw();
 });
 // De popup: met een muis bij het aanwijzen van een kaart of een regel (een verpakkingsregel toont die verpakking), met het
-// toetsenbord bij focus, en zonder muis opent een tik op het plaatje hetzelfde als venster.
+// toetsenbord bij focus, en zonder hover-popup (aanraakscherm, of een venster smaller dan 900 px) opent een tik op het plaatje
+// hetzelfde als venster.
 function offerPopupAnchor(target) {
   const anchor = target.closest("[data-offer]"); // een kaart of een regel, niet de kopregel van de compacte lijst
   if (!anchor) return null;
@@ -1444,7 +1455,7 @@ $("#offers-products").addEventListener("focusin", (event) => {
 });
 $("#offers-products").addEventListener("click", (event) => {
   const thumb = event.target.closest("[data-zoom]");
-  if (!thumb || offerZoomFinePointer()) return;
+  if (!thumb || offerPopupAllowed()) return; // zonder hover-popup (aanraakscherm of een smal venster) opent een tik het venster
   const found = offerPopupAnchor(event.target);
   const offer = found ? offerById(found.anchor.dataset.offer) : null;
   if (!offer) return;
@@ -1454,6 +1465,8 @@ $("#offers-products").addEventListener("click", (event) => {
 $("#offer-popup").addEventListener("mouseenter", () => {
   clearTimeout(offerPopup.hideTimer);
   offerPopup.hideTimer = 0;
+  clearTimeout(offerPopup.timer); // onderweg van een verpakkingsregel naar de popup kruist de muis de kaart: die wissel telt niet
+  offerPopup.timer = 0;
 });
 $("#offer-popup").addEventListener("mouseleave", (event) => {
   const to = event.relatedTarget;

@@ -625,6 +625,24 @@ class VerdictTest(PricesCase):
         found = await self.annotate(deal("1", "AH Penne", 0.79, 1.19, "nu 0,79"), deal("2", "AH Rijst", 1.80, 2.00))
         self.assertEqual((found["1"]["bought"], found["2"]["bought"]), (True, False))
 
+    async def test_a_family_is_bought_when_any_of_its_packs_was_bought(self):
+        await self.ah_order(101, "delivered", "2026-10-07", order_item(1000, "AH Rundergehakt 1000 g", 7.49))
+        await self.observe("2026-10-19", "1000", "AH Rundergehakt 1000 g", 7.49, size="1000 g")
+        found = await self.annotate(deal("300", "AH Rundergehakt 300 g", 2.49, 3.65, "nu 2,49", size="300 g"), deal("2", "AH Rijst", 1.80, 2.00))
+        self.assertEqual((found["300"]["bought"], found["300"]["family"]["bought"], found["2"]["family"]["bought"]), (False, True, False))
+
+    async def test_unknown_packs_sees_a_branded_pack_the_app_saw_long_ago(self):
+        # De catalogus kent de 1000 g van een oude zoekopdracht (ouder dan PACK_DAYS), met het merk in de naam.
+        await self.observe("2026-06-01", "1000", "AH Rundergehakt 1000 g", 7.49, size="1000 g")
+        found = await self.annotate(deal("300", "AH Rundergehakt 300 g", 2.49, 3.65, "nu 2,49", size="300 g"))
+        self.assertTrue(found["300"]["family"]["unknownPacks"])
+        self.assertEqual([p["productId"] for p in found["300"]["family"]["packs"]], ["300"])
+
+    async def test_warm_catalogues_builds_the_catalogue_before_the_first_request(self):
+        prices._CATALOGUES.clear()
+        await prices.warm_catalogues(["ah"], today=TODAY)
+        self.assertEqual([key[1] for key in prices._CATALOGUES], ["ah"])
+
     async def test_the_price_signature_changes_with_the_catalogue(self):
         before = await prices.signature("ah")
         with closing(db(prices)) as conn, conn:

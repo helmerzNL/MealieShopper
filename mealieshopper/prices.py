@@ -947,6 +947,39 @@ def _product(store: str, product_id: str, offer: dict[str, Any] | None, observed
     return product
 
 
+def _known_pack_titles(store: str, catalogue: "_Catalogue | None", packs_known: list[dict[str, Any]], bases: set[str]) -> dict[str, str]:
+    """Per product dat de catalogus kent en dat bij een familie van deze week hoort (`bases`: de namen zonder maat), een naam om de
+    familiesleutel mee te maken. De catalogus vouwt het merk achter de naam ("ah rundergehakt 1000 g ah"), dus elk merk van de
+    verpakkingen van deze week (en het huismerk) wordt er eerst afgehaald. Zo weet een kaart dat de app nog een verpakking kent
+    zonder recente prijs (`unknownPacks`)."""
+    if catalogue is None:
+        return {}
+    suffixes = {ah_lists._fold(pack.get("brand") or "").strip() for pack in packs_known} | {store}
+    suffixes.discard("")
+    found: dict[str, str] = {}
+    for product_id, known in catalogue.products.items():
+        for name in known.names:
+            candidates = [name] + [name[: -len(suffix) - 1] for suffix in suffixes if name.endswith(f" {suffix}")]
+            title = next((candidate for candidate in candidates if base_title(candidate) in bases), None)
+            if title:
+                found[product_id] = title
+                break
+    return found
+
+
+async def warm_catalogues(stores: Iterable[str] | None = None, today: str | None = None) -> None:
+    """Bouwt de catalogus van elke winkel alvast op (`_catalogue`: de bekende producten en de lijnindex, bij AH ruim twee
+    seconden), zodat de eerste aanvraag van /api/offers na een start of een synchronisatie er niet op hoeft te wachten. Een fout
+    bij een winkel laat de andere met rust: de aanvraag bouwt de catalogus dan zelf."""
+    day = today or date.today().isoformat()
+    for store in stores or offers.STORES:
+        try:
+            async with _connect() as conn:
+                await _catalogue(conn, store, day)
+        except Exception:  # noqa: BLE001 - opwarmen is een extraatje
+            log.warning("Catalogus van %s opwarmen mislukt", store, exc_info=True)
+
+
 async def _line_offers(
     store: str, catalogue: _Catalogue, ids: list[str], fallback: dict[str, _Known] | None = None
 ) -> dict[str, list[dict[str, Any]]]:
@@ -1487,15 +1520,11 @@ async def _annotate(store: str, items: list[dict[str, Any]], today: str) -> None
             by_base.setdefault(base_title(pack["title"]), []).append(pack)
     # De verpakkingsfamilies (offer_ranking.families): alle verpakkingen van een product op een kaart, de goedkoopste per eenheid
     # gemarkeerd. `known_titles` zegt welke verpakkingen de app ooit zag, voor "andere verpakkingen onbekend".
-    bases = set(by_base)
-    known_titles: dict[str, str] = {}
-    if catalogue is not None:
-        for product_id, known in catalogue.products.items():
-            for name in known.names:
-                if base_title(name) in bases:
-                    known_titles[product_id] = name
-                    break
+    known_titles = _known_pack_titles(store, catalogue, packs_known, set(by_base))
     fams = offer_ranking.families(store, packs_known, known_titles)
+    # Eerder gekocht geldt voor de hele familie: de 1000 g tegen gewone prijs gekocht houdt de 300 g in de aanbieding in beeld.
+    for family in fams.values():
+        family["bought"] = any(pack["productId"] in bought_ids for pack in family["packs"])
 
     for offer in items:
         product_id = str(offer.get("id"))
@@ -1526,7 +1555,7 @@ async def _annotate(store: str, items: list[dict[str, Any]], today: str) -> None
         verdict["often"] = verdict["timesThisYear"] >= OFTEN_PER_YEAR
         offer["priceLabel"] = price_label(effective, [(day, price) for day, price, _ in points.get(product_id, [])], today)
         offer["yearLow"] = offer_ranking.year_low(effective, points.get(product_id, []), today)
-        offer["family"] = offer_ranking.family_of(fams, store, offer.get("title"), offer.get("brand"))
+        offer["family"] = offer_ranking.family_of(fams, store, offer.get("title"), offer.get("brand"), product_id)
         offer["bought"] = product_id in bought_ids
         verdict["cheaperPack"] = None
         mine_unit = offer["unitPricePer"]

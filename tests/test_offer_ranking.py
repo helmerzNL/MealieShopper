@@ -94,7 +94,14 @@ class FamiliesTest(unittest.TestCase):
     def test_an_offer_without_a_brand_finds_the_family_of_its_packs(self) -> None:
         found = families("ah", [pack("1", "300 g", 2.49, True, brand=None), pack("2", "1000 g", 7.49, False)], {})
         self.assertEqual(family_of(found, "ah", "AH Rundergehakt 300 g", None)["key"], "ah|rundergehakt|ah")
-        self.assertEqual(family_of(found, "ah", "Unox Rookworst", None), {"key": "ah|unox rookworst|", "packs": [], "unknownPacks": False})
+        self.assertEqual(family_of(found, "ah", "Unox Rookworst", None), {"key": "ah|unox rookworst|", "packs": [], "unknownPacks": False, "bought": False})
+
+    def test_an_offer_that_is_not_a_pack_of_its_family_gets_an_empty_family(self) -> None:
+        # Een aanbieding zonder prijs per eenheid staat niet in packs. Met de sleutel van de familie zou de kaartenweergave haar
+        # achter de kop van de familie verbergen: dus een lege familie, met alleen de sleutel.
+        found = families("ah", [pack("300", "300 g", 2.49, True), pack("1000", "1000 g", 7.49, False)], {})
+        self.assertEqual(family_of(found, "ah", "AH Rundergehakt", "AH", product_id="999"), {"key": "ah|rundergehakt|ah", "packs": [], "unknownPacks": False, "bought": False})
+        self.assertEqual(len(family_of(found, "ah", "AH Rundergehakt", "AH", product_id="300")["packs"]), 2)
 
     def test_unknown_packs_when_the_app_knows_another_pack_without_a_recent_price(self) -> None:
         found = families("ah", [pack("300", "300 g", 2.49, True)], {"300": "AH Rundergehakt 300 g", "1000": "AH Rundergehakt 1000 g"})

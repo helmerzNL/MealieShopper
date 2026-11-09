@@ -76,6 +76,7 @@ I18N.add("en", {
   "offers.filters.clear": "Clear all",
   "offers.filters.remove": "Remove filter: {filter}",
   "offers.status.filtered": "Through the filters: {shown} of {total}.",
+  "offers.popup.none": "The price history could not be loaded.",
   "offers.popup.loading": "Loading price history...",
   "offers.popup.full_history": "Full price history",
   "offers.popup.packs": "Packs",

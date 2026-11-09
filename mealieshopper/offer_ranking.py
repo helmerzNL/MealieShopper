@@ -165,14 +165,16 @@ def families(store: str, packs_known: list[dict[str, Any]], known_titles: dict[s
     return result
 
 
-def family_of(found: dict[str, dict[str, Any]], store: str, title: Any, brand: Any) -> dict[str, Any]:
+def family_of(found: dict[str, dict[str, Any]], store: str, title: Any, brand: Any, product_id: Any = None) -> dict[str, Any]:
     """De familie van een aanbieding uit `families`, of een lege familie met alleen de sleutel. Zonder merk past de aanbieding bij
-    de enige familie met die naam die wel een merk heeft (dezelfde regel als `family_key` met `known_brands`)."""
+    de enige familie met die naam die wel een merk heeft (dezelfde regel als `family_key` met `known_brands`). Met `product_id`
+    alleen als de aanbieding zelf een verpakking van de familie is: anders zou de kaartenweergave haar achter de kop verbergen."""
     key: str = family_key(store, title, brand)
-    if key in found:
-        return found[key]
-    if key.endswith("|"):
+    family: dict[str, Any] | None = found.get(key)
+    if family is None and key.endswith("|"):
         matches = [candidate for candidate in found if candidate.rsplit("|", 1)[0] == key[:-1]]
         if len(matches) == 1:
-            return found[matches[0]]
-    return {"key": key, "packs": [], "unknownPacks": False}
+            family = found[matches[0]]
+    if family is not None and (product_id is None or any(pack["productId"] == str(product_id) for pack in family["packs"])):
+        return family
+    return {"key": key, "packs": [], "unknownPacks": False, "bought": False}
