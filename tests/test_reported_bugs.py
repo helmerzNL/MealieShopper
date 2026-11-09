@@ -470,10 +470,33 @@ class OfferPopupPassThroughTest(unittest.TestCase):
     """Melding van 2026-11-10: "met de huidige popup is het heel lastig om door te gaan naar het volgende product omdat de popup daar
     overheen gaat". Gekozen: de muis gaat door de popup heen, zodat de kaart eronder reageert en de popup daarheen verspringt."""
 
-    def test_2026_11_10_the_mouse_goes_through_the_popup_and_the_keyboard_can_still_use_it(self):
+    @unittest.skipUnless(shutil.which("node"), "Node is not installed")
+    def test_2026_11_10_the_popup_has_no_buttons_or_links_and_the_dialog_keeps_them(self):
+        # "haal die knoppen/links weg, die hebben geen nut nu": de popup is alleen om naar te kijken. Het venster op een aanraakscherm
+        # houdt de verpakkingsknoppen en de link naar de volledige prijsgeschiedenis.
+        offer = {"id": "234871", "title": "Mutti Pizzasaus aromatica", "unitSize": "388 ml", "price": 2.49}
+        product = {"store": "ah", "productId": "234871", "title": offer["title"], "url": "https://www.ah.nl/x", "purchases": [], "episodes": []}
+        packs = [{"productId": "509883", "unitSize": "210 g"}, {"productId": "234871", "unitSize": "388 ml"}]
+        script = f"""{test_offers_scan_js.PRELUDE}
+const args = [{json.dumps(offer)}, {json.dumps(product)}, {json.dumps(packs)}, "234871"];
+console.log(JSON.stringify({{ popup: offerPopupHtml(...args, {{ preview: true }}), dialog: offerPopupHtml(...args) }}));"""
+        result = subprocess.run(["node", "-e", script], capture_output=True, text=True, timeout=30, check=False)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        html = json.loads(result.stdout)
+        for marker in ("<a ", "<button", "data-popup-pack", "offer-popup__foot"):
+            self.assertNotIn(marker, html["popup"], marker)
+        self.assertIn('data-links="false"', html["popup"], "de kop zonder de link naar de winkel")
+        self.assertIn('data-buttons="false"', html["popup"], "de grafiek zonder periodeknoppen")
+        for marker in ("data-popup-pack", "offer-popup__foot", 'data-links="true"', 'data-buttons="true"'):
+            self.assertIn(marker, html["dialog"], marker)
+        source = (ROOT / "static" / "offers_history.js").read_text(encoding="utf-8")
+        self.assertIn("const link = links && product.url", source)
+        self.assertIn("const buttons = withButtons && range.options.length", source)
+
+    def test_2026_11_10_the_mouse_goes_through_the_popup(self):
         css = (ROOT / "static" / "styles.css").read_text(encoding="utf-8")
         self.assertIn(".offer-popup {\n  pointer-events: none;\n}", css, "de kaart onder de popup blijft aan te wijzen")
-        self.assertIn(".offer-popup:focus-within {\n  pointer-events: auto;\n}", css, "met de focus in de popup werken de knoppen en links")
+        self.assertNotIn(".offer-popup:focus-within", css, "er valt in de popup niets meer te klikken")
         self.assertNotIn("pointer-events", css[css.index(".offer-popup__dialog") :].split("}")[0], "het venster op een aanraakscherm blijft gewoon klikbaar")
 
 

@@ -375,13 +375,14 @@ function offerHistoryImages(product) {
 
 // De kop van een product: plaatje, naam, merk en verpakking, de status (nu in de aanbieding, vanaf, of niet) met de link naar de
 // winkel en Vergelijk verpakkingen. `compact` (de popup bij een aanbieding) zet een grotere foto links en laat de vergelijkknop weg.
-function offerHistoryHead(product, { compact = false, offer = null } = {}) {
+function offerHistoryHead(product, { compact = false, offer = null, links = true } = {}) {
   const meta = [product.brand, product.unitSize].filter(Boolean).join(" · ");
   const image = ((product.savedImages || [])[0] || {}).url || product.image;
   const status = product.onOfferNow ? t("offers.history.now")
     : product.upcoming ? offerHistoryUpcomingText(product.upcoming, true)
     : t((product.observed || []).length && !(product.episodes || []).length ? "offers.history.no_confirmed_offer" : "offers.history.not_now");
-  const link = product.url
+  // `links` false (de popup bij een aanbieding, waar de muis doorheen gaat): zonder de link naar de winkel.
+  const link = links && product.url
     ? `<a href="${escapeHtml(product.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(t("offers.history.open", { store: storeDisplayName(product.store) }))}</a>`
     : "";
   // Vergelijk verpakkingen zoekt bij de winkel: niet bij een winkel met alleen aanbiedingen (Lidl, Aldi) en niet in de popup.
@@ -530,10 +531,10 @@ function offerHistoryRangeLabel(key) {
 // prijsgeschiedenis (de popup bij een aanbieding), anders de breedte van het detailvak.
 // `ranges`: de map met de periodekeuze per product; de popup bij een aanbieding heeft een eigen map (offers.js, offerPopup.ranges),
 // zodat haar knoppen de keuze van de pagina Prijsgeschiedenis niet veranderen.
-function offerHistoryChartBlock(product, { width = null, ranges = null } = {}) {
+function offerHistoryChartBlock(product, { width = null, ranges = null, buttons: withButtons = true } = {}) {
   const own = ranges && ranges !== offerHistory.ranges;
   const range = offerHistoryRange(product, (ranges || offerHistory.ranges)[offerHistoryKey(product)]);
-  const buttons = range.options.length
+  const buttons = withButtons && range.options.length
     ? `<div class="ohc-range" role="group" aria-label="${escapeHtml(t("offers.history.range.label"))}">${range.options
         .map((key) => `<button type="button" class="ohc-range-button" data-range="${key}" aria-pressed="${key === range.choice}">${escapeHtml(offerHistoryRangeLabel(key))}</button>`)
         .join("")}</div>`

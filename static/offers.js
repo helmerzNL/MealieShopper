@@ -773,26 +773,29 @@ function offerAsProduct(store, offer) {
 // De inhoud van de popup en van het venster: de kop van de prijsgeschiedenis (compact), de verpakkingen als knoppen bij een familie,
 // de kerncijfers, de grafiek met haar legenda en de laatste aankopen, en de link naar de volledige prijsgeschiedenis. Zonder product (nog aan het
 // laden, of mislukt) alleen de kop en een laadregel.
-function offerPopupHtml(offer, product, packs, activeId = null) {
+// `preview` (de popup bij een muis): alleen om naar te kijken, want de muis gaat door de popup heen. Dan geen verpakkingsknoppen,
+// periodeknoppen of links; het venster op een aanraakscherm houdt ze.
+function offerPopupHtml(offer, product, packs, activeId = null, { preview = false } = {}) {
   const store = offersState.store;
-  const shown = product || offerAsProduct(store, offer);
+  // Zonder verpakkingsknoppen zegt de kop welke verpakking dit is, ook als de prijsgeschiedenis er geen noemt.
+  const shown = product ? { ...product, unitSize: product.unitSize || offer.unitSize || "" } : offerAsProduct(store, offer);
   // Twee verpakkingen met dezelfde maat (twee keer "3 stuks") krijgen de prijs erbij, anders alleen de maat.
   const sizesRepeat = packs.some((pack) => packs.filter((other) => other.unitSize === pack.unitSize).length > 1);
   const buttonText = (pack) => `${pack.unitSize || pack.productId}${sizesRepeat && typeof pack.price === "number" ? ` \u00b7 ${formatPrice(pack.price)}` : ""}`;
-  const buttons = packs.length > 1
+  const buttons = !preview && packs.length > 1
     ? `<div class="offer-popup__packs" role="group" aria-label="${escapeHtml(t("offers.popup.packs"))}">${packs
         .map((pack) => `<button type="button" class="offer-chip offer-chip--small${String(pack.productId) === String(activeId) ? " is-active" : ""}" data-popup-pack="${escapeHtml(pack.productId)}" aria-pressed="${String(pack.productId) === String(activeId)}">${escapeHtml(buttonText(pack))}</button>`)
         .join("")}</div>`
     : "";
   // `product`: het product uit de prijsgeschiedenis, null zolang het laadt, false als het laden mislukte.
   const body = product
-    ? `${offerHistoryStats(product)}${offerHistoryChartBlock(product, { width: OFFER_POPUP_WIDTH - 32, ranges: offerPopup.ranges })}${offerHistoryLegend(product)}${offerHistoryPurchasesTable(product, { limit: OFFER_POPUP_PURCHASES })}`
+    ? `${offerHistoryStats(product)}${offerHistoryChartBlock(product, { width: OFFER_POPUP_WIDTH - 32, ranges: offerPopup.ranges, buttons: !preview })}${offerHistoryLegend(product)}${offerHistoryPurchasesTable(product, { limit: OFFER_POPUP_PURCHASES })}`
     : `<p class="muted offer-popup__loading">${escapeHtml(t(product === false ? "offers.popup.none" : "offers.popup.loading"))}</p>`;
   return `<div class="offer-popup__inner">
-      ${offerHistoryHead(shown, { compact: true, offer })}
+      ${offerHistoryHead(shown, { compact: true, offer, links: !preview })}
       ${buttons}
       ${body}
-      <p class="offer-popup__foot"><a href="${escapeHtml(priceHistoryPath(store, shown.title, shown.productId))}" data-route>${escapeHtml(t("offers.popup.full_history"))}</a></p>
+      ${preview ? "" : `<p class="offer-popup__foot"><a href="${escapeHtml(priceHistoryPath(store, shown.title, shown.productId))}" data-route>${escapeHtml(t("offers.popup.full_history"))}</a></p>`}
     </div>`;
 }
 
@@ -851,7 +854,7 @@ function showOfferPopup(anchor, offer, packId = null) {
   const shown = offerForPack(offer, shownId);
   const packs = offerPopupPacks(offer);
   if (offerPopup.anchor !== anchor) offerPopup.ranges = {}; // een andere kaart: de periodekeuze begint opnieuw
-  box.innerHTML = offerPopupHtml(shown, offerPopupProducts.get(`${offersState.store}:${shownId}`) || null, packs, shownId);
+  box.innerHTML = offerPopupHtml(shown, offerPopupProducts.get(`${offersState.store}:${shownId}`) || null, packs, shownId, { preview: true });
   box.hidden = false;
   offerPopup.id = shownId;
   offerPopup.anchor = anchor;
@@ -859,7 +862,7 @@ function showOfferPopup(anchor, offer, packId = null) {
   placeOfferPopup(box, anchor);
   loadOfferZoomHistory(offersState.store, shownId).then((product) => {
     if (box.hidden || offerPopup.id !== shownId || offerPopup.anchor !== anchor) return;
-    box.innerHTML = offerPopupHtml(shown, product, packs, shownId);
+    box.innerHTML = offerPopupHtml(shown, product, packs, shownId, { preview: true });
     placeOfferPopup(box, anchor);
   });
 }
@@ -907,6 +910,7 @@ function offerPopupTabTarget(event, box) {
   const cardStops = offerFocusables(anchor);
   const popupStops = offerFocusables(box);
   const cardEnd = cardStops[cardStops.length - 1] || anchor;
+  if (!popupStops.length) return null; // de popup bij een muis heeft niets om naartoe te gaan: Tab gaat naar de volgende kaart
   if (!event.shiftKey && event.target === cardEnd) return box;
   if (event.shiftKey && (event.target === box || event.target === popupStops[0])) return cardEnd;
   if (!event.shiftKey && popupStops.length && event.target === popupStops[popupStops.length - 1]) return anchor.nextElementSibling || null;

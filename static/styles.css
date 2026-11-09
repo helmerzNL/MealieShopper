@@ -7916,14 +7916,10 @@ html.is-standalone body {
 }
 
 /* Met de muis is de popup alleen om naar te kijken: de muis gaat er doorheen, zodat de kaart eronder reageert en de popup naar
-   die kaart verspringt in plaats van de weg ernaartoe te versperren. Met het toetsenbord (de focus staat in de popup) werken de
-   periodeknoppen, de verpakkingen en de links wel, ook met de muis. */
+   die kaart verspringt in plaats van de weg ernaartoe te versperren. Er staat dan ook niets in om op te klikken (offerPopupHtml
+   met `preview`). */
 .offer-popup {
   pointer-events: none;
-}
-
-.offer-popup:focus-within {
-  pointer-events: auto;
 }
 
 .offer-popup__inner .ohc-stats {
