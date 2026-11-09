@@ -279,6 +279,15 @@ function offerPackWarning(offer) {
   return t("offers.pack.pricier_than", { size: pack.unitSize || pack.title || "", unit: t({ kg: "offers.unit.kg", l: "offers.unit.l" }[(pack.unitPrice || {}).unit] || "offers.unit.stuk") });
 }
 
+// Is `pack` per eenheid duurder dan `other`? Met dezelfde marge als de server (prices.PACK_MARGIN, uit /api/offers als `packMargin`,
+// anders twee procent): binnen de marge is het gelijk, en dan zegt de kaart niets.
+function offerPackPricier(pack, other) {
+  const margin = typeof offersState.packMargin === "number" ? offersState.packMargin : 0.02;
+  if (!pack || !other || !pack.unitPrice || !other.unitPrice || pack.unitPrice.unit !== other.unitPrice.unit) return false;
+  if (typeof pack.unitPrice.value !== "number" || typeof other.unitPrice.value !== "number") return false;
+  return other.unitPrice.value * (1 + margin) < pack.unitPrice.value;
+}
+
 // De regels van de verpakkingen onder een kaart: maat, prijs, prijs per eenheid, een punt voor "in de aanbieding", de goedkoopste
 // per eenheid vet. Een regel die per eenheid duurder is dan de goedkoopste krijgt de melding. Niets bij een verpakking.
 function offerPackRows(offer) {
@@ -290,7 +299,7 @@ function offerPackRows(offer) {
   const rows = packs
     .map((pack) => {
       const member = offerById(pack.productId);
-      const pricier = cheapest && !pack.cheapest && pack.unitPrice && cheapest.unitPrice && pack.unitPrice.unit === cheapest.unitPrice.unit && pack.unitPrice.value > cheapest.unitPrice.value;
+      const pricier = cheapest && !pack.cheapest && offerPackPricier(pack, cheapest);
       const cls = ["offer-pack", pack.cheapest ? "offer-pack--cheapest" : "", pack.onOffer ? "offer-pack--offer" : "", member && offersDimmed(member) ? "offer-pack--dimmed" : ""].filter(Boolean).join(" ");
       const warning = pricier && pack.onOffer ? `<small class="offer-pack__warning">${escapeHtml(t("offers.pack.pricier_than", { size: cheapest.unitSize || "", unit: t({ kg: "offers.unit.kg", l: "offers.unit.l" }[cheapest.unitPrice.unit] || "offers.unit.stuk") }))}</small>` : "";
       return `<li class="${cls}" data-zoom="${escapeHtml(pack.productId)}">
@@ -726,9 +735,12 @@ function offerAsProduct(store, offer) {
 function offerPopupHtml(offer, product, packs, activeId = null) {
   const store = offersState.store;
   const shown = product || offerAsProduct(store, offer);
+  // Twee verpakkingen met dezelfde maat (twee keer "3 stuks") krijgen de prijs erbij, anders alleen de maat.
+  const sizesRepeat = packs.some((pack) => packs.filter((other) => other.unitSize === pack.unitSize).length > 1);
+  const buttonText = (pack) => `${pack.unitSize || pack.productId}${sizesRepeat && typeof pack.price === "number" ? ` \u00b7 ${formatPrice(pack.price)}` : ""}`;
   const buttons = packs.length > 1
     ? `<div class="offer-popup__packs" role="group" aria-label="${escapeHtml(t("offers.popup.packs"))}">${packs
-        .map((pack) => `<button type="button" class="offer-chip offer-chip--small${String(pack.productId) === String(activeId) ? " is-active" : ""}" data-popup-pack="${escapeHtml(pack.productId)}" aria-pressed="${String(pack.productId) === String(activeId)}">${escapeHtml(pack.unitSize || pack.productId)}</button>`)
+        .map((pack) => `<button type="button" class="offer-chip offer-chip--small${String(pack.productId) === String(activeId) ? " is-active" : ""}" data-popup-pack="${escapeHtml(pack.productId)}" aria-pressed="${String(pack.productId) === String(activeId)}">${escapeHtml(buttonText(pack))}</button>`)
         .join("")}</div>`
     : "";
   // `product`: het product uit de prijsgeschiedenis, null zolang het laadt, false als het laden mislukte.
@@ -1007,6 +1019,7 @@ function renderOffersStatusGood() {
 function renderOffers(data) {
   offersState.supported = data.supported;
   offersState.offers = data.offers || [];
+  offersState.packMargin = typeof data.packMargin === "number" ? data.packMargin : offersState.packMargin;
   offersState.categories = data.categories || [];
   offersState.personal = data.personal || null;
   if (offersState.category !== "all" && !offersState.categories.some((category) => category.id === offersState.category)) offersState.category = "all";

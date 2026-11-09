@@ -701,6 +701,7 @@ def create_app() -> Quart:
         async def load_with_verdicts() -> dict[str, Any]:
             data = await offers.load(store, week)
             await prices.annotate(data["store"], data["offers"])  # het oordeel bij elke aanbieding (#178), een fout laat de lijst staan
+            data["packMargin"] = prices.PACK_MARGIN  # de client vergelijkt verpakkingen per eenheid met dezelfde marge
             return data
 
         # Dezelfde ETag is dezelfde lijst: een tweede browser of apparaat, en aanvragen die tegelijk binnenkomen, krijgen de lijst die

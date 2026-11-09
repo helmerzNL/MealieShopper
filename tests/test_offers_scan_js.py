@@ -53,6 +53,7 @@ PRELUDE = "\n".join(
             "offerPriceLabel",
             "offerFamilies",
             "offerPackRows",
+            "offerPackPricier",
             "offerPackWarning",
             "offerPerUnitText",
             "offersFilterMatch",
@@ -331,6 +332,31 @@ class OffersScanNodeTest(unittest.TestCase):
         html = self.popup(self.POPUP_OFFER, self.POPUP_PRODUCT, packs, "514010")
         self.assertEqual(html.count("data-popup-pack="), 3)
         self.assertIn('data-popup-pack="514010" aria-pressed="true"', html)
+
+    def pack(self, pid, size, price, per_kg, on_offer, cheapest=False):
+        return {"productId": pid, "unitSize": size, "price": price, "unitPrice": {"value": per_kg, "unit": "kg"}, "onOffer": on_offer, "cheapest": cheapest}
+
+    def test_a_pack_within_the_margin_is_not_pricier(self):
+        # 500 g 4,19 (8,38/kg) naast 1000 g 8,30 (8,30/kg): binnen twee procent, dus geen "duurder". 300 g 3,67/kg naast 500 g 3,04/kg wel.
+        within = {"id": "a", "family": {"key": "f", "packs": [self.pack("500", "500 g", 4.19, 8.38, True), self.pack("1000", "1000 g", 8.30, 8.30, True, cheapest=True)]}}
+        html = self.run_js(f"offersState.packMargin = 0.02; console.log(JSON.stringify(offerPackRows({json.dumps(within)})));")
+        self.assertNotIn("offers.pack.pricier_than", html)
+        beyond = {"id": "b", "family": {"key": "g", "packs": [self.pack("300", "300 g", 1.10, 3.67, True), self.pack("500", "500 g", 1.52, 3.04, False, cheapest=True)]}}
+        html = self.run_js(f"offersState.packMargin = 0.02; console.log(JSON.stringify(offerPackRows({json.dumps(beyond)})));")
+        self.assertEqual(html.count("offers.pack.pricier_than"), 1)
+
+    def test_without_pack_margin_the_client_uses_two_percent(self):
+        within = {"id": "a", "family": {"key": "f", "packs": [self.pack("500", "500 g", 4.19, 8.38, True), self.pack("1000", "1000 g", 8.30, 8.30, True, cheapest=True)]}}
+        html = self.run_js(f"delete offersState.packMargin; console.log(JSON.stringify(offerPackRows({json.dumps(within)})));")
+        self.assertNotIn("offers.pack.pricier_than", html)
+
+    def test_pack_buttons_show_the_price_when_sizes_repeat(self):
+        packs = [{"productId": "1", "unitSize": "3 stuks", "price": 14.52}, {"productId": "2", "unitSize": "3 stuks", "price": 26.16}]
+        html = self.popup(self.POPUP_OFFER, self.POPUP_PRODUCT, packs, "1")
+        self.assertIn(">3 stuks · EUR 14.52<", html)
+        self.assertIn("3 stuks · EUR 26.16", html)
+        plain = self.popup(self.POPUP_OFFER, self.POPUP_PRODUCT, [{"productId": "1", "unitSize": "300 g", "price": 2.49}, {"productId": "2", "unitSize": "500 g", "price": 4.19}], "1")
+        self.assertNotIn("EUR", plain)
 
     def test_an_offer_becomes_a_product_for_the_head(self):
         product = self.run_js(f"console.log(JSON.stringify(offerAsProduct('ah', {json.dumps(self.POPUP_OFFER)})));")

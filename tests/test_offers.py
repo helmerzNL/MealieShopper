@@ -331,6 +331,11 @@ class OffersWeekTest(TempDataDirTest):
         self.assertEqual([o["promoLabel"] for o in run(offers.load("ah", self.next_monday.isoformat()))["offers"]], ["2e halve prijs"])
         self.assertEqual([o["promoLabel"] for o in run(offers.load("ah", self.monday.isoformat()))["offers"]], ["Feestfavoriet"])
 
+    async def test_the_offers_carry_the_pack_margin(self):
+        # De client vergelijkt verpakkingen per eenheid met dezelfde marge als de server (prices.PACK_MARGIN, 2 procent).
+        client = self.client_for(create_app())
+        self.assertEqual((await client.get("/api/offers?store=ah")).get_json()["packMargin"], 0.02)
+
     async def test_the_routes_take_the_week_and_default_to_this_week(self):
         client = self.client_for(create_app())
         default = await client.get("/api/offers?store=ah")
