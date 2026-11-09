@@ -331,6 +331,23 @@ class OffersWeekTest(TempDataDirTest):
         self.assertEqual([o["promoLabel"] for o in run(offers.load("ah", self.next_monday.isoformat()))["offers"]], ["2e halve prijs"])
         self.assertEqual([o["promoLabel"] for o in run(offers.load("ah", self.monday.isoformat()))["offers"]], ["Feestfavoriet"])
 
+    async def test_warm_offers_fills_the_cache_so_the_first_request_does_not_annotate(self):
+        app = create_app()
+        client = self.client_for(app)
+        with mock.patch.object(prices, "annotate", wraps=prices.annotate) as spy:
+            await app.extensions["mealieshopper_warm_offers"]()
+            warmed = spy.await_count
+            self.assertGreaterEqual(warmed, 2, "deze week en volgende week van AH")
+            self.assertEqual((await client.get("/api/offers?store=ah")).status_code, 200)
+            self.assertEqual(spy.await_count, warmed, "de eerste aanvraag komt uit de cache")
+
+    async def test_a_request_during_the_warm_up_shares_the_computation(self):
+        app = create_app()
+        client = self.client_for(app)
+        with mock.patch.object(offers, "STORES", ("ah",)), mock.patch.object(prices, "annotate", wraps=prices.annotate) as spy:
+            await asyncio.gather(app.extensions["mealieshopper_warm_offers"](), client.get("/api/offers?store=ah"))
+            self.assertEqual(spy.await_count, 2, "deze week een keer (gedeeld) en volgende week een keer")
+
     async def test_the_offers_carry_the_pack_margin(self):
         # De client vergelijkt verpakkingen per eenheid met dezelfde marge als de server (prices.PACK_MARGIN, 2 procent).
         client = self.client_for(create_app())

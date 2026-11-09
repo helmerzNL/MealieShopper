@@ -2,7 +2,7 @@ import hashlib
 import inspect
 import mimetypes
 from collections.abc import Awaitable, Callable, Iterable
-from datetime import date
+from datetime import date, timedelta
 from os import environ
 from pathlib import Path
 from typing import Any
@@ -147,7 +147,7 @@ def create_app() -> Quart:
         # De dagelijkse aanbiedingen-run hoort niet in de tests: die maken de app vaak aan.
         if not environ.get("MEALIESHOPPER_TESTING"):
             offers_schedule.start()
-            tasks.spawn("warm-catalogues", prices.warm_catalogues())  # de eerste /api/offers na een start wacht niet op de catalogus
+            tasks.spawn("warm-offers", warm_at_start())  # de eerste /api/offers na een start wacht niet op de catalogus en het oordeel
 
     # Fouten van externe diensten (AH, Mealie) geven we terug als 424 in
     # plaats van 502: reverse proxies (Cloudflare, SWAG, NPM) vervangen een 502
@@ -685,6 +685,36 @@ def create_app() -> Quart:
         """De week van de aanbiedingen: `?week=` (een datum in de week die het weekmenu toont), anders de week van vandaag."""
         return request.args.get("week") or date.today().isoformat()
 
+    async def offers_etag(store: str, week: str) -> str:
+        """De ETag van de lijst: de synchronisatie, de dag, de week, de build en de catalogus van de prijsgeschiedenis."""
+        return hashlib.sha1(f"{await offers.signature(store, week)}|{await prices.signature(store)}".encode("utf-8")).hexdigest()
+
+    async def offers_with_verdicts(store: str, week: str) -> dict[str, Any]:
+        data = await offers.load(store, week)
+        await prices.annotate(data["store"], data["offers"])  # het oordeel bij elke aanbieding (#178), een fout laat de lijst staan
+        data["packMargin"] = prices.PACK_MARGIN  # de client vergelijkt verpakkingen per eenheid met dezelfde marge
+        return data
+
+    async def warm_offers() -> None:
+        """Rekent de lijst met oordeel van elke winkel alvast uit voor deze week en de volgende, in de cache van /api/offers. Na een
+        synchronisatie (offers_schedule) en bij de start, zodat de eerste bezoeker er niet op wacht. Een fout bij een winkel laat de
+        andere met rust."""
+        today = date.today()
+        for store in offers.STORES:
+            for week in (today.isoformat(), (today + timedelta(days=7)).isoformat()):
+                try:
+                    etag = await offers_etag(store, week)
+                    await offers_cache.get((store, week), etag, lambda: offers_with_verdicts(store, week))
+                except Exception:  # noqa: BLE001 - opwarmen is een extraatje
+                    app.logger.warning("Aanbiedingen van %s opwarmen mislukt", store, exc_info=True)
+
+    app.extensions["mealieshopper_warm_offers"] = warm_offers
+    offers_schedule.set_warmer(warm_offers)
+
+    async def warm_at_start() -> None:
+        await prices.warm_catalogues()
+        await warm_offers()
+
     @app.get("/api/offers")
     async def offers_list():
         # Cache: de browser bewaart de lijst en vraagt bij elke keer alleen of er iets veranderd is (ETag). Is de lijst niet veranderd
@@ -692,22 +722,17 @@ def create_app() -> Quart:
         store = request.args.get("store") or "ah"
         week = offers_week()
         try:
-            etag = hashlib.sha1(f"{await offers.signature(store, week)}|{await prices.signature(store)}".encode("utf-8")).hexdigest()
+            etag = await offers_etag(store, week)
         except ValueError as exc:
             return jsonify({"error": str(exc)}), 400
         headers = {"ETag": f'"{etag}"', "Cache-Control": "private, no-cache"}
         if request.if_none_match.contains(etag):
             return Response(status=304, headers=headers)
-        async def load_with_verdicts() -> dict[str, Any]:
-            data = await offers.load(store, week)
-            await prices.annotate(data["store"], data["offers"])  # het oordeel bij elke aanbieding (#178), een fout laat de lijst staan
-            data["packMargin"] = prices.PACK_MARGIN  # de client vergelijkt verpakkingen per eenheid met dezelfde marge
-            return data
 
         # Dezelfde ETag is dezelfde lijst: een tweede browser of apparaat, en aanvragen die tegelijk binnenkomen, krijgen de lijst die
         # er al ligt of op komst is, in plaats van het prijsoordeel opnieuw uit te rekenen (response_cache.py).
         response = await offers_action(
-            lambda: offers_cache.get((store, week), etag, load_with_verdicts), tr("Aanbiedingen laden mislukt", "Loading the offers failed")
+            lambda: offers_cache.get((store, week), etag, lambda: offers_with_verdicts(store, week)), tr("Aanbiedingen laden mislukt", "Loading the offers failed")
         )
         if isinstance(response, Response) and response.status_code == 200:
             response.headers.update(headers)
