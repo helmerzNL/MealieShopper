@@ -301,6 +301,17 @@ class PlannerPreferencesTest(unittest.TestCase):
         self.assertLess(store.index("appearance-planner-combine"), store.index("appearance-planner-split-row"))
         self.assertIn('<div id="appearance-planner-message"></div>', store)
 
+    def test_servings_per_recipe_is_a_small_number_next_to_its_explanation(self):
+        # Porties per recept (4.10.0): de voedingswaarden in een recept van producten staan per persoon.
+        store = HTML[HTML.index('id="appearance-store-box"'):HTML.index('id="appearance-display-box"')]
+        field = re.search(r'<input type="number"[^>]*id="appearance-planner-servings"[^>]*>', store).group(0)
+        for part in ('min="1"', 'max="8"', 'step="1"', 'value="2"', 'aria-labelledby="appearance-planner-servings-label"', 'aria-describedby="appearance-planner-servings-help"'):
+            self.assertIn(part, field)
+        script = (STATIC / "appearance.js").read_text(encoding="utf-8")
+        self.assertIn('appearanceSavePlanner("plannerServings", value)', script)
+        self.assertIn("const APPEARANCE_SERVINGS = { min: 1, max: 8, fallback: 2 };", script)
+        self.assertIn("plannerServings: data.plannerServings", script, "de server heeft het laatste woord")
+
     def test_the_switches_are_saved_in_the_profile(self):
         script = (STATIC / "appearance.js").read_text(encoding="utf-8")
         self.assertIn('appearanceSavePlanner("plannerCombine", event.target.checked)', script)

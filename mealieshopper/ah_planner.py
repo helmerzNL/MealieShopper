@@ -11,6 +11,9 @@ weekmenu van Mealie, als diner (AH kent geen soort maaltijd):
   als naam ("Pizza"); met *soep en pizza altijd los* (`splitMeals`) krijgen soep en pizza dan toch een eigen recept. Zonder
   `combine` wordt elk product een eigen recept. Een recept of menu dat MealieShopper eerder van dezelfde producten maakte,
   wordt teruggevonden aan zijn bron en hergebruikt.
+- **Porties en voedingswaarden** (4.10.0). Een recept of menu dat MealieShopper maakt, is voor *Porties per recept*
+  (`servings`, Voorkeuren, Supermarkt; standaard 2) en krijgt de voedingswaarden per persoon: de voedingstabel van AH (per
+  100 g of ml) maal de verpakking, opgeteld en gedeeld door de porties. Alleen als dat van alle producten erin bekend is.
 
 Eigen recepten van het lid gaan niet mee, en een notitie alleen als naam van een menu: dat besloot de eigenaar. Er komt
 alleen iets bij in Mealie. Staat een recept op die dag al in het weekmenu, dan blijft het bij die ene keer, zodat twee keer
@@ -24,8 +27,10 @@ import logging
 import re
 from typing import Any
 
-from . import ah, mealie
+from . import ah, mealie, nutrition, tasks
 from .i18n import tr
+from .packs import parse_pack_size
+from .profile import PLANNER_SERVINGS_DEFAULT, valid_planner_servings
 
 log = logging.getLogger(__name__)
 
@@ -114,9 +119,18 @@ def _list(value: Any, limit: int, nl: str, en: str) -> list[Any]:
     return value
 
 
+def _servings(value: Any) -> int:
+    """Porties per recept dat MealieShopper van producten maakt (Voorkeuren, Supermarkt): 1 tot en met 8, standaard 2."""
+    if value is None:
+        return PLANNER_SERVINGS_DEFAULT
+    if not valid_planner_servings(value):
+        raise ValueError(tr("Ongeldig aantal porties.", "Invalid number of servings."))
+    return value
+
+
 def clean_day(body: Any) -> dict[str, Any]:
     """Wat van één dag in het weekmenu moet, uit `{date, recipeIds, products: [{productId, title}], note, combine,
-    splitMeals}`: gecontroleerd, zonder dubbele, met `combine` en `splitMeals` standaard aan."""
+    splitMeals, servings}`: gecontroleerd, zonder dubbele, met `combine` en `splitMeals` standaard aan en 2 porties."""
     if not isinstance(body, dict):
         raise ValueError(tr("Ongeldige invoer.", "Invalid input."))
     recipe_ids: list[int] = []
@@ -140,6 +154,7 @@ def clean_day(body: Any) -> dict[str, Any]:
         "note": _text(body.get("note")),
         "combine": _flag(body.get("combine"), True),
         "splitMeals": _flag(body.get("splitMeals"), True),
+        "servings": _servings(body.get("servings")),
     }
 
 
@@ -201,7 +216,12 @@ async def _product_details(products: list[dict[str, Any]]) -> list[dict[str, Any
     for product in products:
         item = found.get(product["productId"]) or {}
         title = _text(item.get("title") if isinstance(item.get("title"), str) else "") or product["title"]
-        details.append({"productId": product["productId"], "title": title or tr(f"Product {product['productId']}", f"Product {product['productId']}"), "image": item.get("image") or ""})
+        details.append({
+            "productId": product["productId"],
+            "title": title or tr(f"Product {product['productId']}", f"Product {product['productId']}"),
+            "image": item.get("image") or "",
+            "unitSize": item.get("unitSize") if isinstance(item.get("unitSize"), str) else "",
+        })
     return details
 
 
@@ -225,9 +245,42 @@ def _source(products: list[dict[str, Any]], menu: bool) -> str:
     return f"{base}#menu-{'-'.join(str(number) for number in ids)}" if menu else base
 
 
-def _jsonld(name: str, source: str, products: list[dict[str, Any]], with_image: bool) -> dict[str, Any]:
+# --- voedingswaarden (4.10.0) -----------------------------------------------------------------------------------------
+# AH geeft ze per 100 g of ml (ah.get_product_nutrition); met de verpakking ("570 ml", "450 g") wordt dat de hele verpakking.
+# Een recept of menu krijgt alleen voedingswaarden als ze van alle producten erin bekend zijn (besluit van de eigenaar): een
+# product zonder tabel of in stuks ("2 stuks") maakt het geheel onbekend, zodat er nooit te lage totalen in Mealie staan.
+# Mealie toont ze per portie, dus per persoon: het totaal gedeeld door de porties per recept (Voorkeuren, Supermarkt).
+
+
+async def _pack_nutrition(product: dict[str, Any]) -> dict[str, float] | None:
+    """De voedingswaarden van de hele verpakking van een product, of None als die niet te berekenen zijn."""
+    size = parse_pack_size(product.get("unitSize"))
+    if not size or size[1] not in ("mass", "volume") or size[0] <= 0:
+        return None
+    per_100 = await ah.get_product_nutrition(product["productId"])
+    if not per_100:
+        return None
+    return {key: amount * size[0] / 100 for key, amount in per_100.items()}
+
+
+async def _nutrition_total(products: list[dict[str, Any]]) -> dict[str, float] | None:
+    """Het totaal van de hele verpakkingen, of None als het van één product onbekend is. Een veld telt alleen mee als alle
+    producten het hebben; energie moet erbij zijn."""
+    packs = await tasks.map_bounded(4, _pack_nutrition, products)
+    if not packs or any(pack is None for pack in packs):
+        return None
+    common = set(nutrition.KEYS).intersection(*(pack.keys() for pack in packs))
+    if "calories" not in common:
+        return None
+    return {key: sum(pack[key] for pack in packs) for key in nutrition.KEYS if key in common}
+
+
+def _jsonld(
+    name: str, source: str, products: list[dict[str, Any]], with_image: bool, servings: int, total: dict[str, float] | None = None
+) -> dict[str, Any]:
     """Een schema.org-recept van deze producten: elk product één keer als ingrediënt, met de naam zoals AH hem geeft, zodat
-    *Weekmenu naar mandje* precies dat product vindt."""
+    *Weekmenu naar mandje* precies dat product vindt. Voor `servings` personen; met `total` (de hele verpakkingen) de
+    voedingswaarden per persoon."""
     titles = [product["title"] for product in products]
     recipe: dict[str, Any] = {
         "@context": "https://schema.org",
@@ -237,22 +290,26 @@ def _jsonld(name: str, source: str, products: list[dict[str, Any]], with_image: 
         "description": tr("Uit de weekplanner van de AH-app: ", "From the week planner of the AH app: ") + ", ".join(titles),
         "recipeIngredient": [f"1 {title}" for title in titles],
         "recipeInstructions": [{"@type": "HowToStep", "text": tr("Bereid volgens de verpakking.", "Prepare as stated on the pack.")}],
+        "recipeYield": f"{servings} personen",
     }
     image = next((product["image"] for product in products if product.get("image")), "")
     if with_image and image:
         recipe["image"] = [image]
+    if total and (block := nutrition.schema({key: amount / servings for key, amount in total.items()})):
+        recipe["nutrition"] = block
     return recipe
 
 
-async def _create(name: str, source: str, products: list[dict[str, Any]]) -> str:
-    """Maak het recept in Mealie. Weigert Mealie het (4xx), dan nog één keer zonder plaatje, zoals de poging "zonder foto"
-    bij de maaltijdboxen; bij een fout van Mealie zelf (5xx) niet, zodat er niets dubbel ontstaat."""
-    recipe = _jsonld(name, source, products, with_image=True)
+async def _create(name: str, source: str, products: list[dict[str, Any]], servings: int) -> str:
+    """Maak het recept in Mealie, met de voedingswaarden per persoon als ze van alle producten bekend zijn. Weigert Mealie het
+    (4xx), dan nog één keer zonder foto en voedingswaarden, zoals bij de maaltijdboxen; bij een fout van Mealie zelf (5xx)
+    niet, zodat er niets dubbel ontstaat."""
+    recipe = _jsonld(name, source, products, True, servings, await _nutrition_total(products))
     try:
         return await mealie.import_via_jsonld(source, recipe)
     except mealie.MealieImportError as exc:
-        if "image" in recipe and 400 <= exc.status_code < 500:
-            return await mealie.import_via_jsonld(source, _jsonld(name, source, products, with_image=False))
+        if ("image" in recipe or "nutrition" in recipe) and 400 <= exc.status_code < 500:
+            return await mealie.import_via_jsonld(source, _jsonld(name, source, products, False, servings))
         raise
 
 
@@ -283,7 +340,7 @@ def _result(date: str, kind: str, title: str = "", **extra: Any) -> dict[str, An
     return {"date": date, "kind": kind, "title": title, "imported": False, "slug": "", "mealieUrl": "", **extra}
 
 
-async def _own(date: str, kind: str, name: str, products: list[dict[str, Any]], planned: set[tuple[str, str]]) -> dict[str, Any]:
+async def _own(date: str, kind: str, name: str, products: list[dict[str, Any]], planned: set[tuple[str, str]], servings: int) -> dict[str, Any]:
     """Een eigen recept van één product (`kind` product) of een menu van een paar producten (`kind` menu): het recept dat
     MealieShopper er eerder van maakte (zelfde bron), anders een nieuw recept, en dan op de dag zetten."""
     menu = kind == MENU
@@ -294,7 +351,7 @@ async def _own(date: str, kind: str, name: str, products: list[dict[str, Any]], 
         if summary:
             recipe = {"slug": str(summary["slug"]), "id": str(summary.get("id") or ""), "imported": False}
         else:
-            recipe = {"slug": await _create(name, source, products), "id": "", "imported": True}
+            recipe = {"slug": await _create(name, source, products, servings), "id": "", "imported": True}
         await _schedule(result, recipe, planned)
     except Exception:  # noqa: BLE001 - Mealie: alleen in het logboek, de rest van de dag gaat door
         return _failed(result, "menu" if menu else f"product {products[0]['productId']}")
@@ -344,7 +401,7 @@ async def to_meal_plan(day: dict[str, Any]) -> dict[str, Any]:
         results.append(result)
     alone, together = _split(rest, day["combine"], day["splitMeals"])
     for product in alone:
-        results.append(await _own(date, PRODUCT, product["title"], [product], planned))
+        results.append(await _own(date, PRODUCT, product["title"], [product], planned, day["servings"]))
     if together:
-        results.append(await _own(date, MENU, _menu_name(day["note"], together), together, planned))
+        results.append(await _own(date, MENU, _menu_name(day["note"], together), together, planned, day["servings"]))
     return {"results": results}

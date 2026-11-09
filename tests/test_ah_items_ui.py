@@ -113,8 +113,11 @@ class WeekPlannerMarkupTest(unittest.TestCase):
         self.assertNotIn("ah-planner-split-meals", panel)
         self.assertIn('<a href="/settings/preferences" data-route data-i18n="ah.planner.settings_link">', panel)
         planner = (ROOT / "static" / "ah_planner.js").read_text(encoding="utf-8")
-        self.assertIn("return { combine: state.auth?.plannerCombine !== false, splitMeals: state.auth?.plannerSplitMeals !== false };", planner)
+        self.assertIn("combine: state.auth?.plannerCombine !== false,", planner)
+        self.assertIn("splitMeals: state.auth?.plannerSplitMeals !== false,", planner)
         self.assertNotIn('"/api/profile/preferences"', planner, "bewaren doet appearance.js")
+        # Porties per recept (4.10.0) gaan mee naar de server, standaard 2.
+        self.assertIn("servings: Number.isInteger(servings) && servings >= 1 && servings <= 8 ? servings : 2,", planner)
 
 
 class OverviewMarkupTest(unittest.TestCase):

@@ -1,5 +1,6 @@
 import asyncio
 import html
+import logging
 import re
 import time
 import unicodedata
@@ -15,6 +16,8 @@ import httpx
 
 from . import auth, deals, http_client, nutrition, tasks
 from .i18n import tr
+
+log = logging.getLogger(__name__)
 from .packs import (  # noqa: F401 - blijft hier bereikbaar voor bestaande aanroepers
     LARGE_PACK_COUNT,
     MAX_CART_QUANTITY,
@@ -2322,6 +2325,120 @@ def recipe_nutrition(raw: Any) -> dict[str, float]:
             if amount is not None and not (key == "calories" and amount <= 0):
                 found[key] = amount
     return found
+
+
+# --- De voedingswaarden van een product (4.10.0) ----------------------------------------------------------------------
+# Voor de recepten en menu's die de weekplanner van losse producten maakt (ah_planner.py). De vorm van de vraag komt uit
+# olekpuchka/albert-heijn-mcp (Apache-2.0, src/ahapi/products.ts, getNutrition): de eerste tabel van `tradeItem.nutritions`,
+# meestal per 100 g of ml, met per regel `{type name value}`. Introspectie staat bij AH uit en het precieze formaat van
+# `value` is niet vastgelegd ("380 kcal", "1595 kJ (380 kcal)", "<0,5 g"): we lezen verdedigend, en wat niet te lezen is,
+# telt als onbekend. De verkenner (ah_explore.py) laat de vorm zien.
+PRODUCT_NUTRITION_QUERY = """
+  query ProductNutrition($id: Int!) {
+    product(id: $id) {
+      tradeItem { nutritions { nutrients { type name value } } }
+    }
+  }
+"""
+# GS1-codes van een voedingstabel -> veld van nutrition.py ("salt" is zout in gram, dat wordt natrium).
+_NUTRIENT_CODES = {
+    "ener-": "calories", "ener": "calories", "fat": "fatContent", "fasat": "saturatedFatContent", "choavl": "carbohydrateContent",
+    "sugar-": "sugarContent", "sugar": "sugarContent", "pro-": "proteinContent", "fibtg": "fiberContent", "na": "sodiumContent",
+    "salteq": "salt",
+}
+# Namen (kleine letters, zonder accenten) -> veld; de eerste die past wint, dus "onverzadigd" en "verzadigd" vóór "vet".
+_NUTRIENT_NAMES: tuple[tuple[str, str | None], ...] = (
+    (r"onverzadigd", None),
+    (r"verzadigd", "saturatedFatContent"),
+    (r"suiker", "sugarContent"),
+    (r"koolhydra|carbohydrate", "carbohydrateContent"),
+    (r"vezel|fib(?:re|er)", "fiberContent"),
+    (r"eiwit|protein", "proteinContent"),
+    (r"\bzout\b|\bsalt\b", "salt"),
+    (r"natrium|sodium", "sodiumContent"),
+    (r"energie|energy|\bkcal\b|\bkj\b", "calories"),
+    (r"\bvet(?:ten)?\b|\bfat\b", "fatContent"),
+)
+_KCAL_RE = re.compile(r"(\d+(?:[.,]\d+)?)\s*kcal", re.IGNORECASE)
+_KJ_RE = re.compile(r"(\d+(?:[.,]\d+)?)\s*kj", re.IGNORECASE)
+
+
+def _nutrient_field(item: dict[str, Any]) -> str | None:
+    code = str(item.get("type") or "").strip().lower()
+    if code in _NUTRIENT_CODES:
+        return _NUTRIENT_CODES[code]
+    name = unicodedata.normalize("NFKD", str(item.get("name") or "").casefold())
+    name = "".join(ch for ch in name if not unicodedata.combining(ch))
+    for pattern, field in _NUTRIENT_NAMES:
+        if re.search(pattern, name):
+            return field
+    return None
+
+
+def product_nutrition(nutrients: Any) -> dict[str, float] | None:
+    """Eén voedingstabel van AH (`[{type, name, value}]`, per 100 g of ml) in de velden en eenheden van nutrition.py, of None
+    zonder energie. Energie in kcal (anders kJ omgerekend), zout wordt natrium (een regel natrium gaat voor), "<0,5 g" telt als
+    0,5. Een veld komt één keer: de eerste regel wint."""
+    if not isinstance(nutrients, list):
+        return None
+    found: dict[str, float] = {}
+    kcal: float | None = None
+    kj: float | None = None
+    salt: float | None = None
+    for item in nutrients:
+        if not isinstance(item, dict):
+            continue
+        field = _nutrient_field(item)
+        value = item.get("value")
+        if field == "calories":
+            text = str(value or "")
+            name = str(item.get("name") or "").lower()
+            if (match := _KCAL_RE.search(text)) and kcal is None:
+                kcal = nutrition.number(match.group(1))
+            if (match := _KJ_RE.search(text)) and kj is None:
+                kj = nutrition.number(match.group(1))
+            if not _KCAL_RE.search(text) and not _KJ_RE.search(text):
+                # Zonder eenheid in de waarde zegt de naam het ("Energie (kcal)"), anders weten we het niet.
+                if "kcal" in name and kcal is None:
+                    kcal = nutrition.number(value)
+                elif "kj" in name and kj is None:
+                    kj = nutrition.number(value)
+        elif field == "salt":
+            grams = nutrition.convert("fatContent", value)  # zout staat in gram; mg wordt omgerekend
+            if grams is not None and salt is None:
+                salt = grams
+        elif field and field not in found:
+            amount = nutrition.convert(field, value)
+            if amount is not None:
+                found[field] = amount
+    energy = kcal if kcal is not None else (kj * nutrition.KCAL_PER_KJ if kj is not None else None)
+    if not energy:
+        return None
+    found["calories"] = energy
+    if "sodiumContent" not in found and salt is not None:
+        found["sodiumContent"] = salt * nutrition.SODIUM_MG_PER_SALT_G
+    return {key: found[key] for key in nutrition.KEYS if key in found}
+
+
+def _first_nutrition_table(data: Any) -> Any:
+    """De regels van de eerste voedingstabel uit het antwoord op `PRODUCT_NUTRITION_QUERY`, of None."""
+    product = data.get("product") if isinstance(data, dict) else None
+    trade = product.get("tradeItem") if isinstance(product, dict) else None
+    tables = trade.get("nutritions") if isinstance(trade, dict) else None
+    first = next((table for table in tables or [] if isinstance(table, dict)), None) if isinstance(tables, list) else None
+    return first.get("nutrients") if first else None
+
+
+async def get_product_nutrition(product_id: Any) -> dict[str, float] | None:
+    """De voedingswaarden van een AH-product per 100 g of ml (zie `product_nutrition`), met het anonieme token. None als AH ze
+    niet heeft of het ophalen mislukt; gooit nooit, want een recept zonder voedingswaarden is nog steeds een recept."""
+    try:
+        number = int(product_id)
+        data = await _anonymous(lambda token: _graphql(token, PRODUCT_NUTRITION_QUERY, {"id": number}, "AH voedingswaarden ophalen"))
+    except Exception as exc:  # noqa: BLE001 - AH is onofficieel; zonder voedingswaarden gaat het recept gewoon door
+        log.info("AH: voedingswaarden van product %s ophalen mislukt (%s).", product_id, type(exc).__name__)
+        return None
+    return product_nutrition(_first_nutrition_table(data))
 
 
 def recipe_url(recipe_id: int) -> str:

@@ -2,6 +2,44 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub; een stabiele release krijgt de teksten van alle versies sinds de vorige stabiele release.
 
+## v4.10.0
+
+### Nieuw in 4.10.0
+
+Pull request: [#297](https://github.com/helmerzNL/MealieShopper/pull/297).
+
+*English summary: recipes and menus that **To week menu** (Stores, Albert Heijn, Week planner) makes from loose AH products now get servings and nutrition values. A new setting **Servings per recipe** under Settings, Preferences, Supermarket (2 by default, 1 to 8) sets the servings; the nutrition values are per person: the AH nutrition table of each product (per 100 g or ml, read with the anonymous token from the AH app's GraphQL, `product.tradeItem.nutritions`) times its whole pack, added up and divided by the servings. Only when that is known for all products in the recipe: a product without a nutrition table or with a pack in pieces leaves the recipe without nutrition values, so there are never too low totals in Mealie. Recipes that were already in Mealie do not change. The AH explorer gets a check that shows the shape of a product's nutrition table. Not tested against the live AH API.*
+
+- **Voedingswaarden in recepten en menu's van producten.** Een recept dat *Naar weekmenu* van een los product maakt (zoals soep of pizza), en een menu van meer producten (vlees, groente, aardappelen), krijgen nu voedingswaarden per persoon.
+  - Per product komt de voedingstabel van AH (per 100 g of ml). Die wordt maal de hele verpakking genomen ("570 ml", "450 g"), voor alle producten opgeteld en gedeeld door het aantal porties.
+  - **Alleen als alles bekend is** (besluit van de eigenaar). Heeft AH van één product geen voedingstabel, of staat de verpakking in stuks zonder gewicht, dan krijgt het recept geen voedingswaarden. Zo staan er nooit te lage totalen in Mealie. Het recept zelf komt er wel.
+  - Een recept dat al in Mealie stond en wordt hergebruikt, verandert niet.
+  - Weigert Mealie de import, dan volgt nog één poging zonder foto en voedingswaarden, zoals bij de maaltijdboxen.
+- **Porties per recept.** Een nieuwe instelling bij **Instellingen, Voorkeuren, Supermarkt**, onder *Weekplanner van de AH-app*: een getal van 1 tot en met 8, standaard 2.
+  - Het geldt per gebruiker en wordt in het profiel bewaard (`plannerServings`, de kolom `planner_servings`).
+  - Elk recept of menu dat MealieShopper van producten maakt, krijgt dat aantal porties (`recipeYield`), en de voedingswaarden staan per persoon.
+  - Een getal buiten 1 tot en met 8 springt terug.
+- **Uitlezen bij AH.** `ah.get_product_nutrition` vraagt met het anonieme token aan de GraphQL van de AH-app: `product(id) { tradeItem { nutritions { nutrients { type name value } } } }`. De vorm van die vraag komt uit olekpuchka/albert-heijn-mcp (Apache-2.0).
+  - `ah.product_nutrition` leest de eerste tabel. Een regel herkent het aan de GS1-code of aan de naam.
+  - Energie in kcal (anders kJ omgerekend), zout wordt natrium, en "<0,5 g" telt als 0,5.
+  - Zonder energie, of als het ophalen mislukt, is het onbekend. Dat gooit nooit een fout.
+  - De oude REST-route `product/detail/v4/fir` geeft inmiddels 404.
+- **AH-verkenner.** Een nieuwe controle, *voedingswaarden van een product*, toont van één product het aantal tabellen en per regel `type`, `name` en de vorm van de waarde (de cijfers als 9), plus wat MealieShopper eruit leest. Zo kan de beheerder op een echte installatie nagaan of het lezen klopt.
+- **Niet getest tegen de echte AH-API:** het formaat van `value` staat nergens vast. Leest MealieShopper een tabel niet, dan blijven de voedingswaarden weg en werkt de rest gewoon.
+- **Handleiding** (NL en EN): *Porties per recept* bij Voorkeuren, en porties en voedingswaarden bij de weekplanner. In `docs/onderzoek-ah-weekplanner.md` staan de bron, het lezen, de omrekening en het besluit.
+- **Tests:**
+  - het lezen van een voedingstabel: op naam en op code, kJ en kcal, zout en natrium, zonder energie
+  - het ophalen bij AH: het goede gebruik, en dat het nooit gooit
+  - een menu per persoon, met 2 en met 4 porties
+  - een eigen recept van soep
+  - "alleen als alles bekend is": zonder tabel, in stuks, zonder verpakking
+  - een verpakking in stuks wordt niet bij AH nagevraagd
+  - de nieuwe poging zonder foto en voedingswaarden
+  - `servings` in de invoer en in de route
+  - `plannerServings` in het profiel
+  - het getalveld in Voorkeuren
+  - de controle in de verkenner
+
 ## v4.9.0
 
 ### Gewijzigd in 4.9.0

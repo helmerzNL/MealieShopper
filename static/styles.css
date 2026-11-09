@@ -9490,6 +9490,12 @@ html.is-standalone body {
   margin-top: 12px;
 }
 
+/* Een klein getal naast de uitleg (Porties per recept): smal, en het blijft rechts zoals een schakelaar. */
+.appearance-number {
+  flex: none;
+  width: 5.5rem;
+}
+
 .appearance-section > .muted,
 .appearance-setting .muted {
   margin: 0;

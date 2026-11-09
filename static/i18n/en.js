@@ -1301,6 +1301,8 @@ I18N.add("en", {
   "appearance.planner.combine_help": "The products of a day become one recipe in Mealie, named after the first note of that day. Off: every product a recipe of its own.",
   "appearance.planner.split": "Soup and pizza always separate",
   "appearance.planner.split_help": "Soup and pizza still get a recipe of their own; meat, vegetables, potatoes, rice and pasta go together in the menu.",
+  "appearance.planner.servings": "Servings per recipe",
+  "appearance.planner.servings_help": "This many servings for a recipe that MealieShopper makes from AH products; the nutrition values are per person.",
   "appearance.store.unlinked": "{store} is not linked yet: until then Offers and Stores open with Albert Heijn.",
   "appearance.cooking.title": "Cooking mode",
   "appearance.cooking.help": "With a recipe: Start cooking, the progress, Keep screen on and ticking off ingredients. Off: just the recipe.",

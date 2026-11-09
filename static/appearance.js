@@ -187,12 +187,22 @@ function renderAppearancePlanner() {
   combine.checked = state.auth?.plannerCombine !== false;
   $("#appearance-planner-split-meals").checked = state.auth?.plannerSplitMeals !== false;
   $("#appearance-planner-split-row").hidden = !combine.checked;
+  $("#appearance-planner-servings").value = String(appearancePlannerServings());
+}
+
+// Porties per recept dat de weekplanner van producten maakt (4.10.0): 1 tot en met 8, standaard 2. De voedingswaarden in zo'n
+// recept staan per persoon.
+const APPEARANCE_SERVINGS = { min: 1, max: 8, fallback: 2 };
+
+function appearancePlannerServings() {
+  const value = state.auth?.plannerServings;
+  return Number.isInteger(value) && value >= APPEARANCE_SERVINGS.min && value <= APPEARANCE_SERVINGS.max ? value : APPEARANCE_SERVINGS.fallback;
 }
 
 // Een keuze voor de weekplanner: meteen toepassen (ook op de labels in de weekplanner) en bij het profiel bewaren. Weigert de
 // server hem, dan komt de vorige stand terug met de melding van de server.
 async function appearanceSavePlanner(key, value) {
-  const previous = { plannerCombine: state.auth?.plannerCombine !== false, plannerSplitMeals: state.auth?.plannerSplitMeals !== false };
+  const previous = { plannerCombine: state.auth?.plannerCombine !== false, plannerSplitMeals: state.auth?.plannerSplitMeals !== false, plannerServings: appearancePlannerServings() };
   const changed = () => {
     renderAppearancePlanner();
     if (typeof ahPlanner !== "undefined" && ahPlanner.loaded && typeof renderAhPlanner === "function") renderAhPlanner();
@@ -207,7 +217,7 @@ async function appearanceSavePlanner(key, value) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ [key]: value }),
     });
-    state.auth = { ...state.auth, plannerCombine: data.plannerCombine !== false, plannerSplitMeals: data.plannerSplitMeals !== false };
+    state.auth = { ...state.auth, plannerCombine: data.plannerCombine !== false, plannerSplitMeals: data.plannerSplitMeals !== false, plannerServings: data.plannerServings };
   } catch (error) {
     state.auth = { ...state.auth, ...previous };
     message("#appearance-planner-message", error.message);
@@ -296,6 +306,15 @@ $("#appearance-store").addEventListener("change", (event) => {
 
 $("#appearance-planner-combine").addEventListener("change", (event) => appearanceSavePlanner("plannerCombine", event.target.checked));
 $("#appearance-planner-split-meals").addEventListener("change", (event) => appearanceSavePlanner("plannerSplitMeals", event.target.checked));
+// Een getal buiten 1 tot en met 8 (of geen getal) wordt niet bewaard: het veld springt terug naar wat er stond.
+$("#appearance-planner-servings").addEventListener("change", (event) => {
+  const value = Number(event.target.value);
+  if (!Number.isInteger(value) || value < APPEARANCE_SERVINGS.min || value > APPEARANCE_SERVINGS.max) {
+    renderAppearancePlanner();
+    return;
+  }
+  if (value !== appearancePlannerServings()) appearanceSavePlanner("plannerServings", value);
+});
 
 $("#appearance-theme").addEventListener("change", (event) => {
   if (event.target.name === "appearance-theme") THEME.choose(event.target.value); // het bewaren volgt via ms:appearancechange

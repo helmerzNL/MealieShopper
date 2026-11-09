@@ -147,6 +147,18 @@ class ProfileTest(AppTestCase):
         self.assertEqual((await self.client.get("/api/auth/status")).get_json()["preferredStore"], "jumbo", "een weigering verandert niets")
         self.assertEqual((await self.client.get("/api/profile")).get_json()["preferredStore"], "jumbo")
 
+    async def test_week_planner_servings_are_two_until_another_number_is_chosen(self):
+        # Porties per recept dat de AH-weekplanner van producten maakt (4.10.0): een geheel getal van 1 tot en met 8.
+        self.assertEqual((await self.client.get("/api/auth/status")).get_json()["plannerServings"], 2, "standaard 2")
+        for number in (1, 4, 8):
+            reply = await self.client.put("/api/profile/preferences", json={"plannerServings": number})
+            self.assertEqual((reply.status_code, reply.get_json()["plannerServings"]), (200, number))
+        await self.client.put("/api/profile/preferences", json={"plannerCombine": False})
+        self.assertEqual((await self.client.get("/api/auth/status")).get_json()["plannerServings"], 8, "een andere voorkeur laat hem staan")
+        for bad in ({"plannerServings": 0}, {"plannerServings": 9}, {"plannerServings": "4"}, {"plannerServings": True}, {"plannerServings": None}, {"plannerServings": 2.5}):
+            self.assertEqual((await self.client.put("/api/profile/preferences", json=bad)).status_code, 400, bad)
+        self.assertEqual((await self.client.get("/api/auth/status")).get_json()["plannerServings"], 8, "een weigering verandert niets")
+
     async def test_week_planner_options_are_on_by_default_and_can_be_switched(self):
         # De weekplanner van de AH-app (4.3.0): losse producten samen als één menu, en soep en pizza dan toch los.
         status = (await self.client.get("/api/auth/status")).get_json()

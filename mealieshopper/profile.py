@@ -51,6 +51,7 @@ CREATE TABLE IF NOT EXISTS user_profiles (
   planner_combine INTEGER NOT NULL DEFAULT 1,
   planner_split_meals INTEGER NOT NULL DEFAULT 1,
   show_calories INTEGER NOT NULL DEFAULT 1,
+  planner_servings INTEGER NOT NULL DEFAULT 2,
   updated_at TEXT NOT NULL
 );
 """
@@ -69,6 +70,7 @@ _ADDED_COLUMNS = {
     "planner_combine": "INTEGER NOT NULL DEFAULT 1",
     "planner_split_meals": "INTEGER NOT NULL DEFAULT 1",
     "show_calories": "INTEGER NOT NULL DEFAULT 1",  # de calorieën bij een recept en het filter erop (4.4.0, #283); standaard aan
+    "planner_servings": "INTEGER NOT NULL DEFAULT 2",  # porties per recept dat de AH-weekplanner van producten maakt (4.10.0)
 }
 
 
@@ -137,12 +139,28 @@ def clean_preferred_store(value: Any) -> str:
     return value if value in PREFERRED_STORES else PREFERRED_STORES[0]
 
 
+# Porties per recept dat de weekplanner van de AH-app van producten maakt (4.10.0): de voedingswaarden staan per persoon.
+PLANNER_SERVINGS_MIN = 1
+PLANNER_SERVINGS_MAX = 8
+PLANNER_SERVINGS_DEFAULT = 2
+
+
+def valid_planner_servings(value: Any) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool) and PLANNER_SERVINGS_MIN <= value <= PLANNER_SERVINGS_MAX
+
+
+def clean_planner_servings(value: Any) -> int:
+    """Een bewaard aantal porties, of de standaard bij iets anders (een handmatig gewijzigde back-up)."""
+    return value if valid_planner_servings(value) else PLANNER_SERVINGS_DEFAULT
+
+
 async def get(user_id: str) -> dict[str, Any]:
     async with _connect() as conn:
         row = await auth.fetchone(
             conn,
             "SELECT display_name, avatar IS NOT NULL AS has_avatar, avatar_version, prefer_organic, theme, dark_background, accent, "
-            "navbar_style, navbar_glass, cooking_mode, preferred_store, planner_combine, planner_split_meals, show_calories "
+            "navbar_style, navbar_glass, cooking_mode, preferred_store, planner_combine, planner_split_meals, show_calories, "
+            "planner_servings "
             "FROM user_profiles WHERE user_id = ?",
             (user_id,),
         )
@@ -152,6 +170,7 @@ async def get(user_id: str) -> dict[str, Any]:
             "theme": None, "darkBackground": DARK_BACKGROUNDS[0], "accent": "",
             "navbarStyle": NAVBAR_STYLES[0], "navbarGlass": NAVBAR_GLASS_DEFAULT, "cookingMode": True,
             "preferredStore": PREFERRED_STORES[0], "plannerCombine": True, "plannerSplitMeals": True, "showCalories": True,
+            "plannerServings": PLANNER_SERVINGS_DEFAULT,
         }
     return {
         "displayName": row["display_name"],
@@ -168,6 +187,7 @@ async def get(user_id: str) -> dict[str, Any]:
         "plannerCombine": row["planner_combine"] != 0,  # alleen een echte 0 zet hem uit
         "plannerSplitMeals": row["planner_split_meals"] != 0,
         "showCalories": row["show_calories"] != 0,  # alleen een echte 0 zet ze uit
+        "plannerServings": clean_planner_servings(row["planner_servings"]),
     }
 
 
@@ -216,6 +236,7 @@ async def set_appearance(
     planner_combine: bool | None = None,
     planner_split_meals: bool | None = None,
     show_calories: bool | None = None,
+    planner_servings: int | None = None,
 ) -> None:
     """De weergave en de voorkeurssupermarkt van één gebruiker; alleen wat is meegegeven verandert. De waarden zijn al
     gecontroleerd (zie de route)."""
@@ -230,6 +251,7 @@ async def set_appearance(
         "planner_combine": None if planner_combine is None else int(bool(planner_combine)),
         "planner_split_meals": None if planner_split_meals is None else int(bool(planner_split_meals)),
         "show_calories": None if show_calories is None else int(bool(show_calories)),
+        "planner_servings": planner_servings,
     }
     fields = {column: value for column, value in given.items() if value is not None}
     if fields:
@@ -282,6 +304,15 @@ def parse_preferences(body: dict[str, Any]) -> dict[str, Any]:
             if not isinstance(body[key], bool):
                 raise ValueError(tr(f"{key} moet waar of onwaar zijn.", f"{key} must be true or false."))
             wanted[column] = body[key]
+    if "plannerServings" in body:
+        if not valid_planner_servings(body["plannerServings"]):
+            raise ValueError(
+                tr(
+                    f"plannerServings moet een geheel getal van {PLANNER_SERVINGS_MIN} tot en met {PLANNER_SERVINGS_MAX} zijn.",
+                    f"plannerServings must be a whole number from {PLANNER_SERVINGS_MIN} to {PLANNER_SERVINGS_MAX}.",
+                )
+            )
+        wanted["planner_servings"] = body["plannerServings"]
     if not wanted:
         raise ValueError(tr("Geen voorkeur ontvangen.", "No preference received."))
     return wanted
@@ -345,7 +376,7 @@ def register_routes(app: Quart) -> None:
         # Los van PUT /api/profile, zodat een schakelaar de displaynaam niet meestuurt (en dus niet leegmaakt).
         # Alleen wat in het verzoek staat verandert: *Liever biologisch*, de weergave (theme, darkBackground, accent,
         # navbarStyle, navbarGlass, cookingMode, showCalories), de voorkeurssupermarkt (preferredStore) en de AH-weekplanner
-        # (plannerCombine, plannerSplitMeals).
+        # (plannerCombine, plannerSplitMeals, plannerServings).
         body = await request.get_json(silent=True)
         if not isinstance(body, dict):
             body = {}
