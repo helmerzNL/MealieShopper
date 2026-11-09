@@ -92,7 +92,8 @@ CREATE TABLE IF NOT EXISTS {name} (
   valid_until TEXT,
   category TEXT,
   personal INTEGER NOT NULL DEFAULT 0,
-  activated INTEGER
+  activated INTEGER,
+  category_hint TEXT
 )
 """
 
@@ -224,6 +225,7 @@ COLUMN_MIGRATIONS: tuple[tuple[str, str, str], ...] = (
     ("offer_rejections", "source", "TEXT"),
     ("offers", "personal", "INTEGER NOT NULL DEFAULT 0"),
     ("offers", "activated", "INTEGER"),
+    ("offers", "category_hint", "TEXT"),  # de categorie die de winkel meegaf (AH), voor offer_categories.offer_category
     ("offer_history", "personal", "INTEGER NOT NULL DEFAULT 0"),
     ("offers_meta", "personal_error", "TEXT"),
 )
@@ -446,8 +448,8 @@ async def load(store: Any, week: Any = None) -> dict[str, Any]:
             "url": row["url"] or "",
             "validFrom": row["valid_from"],
             "validUntil": row["valid_until"],
-            # Een kopie van vóór de categorieën krijgt de categorie alsnog uit de titel.
-            "category": row["category"] or offer_categories.categorize(row["title"]),
+            # Een kopie van vóór de categorieën krijgt de categorie alsnog uit de titel en de bewaarde hint.
+            "category": row["category"] or offer_categories.offer_category(store, row["title"], row["category_hint"] if "category_hint" in row.keys() else None),
             # Een persoonlijke aanbieding (AH: de Bonus Box) en of je die geactiveerd hebt (None: onbekend, of geen persoonlijke aanbieding).
             "personal": bool(row["personal"]),
             "activated": None if row["activated"] is None or not row["personal"] else bool(row["activated"]),
@@ -563,7 +565,8 @@ async def sync(store: Any) -> dict[str, Any]:
                 "validFrom": offer.get("validFrom"),
                 "validUntil": offer.get("validUntil"),
                 # Een bewaarde persoonlijke aanbieding (zie `_previous_personal`) houdt haar categorie.
-                "category": offer.get("storedCategory") or offer_categories.categorize(offer["title"], offer.get("categoryHint")),
+                "category": offer.get("storedCategory") or offer_categories.offer_category(store, offer["title"], offer.get("categoryHint")),
+                "categoryHint": offer.get("categoryHint") or None,
                 "personal": is_personal,
                 "activated": None if activated is None else bool(activated),
             }
@@ -572,7 +575,7 @@ async def sync(store: Any) -> dict[str, Any]:
         (
             store, item["id"], position, item["title"], item["brand"], item["unitSize"], item["price"], item["priceBefore"],
             item["promoLabel"], item["image"], item["url"], item["validFrom"], item["validUntil"], item["category"],
-            1 if item["personal"] else 0, None if item["activated"] is None else int(item["activated"]),
+            1 if item["personal"] else 0, None if item["activated"] is None else int(item["activated"]), item.get("categoryHint"),
         )
         for position, item in enumerate(items)
     ]
@@ -582,8 +585,8 @@ async def sync(store: Any) -> dict[str, Any]:
             """
             INSERT INTO offers
               (store, product_id, position, title, brand, unit_size, price, price_before, promo_label, image, url, valid_from, valid_until, category,
-               personal, activated)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+               personal, activated, category_hint)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             rows,
         )
@@ -788,7 +791,7 @@ def _history_products(rows: Iterable[Any]) -> dict[tuple[str, str], dict[str, An
         )
         product["timesOnOffer"] += 0 if row["continued"] else 1
         # De nieuwste rij geeft titel en plaatje.
-        product.update(title=row["title"], brand=row["brand"], unitSize=row["unit_size"], category=row["category"] or offer_categories.categorize(row["title"]),
+        product.update(title=row["title"], brand=row["brand"], unitSize=row["unit_size"], category=row["category"] or offer_categories.offer_category(row["store"], row["title"]),
                        image=row["image"] or "", url=row["url"] or "", firstSeen=product.get("firstSeen") or row["first_seen"],
                        lastSeen=row["last_seen"], onOfferNow=row["ended_at"] is None)
     for product in products.values():

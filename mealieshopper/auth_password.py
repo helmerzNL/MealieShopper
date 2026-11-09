@@ -31,7 +31,7 @@ import aiosqlite
 import jwt
 from quart import Quart, Response, jsonify, request
 
-from . import auth
+from . import auth, request_body
 from .i18n import tr
 
 OWNER_ID = auth.OWNER_ID
@@ -482,7 +482,7 @@ def register_routes(app: Quart) -> None:
         """Bewust zonder inloggen verder; alleen op een nieuwe installatie, en alleen met bevestiging."""
         from . import onboarding
 
-        body = await request.get_json(silent=True) or {}
+        body = await request_body.json_object()
         if not auth.auth_enabled():
             return _json_error(
                 tr("Inloggen staat al uit via de omgevingsvariabelen.", "Login is already turned off through the environment variables."), 400
@@ -509,7 +509,7 @@ def register_routes(app: Quart) -> None:
         denied = await _needs_session()
         if denied:
             return denied
-        body = await request.get_json(silent=True) or {}
+        body = await request_body.json_object()
         uid = await auth.acting_user_id()
         own_name = await _username_of(uid)
         # Alleen de eigenaar kan zijn naam wijzigen; een gewone gebruiker houdt de naam uit de uitnodiging.
@@ -548,7 +548,7 @@ def register_routes(app: Quart) -> None:
     async def password_login():
         if not await auth.auth_required() or not await auth.password_configured():
             return _json_error(tr("Inloggen met een wachtwoord is niet ingesteld.", "Password login is not set up."), 400)
-        body = await request.get_json(silent=True) or {}
+        body = await request_body.json_object()
         username = str(body.get("username") or "").strip()
         password = str(body.get("password") or "")
         async with attempt_lock():
@@ -573,7 +573,7 @@ def register_routes(app: Quart) -> None:
 
     @app.post("/api/auth/password/mfa")
     async def password_mfa():
-        body = await request.get_json(silent=True) or {}
+        body = await request_body.json_object()
         async with attempt_lock():
             if await locked_seconds():
                 return await _too_many()
@@ -637,7 +637,7 @@ def register_routes(app: Quart) -> None:
         denied = await _needs_session()
         if denied:
             return denied
-        body = await request.get_json(silent=True) or {}
+        body = await request_body.json_object()
         uid = await auth.acting_user_id()
         async with attempt_lock():
             if await locked_seconds():
@@ -686,7 +686,7 @@ def register_routes(app: Quart) -> None:
         if denied:
             return denied
         uid = await auth.acting_user_id()
-        wrong = await _check_current_password(uid, await request.get_json(silent=True) or {})
+        wrong = await _check_current_password(uid, await request_body.json_object())
         if wrong:
             return wrong
         async with auth.connect() as conn:
@@ -704,7 +704,7 @@ def register_routes(app: Quart) -> None:
         uid = await auth.acting_user_id()
         if not await auth.mfa_enabled(uid):
             return _json_error(tr("Tweestapsverificatie staat niet aan.", "Two-step verification is not on."), 400)
-        wrong = await _check_current_password(uid, await request.get_json(silent=True) or {})
+        wrong = await _check_current_password(uid, await request_body.json_object())
         if wrong:
             return wrong
         codes = new_recovery_codes()

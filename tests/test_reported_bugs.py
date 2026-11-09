@@ -10,13 +10,15 @@ import os
 import shutil
 import subprocess
 import tempfile
+import inspect
+import re
 import unittest
 from contextlib import closing
 from datetime import date, timedelta
 from pathlib import Path
 from unittest import mock
 
-from helpers import db  # helpers zet ook het pad naar de app
+from helpers import AppTestCase, db  # helpers zet ook het pad naar de app
 import test_history_stores_js  # als module: anders draait pytest die tests hier nog een keer
 import test_offers_scan_js  # idem: de Node-opbouw van offers.js
 from test_prices import PricesCase, offer
@@ -289,6 +291,78 @@ class BestOffersTest(PricesCase):
         by_id = {item["id"]: item for item in response.get_json()["offers"]}
         self.assertEqual((by_id["514010"]["yearLow"]["status"], by_id["514010"]["yearLow"]["price"]), ("lowest", 2.15))
         self.assertEqual((by_id["233387"]["yearLow"]["status"], by_id["233387"]["yearLow"]["above"]), ("above", 1.5))
+
+
+class JsonBodyTest(AppTestCase):
+    """Melding van 2026-11-07: `/api/backup/jobs` en `/api/price-archive/jobs` gaven een 500 op een JSON-body die geen object is.
+    Elke POST-route die een JSON-body leest, krijgt hier `"x"` en geeft dan een 400 (request_body.json_object), of de status uit
+    de uitzonderingslijst voor routes die de body anders lezen. Een nieuwe route zonder vermelding laat de test falen."""
+
+    # Routes die de body niet als JSON-object lezen, met de status die ze op `"x"` geven: de uploadroutes controleren eerst het
+    # token in het pad (404 voor een onbekend token), de OAuth-routes van de MCP-server lezen een formulier of JSON (404 zolang
+    # OAuth niet is ingesteld, en `/oauth/revoke` geeft altijd 200, zoals RFC 7009 vraagt).
+    BODY_EXEMPT: dict[str, int] = {
+        "/api/backup/uploads/<token>": 404,
+        "/api/backup/uploads/<token>/stage": 404,
+        "/api/price-archive/uploads/<token>": 404,
+        "/api/price-archive/uploads/<token>/stage": 404,
+        "/api/price-archive/export": 200,  # leest alleen queryparameters
+        "/api/picnic/explore": 200,  # leest alleen queryparameters
+        "/mcp": 404,  # JSON-RPC, en zonder OAuth-instelling niet beschikbaar
+        "/oauth/authorize": 404,
+        "/oauth/register": 404,
+        "/oauth/token": 404,
+        "/oauth/revoke": 200,
+    }
+    # Routes die de body niet lezen maar wel naar buiten gaan (de AH-loginproxy stuurt alles door, het prijsarchief haalt een site op):
+    # in de tests stopt de netwerkwacht die met een fout, dus die slaan we over.
+    BODY_SKIPPED: set[str] = {"/api/ah/auth/proxy", "/api/ah/auth/proxy/<path:proxy_path>", "/api/price-archive/fetch"}
+
+    async def test_2026_11_07_a_non_object_json_body_never_gives_a_500(self):
+        # Zonder inloggen (zoals een installatie zonder wachtwoord of passkey), anders stopt elke route al op een 401.
+        patcher = mock.patch.dict(os.environ, {"PASSKEY_AUTH_ENABLED": "false"})
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        app = create_app()
+        client = self.client_for(app)
+        wrong: list[str] = []
+        for rule in sorted(app.url_map.iter_rules(), key=lambda r: r.rule):
+            methods = (rule.methods or set()) & {"POST", "PUT", "PATCH"}
+            if not methods or rule.endpoint == "static" or rule.rule in self.BODY_SKIPPED:
+                continue
+            source = inspect.getsource(app.view_functions[rule.endpoint])
+            if not re.search(r"get_json|json_object|form_or_json|get_data|request\.", source) and "body" not in source:
+                continue  # leest de aanvraag niet
+            path = re.sub(r"<[^>]+>", "1", rule.rule)
+            for method in sorted(methods):
+                response = await client.open(path, method=method, data='"x"', headers={"Content-Type": "application/json"})
+                expected = self.BODY_EXEMPT.get(rule.rule, 400)
+                if response.status_code != expected:
+                    wrong.append(f"{method} {rule.rule} -> {response.status_code} (verwacht {expected})")
+        self.assertEqual(wrong, [], "\n".join(wrong))
+
+
+class RecipeImportUrlTest(AppTestCase):
+    """Melding van 2026-11-06: `POST /api/mealie/import` haalde elke opgegeven URL op, ook een adres op het eigen netwerk. Nu
+    dezelfde hostnaamcontrole als de MCP-tool (urls.public_http_url)."""
+
+    async def post(self, body: str):
+        patcher = mock.patch.dict(os.environ, {"PASSKEY_AUTH_ENABLED": "false"})
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        client = self.client_for(create_app())
+        return await client.post("/api/mealie/import", data=body, headers={"Content-Type": "application/json"})
+
+    async def test_2026_11_06_importing_from_a_private_address_is_refused(self):
+        from mealieshopper import mealie
+
+        with mock.patch.object(mealie, "import_from_url", new_callable=mock.AsyncMock) as imp:
+            response = await self.post('{"url": "http://mealie:9000/x"}')
+            self.assertEqual(response.status_code, 400)
+            self.assertEqual(response.get_json()["error"], "Alleen een openbaar http(s)-adres kan worden geimporteerd.")
+            self.assertEqual((await self.post('{"url": 5}')).status_code, 400)
+            self.assertEqual((await self.post('{"url": "ftp://ah.nl/x"}')).status_code, 400)
+        imp.assert_not_called()
 
 
 @unittest.skipUnless(shutil.which("node"), "Node is niet geinstalleerd")

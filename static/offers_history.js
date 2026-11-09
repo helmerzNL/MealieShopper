@@ -368,7 +368,7 @@ function offerHistoryImages(product) {
 
 // De kop van een product: plaatje, naam, merk en verpakking, de status (nu in de aanbieding, vanaf, of niet) met de link naar de
 // winkel en Vergelijk verpakkingen. `compact` (de popup bij een aanbieding) zet een grotere foto links en laat de vergelijkknop weg.
-function offerHistoryHead(product, { compact = false } = {}) {
+function offerHistoryHead(product, { compact = false, offer = null } = {}) {
   const meta = [product.brand, product.unitSize].filter(Boolean).join(" · ");
   const image = ((product.savedImages || [])[0] || {}).url || product.image;
   const status = product.onOfferNow ? t("offers.history.now")
@@ -381,11 +381,16 @@ function offerHistoryHead(product, { compact = false } = {}) {
   const compare = !compact && product.regularPerUnit && !offersOnlyStore(product.store)
     ? `<button class="link-button" type="button" data-compare="${escapeHtml(product.productId)}" data-store="${escapeHtml(product.store)}">${escapeHtml(t("offers.compare.open"))}</button>`
     : "";
+  // De prijsregel van de aanbieding zelf (de popup): actieprijs, de oude prijs doorgestreept en de actietekst, zoals op de kaart.
+  const price = offer && typeof offer.price === "number"
+    ? `<p class="ohc-head__price"><b>${escapeHtml(offerHistoryPrice(offer.price))}</b>${typeof offer.priceBefore === "number" && offer.priceBefore > offer.price ? ` <s>${escapeHtml(offerHistoryPrice(offer.priceBefore))}</s>` : ""}${offer.promoLabel || offer.personal ? ` <small>${escapeHtml(offer.promoLabel || t("offers.personal.badge"))}</small>` : ""}</p>`
+    : "";
   return `<div class="ohc-head${compact ? " ohc-head--compact" : ""}">
       ${image ? `<img src="${escapeHtml(storeImage(image))}" alt="" loading="lazy" data-hide-on-error>` : ""}
       <div>
         <h3>${escapeHtml(product.title)}</h3>
         ${meta ? `<p class="muted">${escapeHtml(meta)}</p>` : ""}
+        ${price}
         <p class="${product.onOfferNow || product.upcoming ? "bonus" : "muted"}">${escapeHtml(status)}${link ? ` · ${link}` : ""}</p>
         ${compare}
       </div>
@@ -512,14 +517,17 @@ function offerHistoryRangeLabel(key) {
 
 // De knoppen voor de periode en de grafiek; een klik op een knop tekent alleen dit blok opnieuw. `width` voor een grafiek buiten de
 // prijsgeschiedenis (de popup bij een aanbieding), anders de breedte van het detailvak.
-function offerHistoryChartBlock(product, { width = null } = {}) {
-  const range = offerHistoryRange(product, offerHistory.ranges[offerHistoryKey(product)]);
+// `ranges`: de map met de periodekeuze per product; de popup bij een aanbieding heeft een eigen map (offers.js, offerPopup.ranges),
+// zodat haar knoppen de keuze van de pagina Prijsgeschiedenis niet veranderen.
+function offerHistoryChartBlock(product, { width = null, ranges = null } = {}) {
+  const own = ranges && ranges !== offerHistory.ranges;
+  const range = offerHistoryRange(product, (ranges || offerHistory.ranges)[offerHistoryKey(product)]);
   const buttons = range.options.length
     ? `<div class="ohc-range" role="group" aria-label="${escapeHtml(t("offers.history.range.label"))}">${range.options
         .map((key) => `<button type="button" class="ohc-range-button" data-range="${key}" aria-pressed="${key === range.choice}">${escapeHtml(offerHistoryRangeLabel(key))}</button>`)
         .join("")}</div>`
     : "";
-  return `<div class="ohc-block" data-product="${escapeHtml(offerHistoryKey(product))}"${width === null ? ' id="offers-history-chart-block"' : ` data-width="${width}"`}>${buttons}<div class="ohc-chart"${width === null ? ' id="offers-history-chart"' : ""}>${offerHistoryChart(product, width === null ? offerHistoryChartWidth() : width, range.choice)}</div></div>`;
+  return `<div class="ohc-block" data-product="${escapeHtml(offerHistoryKey(product))}"${width === null ? ' id="offers-history-chart-block"' : ` data-width="${width}"`}${own ? ' data-ranges="popup"' : ""}>${buttons}<div class="ohc-chart"${width === null ? ' id="offers-history-chart"' : ""}>${offerHistoryChart(product, width === null ? offerHistoryChartWidth() : width, range.choice)}</div></div>`;
 }
 
 function offerHistoryChartWidth() {
@@ -810,9 +818,10 @@ document.addEventListener("click", (event) => {
   const key = block.dataset.product;
   const product = offerHistory.products.find((item) => offerHistoryKey(item) === key) || (typeof offerPopupProduct === "function" ? offerPopupProduct(key) : null);
   if (!product) return;
-  offerHistory.ranges[key] = range.dataset.range;
+  const popup = block.dataset.ranges === "popup" && typeof offerPopup !== "undefined";
+  (popup ? offerPopup.ranges : offerHistory.ranges)[key] = range.dataset.range;
   const width = block.dataset.width ? Number(block.dataset.width) : null;
-  block.outerHTML = offerHistoryChartBlock(product, { width });
+  block.outerHTML = offerHistoryChartBlock(product, { width, ranges: popup ? offerPopup.ranges : null });
 });
 
 // Oude aankopen importeren (#178): bestellingen uit bevestigingsmails, omgezet naar JSON door een AI-assistent met de prompt van de

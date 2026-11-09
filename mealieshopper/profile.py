@@ -20,7 +20,7 @@ import aiosqlite
 
 from quart import Quart, Response, jsonify, request
 
-from . import auth
+from . import auth, request_body
 from .i18n import tr
 
 MAX_NAME_LENGTH = 40
@@ -371,7 +371,7 @@ def register_routes(app: Quart) -> None:
 
     @app.put("/api/profile")
     async def profile_put():
-        body = await request.get_json(silent=True) or {}
+        body = await request_body.json_object()
         user_id = await auth.acting_user_id()
         await set_display_name(user_id, body.get("displayName"))
         return jsonify(await payload(user_id))

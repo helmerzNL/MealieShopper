@@ -176,10 +176,11 @@ function offersPersonalOnly() {
 
 // De aanbiedingen die de schakelaars en het zoekveld doorlaten, in de volgorde van de winkel: de Bonus Box, het zoekveld (elk woord
 // moet in de naam of het merk staan, zonder hoofdletters en accenten) en "alleen echt voordelig" (het oordeel is good).
-function offersFiltered() {
+// `search: false`: zonder het zoekveld, voor de teller "door de filters".
+function offersFiltered({ search = true } = {}) {
   let shown = offersPersonalOnly() ? offersState.offers.filter((offer) => offer.personal) : offersState.offers;
-  const search = offersState.search.trim();
-  if (search) shown = shown.filter((offer) => matchesWords(offerSearchText(offer), search));
+  const term = search ? offersState.search.trim() : "";
+  if (term) shown = shown.filter((offer) => matchesWords(offerSearchText(offer), term));
   if (offersState.goodOnly) shown = shown.filter((offer) => offer.verdict && offer.verdict.kind === "good");
   return offersFilteredWithFamilies(shown);
 }
@@ -272,11 +273,38 @@ function offerFamilies(sorted) {
   return groups.sort((a, b) => a.at - b.at);
 }
 
+// Het aantal kaarten in een lijst: een verpakkingsfamilie telt als een.
+function offersCardCount(list) {
+  return offerFamilies(list).length;
+}
+
+// De eenheden die in de aanbiedingen van de week voorkomen, in de vaste volgorde, voor de keuzelijst bij "Prijs per eenheid".
+function offersUnitsInList(list) {
+  return ["kg", "l", "stuk"].filter((unit) => list.some((offer) => offer.unitPricePer && offer.unitPricePer.unit === unit));
+}
+
+// De eenheid voor de keuzelijst: de onthouden eenheid als die voorkomt, of als er een grens in staat (die nooit stil van eenheid
+// wisselt), anders de eerste die er is (of kg).
+function offersUnitChoice(filters, units) {
+  const unit = filters.maxUnitPrice && filters.maxUnitPrice.unit;
+  if (units.includes(unit) || (unit && typeof filters.maxUnitPrice.value === "number")) return unit;
+  return units[0] || "kg";
+}
+
 // "duurder per kilo dan 1000 g": de aanbieding is per eenheid duurder dan een andere verpakking van hetzelfde product.
 function offerPackWarning(offer) {
   const pack = offer.verdict && offer.verdict.cheaperPack;
   if (!pack) return "";
   return t("offers.pack.pricier_than", { size: pack.unitSize || pack.title || "", unit: t({ kg: "offers.unit.kg", l: "offers.unit.l" }[(pack.unitPrice || {}).unit] || "offers.unit.stuk") });
+}
+
+// Is `pack` per eenheid duurder dan `other`? Met dezelfde marge als de server (prices.PACK_MARGIN, uit /api/offers als `packMargin`,
+// anders twee procent): binnen de marge is het gelijk, en dan zegt de kaart niets.
+function offerPackPricier(pack, other) {
+  const margin = typeof offersState.packMargin === "number" ? offersState.packMargin : 0.02;
+  if (!pack || !other || !pack.unitPrice || !other.unitPrice || pack.unitPrice.unit !== other.unitPrice.unit) return false;
+  if (typeof pack.unitPrice.value !== "number" || typeof other.unitPrice.value !== "number") return false;
+  return other.unitPrice.value * (1 + margin) < pack.unitPrice.value;
 }
 
 // De regels van de verpakkingen onder een kaart: maat, prijs, prijs per eenheid, een punt voor "in de aanbieding", de goedkoopste
@@ -290,7 +318,7 @@ function offerPackRows(offer) {
   const rows = packs
     .map((pack) => {
       const member = offerById(pack.productId);
-      const pricier = cheapest && !pack.cheapest && pack.unitPrice && cheapest.unitPrice && pack.unitPrice.unit === cheapest.unitPrice.unit && pack.unitPrice.value > cheapest.unitPrice.value;
+      const pricier = cheapest && !pack.cheapest && offerPackPricier(pack, cheapest);
       const cls = ["offer-pack", pack.cheapest ? "offer-pack--cheapest" : "", pack.onOffer ? "offer-pack--offer" : "", member && offersDimmed(member) ? "offer-pack--dimmed" : ""].filter(Boolean).join(" ");
       const warning = pricier && pack.onOffer ? `<small class="offer-pack__warning">${escapeHtml(t("offers.pack.pricier_than", { size: cheapest.unitSize || "", unit: t({ kg: "offers.unit.kg", l: "offers.unit.l" }[cheapest.unitPrice.unit] || "offers.unit.stuk") }))}</small>` : "";
       return `<li class="${cls}" data-zoom="${escapeHtml(pack.productId)}">
@@ -688,7 +716,10 @@ const OFFER_POPUP_MIN_SCREEN = 860; // smaller: geen popup bij hover, wel het ve
 const OFFER_POPUP_PURCHASES = 8;
 const offerZoomCache = new Map(); // winkel|id -> belofte van het product uit /api/prices/history
 const offerPopupProducts = new Map(); // winkel:id -> het geladen product, voor de periodeknoppen (offers_history.js)
-const offerPopup = { timer: 0, hideTimer: 0, id: "", anchor: null };
+// `ranges`: de periodekeuze van de grafiek per product, binnen deze popup (de pagina Prijsgeschiedenis heeft haar eigen).
+// `quiet`: de kaart die de focus terugkreeg van Escape; zolang de focus in die kaart blijft, gaat de popup niet opnieuw open.
+// `byKeyboard`: de wachtende popup komt van een focus, niet van de muis (de scroll die een focus geeft annuleert hem dan niet).
+const offerPopup = { timer: 0, hideTimer: 0, id: "", anchor: null, ranges: {}, quiet: null, byKeyboard: false };
 
 function offerZoomFinePointer() {
   return window.matchMedia("(hover: hover) and (pointer: fine)").matches;
@@ -737,17 +768,20 @@ function offerAsProduct(store, offer) {
 function offerPopupHtml(offer, product, packs, activeId = null) {
   const store = offersState.store;
   const shown = product || offerAsProduct(store, offer);
+  // Twee verpakkingen met dezelfde maat (twee keer "3 stuks") krijgen de prijs erbij, anders alleen de maat.
+  const sizesRepeat = packs.some((pack) => packs.filter((other) => other.unitSize === pack.unitSize).length > 1);
+  const buttonText = (pack) => `${pack.unitSize || pack.productId}${sizesRepeat && typeof pack.price === "number" ? ` \u00b7 ${formatPrice(pack.price)}` : ""}`;
   const buttons = packs.length > 1
     ? `<div class="offer-popup__packs" role="group" aria-label="${escapeHtml(t("offers.popup.packs"))}">${packs
-        .map((pack) => `<button type="button" class="offer-chip offer-chip--small${String(pack.productId) === String(activeId) ? " is-active" : ""}" data-popup-pack="${escapeHtml(pack.productId)}" aria-pressed="${String(pack.productId) === String(activeId)}">${escapeHtml(pack.unitSize || pack.productId)}</button>`)
+        .map((pack) => `<button type="button" class="offer-chip offer-chip--small${String(pack.productId) === String(activeId) ? " is-active" : ""}" data-popup-pack="${escapeHtml(pack.productId)}" aria-pressed="${String(pack.productId) === String(activeId)}">${escapeHtml(buttonText(pack))}</button>`)
         .join("")}</div>`
     : "";
   // `product`: het product uit de prijsgeschiedenis, null zolang het laadt, false als het laden mislukte.
   const body = product
-    ? `${offerHistoryStats(product)}${offerHistoryChartBlock(product, { width: OFFER_POPUP_WIDTH - 32 })}${offerHistoryPurchasesTable(product, { limit: OFFER_POPUP_PURCHASES })}`
+    ? `${offerHistoryStats(product)}${offerHistoryChartBlock(product, { width: OFFER_POPUP_WIDTH - 32, ranges: offerPopup.ranges })}${offerHistoryPurchasesTable(product, { limit: OFFER_POPUP_PURCHASES })}`
     : `<p class="muted offer-popup__loading">${escapeHtml(t(product === false ? "offers.popup.none" : "offers.popup.loading"))}</p>`;
   return `<div class="offer-popup__inner">
-      ${offerHistoryHead(shown, { compact: true })}
+      ${offerHistoryHead(shown, { compact: true, offer })}
       ${buttons}
       ${body}
       <p class="offer-popup__foot"><a href="${escapeHtml(priceHistoryPath(store, shown.title, shown.productId))}" data-route>${escapeHtml(t("offers.popup.full_history"))}</a></p>
@@ -768,7 +802,10 @@ function offerForPack(offer, packId) {
   const found = offerById(packId);
   if (found) return found;
   const pack = offerPopupPacks(offer).find((item) => String(item.productId) === String(packId));
-  return pack ? { ...offer, id: pack.productId, unitSize: pack.unitSize, price: pack.price, title: pack.title || offer.title } : offer;
+  // Een verpakking die zelf geen aanbieding is: de prijs van de verpakking, zonder de actietekst, de oude prijs en de Bonus Box van de aanbieding.
+  return pack
+    ? { ...offer, id: pack.productId, unitSize: pack.unitSize, price: pack.price, title: pack.title || offer.title, priceBefore: null, promoLabel: "", personal: false, activated: null }
+    : offer;
 }
 
 function hideOfferPopup() {
@@ -805,6 +842,7 @@ function showOfferPopup(anchor, offer, packId = null) {
   const shownId = String(packId || offer.id);
   const shown = offerForPack(offer, shownId);
   const packs = offerPopupPacks(offer);
+  if (offerPopup.anchor !== anchor) offerPopup.ranges = {}; // een andere kaart: de periodekeuze begint opnieuw
   box.innerHTML = offerPopupHtml(shown, offerPopupProducts.get(`${offersState.store}:${shownId}`) || null, packs, shownId);
   box.hidden = false;
   offerPopup.id = shownId;
@@ -818,7 +856,7 @@ function showOfferPopup(anchor, offer, packId = null) {
   });
 }
 
-function scheduleOfferPopup(anchor, packId = null) {
+function scheduleOfferPopup(anchor, packId = null, { byKeyboard = false } = {}) {
   const offer = offerById(anchor.dataset.offer);
   if (!offer) return;
   clearTimeout(offerPopup.hideTimer);
@@ -826,6 +864,7 @@ function scheduleOfferPopup(anchor, packId = null) {
   const shownId = String(packId || offer.id);
   if (offerPopup.id === shownId && offerPopup.anchor === anchor) return;
   clearTimeout(offerPopup.timer);
+  offerPopup.byKeyboard = byKeyboard;
   offerPopup.timer = setTimeout(() => {
     offerPopup.timer = 0;
     showOfferPopup(anchor, offer, packId);
@@ -839,6 +878,50 @@ function delayHideOfferPopup() {
   offerPopup.hideTimer = setTimeout(hideOfferPopup, POPOVER_GRACE);
 }
 
+// Escape: de popup dicht, en stond de focus erin, dan terug naar de kaart zonder dat die focus de popup opnieuw opent.
+function hideOfferPopupFromKeyboard() {
+  const box = $("#offer-popup");
+  const anchor = offerPopup.anchor;
+  const inside = !box.hidden && anchor && box.contains(document.activeElement);
+  hideOfferPopup();
+  if (inside) {
+    offerPopup.quiet = anchor;
+    anchor.focus();
+  }
+}
+
+// De popup hangt achteraan in de pagina, dus Tab vanaf de kaart zou hem nooit bereiken: Tab voorbij de laatste knop van de kaart
+// (of vanaf een kale kaart) gaat de open popup in, Shift+Tab vanaf de popup of zijn eerste link terug naar die plek, en Tab
+// voorbij de laatste link van de popup naar de volgende kaart. Geeft het element dat de focus krijgt, of null als Tab zijn gang gaat.
+function offerPopupTabTarget(event, box) {
+  if (event.key !== "Tab" || box.hidden || !offerPopup.anchor) return null;
+  const anchor = offerPopup.anchor;
+  const cardStops = offerFocusables(anchor);
+  const popupStops = offerFocusables(box);
+  const cardEnd = cardStops[cardStops.length - 1] || anchor;
+  if (!event.shiftKey && event.target === cardEnd) return box;
+  if (event.shiftKey && (event.target === box || event.target === popupStops[0])) return cardEnd;
+  if (!event.shiftKey && popupStops.length && event.target === popupStops[popupStops.length - 1]) return anchor.nextElementSibling || null;
+  return null;
+}
+
+function offerFocusables(root) {
+  return Array.from(root.querySelectorAll('a[href]:not([tabindex="-1"]), button:not([disabled]), [tabindex]:not([tabindex="-1"])'));
+}
+
+// Scrollen van de pagina (niet in de popup zelf) haalt de popup weg: de kaart staat dan ergens anders. Een popup die na een
+// focus nog wacht blijft wachten: het is de focus zelf die de kaart in beeld scrolt.
+function offerPopupScrolled(box, insidePopup) {
+  if (insidePopup) return;
+  if (box.hidden && offerPopup.byKeyboard) return;
+  hideOfferPopup();
+}
+
+// Focus of muis die van de kaart naar de popup gaat (of andersom) telt niet als vertrek.
+function offerPopupKeepsFocus(anchor, to) {
+  return Boolean(to && (anchor.contains(to) || $("#offer-popup").contains(to)));
+}
+
 // Zonder muis: dezelfde inhoud als venster.
 function openOfferZoomDialog(offer, packId = null) {
   const dialog = $("#offer-zoom-dialog");
@@ -846,6 +929,7 @@ function openOfferZoomDialog(offer, packId = null) {
   const shownId = String(packId || offer.id);
   const shown = offerForPack(offer, shownId);
   const packs = offerPopupPacks(offer);
+  if (body.dataset.offer !== String(offer.id)) offerPopup.ranges = {}; // een andere aanbieding: de periodekeuze begint opnieuw
   body.dataset.offer = String(offer.id);
   body.innerHTML = offerPopupHtml(shown, offerPopupProducts.get(`${offersState.store}:${shownId}`) || null, packs, shownId);
   if (!dialog.open) dialog.showModal();
@@ -958,7 +1042,10 @@ function renderOffersFilters() {
   const price = $("#offers-filter-unit-price");
   if (document.activeElement !== price) price.value = typeof filters.maxUnitPrice.value === "number" ? String(filters.maxUnitPrice.value) : "";
   const unit = $("#offers-filter-unit");
-  unit.innerHTML = ["kg", "l", "stuk"].map((name) => `<option value="${name}"${name === filters.maxUnitPrice.unit ? " selected" : ""}>${escapeHtml(t("offers.filters.per_unit", { unit: offersUnitLabel(name) }))}</option>`).join("");
+  const units = offersUnitsInList(offersState.offers);
+  const chosen = offersUnitChoice(filters, units);
+  const options = units.includes(chosen) ? units : [...units, chosen];
+  unit.innerHTML = options.map((name) => `<option value="${name}"${name === chosen ? " selected" : ""}>${escapeHtml(t("offers.filters.per_unit", { unit: offersUnitLabel(name) }))}</option>`).join("");
   const count = offersActiveFilterCount();
   $("#offers-filters-count").textContent = count ? ` (${I18N.formatNumber(count)})` : "";
   const active = $("#offers-active-filters");
@@ -1000,12 +1087,11 @@ function renderOffersStatusGood() {
   const good = offersState.goodOnly ? offersState.offers.filter((offer) => offer.verdict && offer.verdict.kind === "good").length : 0;
   const parts = [base];
   if (offersState.goodOnly) parts.push(t("offers.status.good", { count: I18N.formatNumber(good) }));
-  // Met een filter in de zijbalk: hoeveel er door de filters komen, van het totaal. Net als het aantal echt voordelig: over alle
-  // aanbiedingen van de week, niet binnen het zoekveld.
-  if (offersActiveFilterCount()) {
-    const filters = offersFilters();
-    const through = offersState.offers.filter((offer) => offersFilterMatch(offer, filters)).length;
-    parts.push(t("offers.status.filtered", { shown: I18N.formatNumber(through), total: I18N.formatNumber(offersState.offers.length) }));
+  // Met een filter of schakelaar: hoeveel kaarten er door de filters en de schakelaars komen (een verpakkingsfamilie telt als een),
+  // van alle kaarten van de week. Niet binnen het zoekveld.
+  if (offersActiveFilterCount() || offersState.goodOnly || offersPersonalOnly()) {
+    const shown = offersCardCount(offersFiltered({ search: false }));
+    parts.push(t("offers.status.filtered", { shown: I18N.formatNumber(shown), total: I18N.formatNumber(offersCardCount(offersState.offers)) }));
   }
   status.textContent = parts.join(" ");
 }
@@ -1013,6 +1099,7 @@ function renderOffersStatusGood() {
 function renderOffers(data) {
   offersState.supported = data.supported;
   offersState.offers = data.offers || [];
+  offersState.packMargin = typeof data.packMargin === "number" ? data.packMargin : offersState.packMargin;
   offersState.categories = data.categories || [];
   offersState.personal = data.personal || null;
   if (offersState.category !== "all" && !offersState.categories.some((category) => category.id === offersState.category)) offersState.category = "all";
@@ -1431,13 +1518,25 @@ $("#offers-filters-clear").addEventListener("click", () => {
   offersState.filters = offersEmptyFilters();
   offersFilterChanged();
 });
+// Het brede breekpunt van styles.css: vanaf 1200 px staat de filterzijbalk naast de kaarten, daaronder is hij een lade.
+function offersFiltersWide(minWidth = 1200) {
+  return window.matchMedia(`(min-width: ${minWidth}px)`);
+}
 // Op een smal scherm is de zijbalk een uitschuifpaneel: de knop Filters opent hem, de achtergrond, het kruisje en Escape sluiten hem.
 function offersFiltersOpen(open) {
-  $("#offers-filters").classList.toggle("is-open", open);
+  const aside = $("#offers-filters");
+  aside.classList.toggle("is-open", open);
   $("#offers-filters-backdrop").hidden = !open;
   $("#offers-filters-toggle").setAttribute("aria-expanded", String(open));
   document.body.classList.toggle("offers-filters-open", open);
+  // Als lade (onder 1200 px) staat de dichte zijbalk buiten beeld: dan ook buiten de tabvolgorde en voor schermlezers.
+  const drawerClosed = !offersFiltersWide().matches && !open;
+  if (drawerClosed && aside.contains(document.activeElement)) $("#offers-filters-toggle").focus(); // niet op <body> belanden
+  aside.inert = drawerClosed;
+  aside.setAttribute("aria-hidden", String(drawerClosed));
 }
+offersFiltersOpen(false);
+offersFiltersWide().addEventListener("change", () => offersFiltersOpen($("#offers-filters").classList.contains("is-open")));
 $("#offers-filters-toggle").addEventListener("click", () => offersFiltersOpen(!$("#offers-filters").classList.contains("is-open")));
 $("#offers-filters-close").addEventListener("click", () => offersFiltersOpen(false));
 $("#offers-filters-backdrop").addEventListener("click", () => offersFiltersOpen(false));
@@ -1467,15 +1566,32 @@ $("#offers-products").addEventListener("mouseover", (event) => {
 });
 $("#offers-products").addEventListener("mouseout", (event) => {
   const found = offerPopupAnchor(event.target);
-  if (!found) return;
-  const to = event.relatedTarget;
-  if (to && (found.anchor.contains(to) || $("#offer-popup").contains(to))) return;
+  if (!found || offerPopupKeepsFocus(found.anchor, event.relatedTarget)) return;
   delayHideOfferPopup();
 });
 $("#offers-products").addEventListener("focusin", (event) => {
   if (!offerPopupAllowed()) return;
   const found = offerPopupAnchor(event.target);
-  if (found) scheduleOfferPopup(found.anchor, found.packId);
+  if (!found || offerPopup.quiet === found.anchor) return; // na Escape blijft de popup dicht zolang de focus in die kaart is
+  scheduleOfferPopup(found.anchor, found.packId, { byKeyboard: true });
+});
+$("#offers-products").addEventListener("focusout", (event) => {
+  const found = offerPopupAnchor(event.target);
+  if (!found) return;
+  const to = event.relatedTarget;
+  if (!to || !found.anchor.contains(to)) offerPopup.quiet = null;
+  if (offerPopupKeepsFocus(found.anchor, to)) return; // tabben naar de popup zelf mag
+  delayHideOfferPopup();
+});
+$("#offer-popup").addEventListener("focusout", (event) => {
+  if (offerPopup.anchor && offerPopupKeepsFocus(offerPopup.anchor, event.relatedTarget)) return;
+  delayHideOfferPopup();
+});
+document.addEventListener("keydown", (event) => {
+  const target = offerPopupTabTarget(event, $("#offer-popup"));
+  if (!target) return;
+  event.preventDefault();
+  target.focus();
 });
 $("#offers-products").addEventListener("click", (event) => {
   const thumb = event.target.closest("[data-zoom]");
@@ -1509,12 +1625,10 @@ document.addEventListener("click", (event) => {
   else if (dialogBody) openOfferZoomDialog(offer, button.dataset.popupPack);
 });
 document.addEventListener("keydown", (event) => {
-  if (event.key === "Escape") hideOfferPopup();
+  if (event.key === "Escape") hideOfferPopupFromKeyboard();
 });
-// Scrollen van de pagina (niet in de popup zelf) haalt de popup weg: de kaart staat dan ergens anders.
 document.addEventListener("scroll", (event) => {
-  if (event.target instanceof Node && $("#offer-popup").contains(event.target)) return;
-  hideOfferPopup();
+  offerPopupScrolled($("#offer-popup"), event.target instanceof Node && $("#offer-popup").contains(event.target));
 }, { capture: true, passive: true });
 // De popup staat vast op het scherm en hangt onder <body>, want binnen de inhoud rekent position: fixed vanaf het vak dat scrolt.
 document.body.appendChild($("#offer-popup"));
