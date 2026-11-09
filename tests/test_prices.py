@@ -611,6 +611,15 @@ class VerdictTest(PricesCase):
         free = (await self.annotate(deal("514010", "Dr. Oetker Casa di mama pizza salami", 4.29, None, "1+1 gratis", size="390 g", brand="Dr. Oetker")))["514010"]
         self.assertEqual((free["yearLow"]["status"], free["yearLow"]["above"]), ("lowest", 0.0))
 
+    async def test_the_family_of_a_pack_lists_the_bulk_pack_from_the_stored_prices(self):
+        await self.observe("2026-10-15", "1000", "AH Rundergehakt", 7.49, size="1000 g")
+        offer_now = (await self.annotate(deal("300", "AH Rundergehakt", 2.49, 2.99, "nu 2,49", size="300 g")))["300"]
+        family = offer_now["family"]
+        self.assertEqual(family["key"], "ah|rundergehakt|ah")
+        self.assertEqual([(p["productId"], p["onOffer"], p["cheapest"]) for p in family["packs"]], [("300", True, False), ("1000", False, True)])
+        self.assertEqual(offer_now["verdict"]["cheaperPack"]["productId"], "1000")
+        self.assertFalse(family["unknownPacks"])
+
     async def test_the_price_signature_changes_with_the_catalogue(self):
         before = await prices.signature("ah")
         with closing(db(prices)) as conn, conn:

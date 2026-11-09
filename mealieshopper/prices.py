@@ -1484,6 +1484,17 @@ async def _annotate(store: str, items: list[dict[str, Any]], today: str) -> None
     for pack in packs_known:
         if pack["unitPrice"]:
             by_base.setdefault(base_title(pack["title"]), []).append(pack)
+    # De verpakkingsfamilies (offer_ranking.families): alle verpakkingen van een product op een kaart, de goedkoopste per eenheid
+    # gemarkeerd. `known_titles` zegt welke verpakkingen de app ooit zag, voor "andere verpakkingen onbekend".
+    bases = set(by_base)
+    known_titles: dict[str, str] = {}
+    if catalogue is not None:
+        for product_id, known in catalogue.products.items():
+            for name in known.names:
+                if base_title(name) in bases:
+                    known_titles[product_id] = name
+                    break
+    fams = offer_ranking.families(store, packs_known, known_titles)
 
     for offer in items:
         product_id = str(offer.get("id"))
@@ -1514,6 +1525,7 @@ async def _annotate(store: str, items: list[dict[str, Any]], today: str) -> None
         verdict["often"] = verdict["timesThisYear"] >= OFTEN_PER_YEAR
         offer["priceLabel"] = price_label(effective, [(day, price) for day, price, _ in points.get(product_id, [])], today)
         offer["yearLow"] = offer_ranking.year_low(effective, points.get(product_id, []), today)
+        offer["family"] = offer_ranking.family_of(fams, store, offer.get("title"), offer.get("brand"))
         verdict["cheaperPack"] = None
         mine_unit = offer["unitPricePer"]
         base = base_title(offer.get("title"))
