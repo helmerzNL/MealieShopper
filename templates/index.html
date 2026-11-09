@@ -586,13 +586,14 @@
         <div class="page-head">
           <h2 class="page-title page-title--tree" data-i18n="nav.plan">Weekmenu</h2>
           <div class="toolbar">
-            <button class="icon-button" id="prev-week" aria-label="Vorige week" data-i18n-attr="aria-label:plan.prev_week">&lsaquo;</button>
+            <button class="icon-button" id="prev-week" type="button" aria-label="Vorige week" data-i18n-attr="aria-label:plan.prev_week"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15.41,16.58L10.83,12L15.41,7.41L14,6L8,12L14,18L15.41,16.58Z"/></svg></button>
             <div class="week-label">
               <strong id="week-range"></strong>
               <span id="week-offset"></span>
             </div>
-            <button class="icon-button" id="next-week" aria-label="Volgende week" data-i18n-attr="aria-label:plan.next_week">&rsaquo;</button>
+            <button class="icon-button" id="next-week" type="button" aria-label="Volgende week" data-i18n-attr="aria-label:plan.next_week"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8.59,16.58L13.17,12L8.59,7.41L10,6L16,12L10,18L8.59,16.58Z"/></svg></button>
             <button class="icon-button" id="load-plan" type="button" aria-label="Weekmenu synchroniseren" title="Weekmenu synchroniseren" data-i18n-attr="aria-label:plan.sync;title:plan.sync"><svg viewBox="0 0 24 24" aria-hidden="true" data-mdi="mdiSync"><path d="M12,18A6,6 0 0,1 6,12C6,11 6.25,10.03 6.7,9.2L5.24,7.74C4.46,8.97 4,10.43 4,12A8,8 0 0,0 12,20V23L16,19L12,15M12,4V1L8,5L12,9V6A6,6 0 0,1 18,12C18,13 17.75,13.97 17.3,14.8L18.76,16.26C19.54,15.03 20,13.57 20,12A8,8 0 0,0 12,4Z"/></svg></button>
+            <button class="button button--secondary week-today" id="this-week" type="button" data-i18n="week.this" hidden>Deze week</button>
           </div>
         </div>
         <div id="planner-message"></div>
@@ -725,10 +726,10 @@
           <p class="muted" id="mealkits-intro">De openbare weekmenu's van HelloFresh Nederland. Bekijk een recept, of plan het in je weekmenu; dan komt het ook in Mealie. Er is geen account of koppeling nodig.</p>
           <div class="toolbar" id="mealkits-weeks">
             <button class="icon-button" id="mealkits-previous" type="button" aria-label="Vorige week" data-i18n-attr="aria-label:mealkits.previous"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15.41,16.58L10.83,12L15.41,7.41L14,6L8,12L14,18L15.41,16.58Z"/></svg></button>
-            <strong id="mealkits-week" aria-live="polite"></strong>
+            <div class="week-label"><strong id="mealkits-week" aria-live="polite"></strong></div>
             <button class="icon-button" id="mealkits-next" type="button" aria-label="Volgende week" data-i18n-attr="aria-label:mealkits.next"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8.59,16.58L13.17,12L8.59,7.41L10,6L16,12L10,18L8.59,16.58Z"/></svg></button>
-            <button class="button button--secondary" id="mealkits-this-week" type="button" data-i18n="mealkits.this_week">Deze week</button>
-            <button class="button button--secondary" id="mealkits-refresh" type="button" data-i18n="mealkits.refresh">Verversen</button>
+            <button class="icon-button" id="mealkits-refresh" type="button" aria-label="Verversen" title="Verversen" data-i18n-attr="aria-label:mealkits.refresh;title:mealkits.refresh"><svg viewBox="0 0 24 24" aria-hidden="true" data-mdi="mdiSync"><path d="M12,18A6,6 0 0,1 6,12C6,11 6.25,10.03 6.7,9.2L5.24,7.74C4.46,8.97 4,10.43 4,12A8,8 0 0,0 12,20V23L16,19L12,15M12,4V1L8,5L12,9V6A6,6 0 0,1 18,12C18,13 17.75,13.97 17.3,14.8L18.76,16.26C19.54,15.03 20,13.57 20,12A8,8 0 0,0 12,4Z"/></svg></button>
+            <button class="button button--secondary week-today" id="mealkits-this-week" type="button" data-i18n="mealkits.this_week" hidden>Deze week</button>
           </div>
           <form class="form-row" id="mealkits-search-form">
             <label class="searchbar">
@@ -760,7 +761,10 @@
             <span id="basket-store-slot"></span>
             <button class="icon-button" id="basket-refresh" type="button" aria-label="Vernieuwen" title="Vernieuwen" data-i18n-attr="aria-label:basket.refresh;title:basket.refresh"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12,18A6,6 0 0,1 6,12C6,11 6.25,10.03 6.7,9.2L5.24,7.74C4.46,8.97 4,10.43 4,12A8,8 0 0,0 12,20V23L16,19L12,15M12,4V1L8,5L12,9V6A6,6 0 0,1 18,12C18,13 17.75,13.97 17.3,14.8L18.76,16.26C19.54,15.03 20,13.57 20,12A8,8 0 0,0 12,4Z"/></svg></button>
           </div>
-          <p class="muted" id="basket-intro"></p>
+          <details class="help" id="basket-help">
+            <summary data-i18n="basket.help">Hoe werkt dit?</summary>
+            <p class="muted" id="basket-intro"></p>
+          </details>
           <div id="basket-message"></div>
           <div id="basket-content"></div>
         </div>
@@ -780,12 +784,13 @@
         <div class="box box--wide">
           <h2 data-i18n="offers.title">Aanbiedingen</h2>
           <div class="toolbar offers-week" role="group" aria-label="Week van de aanbiedingen" data-i18n-attr="aria-label:offers.week.label">
-            <button class="icon-button" type="button" data-offers-week="-1" aria-label="Vorige week" data-i18n-attr="aria-label:plan.prev_week">&lsaquo;</button>
+            <button class="icon-button" type="button" data-offers-week="-1" aria-label="Vorige week" data-i18n-attr="aria-label:plan.prev_week"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15.41,16.58L10.83,12L15.41,7.41L14,6L8,12L14,18L15.41,16.58Z"/></svg></button>
             <div class="week-label">
               <strong class="offers-week__range"></strong>
               <span class="offers-week__offset"></span>
             </div>
-            <button class="icon-button" type="button" data-offers-week="1" aria-label="Volgende week" data-i18n-attr="aria-label:plan.next_week">&rsaquo;</button>
+            <button class="icon-button" type="button" data-offers-week="1" aria-label="Volgende week" data-i18n-attr="aria-label:plan.next_week"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8.59,16.58L13.17,12L8.59,7.41L10,6L16,12L10,18L8.59,16.58Z"/></svg></button>
+            <button class="button button--secondary week-today" type="button" data-offers-week-today data-i18n="week.this" hidden>Deze week</button>
           </div>
           <p class="offers-period" id="offers-period" hidden></p>
           <p class="muted" id="offers-status"></p>
@@ -837,19 +842,22 @@
           <div class="offers-tools">
             <input class="input offers-tools__search" id="offers-search" type="search" autocomplete="off" placeholder="Zoek in de aanbiedingen" aria-label="Zoek in de aanbiedingen" data-i18n-attr="placeholder:offers.search;aria-label:offers.search">
             <button class="offer-chip offers-filters__toggle" id="offers-filters-toggle" type="button" aria-expanded="false" aria-controls="offers-filters"><span data-i18n="offers.filters.title">Filters</span><span id="offers-filters-count"></span></button>
-            <div id="offers-sort" class="offer-cats offer-cats--sort" role="group" aria-label="Sorteren" data-i18n-attr="aria-label:offers.sort.label">
-              <button class="offer-chip is-active" type="button" data-sort="best" aria-pressed="true" data-i18n="offers.sort.best">Beste eerst</button>
-              <button class="offer-chip" type="button" data-sort="store" aria-pressed="false" data-i18n="offers.sort.store">Winkelvolgorde</button>
-              <button class="offer-chip" type="button" data-sort="discount" aria-pressed="false" data-i18n="offers.sort.discount">Hoogste korting</button>
-              <button class="offer-chip" type="button" data-sort="unit" aria-pressed="false" data-i18n="offers.sort.unit">Laagste prijs per eenheid</button>
-              <button class="offer-chip" type="button" data-sort="lowest" aria-pressed="false" data-i18n="offers.sort.lowest">Laagste ooit eerst</button>
-            </div>
+            <label class="offers-sort">
+              <span data-i18n="offers.sort.label">Sorteren</span>
+              <select id="offers-sort" class="input">
+                <option value="best" data-i18n="offers.sort.best">Beste eerst</option>
+                <option value="store" data-i18n="offers.sort.store">Winkelvolgorde</option>
+                <option value="discount" data-i18n="offers.sort.discount">Hoogste korting</option>
+                <option value="unit" data-i18n="offers.sort.unit">Laagste prijs per eenheid</option>
+                <option value="lowest" data-i18n="offers.sort.lowest">Laagste ooit eerst</option>
+              </select>
+            </label>
             <div id="offers-view" class="segment-control" role="group" aria-label="Weergave" data-i18n-attr="aria-label:offers.view.label">
               <button class="segment-control__button" type="button" data-view="cards" aria-pressed="true" title="Kaarten" aria-label="Kaarten" data-i18n-attr="title:offers.view.cards;aria-label:offers.view.cards"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 11H11V3H3M5 5H9V9H5M13 21H21V13H13M15 15H19V19H15M3 21H11V13H3M5 15H9V19H5M13 3V11H21V3M19 9H15V5H19Z"/></svg></button>
               <button class="segment-control__button" type="button" data-view="compact" aria-pressed="false" title="Compact" aria-label="Compact" data-i18n-attr="title:offers.view.compact;aria-label:offers.view.compact"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 5V19H20V5H3M7 7V9H5V7H7M5 13V11H7V13H5M5 15H7V17H5V15M18 17H9V15H18V17M18 13H9V11H18V13M18 9H9V7H18V9Z"/></svg></button>
             </div>
           </div>
-          <div id="offers-categories" class="offer-cats" role="group" aria-label="Categorieën" data-i18n-attr="aria-label:offers.categories"></div>
+          <div id="offers-categories" class="offer-cats offer-cats--scroll" role="group" aria-label="Categorieën" data-i18n-attr="aria-label:offers.categories"></div>
           <div id="offers-active-filters" class="offer-cats offer-cats--active-filters" role="group" aria-label="Actieve filters" data-i18n-attr="aria-label:offers.filters.active" hidden></div>
           <div id="offers-loading" class="offers-loading" role="status" aria-live="polite" hidden></div>
           <div id="offers-products" class="product-grid product-grid--offers"></div>
@@ -866,12 +874,13 @@
             <button class="button button--secondary" id="offers-index" type="button" data-i18n="offers.recipes.index">Recepten inlezen</button>
           </div>
           <div class="toolbar offers-week" role="group" aria-label="Week van de aanbiedingen" data-i18n-attr="aria-label:offers.week.label">
-            <button class="icon-button" type="button" data-offers-week="-1" aria-label="Vorige week" data-i18n-attr="aria-label:plan.prev_week">&lsaquo;</button>
+            <button class="icon-button" type="button" data-offers-week="-1" aria-label="Vorige week" data-i18n-attr="aria-label:plan.prev_week"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15.41,16.58L10.83,12L15.41,7.41L14,6L8,12L14,18L15.41,16.58Z"/></svg></button>
             <div class="week-label">
               <strong class="offers-week__range"></strong>
               <span class="offers-week__offset"></span>
             </div>
-            <button class="icon-button" type="button" data-offers-week="1" aria-label="Volgende week" data-i18n-attr="aria-label:plan.next_week">&rsaquo;</button>
+            <button class="icon-button" type="button" data-offers-week="1" aria-label="Volgende week" data-i18n-attr="aria-label:plan.next_week"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8.59,16.58L13.17,12L8.59,7.41L10,6L16,12L10,18L8.59,16.58Z"/></svg></button>
+            <button class="button button--secondary week-today" type="button" data-offers-week-today data-i18n="week.this" hidden>Deze week</button>
           </div>
           <h3 id="offers-recipes-heading"></h3>
           <p class="muted" data-i18n="offers.recipes.explain">Basisingrediënten als zout, olie, boter en bloem tellen niet mee. De recepten met de meeste ingrediënten in de aanbieding staan bovenaan.</p>

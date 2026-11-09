@@ -63,10 +63,10 @@ function renderStoreRecipeCard(store, recipe) {
   const meta = storeRecipeMeta(recipe);
   return `
     <article class="recipe-card" data-store-recipe="${store}:${escapeHtml(recipe.id)}">
-      ${recipe.image ? `<img src="${escapeHtml(storeImage(recipe.image))}" alt="${escapeHtml(recipe.name)}" loading="lazy" data-hide-on-error>` : ""}
-      <h3>${escapeHtml(recipe.name)}</h3>
+      ${recipe.image ? `<img src="${escapeHtml(storeImage(recipe.image))}" alt="" loading="lazy" data-hide-on-error>` : ""}
+      ${recipeCardTitle(recipe.name, `${store}:${recipe.id}`)}
       ${meta ? `<p class="muted">${meta}</p>` : ""}
-      ${recipeCardActions(`${store}:${recipe.id}`, recipePlanAttrs(store, recipe))}
+      ${recipeCardActions(recipePlanAttrs(store, recipe), recipe.name)}
     </article>`;
 }
 

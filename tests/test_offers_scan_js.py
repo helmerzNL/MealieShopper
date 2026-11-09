@@ -342,21 +342,23 @@ class OffersScanNodeTest(unittest.TestCase):
         self.assertIn("lower_before", json.dumps(self.render("offerPriceLabel", {"priceLabel": label, "yearLow": {"status": "unknown"}})))
         self.assertIn("lower_before", json.dumps(self.render("offerPriceLabel", {"priceLabel": label})))
 
-    def test_the_badge_takes_the_step_of_the_userscript_and_is_outlined_for_a_store_claim(
-        self,
-    ):
+    def test_the_badge_follows_the_verdict_says_no_discount_and_is_dashed_for_a_store_claim(self):
+        # Sinds 4.8.0 naar het oordeel in plaats van de vijf kleuren van het userscript: good, small en none ("Geen korting" in
+        # plaats van "0%"), met een stippelrand voor een claim van de winkel. Zonder oordeel volgt het uit het getal.
         badges = self.run_js(
-            "const steps = [55, 50, 35, 20, 10, 1, 0].map((p) => offerBadge({ badge: { percent: p, source: 'history' } }));"
-            "steps.push(offerBadge({ badge: { percent: 12, source: 'store' } }), offerBadge({}), offerBadge({ badge: { percent: 'x' } }));"
-            "console.log(JSON.stringify(steps));"
+            "const plain = [55, 20, 19, 1, 0].map((p) => offerBadge({ badge: { percent: p, source: 'history' } }));"
+            "const judged = [offerBadge({ badge: { percent: 12, source: 'history' }, verdict: { kind: 'good' } }),"
+            "  offerBadge({ badge: { percent: 30, source: 'history' }, verdict: { kind: 'small' } })];"
+            "const rest = [offerBadge({ badge: { percent: 12, source: 'store' } }), offerBadge({}), offerBadge({ badge: { percent: 'x' } })];"
+            "console.log(JSON.stringify([...plain, ...judged, ...rest]));"
         )
-        for html, step in zip(badges[:7], ("50", "50", "35", "20", "10", "1", "0")):
-            self.assertIn(f'class="offer-badge offer-badge--{step}"', html)
+        for html, kind in zip(badges[:5], ("good", "good", "small", "small", "none")):
+            self.assertIn(f'class="offer-badge offer-badge--{kind}"', html)
         self.assertIn(">-55%<", badges[0])
-        self.assertIn(">0%<", badges[6])
-        self.assertIn(
-            'class="offer-badge offer-badge--10 offer-badge--store"', badges[7]
-        )
+        self.assertIn(">offers.badge.none<", badges[4], "geen 0% maar het woord")
+        self.assertIn('class="offer-badge offer-badge--good"', badges[5], "het oordeel van de server gaat voor")
+        self.assertIn('class="offer-badge offer-badge--small"', badges[6])
+        self.assertIn('class="offer-badge offer-badge--small offer-badge--store"', badges[7])
         self.assertEqual(badges[8:], ["", ""])
 
     def test_the_month_text_adds_the_year_outside_this_year_or_when_asked(self):
@@ -415,15 +417,14 @@ class OffersScanMarkupTest(unittest.TestCase):
             function_source("hideOfferPopup"),
         )
 
-    def test_the_outlined_orange_and_the_grey_badge_have_hard_colours_with_contrast(
-        self,
-    ):
-        self.assertRegex(
-            CSS, r"\.offer-badge--store\.offer-badge--10 \{\n  color: #c25e00;"
-        )
-        self.assertRegex(
-            CSS, r"\.offer-badge--0 \{\n  background: #e5e7eb;\n  color: #374151;"
-        )
+    def test_the_badge_takes_status_colours_and_never_red(self):
+        # De groene statuskleuren volgen de accentkleur niet; rood is voor fouten, niet voor een kleine korting.
+        badge = CSS[CSS.index("\n.offer-badge {"):CSS.index("/* Het prijslabel uit de geschiedenis")]
+        self.assertIn(".offer-badge--good {\n  border-color: var(--success-text);\n  background: var(--success-text);\n  color: var(--surface);", badge)
+        self.assertIn(".offer-badge--none {\n  border-color: var(--border);\n  background: var(--surface-muted);\n  color: var(--muted);", badge)
+        self.assertIn(".offer-badge--store {\n  border: 2px dashed currentColor;", badge)
+        self.assertNotIn("danger", badge)
+        self.assertNotRegex(badge, r"#[0-9a-fA-F]{3,6}\b", "geen vaste kleuren meer, alleen tokens (licht en donker)")
 
     def test_the_compact_row_on_a_phone_stacks_name_price_and_label_beside_the_photo(self):
         # Zo'n 300 pixels voor een regel: de badge onder het plaatje, de naam op twee regels, de prijs met de eenheid rechts, het label.

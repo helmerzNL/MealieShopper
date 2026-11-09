@@ -527,6 +527,8 @@ function updateWeekLabel() {
   const week = getWeekBounds(state.weekOffset);
   $("#week-range").textContent = week.label;
   $("#week-offset").textContent = weekOffsetText(state.weekOffset);
+  // Deze week staat er alleen als je een andere week bekijkt (sinds 4.8.0, gelijk bij Weekmenu, Aanbiedingen en Maaltijdboxen).
+  $("#this-week").hidden = state.weekOffset === 0;
 }
 
 // Een andere week kiezen. Het weekmenu en het tabblad Aanbiedingen delen de week: plan je volgende week, dan zie je de aanbiedingen
@@ -1986,14 +1988,23 @@ async function addToCart() {
   }
 }
 
-// De knoppen onderaan elke receptkaart, overal gelijk: Bekijken (het recept in MealieShopper, zie openStoreRecipe) en
-// Inplannen (de plan-dialoog). `open` is `winkel:id`; `plan` zijn de data-attributen van planButtonAttrs of planSourceAttrs.
-// Importeren zonder plannen en de link naar de winkel staan in het detail.
-function recipeCardActions(open, plan) {
+// De titel van een receptkaart, overal gelijk (sinds 4.8.0). Met een recept om te openen (`open` is `winkel:id`) is de titel een
+// knop die met zijn ::after de hele kaart beslaat: een tik op de kaart opent het recept in MealieShopper (openStoreRecipe, via
+// data-store-open zoals eerst de knop Bekijken). Zonder recept-id een gewone titel.
+function recipeCardTitle(title, open) {
+  const text = escapeHtml(title);
+  return open
+    ? `<h3><button class="recipe-card__open" type="button" data-store-open="${escapeHtml(open)}">${text}</button></h3>`
+    : `<h3>${text}</h3>`;
+}
+
+// Onderaan elke receptkaart alleen Inplannen (de plan-dialoog), secundair en boven de knop van de titel; de naam van het recept
+// staat erbij voor een schermlezer. `plan` zijn de data-attributen van planButtonAttrs of planSourceAttrs. Importeren zonder
+// plannen en de link naar de winkel staan in het detail.
+function recipeCardActions(plan, title) {
   return `
       <div class="card-actions">
-        <button class="button button--secondary" type="button" data-store-open="${escapeHtml(open)}">${escapeHtml(t("rsearch.open"))}</button>
-        <button class="button" type="button" ${plan}>${escapeHtml(t("plan.schedule"))}</button>
+        <button class="button button--secondary" type="button" ${plan}>${escapeHtml(t("plan.schedule"))}<span class="visually-hidden">: ${escapeHtml(title)}</span></button>
       </div>
       <div class="recipe-import-result"></div>`;
 }
@@ -2029,12 +2040,12 @@ function renderRecipeCard(recipe) {
   const id = ahRecipeNumber(recipe);
   return `
     <article class="recipe-card">
-      ${imageUrl ? `<img src="${escapeHtml(storeImage(imageUrl))}" alt="${escapeHtml(recipe.title)}" loading="lazy" data-hide-on-error>` : ""}
-      <h3>${escapeHtml(recipe.title)}</h3>
+      ${imageUrl ? `<img src="${escapeHtml(storeImage(imageUrl))}" alt="" loading="lazy" data-hide-on-error>` : ""}
+      ${recipeCardTitle(recipe.title, id ? `ah:${id}` : "")}
       ${recipe.description ? `<p class="muted">${escapeHtml(recipe.description)}</p>` : ""}
-      ${totalTime || recipe.servings ? `<p class="muted">${totalTime ? escapeHtml(t("recipe.minutes", { n: totalTime })) : ""}${totalTime && recipe.servings ? " | " : ""}${recipe.servings ? escapeHtml(t("recipe.servings", { n: recipe.servings })) : ""}</p>` : ""}
+      ${totalTime || recipe.servings ? `<p class="muted">${totalTime ? escapeHtml(t("recipe.minutes", { n: totalTime })) : ""}${totalTime && recipe.servings ? " · " : ""}${recipe.servings ? escapeHtml(t("recipe.servings", { n: recipe.servings })) : ""}</p>` : ""}
       ${tags.length ? `<div class="tags">${tags.map((tag) => `<span class="tag">${escapeHtml(tag)}</span>`).join("")}</div>` : ""}
-      ${id ? recipeCardActions(`ah:${id}`, planSourceAttrs("ah", id, recipe.title, imageUrl)) : ""}
+      ${id ? recipeCardActions(planSourceAttrs("ah", id, recipe.title, imageUrl), recipe.title) : ""}
     </article>
   `;
 }
@@ -2794,10 +2805,10 @@ function renderSavedRecipeCard(recipe) {
   const meta = kcal + nutritionBrief(recipe.nutrition, Boolean(kcal));
   return `
     <article class="recipe-card"${id ? ` data-store-recipe="ah:${escapeHtml(id)}"` : ""}>
-      ${image ? `<img src="${escapeHtml(storeImage(image))}" alt="${escapeHtml(recipe.title || "")}" loading="lazy" data-hide-on-error>` : ""}
-      <h3>${escapeHtml(recipe.title || t("recipe.unknown"))}</h3>
+      ${image ? `<img src="${escapeHtml(storeImage(image))}" alt="" loading="lazy" data-hide-on-error>` : ""}
+      ${recipeCardTitle(recipe.title || t("recipe.unknown"), id ? `ah:${id}` : "")}
       ${meta ? `<p class="muted">${meta}</p>` : ""}
-      ${id ? recipeCardActions(`ah:${id}`, planSourceAttrs("ah", id, recipe.title, image, recipe)) : ""}
+      ${id ? recipeCardActions(planSourceAttrs("ah", id, recipe.title, image, recipe), recipe.title || t("recipe.unknown")) : ""}
     </article>
   `;
 }
@@ -3108,6 +3119,11 @@ function openSettings(subtab = "settings-link") {
   openSubtab("settings", isRegularUser() ? "settings-appearance" : subtab);
 }
 
+$("#this-week").addEventListener("click", () => {
+  state.weekOffset = 0;
+  updateWeekLabel();
+  loadMealPlan();
+});
 $("#prev-week").addEventListener("click", () => {
   state.weekOffset -= 1;
   updateWeekLabel();

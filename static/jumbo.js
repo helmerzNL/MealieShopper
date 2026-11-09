@@ -34,10 +34,15 @@ async function showJumboBasket() {
       return `<li class="basket-line"><span class="basket-title">${escapeHtml(item.title || "-")}</span><span class="basket-qty">${escapeHtml(item.quantity)}\u00d7</span><span class="basket-price">${price}</span><span></span></li>`;
     })
     .join("");
-  const total = cart.totalPrice ? `<p><strong>${escapeHtml(t("picnic.basket_total", { amount: formatPrice(cart.totalPrice) }))}</strong></p>` : "";
+  const stats = items.length
+    ? basketStats([
+        [t("basket.stat.total"), cart.totalPrice ? formatPrice(cart.totalPrice) : ""],
+        [t("basket.stat.products"), cart.totalCount ? I18N.formatNumber(cart.totalCount) : ""],
+      ])
+    : "";
   $("#basket-content").innerHTML = `
+    ${stats}
     ${items.length ? `<ul class="basket-lines">${lines}</ul>` : `<p class="muted">${escapeHtml(t("basket.jumbo_empty"))}</p>`}
-    ${total}
     <p class="muted">${escapeHtml(t("basket.jumbo_hint"))}</p>`;
 }
 

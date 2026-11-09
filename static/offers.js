@@ -363,6 +363,7 @@ function renderOffersWeek() {
     bar.querySelector(".offers-week__range").textContent = week.label;
     bar.querySelector(".offers-week__offset").textContent = weekOffsetText(offset);
     bar.querySelector('[data-offers-week="-1"]').disabled = offset === 0;
+    bar.querySelector("[data-offers-week-today]").hidden = offset === 0;
   });
 }
 
@@ -517,15 +518,19 @@ function offerBadgeTitle(offer) {
   return parts.filter(Boolean).join(" ");
 }
 
-// De kortingsbadge op het plaatje: één getal in de kleurschaal van het userscript (50, 35, 20, 10), omlijnd als het de claim van de
-// winkel is in plaats van een gemeten verschil, grijs bij 0%, niets als er geen oordeel is. `extraClass` "offer-badge--inline" zet
-// hem in de tekst (een regel van een aankoop) in plaats van op een plaatje.
+// De kortingsbadge op het plaatje, naar het oordeel (sinds 4.8.0; daarvoor de vijf kleuren van het userscript): good (echt
+// voordelig, 20% of meer), small (een klein voordeel) en none: de winkel noemt het een actie, maar het is niet goedkoper dan de
+// gewone prijs, en dan staat er "Geen korting" in plaats van "0%". Met een stippelrand als het getal de claim van de winkel is in
+// plaats van een gemeten verschil; niets als er geen oordeel is. Het oordeel komt van de server (prices.annotate); een regel van een
+// aankoop heeft alleen { percent, source }, dan volgt het uit het getal zoals in offerBadgeTitle. `extraClass`
+// "offer-badge--inline" zet hem in de tekst (een regel van een aankoop) in plaats van op een plaatje.
 function offerBadge(offer, extraClass = "") {
   const badge = offer.badge;
   if (!badge || typeof badge.percent !== "number") return "";
-  const step = badge.percent >= 50 ? "50" : badge.percent >= 35 ? "35" : badge.percent >= 20 ? "20" : badge.percent >= 10 ? "10" : badge.percent >= 1 ? "1" : "0";
-  const cls = `offer-badge offer-badge--${step}${badge.source === "store" ? " offer-badge--store" : ""}${extraClass ? ` ${extraClass}` : ""}`;
-  const text = badge.percent > 0 ? `-${badge.percent}%` : "0%";
+  const verdict = offer.verdict && ["good", "small", "none"].includes(offer.verdict.kind) ? offer.verdict.kind : "";
+  const kind = verdict || (badge.percent >= 20 ? "good" : badge.percent >= 1 ? "small" : "none");
+  const cls = `offer-badge offer-badge--${kind}${badge.source === "store" ? " offer-badge--store" : ""}${extraClass ? ` ${extraClass}` : ""}`;
+  const text = badge.percent > 0 ? `-${badge.percent}%` : t("offers.badge.none");
   return `<span class="${cls}" title="${escapeHtml(offerBadgeTitle(offer))}">${escapeHtml(text)}</span>`;
 }
 
@@ -569,22 +574,26 @@ function offerPriceLabelHtml(offer) {
   return label ? `<span class="${label.cls}"${label.title ? ` title="${escapeHtml(label.title)}"` : ""}>${escapeHtml(label.text)}</span>` : "";
 }
 
-// De rij onderaan de kaart: Vergelijk verpakkingen (een knop) en Prijsgeschiedenis (een link), in dezelfde stijl op één lijn.
+// De rij onderaan de kaart: Vergelijk verpakkingen (een knop) en Prijsgeschiedenis (een link) als twee icoonknoppen rechts, zoals in
+// de compacte rij (sinds 4.8.0; daarvoor twee onderstreepte links op elke kaart). De tekst staat in aria-label en title.
 function offerCardFoot(offer) {
   // Vergelijk verpakkingen zoekt bij de winkel; bij een winkel met alleen aanbiedingen (Lidl, Aldi) kan dat niet.
+  const compareLabel = escapeHtml(t("offers.compare.open"));
+  const historyLabel = escapeHtml(t("offers.card.history"));
   const compare = offer.unitPricePer && !offersOnlyStore(offersState.store)
-    ? `<button class="link-button offer-card__compare" type="button" data-compare="${escapeHtml(offer.id)}">${escapeHtml(t("offers.compare.open"))}</button>`
-    : "<span></span>";
-  const history = `<a class="link-button offer-card__history" href="${escapeHtml(priceHistoryPath(offersState.store, offer.title, offer.id))}" data-route>${escapeHtml(t("offers.card.history"))}</a>`;
+    ? `<button class="icon-button offer-card__compare" type="button" data-compare="${escapeHtml(offer.id)}" title="${compareLabel}" aria-label="${compareLabel}">${mdiIcon(MDI_COMPARE_HORIZONTAL)}</button>`
+    : "";
+  const history = `<a class="icon-button offer-card__history" href="${escapeHtml(priceHistoryPath(offersState.store, offer.title, offer.id))}" data-route title="${historyLabel}" aria-label="${historyLabel}">${mdiIcon(MDI_CHART_LINE)}</a>`;
   return `<div class="offer-card__foot">${compare}${history}</div>`;
 }
 
 // Het plaatje van een aanbieding met de badge en het prijslabel erop (of kaal, in de compacte rij). Zonder plaatje een leeg vlak
 // van dezelfde hoogte. De link naar de winkel zit alleen om het plaatje (de titel is de link voor schermlezers), de badge en het
-// label staan ernaast, zodat een schermlezer ze wel leest.
-function offerThumb(offer, extraClass = "", bare = false) {
+// label staan ernaast, zodat een schermlezer ze wel leest. `withLabel` false: de kaart zet het prijslabel bij de andere inzichten
+// onder de prijs (sinds 4.8.0), alleen de badge staat dan op het plaatje.
+function offerThumb(offer, extraClass = "", bare = false, withLabel = true) {
   const image = offer.image ? `<img src="${escapeHtml(storeImage(offer.image))}" alt="" loading="lazy" data-hide-on-error>` : mdiIcon(MDI_IMAGE_OUTLINE, "mdi offer-card__thumb-icon");
-  const overlay = bare ? "" : `${offerBadge(offer)}${offerPriceLabelHtml(offer)}`;
+  const overlay = bare ? "" : `${offerBadge(offer)}${withLabel ? offerPriceLabelHtml(offer) : ""}`;
   const link = offer.url
     ? `<a class="offer-card__thumb-link" href="${escapeHtml(offer.url)}" target="_blank" rel="noopener noreferrer" tabindex="-1" aria-hidden="true">${image}</a>`
     : `<span class="offer-card__thumb-link">${image}</span>`;
@@ -608,12 +617,14 @@ function offerProductCard(offer) {
   const title = offer.url ? `<a class="offer-card__link" href="${escapeHtml(offer.url)}" target="_blank" rel="noopener noreferrer">${name}</a>` : name;
   const perUnit = offerPerUnitText(offer.unitPricePer);
   const conditions = offerConditionsText(offer);
-  const chips = offerVerdictLines(offer)
+  // De inzichten in één rij onder de prijs: het prijslabel (laagste ooit, in 12 maanden ...) en de chips van het oordeel.
+  const insights = offerPriceLabelHtml(offer) + offerVerdictLines(offer)
     .map((line) => `<small class="${line.cls}"${line.title ? ` title="${escapeHtml(line.title)}"` : ""}>${escapeHtml(line.text)}</small>`)
     .join("");
+  const chips = insights ? `<div class="offer-insights">${insights}</div>` : "";
   return `
     <article class="product-card offer-card" data-offer="${escapeHtml(offer.id)}" tabindex="0">
-      ${offerThumb(offer)}
+      ${offerThumb(offer, "", false, false)}
       <div class="offer-card__body">
         ${title}
         ${meta ? `<small>${escapeHtml(meta)}</small>` : ""}
@@ -862,7 +873,6 @@ function renderOfferCategories() {
     categories,
     active: offersState.category,
     total,
-    allLabel: t("offers.all", { count: I18N.formatNumber(total) }),
   });
 }
 
@@ -965,11 +975,7 @@ function renderOffersTools() {
   $("#offers-search").value = offersState.search;
   $("#offers-good-only").checked = offersState.goodOnly;
   renderOffersFilters();
-  $("#offers-sort").querySelectorAll("[data-sort]").forEach((chip) => {
-    const active = chip.dataset.sort === offersState.sort;
-    chip.classList.toggle("is-active", active);
-    chip.setAttribute("aria-pressed", String(active));
-  });
+  $("#offers-sort").value = offersState.sort;
   $("#offers-view").querySelectorAll("[data-view]").forEach((button) => {
     button.setAttribute("aria-pressed", String(button.dataset.view === offersState.view));
   });
@@ -1221,17 +1227,14 @@ function openOfferProduct(recipe, item) {
 
 function renderOfferCourses(courses) {
   const total = courses.reduce((sum, course) => sum + course.count, 0);
-  const chips = [{ id: "all", label: t("offers.all", { count: I18N.formatNumber(total) }) }].concat(
-    courses.map((course) => ({
-      id: course.id,
-      label: t("offers.chip", { count: I18N.formatNumber(course.count), category: t(`offers.course.${course.id}`) }),
-    }))
+  const chips = [{ id: "all", label: t("offers.all"), count: total }].concat(
+    courses.map((course) => ({ id: course.id, label: t(`offers.course.${course.id}`), count: course.count }))
   );
   $("#offers-courses").hidden = !total;
   $("#offers-courses").innerHTML = chips
     .map(
       (chip) =>
-        `<button class="offer-chip${offersState.course === chip.id ? " is-active" : ""}" type="button" data-course="${escapeHtml(chip.id)}" aria-pressed="${offersState.course === chip.id}">${escapeHtml(chip.label)}</button>`
+        `<button class="offer-chip${offersState.course === chip.id ? " is-active" : ""}" type="button" data-course="${escapeHtml(chip.id)}" aria-pressed="${offersState.course === chip.id}">${escapeHtml(chip.label)}${chipCount(chip.count)}</button>`
     )
     .join("");
 }
@@ -1441,10 +1444,10 @@ $("#offers-filters-backdrop").addEventListener("click", () => offersFiltersOpen(
 document.addEventListener("keydown", (event) => {
   if (event.key === "Escape" && $("#offers-filters").classList.contains("is-open")) offersFiltersOpen(false);
 });
-$("#offers-sort").addEventListener("click", (event) => {
-  const chip = event.target.closest("[data-sort]");
-  if (!chip || !OFFERS_SORTS.includes(chip.dataset.sort)) return;
-  offersState.sort = chip.dataset.sort;
+// Sorteren is een keuzelijst (sinds 4.8.0; daarvoor vijf chips, een extra regel boven de categorieën).
+$("#offers-sort").addEventListener("change", (event) => {
+  if (!OFFERS_SORTS.includes(event.target.value)) return;
+  offersState.sort = event.target.value;
   offersRemember(OFFERS_SORT_KEY, offersState.sort);
   offersRedraw();
 });
@@ -1537,6 +1540,7 @@ document.querySelectorAll(".offers-week").forEach((bar) =>
   bar.addEventListener("click", (event) => {
     const button = event.target.closest("[data-offers-week]");
     if (button && !button.disabled) offersChangeWeek(Number(button.dataset.offersWeek));
+    if (event.target.closest("[data-offers-week-today]")) offersChangeWeek(-offersWeekOffset());
   })
 );
 $("#offers-later-show").addEventListener("click", () => offersChangeWeek(1));

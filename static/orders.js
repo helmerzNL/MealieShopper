@@ -76,31 +76,29 @@ function renderBasket() {
     return;
   }
   const delivery = [dayLabel(basket.deliveryDate), slotLabel(basket.slotStart, basket.slotEnd)].filter(Boolean).join(", ");
-  const summary = [
-    tn("list.items", basket.itemCount),
-    t("orders.units", { count: I18N.formatNumber(basket.units) }),
-    money(basket.total),
-    delivery ? t("orders.delivery", { when: delivery }) : "",
-    t("orders.updated", { when: formatSyncTime(basket.syncedAt) }),
-  ].filter(Boolean);
-  target.innerHTML = `<p>${escapeHtml(summary.join(" · "))}</p><div class="product-grid">${basket.items.map((item, index) => productCard({ ...orderLine(item, index, "order", "ah"), category: null })).join("")}</div>`;
+  const stats = basketStats([
+    [t("basket.stat.total"), money(basket.total)],
+    [t("basket.stat.products"), I18N.formatNumber(basket.itemCount)],
+    [t("basket.stat.units"), basket.units !== basket.itemCount ? I18N.formatNumber(basket.units) : ""],
+    [t("basket.stat.delivery"), delivery],
+  ]);
+  target.innerHTML = `${stats}<p class="muted">${escapeHtml(t("orders.updated", { when: formatSyncTime(basket.syncedAt) }))}</p><div class="product-grid">${basket.items.map((item, index) => productCard({ ...orderLine(item, index, "order", "ah"), category: null })).join("")}</div>`;
 }
 
 // Het AH-mandje (de boodschappenlijst waar het weekmenu in schrijft) staat in het tabblad Mandje (basket.js):
-// eerst de lokale kopie, daarna haalt het de actuele lijst op. Mislukt dat, dan blijft de kopie staan met de fout.
+// eerst de lokale kopie, daarna haalt het de actuele lijst op. Mislukt dat, dan blijft de kopie staan met de fout. Opnieuw ophalen
+// doet de knop Vernieuwen naast de titel (sinds 4.8.0 geen eigen knop Synchroniseren meer: die deed hetzelfde).
 async function showAhBasket() {
   $("#basket-content").innerHTML = `
-    <p class="muted" id="ah-basket-note"></p>
-    <p><button class="button button--secondary" id="ah-basket-sync" type="button">${escapeHtml(t("common.sync"))}</button></p>
-    <div id="ah-basket"></div>`;
-  $("#ah-basket-sync").addEventListener("click", syncAhBasket);
+    <div id="ah-basket"></div>
+    <p class="muted" id="ah-basket-note"></p>`;
   ordersState.basket = await jsonFetch("/api/ah/basket");
   renderBasket();
   syncAhBasket();
 }
 
 async function syncAhBasket() {
-  const button = $("#ah-basket-sync");
+  const button = $("#basket-refresh");
   setBusy(button, true);
   message("#basket-message", "");
   try {

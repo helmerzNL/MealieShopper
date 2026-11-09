@@ -598,7 +598,7 @@ class OfferBadgeForALineTest(unittest.TestCase):
         history = self.run_js(
             'console.log(JSON.stringify(offerBadge({ badge: { percent: 25, source: "history" } })));'
         )
-        self.assertIn("offer-badge--20", history)
+        self.assertIn("offer-badge--good", history, "zonder oordeel volgt de soort uit het getal (20% of meer)")
         self.assertIn("-25%", history)
         self.assertIn("offers.verdict.good", history)
         self.assertNotIn("offers.verdict.reference", history)
@@ -606,6 +606,7 @@ class OfferBadgeForALineTest(unittest.TestCase):
             'console.log(JSON.stringify(offerBadge({ badge: { percent: 5, source: "history" } })));'
         )
         self.assertIn("offers.verdict.small", small)
+        self.assertIn("offer-badge--small", small)
         store = self.run_js(
             'console.log(JSON.stringify(offerBadge({ badge: { percent: 12, source: "store" } })));'
         )
@@ -752,12 +753,11 @@ class OrderPageMarkupTest(unittest.TestCase):
         self.assertIn("offer-badge--inline", ORDER_VIEWS + ORDERS)
 
     def test_the_inline_store_badge_keeps_its_outline(self):
-        # .offer-badge.offer-badge--inline zet box-shadow op none en wint van .offer-badge--store (een klasse): zonder een regel
-        # met drie klassen verliest de omlijnde badge (alleen de prijs voor bonus van de winkel) in een regel zijn rand.
-        self.assertRegex(
-            CSS,
-            r"\.offer-badge\.offer-badge--inline\.offer-badge--store \{\n  box-shadow: inset 0 0 0 2px currentColor;",
-        )
+        # .offer-badge.offer-badge--inline zet box-shadow op none. Sinds 4.8.0 zijn de randen van de badge een border (de
+        # stippelrand van een claim van de winkel ook), dus in een regel blijft de rand staan zonder een eigen regel.
+        self.assertRegex(CSS, r"\.offer-badge\.offer-badge--inline \{\n  position: static;[^}]*box-shadow: none;")
+        self.assertIn(".offer-badge--store {\n  border: 2px dashed currentColor;", CSS)
+        self.assertNotIn(".offer-badge.offer-badge--inline.offer-badge--store", CSS)
 
     def test_both_languages_have_the_texts(self):
         for key in (
