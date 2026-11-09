@@ -56,6 +56,15 @@ Wat er gebouwd is:
 - **Fouten.** Een onderdeel dat niet lukt, houdt de andere niet op. Het antwoord van AH of Mealie staat alleen in het logboek;
   de gebruiker krijgt een algemene tekst.
 
+## Voedingswaarden (4.9.0)
+
+| Onderdeel | Bevinding |
+| --- | --- |
+| Bron | De GraphQL van de AH-app, met het anonieme token: `product(id) { tradeItem { nutritions { nutrients { type name value } } } }`. De vorm van de vraag komt uit olekpuchka/albert-heijn-mcp (Apache-2.0, `src/ahapi/products.ts`, `getNutrition`): de eerste tabel, meestal per 100 g of ml. Met één anonieme vraag nagegaan dat `product(id)` en `tradeItem` bestaan; het verder aftasten van velden is niet gedaan. De oude REST-route `product/detail/v4/fir/{id}` geeft 404. |
+| Lezen | `ah.product_nutrition` herkent een regel aan de GS1-code (`ENER-`, `FAT`, `FASAT`, `CHOAVL`, `SUGAR-`, `PRO-`, `FIBTG`, `NA`, `SALTEQ`) of aan de naam (Energie, Vet, waarvan verzadigd, Koolhydraten, waarvan suikers, Eiwitten, Voedingsvezel, Zout, Natrium). Energie in kcal, anders kJ omgerekend; zout wordt natrium; "<0,5 g" telt als 0,5. Zonder energie is de tabel onbekend. Het formaat van `value` staat nergens vast; de AH-verkenner (alleen voor de beheerder) toont de vorm, met de cijfers als 9. |
+| Omrekenen | Per 100 g of ml maal de verpakking (`packs.parse_pack_size`: gram of milliliter), voor alle producten opgeteld, gedeeld door *Porties per recept* (Voorkeuren, Supermarkt; standaard 2): per persoon, zoals Mealie voedingswaarden toont. |
+| Besluit | Alleen als alles bekend is: een product zonder tabel of met een verpakking in stuks maakt het recept zonder voedingswaarden. Een bestaand recept (hergebruikt op naam of bron) verandert niet. Weigert Mealie de import, dan nog één keer zonder foto en voedingswaarden. |
+
 ## Buiten scope
 
 - Plannen in de AH-app vanuit MealieShopper: AH weigert het, en de eigenaar wil alleen lezen.

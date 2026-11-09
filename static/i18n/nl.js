@@ -1284,6 +1284,8 @@ I18N.add("nl", {
   "appearance.planner.combine_help": "De producten van een dag worden één recept in Mealie, met de eerste notitie van die dag als naam. Uit: elk product een eigen recept.",
   "appearance.planner.split": "Soep en pizza altijd los",
   "appearance.planner.split_help": "Soep en pizza krijgen toch een eigen recept; vlees, groente, aardappelen, rijst en pasta gaan samen in het menu.",
+  "appearance.planner.servings": "Porties per recept",
+  "appearance.planner.servings_help": "Zoveel porties krijgt een recept dat MealieShopper van AH-producten maakt; de voedingswaarden staan per persoon.",
   "appearance.store.unlinked": "{store} is nog niet gekoppeld: tot dan openen Aanbiedingen en Winkels met Albert Heijn.",
   "appearance.cooking.title": "Kookmodus",
   "appearance.cooking.help": "Bij een recept: Start met koken, de voortgang, Scherm aan laten en het afvinken van ingrediënten. Uit: alleen het recept.",

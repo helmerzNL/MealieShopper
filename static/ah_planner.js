@@ -17,7 +17,13 @@ function ahPlannerRecipes() {
 // De twee keuzes van de gebruiker (bewaard in het profiel, standaard aan, in te stellen bij Voorkeuren, Supermarkt): losse
 // producten van een dag samen als één menu, en soep en pizza dan toch los.
 function ahPlannerOptions() {
-  return { combine: state.auth?.plannerCombine !== false, splitMeals: state.auth?.plannerSplitMeals !== false };
+  const servings = state.auth?.plannerServings;
+  return {
+    combine: state.auth?.plannerCombine !== false,
+    splitMeals: state.auth?.plannerSplitMeals !== false,
+    // Porties per recept dat MealieShopper van producten maakt (4.9.0); de voedingswaarden staan per persoon.
+    servings: Number.isInteger(servings) && servings >= 1 && servings <= 8 ? servings : 2,
+  };
 }
 
 // Gaat dit product als eigen recept (of als het recept met die naam in Mealie), en niet in het menu van die dag? Dezelfde

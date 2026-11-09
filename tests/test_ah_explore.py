@@ -123,3 +123,19 @@ async def test_explore_sends_nothing_itself_and_reports_every_route() -> None:
     assert all("coroutine" not in repr(probe) for probe in report["probes"]), (
         "elke probe heeft op zijn uitkomst gewacht"
     )
+
+
+def test_the_nutrition_probe_shows_the_shape_without_the_numbers() -> None:
+    """De controle voor de voedingswaarden van een product (4.9.0): soorten, namen en eenheden, de cijfers als 9."""
+    data = {"product": {"tradeItem": {"nutritions": [
+        {"nutrients": [{"type": "ENER-", "name": "Energie", "value": "1595 kJ (380 kcal)"}, {"type": "FAT", "name": "Vet", "value": "12,5 g"}]},
+        {"nutrients": []},
+    ]}}}
+    report = ah_explore.nutrition_report(data)
+    assert report["tabellen"] == 2
+    assert report["regels"] == [
+        {"type": "ENER-", "name": "Energie", "value": "9999 kJ (999 kcal)"},
+        {"type": "FAT", "name": "Vet", "value": "99,9 g"},
+    ]
+    assert report["gelezen"] == ["calories", "fatContent"]
+    assert ah_explore.nutrition_report({"product": {"tradeItem": None}}) == {"tabellen": 0, "regels": [], "gelezen": []}

@@ -161,8 +161,10 @@ class CleanDayTest(unittest.TestCase):
                 "note": "Uit eten",
                 "combine": True,
                 "splitMeals": True,
+                "servings": 2,
             },
         )
+        self.assertEqual(ah_planner.clean_day({"date": "2026-11-09", "recipeIds": [1], "servings": 4})["servings"], 4)
         day = ah_planner.clean_day({"date": "2026-11-09", "products": [{"productId": 1, "title": "x" * 300}], "combine": False, "splitMeals": False})
         self.assertEqual((day["combine"], day["splitMeals"], len(day["products"][0]["title"])), (False, False, ah_planner.TEXT_MAX))
 
@@ -186,6 +188,10 @@ class CleanDayTest(unittest.TestCase):
             {"date": "2026-11-09", "recipeIds": [12], "note": ["Pizza"]},
             {"date": "2026-11-09", "recipeIds": [12], "combine": "ja"},
             {"date": "2026-11-09", "recipeIds": [12], "splitMeals": 0},
+            {"date": "2026-11-09", "recipeIds": [12], "servings": 0},
+            {"date": "2026-11-09", "recipeIds": [12], "servings": 9},
+            {"date": "2026-11-09", "recipeIds": [12], "servings": "2"},
+            {"date": "2026-11-09", "recipeIds": [12], "servings": True},
         ):
             with self.subTest(body=body), self.assertRaises(ValueError):
                 ah_planner.clean_day(body)
@@ -238,6 +244,8 @@ class ToMealPlanTestCase(unittest.IsolatedAsyncioTestCase):
         self.products: dict[int, dict] = {}
         self.products_down = False
         self.search_down = False
+        self.per_100: dict[int, dict] = {}  # voedingswaarden per 100 g of ml per product (ah.get_product_nutrition)
+        self.nutrition_asked: list[int] = []
 
         async def find(url, **kwargs):
             return self.in_mealie.get(url)
@@ -293,13 +301,27 @@ class ToMealPlanTestCase(unittest.IsolatedAsyncioTestCase):
             patcher = mock.patch.object(mealie, name, side_effect=fake)
             patcher.start()
             self.addCleanup(patcher.stop)
-        for patcher in (mock.patch.object(mealie, "ensure_configured", mock.AsyncMock(return_value=None)), mock.patch.object(ah, "get_products_by_ids", side_effect=products)):
+        async def product_nutrition(product_id):
+            self.nutrition_asked.append(int(product_id))
+            return self.per_100.get(int(product_id))
+
+        for patcher in (
+            mock.patch.object(mealie, "ensure_configured", mock.AsyncMock(return_value=None)),
+            mock.patch.object(ah, "get_products_by_ids", side_effect=products),
+            mock.patch.object(ah, "get_product_nutrition", side_effect=product_nutrition),
+        ):
             patcher.start()
             self.addCleanup(patcher.stop)
 
     def ah_has(self, *products):
         for number, title in products:
             self.products[number] = {"id": number, "title": title, "image": f"https://img/{number}.jpg", "url": product_url(number)}
+
+    def ah_has_pack(self, number, title, unit_size, per_100=None):
+        """Een product met verpakking en, als AH die heeft, voedingswaarden per 100 g of ml."""
+        self.products[number] = {"id": number, "title": title, "image": f"https://img/{number}.jpg", "url": product_url(number), "unitSize": unit_size}
+        if per_100 is not None:
+            self.per_100[number] = per_100
 
     async def day(self, date="2026-11-09", recipes=(), products=(), note="", **flags):
         body = {"date": date, "recipeIds": list(recipes), "products": [{"productId": n, "title": t} for n, t in products], "note": note, **flags}
@@ -452,6 +474,122 @@ class ProductsTest(ToMealPlanTestCase):
         self.assertNotIn("geheime details", menu["error"])
 
 
+class ProductNutritionTest(unittest.TestCase):
+    """`ah.product_nutrition` en `ah.get_product_nutrition`: de voedingstabel van een AH-product, per 100 g of ml (4.9.0)."""
+
+    def test_a_table_by_name(self):
+        found = ah.product_nutrition([
+            {"type": "", "name": "Energie", "value": "1595 kJ (380 kcal)"},
+            {"name": "Vet", "value": "12 g"},
+            {"name": "waarvan verzadigd", "value": "<0,5 g"},
+            {"name": "Enkelvoudig onverzadigd", "value": "4 g"},
+            {"name": "Koolhydraten", "value": "50 g"},
+            {"name": "waarvan suikers", "value": "3,2 g"},
+            {"name": "Eiwitten", "value": "8 g"},
+            {"name": "Voedingsvezel", "value": "2 g"},
+            {"name": "Zout", "value": "0,9 g"},
+        ])
+        self.assertEqual(found, {
+            "calories": 380.0, "proteinContent": 8.0, "fatContent": 12.0, "saturatedFatContent": 0.5, "carbohydrateContent": 50.0,
+            "sugarContent": 3.2, "fiberContent": 2.0, "sodiumContent": 360.0,
+        })
+
+    def test_codes_kilojoules_and_sodium_before_salt(self):
+        found = ah.product_nutrition([
+            {"type": "ENER-", "name": "Energie (kJ)", "value": "418"},
+            {"type": "FAT", "name": "x", "value": "1"},
+            {"type": "NA", "name": "y", "value": "0,2 g"},
+            {"type": "SALTEQ", "name": "z", "value": "5 g"},
+        ])
+        self.assertAlmostEqual(found["calories"], 418 / 4.184)
+        self.assertEqual((found["fatContent"], found["sodiumContent"]), (1.0, 200.0))
+        self.assertEqual(ah.product_nutrition([{"name": "Energie", "value": "380 kcal"}, {"name": "Energie", "value": "1595 kJ"}]), {"calories": 380.0})
+
+    def test_without_energy_or_a_table_it_is_unknown(self):
+        for nutrients in (None, [], "x", [{"name": "Vet", "value": "1 g"}], [{"name": "Energie", "value": "veel"}], [{"name": "Energie", "value": "0 kcal"}]):
+            with self.subTest(nutrients=nutrients):
+                self.assertIsNone(ah.product_nutrition(nutrients))
+
+    def test_get_product_nutrition_reads_the_first_table(self):
+        body = {"product": {"tradeItem": {"nutritions": [
+            {"nutrients": [{"type": "ENER-", "name": "Energie", "value": "200 kcal"}, {"name": "Eiwitten", "value": "3 g"}]},
+            {"nutrients": [{"name": "Energie", "value": "999 kcal"}]},
+        ]}}}
+        with mock.patch.object(ah, "get_token", return_value="anon"), served(return_value=graphql(body)) as post:
+            self.assertEqual(run(ah.get_product_nutrition(191062)), {"calories": 200.0, "proteinContent": 3.0})
+        sent = sent_json(post.calls[0])
+        self.assertIn("tradeItem { nutritions { nutrients { type name value } } }", sent["query"])
+        self.assertEqual(sent["variables"], {"id": 191062})
+
+    def test_get_product_nutrition_never_throws(self):
+        for response in (graphql({"product": {"tradeItem": None}}), graphql({"product": None}), graphql(None, errors=["kapot"]), httpx.Response(500, text="weg")):
+            with self.subTest(response=response), mock.patch.object(ah, "get_token", return_value="anon"), served(return_value=response):
+                self.assertIsNone(run(ah.get_product_nutrition(1)))
+        self.assertIsNone(run(ah.get_product_nutrition("geen nummer")))
+
+
+BURGER = {"calories": 200, "fatContent": 10, "proteinContent": 20, "sodiumContent": 400}
+POTATOES = {"calories": 100, "fatContent": 2, "proteinContent": 2, "sodiumContent": 100, "fiberContent": 3}
+
+
+class NutritionInRecipesTest(ToMealPlanTestCase):
+    """Een recept of menu van producten krijgt porties en, als alles bekend is, voedingswaarden per persoon (4.9.0)."""
+
+    async def test_a_menu_of_two_products_per_person(self):
+        self.ah_has_pack(101, "AH Burger smokey", "300 g", BURGER)
+        self.ah_has_pack(88, "AH Bakaardappeltjes", "450 g", POTATOES)
+        await self.day(products=[(101, "AH Burger smokey"), (88, "AH Bakaardappeltjes")])
+        recipe = self.made[0][1]
+        self.assertEqual(recipe["recipeYield"], "2 personen")
+        # 300 g burger: 600 kcal, 30 g vet, 60 g eiwit, 1200 mg natrium; 450 g aardappeltjes: 450, 9, 9, 450 (en vezel, die de
+        # burger niet heeft, dus telt die niet mee). Samen gedeeld door 2 personen.
+        self.assertEqual(recipe["nutrition"], {
+            "@type": "NutritionInformation", "calories": "525 kcal", "proteinContent": "34.5 g", "fatContent": "19.5 g", "sodiumContent": "825 mg",
+        })
+
+    async def test_more_servings_divide_further(self):
+        self.ah_has_pack(101, "AH Burger smokey", "300 g", BURGER)
+        self.ah_has_pack(88, "AH Bakaardappeltjes", "450 g", POTATOES)
+        await self.day(products=[(101, "AH Burger smokey"), (88, "AH Bakaardappeltjes")], servings=4)
+        recipe = self.made[0][1]
+        self.assertEqual((recipe["recipeYield"], recipe["nutrition"]["calories"]), ("4 personen", "262.5 kcal"))
+
+    async def test_a_soup_of_its_own(self):
+        self.ah_has_pack(302, "Unox Stevige erwtensoep", "570 ml", {"calories": 40, "proteinContent": 2.5})
+        results = await self.day(products=[(302, "Unox Stevige erwtensoep")])
+        recipe = self.made[0][1]
+        self.assertEqual(results[0]["kind"], "product")
+        self.assertEqual(recipe["nutrition"], {"@type": "NutritionInformation", "calories": "114 kcal", "proteinContent": "7.1 g"})
+
+    async def test_only_when_everything_is_known(self):
+        # Een product zonder voedingstabel, of in stuks (zonder gewicht), maakt het menu onbekend; het menu komt er wel.
+        for second in (("AH Bakaardappeltjes", "450 g", None), ("AH Broodjes", "4 stuks", POTATOES), ("AH Saus", "", POTATOES)):
+            with self.subTest(second=second):
+                self.made.clear()
+                self.in_mealie.clear()
+                self.ah_has_pack(101, "AH Burger smokey", "300 g", BURGER)
+                self.per_100.pop(88, None)
+                self.ah_has_pack(88, *second)
+                results = await self.day(products=[(101, "AH Burger smokey"), (88, second[0])])
+                recipe = self.made[0][1]
+                self.assertNotIn("nutrition", recipe)
+                self.assertEqual((recipe["recipeYield"], results[0]["status"]), ("2 personen", "planned"))
+
+    async def test_a_pack_in_pieces_is_not_asked_at_ah(self):
+        self.ah_has_pack(5, "AH Broodjes", "4 stuks", POTATOES)
+        await self.day(products=[(5, "AH Broodjes")])
+        self.assertEqual(self.nutrition_asked, [])
+
+    async def test_a_refused_import_is_tried_without_picture_and_nutrition(self):
+        self.ah_has_pack(101, "AH Burger smokey", "300 g", BURGER)
+        self.refuse = [422]
+        await self.day(products=[(101, "AH Burger smokey")])
+        first, second = (recipe for _, recipe in self.made)
+        self.assertEqual(("image" in first, "nutrition" in first), (True, True))
+        self.assertEqual(("image" in second, "nutrition" in second), (False, False))
+        self.assertEqual(second["recipeYield"], "2 personen")
+
+
 class RouteTest(AppTestCase):
     def setUp(self):
         tmp = tempfile.TemporaryDirectory()
@@ -493,12 +631,12 @@ class RouteTest(AppTestCase):
 
     async def test_post_plans_the_cleaned_day(self):
         answer = {"results": [{"date": "2026-11-09", "kind": "recipe", "recipeId": 1, "status": "planned"}]}
-        body = {"date": "2026-11-09", "recipeIds": ["1"], "products": [{"productId": 7, "title": "AH Stokbrood"}], "note": "Soep", "combine": True, "splitMeals": False}
+        body = {"date": "2026-11-09", "recipeIds": ["1"], "products": [{"productId": 7, "title": "AH Stokbrood"}], "note": "Soep", "combine": True, "splitMeals": False, "servings": 3}
         with mock.patch.object(mealie, "ensure_configured", new_callable=mock.AsyncMock), \
                 mock.patch.object(ah_planner, "to_meal_plan", return_value=answer) as plan:
             res = await self.client.post("/api/ah/planner/to-meal-plan", json=body)
         self.assertEqual((res.status_code, res.get_json()), (200, answer))
-        plan.assert_called_once_with({"date": "2026-11-09", "recipeIds": [1], "products": [{"productId": 7, "title": "AH Stokbrood"}], "note": "Soep", "combine": True, "splitMeals": False})
+        plan.assert_called_once_with({"date": "2026-11-09", "recipeIds": [1], "products": [{"productId": 7, "title": "AH Stokbrood"}], "note": "Soep", "combine": True, "splitMeals": False, "servings": 3})
 
     async def test_every_user_may_read_and_plan(self):
         # Net als plannen en recepten importeren: niet alleen de beheerder.
