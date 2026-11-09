@@ -2,7 +2,6 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub; een stabiele release krijgt de teksten van alle versies sinds de vorige stabiele release.
 
-<<<<<<< HEAD
 ## v4.5.0
 
 ### Nieuw in 4.5.0
@@ -42,7 +41,7 @@ Pull request: [#290](https://github.com/helmerzNL/MealieShopper/pull/290).
   - Een ongeldige winkel heet in de tests nu `"nope"`.
 - **Handleiding** (NL en EN): een nieuw stuk *Lidl en Aldi*, en Lidl en Aldi bij het winkelmenu van Aanbiedingen, de voorkeurssupermarkt, het koppelen en het auditlog. De README's, de `.env`-voorbeelden en de Home Assistant-add-on noemen ze ook.
 - **Nieuw adres voor de scripts en stijlen** (`MEALIESHOPPER_ASSET_VERSION`). Ververs de pagina één keer.
-=======
+
 ## v4.4.2
 
 ### Gewijzigd en opgelost in 4.4.2
@@ -77,7 +76,6 @@ Issue: [#283](https://github.com/helmerzNL/MealieShopper/issues/283); vervolg op
 - **De volgorde van de varianten** (`ah.RECIPE_DETAIL_QUERIES`) begint nu met de vorm van AH: `steps` zonder selectie, met de voedingswaarden. Daarna komt dezelfde vraag met `steps { text }`, voor als AH die vorm terugzet, en dan de varianten zonder voedingswaarden. Een AH-recept kost nu één verzoek in plaats van drie.
 - **Opnieuw aanvullen.** Draai **Voedingswaarden aanvullen** onder *Instellingen, Koppelen, Mealie* opnieuw. De overgeslagen recepten komen dan weer aan bod: alleen een recept dat al calorieën heeft, wordt overgeslagen. Een recept dat AH niet meer kent, telt als mislukt.
 - **Tests:** `tests/test_recipe_import.py` heeft een nep-AH die `steps { text }` weigert, zoals AH zelf doet. De import krijgt dan in één verzoek de voedingswaarden en de stappen. Een tweede test laat zien dat de voedingswaarden ook meekomen als AH ooit weer `steps { text }` vraagt. De terugvaltests rekenen met vijf varianten.
->>>>>>> origin/beta
 
 ## v4.4.0
 
