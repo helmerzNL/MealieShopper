@@ -13,6 +13,7 @@ OFFERS_JS = (ROOT / "static" / "offers.js").read_text(encoding="utf-8")
 APP_JS = (ROOT / "static" / "app.js").read_text(encoding="utf-8")
 CSS = (ROOT / "static" / "styles.css").read_text(encoding="utf-8")
 POPOVER_JS = (ROOT / "static" / "popover.js").read_text(encoding="utf-8")
+INDEX_HTML = (ROOT / "templates" / "index.html").read_text(encoding="utf-8")
 
 
 def popover_source(name):
@@ -76,7 +77,7 @@ PRELUDE = "\n".join(
             "loadOfferZoomHistory",
         )
     ]
-    + [popover_source(name) for name in ("POPOVER_GAP", "POPOVER_EDGE", "POPOVER_SIDE_MIN", "offerPopupPlace")]
+    + [popover_source(name) for name in ("POPOVER_DELAY", "POPOVER_GRACE", "POPOVER_GAP", "POPOVER_EDGE", "POPOVER_SIDE_MIN", "offerPopupPlace")]
     + [
         "const offersState = { sort: 'store', store: 'ah', filters: null, filtersStore: 'ah' };",
         "const t = (key, params) => key + (params ? ' ' + JSON.stringify(params) : '');",
@@ -120,8 +121,9 @@ OFFERS = [
 
 @unittest.skipUnless(shutil.which("node"), "Node is niet geïnstalleerd")
 class OffersScanNodeTest(unittest.TestCase):
-    def run_js(self, body):
-        script = f"{PRELUDE}\nconst OFFERS = {json.dumps(OFFERS)};\n{body}"
+    def run_js(self, body, extra=()):
+        # `extra`: functies uit offers.js die alleen deze test nodig heeft (met stubs voor `$` en de DOM in `body`).
+        script = f"{PRELUDE}\n{chr(10).join(function_source(name) for name in extra)}\nconst OFFERS = {json.dumps(OFFERS)};\n{body}"
         result = subprocess.run(
             ["node", "-e", script],
             capture_output=True,
@@ -385,14 +387,115 @@ class OffersScanNodeTest(unittest.TestCase):
         self.assertIn("offersCardCount(offersFiltered({ search: false }))", body)
         self.assertIn("offersCardCount(offersState.offers)", body)
 
-    def test_focusout_closes_the_popup_and_a_closed_drawer_is_inert(self):
-        listeners = OFFERS_JS.split('$("#offers-products").addEventListener("focusout"')
-        self.assertEqual(len(listeners), 2, "een focusout-listener op de kaarten")
-        self.assertIn("delayHideOfferPopup();", listeners[1].split("});")[0])
-        body = function_source("offersFiltersOpen")
-        self.assertIn('matchMedia("(max-width: 1099px)")', body)
-        self.assertIn(".inert = ", body)
-        self.assertIn('setAttribute("aria-hidden"', body)
+    # Een minimale DOM voor de popup, het tikvenster en de lade: net genoeg voor de functies die de listeners aanroepen.
+    POPUP_DOM = """
+        const element = (name) => ({ name, hidden: false, innerHTML: "", dataset: {}, attrs: {}, children: new Set(), focused: 0, nextElementSibling: null,
+          contains(other) { return other === this || this.children.has(other); }, focus() { this.focused += 1; document.activeElement = this; },
+          querySelectorAll() { return Array.from(this.children); },
+          setAttribute(key, value) { this.attrs[key] = value; }, classList: { names: new Set(), toggle(name, on) { on ? this.names.add(name) : this.names.delete(name); }, contains(name) { return this.names.has(name); } } });
+        const box = element("popup"); box.hidden = true;
+        const dialog = Object.assign(element("dialog"), { open: false, showModal() { this.open = true; }, close() { this.open = false; } });
+        const dialogBody = element("dialogBody");
+        const aside = element("aside"), backdrop = element("backdrop"), toggle = element("toggle"), closeButton = element("close");
+        aside.children.add(closeButton);
+        const body = element("body");
+        const document = { body, activeElement: body };
+        const window = { innerWidth: 1280, innerHeight: 900, matchMedia: () => ({ matches: window.innerWidth < 1100 }) };
+        const $ = (selector) => ({ "#offer-popup": box, "#offer-zoom-dialog": dialog, "#offer-zoom-dialog-body": dialogBody, "#offers-filters": aside,
+          "#offers-filters-backdrop": backdrop, "#offers-filters-toggle": toggle, "#offers-filters-close": closeButton })[selector];
+        function placeOfferPopup() {}
+        const offerZoomCache = new Map(); const offerPopupProducts = new Map();
+        const anchor = element("card"); anchor.dataset.offer = "514010";
+    """
+    POPUP_FUNCTIONS = ("openOfferZoomDialog", "showOfferPopup", "scheduleOfferPopup", "hideOfferPopup", "delayHideOfferPopup", "hideOfferPopupFromKeyboard", "offerPopupTabTarget", "offerFocusables", "offerPopupKeepsFocus", "offerPopupScrolled")
+
+    def popup_js(self, body):
+        return self.run_js(f"{self.POPUP_DOM}\nofferPopup.ranges = {{}};\nofferPopup.anchor = null;\nofferPopup.id = '';\n{body}", extra=self.POPUP_FUNCTIONS)
+
+    def test_the_window_starts_a_new_offer_without_a_period_choice_and_keeps_it_per_pack(self):
+        found = self.popup_js(
+            f"const jsonFetch = () => new Promise(() => {{}}); offersState.offers = [{json.dumps(self.POPUP_OFFER)}, {{ ...{json.dumps(self.POPUP_OFFER)}, id: '777' }}];"
+            "const states = [];"
+            "offerPopup.ranges = { stale: '1y' }; openOfferZoomDialog(offerById('514010')); states.push({ ...offerPopup.ranges });"
+            "offerPopup.ranges.chosen = '6m'; openOfferZoomDialog(offerById('514010'), '1000'); states.push({ ...offerPopup.ranges });"
+            "openOfferZoomDialog(offerById('777')); states.push({ ...offerPopup.ranges, open: dialog.open });"
+            "console.log(JSON.stringify(states));"
+        )
+        self.assertEqual(found, [{}, {"chosen": "6m"}, {"open": True}])
+
+    def test_a_closing_drawer_gives_the_focus_back_to_the_filters_button(self):
+        found = self.popup_js(
+            "const states = [];"
+            "window.innerWidth = 375; offersFiltersOpen(true); document.activeElement = closeButton; offersFiltersOpen(false);"
+            "states.push({ focused: toggle.focused, inert: aside.inert, hidden: aside.attrs['aria-hidden'] });"
+            "document.activeElement = body; offersFiltersOpen(false); states.push({ focused: toggle.focused });"
+            "window.innerWidth = 1280; offersFiltersOpen(false); states.push({ focused: toggle.focused, inert: aside.inert, hidden: aside.attrs['aria-hidden'] });"
+            "console.log(JSON.stringify(states));"
+        )
+        self.assertEqual(found, [{"focused": 1, "inert": True, "hidden": "true"}, {"focused": 1}, {"focused": 1, "inert": False, "hidden": "false"}])
+
+    def test_the_popup_keeps_the_focus_within_the_card_and_itself(self):
+        found = self.popup_js(
+            "const inside = element('link'); box.children.add(inside); const elsewhere = element('other');"
+            "console.log(JSON.stringify([offerPopupKeepsFocus(anchor, inside), offerPopupKeepsFocus(anchor, anchor), offerPopupKeepsFocus(anchor, elsewhere), offerPopupKeepsFocus(anchor, null)]));"
+        )
+        self.assertEqual(found, [True, True, False, False])
+        for listener in ('$("#offers-products").addEventListener("focusout"', '$("#offer-popup").addEventListener("focusout"', '$("#offers-products").addEventListener("mouseout"'):
+            self.assertIn("offerPopupKeepsFocus(", OFFERS_JS.split(listener)[1].split("});")[0], listener)
+
+    def test_tab_goes_from_the_card_into_the_popup_and_shift_tab_back(self):
+        found = self.popup_js(
+            "const jsonFetch = () => new Promise(() => {}); offersState.offers = [" + json.dumps(self.POPUP_OFFER) + "];"
+            "showOfferPopup(anchor, offerById('514010'));"
+            "const first = element('first'), last = element('last'); box.children.add(first); box.children.add(last); anchor.nextElementSibling = element('nextcard');"
+            "const tab = (target, shiftKey) => { const found = offerPopupTabTarget({ key: 'Tab', shiftKey, target }, box); return found ? found.name : null; };"
+            # Een kale kaart: Tab vanaf de kaart de popup in, Shift+Tab vanaf de popup of zijn eerste link terug, Tab voorbij de laatste link naar de volgende kaart.
+            "const states = [tab(anchor, false), tab(box, true), tab(first, true), tab(last, false), tab(first, false), tab(anchor, true), tab(element('other'), false), offerPopupTabTarget({ key: 'a', shiftKey: false, target: anchor }, box) ? 'x' : null];"
+            # Een kaart met eigen knoppen (de link naar het product, Vergelijken): die blijven in de tabvolgorde, de popup komt na de laatste.
+            "const cardLink = element('cardlink'), compare = element('compare'); anchor.children.add(cardLink); anchor.children.add(compare);"
+            "states.push(tab(anchor, false), tab(cardLink, false), tab(compare, false), tab(box, true), tab(first, true));"
+            "anchor.nextElementSibling = null; states.push(tab(last, false)); box.hidden = true; states.push(tab(compare, false));"
+            "console.log(JSON.stringify(states));"
+        )
+        self.assertEqual(found, ["popup", "card", "card", "nextcard", None, None, None, None, None, None, "popup", "compare", "compare", None, None])
+        self.assertIn('id="offer-popup" class="offer-popup" tabindex="-1"', INDEX_HTML, "de popup zelf is te focussen")
+
+    def test_the_scroll_of_a_focus_does_not_cancel_the_waiting_popup(self):
+        # Tab naar een kaart onder de vouw scrolt die in beeld: die scroll mag de popup die nog wacht niet annuleren. Scrollen met
+        # een open popup, of met een popup die na een muisbeweging wacht, haalt hem wel weg.
+        found = self.popup_js(
+            "const jsonFetch = () => new Promise(() => {}); offersState.offers = [" + json.dumps(self.POPUP_OFFER) + "];"
+            "const states = [];"
+            "scheduleOfferPopup(anchor, null, { byKeyboard: true }); offerPopupScrolled(box, false); states.push({ waiting: offerPopup.timer !== 0 });"
+            "offerPopupScrolled(box, true); states.push({ waiting: offerPopup.timer !== 0 });"
+            "clearTimeout(offerPopup.timer); offerPopup.timer = 0; scheduleOfferPopup(anchor); offerPopupScrolled(box, false); states.push({ waiting: offerPopup.timer !== 0 });"
+            "showOfferPopup(anchor, offerById('514010')); offerPopupScrolled(box, true); states.push({ hidden: box.hidden });"
+            "offerPopupScrolled(box, false); states.push({ hidden: box.hidden });"
+            "console.log(JSON.stringify(states));"
+        )
+        self.assertEqual(found, [{"waiting": True}, {"waiting": True}, {"waiting": False}, {"hidden": False}, {"hidden": True}])
+        self.assertIn("{ byKeyboard: true }", OFFERS_JS.split('$("#offers-products").addEventListener("focusin"')[1].split("\n});")[0])
+
+    def test_keyboard_opens_the_popup_a_failed_load_shows_a_line_and_escape_closes_it(self):
+        # Review Focus 2: focus op een kaart opent de popup na de wachttijd, de geschiedenis mislukt (de kop blijft, met een regel
+        # erbij), Escape sluit en zet de focus terug op de kaart zonder de popup opnieuw te openen.
+        found = self.popup_js(
+            "const jsonFetch = () => Promise.reject(new Error('down')); offersState.offers = [" + json.dumps(self.POPUP_OFFER) + "];"
+            "const states = []; scheduleOfferPopup(anchor, null, { byKeyboard: true }); states.push({ hidden: box.hidden, timer: offerPopup.timer !== 0 });"
+            "setTimeout(() => {"
+            "  states.push({ hidden: box.hidden, none: box.innerHTML.includes('offers.popup.none'), loading: box.innerHTML.includes('offers.popup.loading'), head: box.innerHTML.includes('ohc-head') });"
+            "  document.activeElement = box; hideOfferPopupFromKeyboard();"
+            "  states.push({ hidden: box.hidden, focused: anchor.focused, quiet: offerPopup.quiet === anchor });"
+            "  console.log(JSON.stringify(states));"
+            "}, POPOVER_DELAY + 50);"
+        )
+        self.assertEqual(found, [
+            {"hidden": True, "timer": True},
+            {"hidden": False, "none": True, "loading": False, "head": True},
+            {"hidden": True, "focused": 1, "quiet": True},
+        ])
+        focusin = OFFERS_JS.split('$("#offers-products").addEventListener("focusin"')[1].split("\n});")[0]
+        self.assertIn("offerPopup.quiet", focusin, "de focus die Escape terugzet opent de popup niet opnieuw")
 
     def test_a_pack_without_its_own_offer_gets_no_deal_in_the_popup(self):
         # De 1000 g tegen gewone prijs naast de 500 g in de aanbieding: geen 15% korting of Bonus Box van de 500 g op haar regel.

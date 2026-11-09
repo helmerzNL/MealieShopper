@@ -706,7 +706,9 @@ const OFFER_POPUP_PURCHASES = 8;
 const offerZoomCache = new Map(); // winkel|id -> belofte van het product uit /api/prices/history
 const offerPopupProducts = new Map(); // winkel:id -> het geladen product, voor de periodeknoppen (offers_history.js)
 // `ranges`: de periodekeuze van de grafiek per product, binnen deze popup (de pagina Prijsgeschiedenis heeft haar eigen).
-const offerPopup = { timer: 0, hideTimer: 0, id: "", anchor: null, ranges: {} };
+// `quiet`: de kaart die de focus terugkreeg van Escape; zolang de focus in die kaart blijft, gaat de popup niet opnieuw open.
+// `byKeyboard`: de wachtende popup komt van een focus, niet van de muis (de scroll die een focus geeft annuleert hem dan niet).
+const offerPopup = { timer: 0, hideTimer: 0, id: "", anchor: null, ranges: {}, quiet: null, byKeyboard: false };
 
 function offerZoomFinePointer() {
   return window.matchMedia("(hover: hover) and (pointer: fine)").matches;
@@ -843,7 +845,7 @@ function showOfferPopup(anchor, offer, packId = null) {
   });
 }
 
-function scheduleOfferPopup(anchor, packId = null) {
+function scheduleOfferPopup(anchor, packId = null, { byKeyboard = false } = {}) {
   const offer = offerById(anchor.dataset.offer);
   if (!offer) return;
   clearTimeout(offerPopup.hideTimer);
@@ -851,6 +853,7 @@ function scheduleOfferPopup(anchor, packId = null) {
   const shownId = String(packId || offer.id);
   if (offerPopup.id === shownId && offerPopup.anchor === anchor) return;
   clearTimeout(offerPopup.timer);
+  offerPopup.byKeyboard = byKeyboard;
   offerPopup.timer = setTimeout(() => {
     offerPopup.timer = 0;
     showOfferPopup(anchor, offer, packId);
@@ -864,6 +867,50 @@ function delayHideOfferPopup() {
   offerPopup.hideTimer = setTimeout(hideOfferPopup, POPOVER_GRACE);
 }
 
+// Escape: de popup dicht, en stond de focus erin, dan terug naar de kaart zonder dat die focus de popup opnieuw opent.
+function hideOfferPopupFromKeyboard() {
+  const box = $("#offer-popup");
+  const anchor = offerPopup.anchor;
+  const inside = !box.hidden && anchor && box.contains(document.activeElement);
+  hideOfferPopup();
+  if (inside) {
+    offerPopup.quiet = anchor;
+    anchor.focus();
+  }
+}
+
+// De popup hangt achteraan in de pagina, dus Tab vanaf de kaart zou hem nooit bereiken: Tab voorbij de laatste knop van de kaart
+// (of vanaf een kale kaart) gaat de open popup in, Shift+Tab vanaf de popup of zijn eerste link terug naar die plek, en Tab
+// voorbij de laatste link van de popup naar de volgende kaart. Geeft het element dat de focus krijgt, of null als Tab zijn gang gaat.
+function offerPopupTabTarget(event, box) {
+  if (event.key !== "Tab" || box.hidden || !offerPopup.anchor) return null;
+  const anchor = offerPopup.anchor;
+  const cardStops = offerFocusables(anchor);
+  const popupStops = offerFocusables(box);
+  const cardEnd = cardStops[cardStops.length - 1] || anchor;
+  if (!event.shiftKey && event.target === cardEnd) return box;
+  if (event.shiftKey && (event.target === box || event.target === popupStops[0])) return cardEnd;
+  if (!event.shiftKey && popupStops.length && event.target === popupStops[popupStops.length - 1]) return anchor.nextElementSibling || null;
+  return null;
+}
+
+function offerFocusables(root) {
+  return Array.from(root.querySelectorAll('a[href]:not([tabindex="-1"]), button:not([disabled]), [tabindex]:not([tabindex="-1"])'));
+}
+
+// Scrollen van de pagina (niet in de popup zelf) haalt de popup weg: de kaart staat dan ergens anders. Een popup die na een
+// focus nog wacht blijft wachten: het is de focus zelf die de kaart in beeld scrolt.
+function offerPopupScrolled(box, insidePopup) {
+  if (insidePopup) return;
+  if (box.hidden && offerPopup.byKeyboard) return;
+  hideOfferPopup();
+}
+
+// Focus of muis die van de kaart naar de popup gaat (of andersom) telt niet als vertrek.
+function offerPopupKeepsFocus(anchor, to) {
+  return Boolean(to && (anchor.contains(to) || $("#offer-popup").contains(to)));
+}
+
 // Zonder muis: dezelfde inhoud als venster.
 function openOfferZoomDialog(offer, packId = null) {
   const dialog = $("#offer-zoom-dialog");
@@ -871,6 +918,7 @@ function openOfferZoomDialog(offer, packId = null) {
   const shownId = String(packId || offer.id);
   const shown = offerForPack(offer, shownId);
   const packs = offerPopupPacks(offer);
+  if (body.dataset.offer !== String(offer.id)) offerPopup.ranges = {}; // een andere aanbieding: de periodekeuze begint opnieuw
   body.dataset.offer = String(offer.id);
   body.innerHTML = offerPopupHtml(shown, offerPopupProducts.get(`${offersState.store}:${shownId}`) || null, packs, shownId);
   if (!dialog.open) dialog.showModal();
@@ -1476,6 +1524,7 @@ function offersFiltersOpen(open) {
   document.body.classList.toggle("offers-filters-open", open);
   // Als lade (onder 1100 px) staat de dichte zijbalk buiten beeld: dan ook buiten de tabvolgorde en voor schermlezers.
   const drawerClosed = window.matchMedia("(max-width: 1099px)").matches && !open;
+  if (drawerClosed && aside.contains(document.activeElement)) $("#offers-filters-toggle").focus(); // niet op <body> belanden
   aside.inert = drawerClosed;
   aside.setAttribute("aria-hidden", String(drawerClosed));
 }
@@ -1510,22 +1559,32 @@ $("#offers-products").addEventListener("mouseover", (event) => {
 });
 $("#offers-products").addEventListener("mouseout", (event) => {
   const found = offerPopupAnchor(event.target);
-  if (!found) return;
-  const to = event.relatedTarget;
-  if (to && (found.anchor.contains(to) || $("#offer-popup").contains(to))) return;
+  if (!found || offerPopupKeepsFocus(found.anchor, event.relatedTarget)) return;
   delayHideOfferPopup();
 });
 $("#offers-products").addEventListener("focusin", (event) => {
   if (!offerPopupAllowed()) return;
   const found = offerPopupAnchor(event.target);
-  if (found) scheduleOfferPopup(found.anchor, found.packId);
+  if (!found || offerPopup.quiet === found.anchor) return; // na Escape blijft de popup dicht zolang de focus in die kaart is
+  scheduleOfferPopup(found.anchor, found.packId, { byKeyboard: true });
 });
 $("#offers-products").addEventListener("focusout", (event) => {
   const found = offerPopupAnchor(event.target);
   if (!found) return;
   const to = event.relatedTarget;
-  if (to && (found.anchor.contains(to) || $("#offer-popup").contains(to))) return; // tabben naar de popup zelf mag
+  if (!to || !found.anchor.contains(to)) offerPopup.quiet = null;
+  if (offerPopupKeepsFocus(found.anchor, to)) return; // tabben naar de popup zelf mag
   delayHideOfferPopup();
+});
+$("#offer-popup").addEventListener("focusout", (event) => {
+  if (offerPopup.anchor && offerPopupKeepsFocus(offerPopup.anchor, event.relatedTarget)) return;
+  delayHideOfferPopup();
+});
+document.addEventListener("keydown", (event) => {
+  const target = offerPopupTabTarget(event, $("#offer-popup"));
+  if (!target) return;
+  event.preventDefault();
+  target.focus();
 });
 $("#offers-products").addEventListener("click", (event) => {
   const thumb = event.target.closest("[data-zoom]");
@@ -1559,12 +1618,10 @@ document.addEventListener("click", (event) => {
   else if (dialogBody) openOfferZoomDialog(offer, button.dataset.popupPack);
 });
 document.addEventListener("keydown", (event) => {
-  if (event.key === "Escape") hideOfferPopup();
+  if (event.key === "Escape") hideOfferPopupFromKeyboard();
 });
-// Scrollen van de pagina (niet in de popup zelf) haalt de popup weg: de kaart staat dan ergens anders.
 document.addEventListener("scroll", (event) => {
-  if (event.target instanceof Node && $("#offer-popup").contains(event.target)) return;
-  hideOfferPopup();
+  offerPopupScrolled($("#offer-popup"), event.target instanceof Node && $("#offer-popup").contains(event.target));
 }, { capture: true, passive: true });
 // De popup staat vast op het scherm en hangt onder <body>, want binnen de inhoud rekent position: fixed vanaf het vak dat scrolt.
 document.body.appendChild($("#offer-popup"));
