@@ -159,9 +159,29 @@ async function fetchSearchStore(store, append) {
   renderSearchStore(store);
 }
 
+// Een link in het zoekveld (sinds 4.10.3): die zoek je niet, die importeer je. Zo heeft *Recept importeren via URL* weer een
+// ingang zonder een extra item in het menu; de pagina op /import blijft bestaan.
+function recipeQueryIsUrl(query) {
+  return /^https?:\/\/\S+$/i.test(query);
+}
+
+async function importFromSearch(url) {
+  const button = $("#search-form button[type='submit']");
+  setBusy(button, true);
+  message("#search-message", t("recipe.importing"), "info");
+  const result = await importUrl(url);
+  $("#search-message").innerHTML = `<div class="message ${result.ok ? "success" : "error"}" role="${result.ok ? "status" : "alert"}">${result.html}</div>`;
+  if (result.ok) $("#recipe-query").value = "";
+  setBusy(button, false);
+}
+
 async function runRecipeSearch(event) {
   event.preventDefault();
   const query = $("#recipe-query").value.trim();
+  if (recipeQueryIsUrl(query)) {
+    await importFromSearch(query);
+    return;
+  }
   // Met een grens op de calorieën mag de zoekterm leeg zijn; dan zoekt alleen Mealie (de winkels geven geen kcal in hun lijst).
   const kcal = nutritionQuery("search");
   if (!query && !kcal) return;

@@ -1043,6 +1043,13 @@ a.subtab-menu__item[hidden] {
   box-shadow: inset 4px 0 0 var(--warning-border);
 }
 
+/* Neutraal: bezig, wachten, of een mededeling zonder oordeel (sinds 4.10.3). Geen groen: "Laden..." is geen succes. */
+.message.info {
+  background: var(--surface-muted);
+  color: var(--text);
+  box-shadow: inset 4px 0 0 var(--muted);
+}
+
 .message.warning code {
   background: var(--code-on-message);
 }
@@ -1591,6 +1598,7 @@ html:has(dialog[open]) {
 .product-dialog {
   width: min(480px, calc(100vw - 32px));
   max-height: calc(100vh - 32px);
+  max-height: calc(100dvh - 32px); /* iOS: de zichtbare hoogte, zonder de werkbalk van Safari */
   overflow: auto;
   overscroll-behavior: contain;
   border: 1px solid var(--border);
@@ -1687,6 +1695,7 @@ html:has(dialog[open]) {
   width: 100%;
   aspect-ratio: 1;
   max-height: max(160px, calc(100vh - 220px));
+  max-height: max(160px, calc(100dvh - 220px)); /* iOS: de zichtbare hoogte, zonder de werkbalk van Safari */
   border-radius: var(--radius-control);
   object-fit: contain;
   background: #fff;
@@ -2368,6 +2377,7 @@ html.no-calories .plan-servings__kcal {
     position: sticky;
     top: var(--cook-sticky-top);
     max-height: calc(100vh - var(--cook-sticky-top) - var(--cook-sticky-room));
+    max-height: calc(100dvh - var(--cook-sticky-top) - var(--cook-sticky-room)); /* iOS: de zichtbare hoogte, zonder de werkbalk van Safari */
     overflow-y: auto;
     overscroll-behavior: contain;
   }
@@ -4765,8 +4775,18 @@ html.is-standalone body {
     display: block;
   }
 
+  /* Het lange label is in de balk niet te zien, maar blijft de naam van de tab voor een schermlezer: het korte label eronder
+     heeft aria-hidden. Tot 4.10.3 stond hier display: none en had een tab in de balk geen naam (zoals .visually-hidden). */
   html.has-tabbar .tab-text {
-    display: none;
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+    border: 0;
   }
 
   html.has-tabbar .tab-short {
@@ -7901,6 +7921,7 @@ html.is-standalone body {
   width: 640px;
   max-width: calc(100vw - 32px);
   max-height: calc(100vh - 32px);
+  max-height: calc(100dvh - 32px); /* iOS: de zichtbare hoogte, zonder de werkbalk van Safari */
   overflow: auto;
   overscroll-behavior: contain;
   padding: 16px;
@@ -7965,6 +7986,7 @@ html.is-standalone body {
   z-index: 60;
   max-width: calc(100vw - 32px);
   max-height: calc(100vh - 32px);
+  max-height: calc(100dvh - 32px); /* iOS: de zichtbare hoogte, zonder de werkbalk van Safari */
   overflow: auto;
   overscroll-behavior: contain;
   background: var(--surface);

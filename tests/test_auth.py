@@ -8,12 +8,13 @@ import sqlite3
 import threading
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager, closing
+from datetime import timedelta
 from pathlib import Path
 from typing import Any
 from unittest import mock
 
 import pytest
-from quart import Quart
+from quart import Quart, Response
 
 from mealieshopper import auth
 from helpers import db, run  # noqa: E402
@@ -171,7 +172,7 @@ async def test_verify_token_with_a_damaged_key_gives_none(data_dir: Path) -> Non
 
 # Paden voor de toegangscontrole, met de uitkomst per beller (eigenaar, gebruiker, gebruiker met Bearer, anoniem).
 OPEN: None = None
-UNAUTHORIZED: tuple[dict[str, str], int] = ({"error": "Unauthorized"}, 401)
+UNAUTHORIZED: tuple[dict[str, str], int] = ({"error": "Je bent niet ingelogd. Log opnieuw in."}, 401)
 OWNER_ONLY: tuple[dict[str, str], int] = ({"error": "Dit kan alleen de beheerder."}, 403)
 ACCESS: list[tuple[str, tuple[Any, Any, Any, Any]]] = [
     ("/", (OPEN, OPEN, OPEN, OPEN)),
@@ -214,7 +215,7 @@ async def test_the_allowlist_opens_a_path_and_a_prefix(seeded: Path, monkeypatch
 async def test_setup_is_required_without_credentials(data_dir: Path) -> None:
     await auth.ensure_db()
     async with request_as(None):
-        assert await auth.require_auth_for_request() == ({"error": "Setup required"}, 401)
+        assert await auth.require_auth_for_request() == ({"error": "Stel eerst de beveiliging in."}, 401)
 
 
 async def test_create_token_carries_the_claims(seeded: Path) -> None:
@@ -223,6 +224,65 @@ async def test_create_token_carries_the_claims(seeded: Path) -> None:
     )
     assert (claims["sub"], claims["usr"], claims["ep"]) == (auth.OWNER_ID, "spam", 3)
     assert claims["exp"] - claims["iat"] == auth.SESSION_MAX_AGE_SECONDS
+
+
+async def aged_token(monkeypatch: pytest.MonkeyPatch, days: float, user_id: str = auth.OWNER_ID) -> str:
+    """Een sessietoken dat `days` dagen geleden is uitgegeven."""
+    real = auth.utcnow
+    monkeypatch.setattr(auth, "utcnow", lambda: real() - timedelta(days=days))
+    try:
+        return await auth.create_token(user_id, "spam" if user_id == auth.OWNER_ID else "eggs")
+    finally:
+        monkeypatch.setattr(auth, "utcnow", real)
+
+
+async def renewed_cookies(token: str, *, path: str = "/api/recipes", bearer: bool = False, status: int = 200, preset: str = "") -> list[str]:
+    """De Set-Cookie-koppen na `renew_session` op een verzoek met dit token."""
+    headers = {"Authorization": f"Bearer {token}"} if bearer else {"Cookie": f"{auth.SESSION_COOKIE_NAME}={token}"}
+    async with Quart(__name__).test_request_context(path, headers=headers):
+        response = Response("{}", status=status)
+        if preset:
+            response.headers.add("Set-Cookie", preset)
+        return (await auth.renew_session(response)).headers.getlist("Set-Cookie")
+
+
+async def test_a_session_slides_along_with_use(seeded: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Sinds 4.10.3: een sessie ouder dan een dag krijgt bij het volgende API-verzoek een nieuwe cookie van 30 dagen."""
+    assert auth.SESSION_MAX_AGE_SECONDS == 30 * 24 * 60 * 60
+    cookies = await renewed_cookies(await aged_token(monkeypatch, 2))
+    assert len(cookies) == 1
+    name, _, value = cookies[0].split(";")[0].partition("=")
+    assert name == auth.SESSION_COOKIE_NAME
+    assert f"Max-Age={auth.SESSION_MAX_AGE_SECONDS}" in cookies[0] and "HttpOnly" in cookies[0] and "SameSite=Lax" in cookies[0]
+    claims: dict[str, Any] = await auth.verify_token(value) or {}
+    assert (claims["sub"], claims["ep"]) == (auth.OWNER_ID, 3)
+    assert auth.utcnow().timestamp() - claims["iat"] < 60, "het nieuwe token is van nu"
+
+
+NOT_RENEWED: list[tuple[str, dict[str, Any]]] = [
+    ("vers", {"days": 0.5}),
+    ("statisch-bestand", {"days": 2, "path": "/static/app.js"}),
+    ("pagina", {"days": 2, "path": "/recipes"}),
+    ("mislukt-verzoek", {"days": 2, "status": 401}),
+    ("bearer", {"days": 2, "bearer": True}),
+    ("verlopen", {"days": 31}),
+    ("antwoord-wist-de-cookie", {"days": 2, "preset": f"{auth.SESSION_COOKIE_NAME}=; Max-Age=0; Path=/"}),
+]
+
+
+@pytest.mark.parametrize(("case", "options"), NOT_RENEWED, ids=[case for case, _ in NOT_RENEWED])
+async def test_a_session_is_not_renewed(seeded: Path, monkeypatch: pytest.MonkeyPatch, case: str, options: dict[str, Any]) -> None:
+    options = dict(options)
+    token = await aged_token(monkeypatch, options.pop("days"))
+    preset = options.get("preset", "")
+    assert await renewed_cookies(token, **options) == ([preset] if preset else []), case
+
+
+async def test_a_revoked_session_does_not_come_back(seeded: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Overal uitloggen (een hogere session_epoch) blijft gelden: de oude cookie wordt niet vernieuwd."""
+    token = await aged_token(monkeypatch, 2)
+    await auth.bump_session_epoch(auth.OWNER_ID)
+    assert await renewed_cookies(token) == []
 
 
 async def test_secret_box_decrypts_what_it_encrypted(seeded: Path) -> None:

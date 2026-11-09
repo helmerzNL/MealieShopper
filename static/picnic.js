@@ -39,7 +39,7 @@ async function refreshPicnicStatus() {
 }
 
 async function checkPicnicConnection() {
-  message("#picnic-status", t("ah.checking"), "success");
+  message("#picnic-status", t("ah.checking"), "info");
   try {
     const data = await jsonFetch("/api/picnic/auth/status?verify=1");
     picnicState.connected = Boolean(data.connected);
@@ -632,7 +632,7 @@ $("#picnic-code-form").addEventListener("submit", confirmPicnicCode);
 $("#picnic-send-sms").addEventListener("click", () => requestPicnicCode("SMS"));
 $("#picnic-send-email").addEventListener("click", () => requestPicnicCode("EMAIL"));
 $("#picnic-check").addEventListener("click", checkPicnicConnection);
-$("#picnic-unlink").addEventListener("click", unlinkPicnic);
+$("#picnic-unlink").addEventListener("click", (event) => unlinkWithConfirm(event.currentTarget, STORES.picnic.name, unlinkPicnic));
 $("#picnic-explore-run").addEventListener("click", runPicnicExplore);
 $("#picnic-explore-copy").addEventListener("click", async (event) => {
   const text = $("#picnic-explore-output").textContent;

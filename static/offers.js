@@ -972,6 +972,26 @@ function renderOfferGrid() {
   const cards = units.slice(0, limit).map(compact ? offerProductRow : offerProductCard).join("");
   grid.innerHTML = compact && units.length ? offerRowHead() + cards : cards;
   $("#offers-more").hidden = units.length <= limit;
+  // Weggefilterd tot nul (sinds 4.10.3): een leeg raster zegt niets, dus staat het er, met de weg terug. Niet als de winkel
+  // deze week geen aanbiedingen heeft: dat zegt de statusregel erboven al.
+  const empty = $("#offers-empty");
+  if (empty) empty.hidden = Boolean(units.length) || !offersState.offers.length;
+}
+
+// "Alles tonen" onder een leeg raster: het zoekveld, de categorie, de filters en de twee schakelaars terug naar alles.
+function offersShowAll() {
+  offersState.search = "";
+  offersState.category = "all";
+  offersState.filters = offersEmptyFilters();
+  offersSaveFilters();
+  offersState.goodOnly = false;
+  offersRemember(OFFERS_GOOD_KEY, "0");
+  if (offersState.personalOnly) {
+    $("#offers-personal-only").checked = false;
+    offersTogglePersonal(false);
+  }
+  offersRedraw();
+  $("#offers-search").focus();
 }
 
 // "Geldig ma 26 okt t/m zo 1 nov": de looptijd die de meeste aanbiedingen delen, of niets als de winkel er geen geeft.
@@ -1179,6 +1199,7 @@ function renderOffersLoading(storeName = storeDisplayName(offersState.store)) {
   $("#offers-products").innerHTML = "";
   $("#offers-products").setAttribute("aria-busy", "true");
   $("#offers-more").hidden = true;
+  if ($("#offers-empty")) $("#offers-empty").hidden = true;
   const box = $("#offers-loading");
   box.innerHTML = `${mdiIcon(MDI_LOADING, "offers-loading__icon")}<span>${escapeHtml(t("offers.loading", { store: storeName }))}</span>`;
   box.hidden = false;
@@ -1457,10 +1478,19 @@ $("#offers-categories").addEventListener("click", (event) => {
   if (chip) offersChooseCategory(chip.dataset.cat);
 });
 $("#offers-personal-only").addEventListener("change", (event) => offersTogglePersonal(event.target.checked));
+// Typen tekent de lijst niet bij elke toets opnieuw (sinds 4.10.3): elke keer rekende de pagina vier keer over alle
+// aanbiedingen van de week. Na 250 ms stilte, zoals het zoekveld van de Prijsgeschiedenis en van de aankopen.
+const OFFERS_INPUT_WAIT = 250;
+let offersInputTimer = 0;
+function offersRedrawSoon(redraw = offersRedraw) {
+  clearTimeout(offersInputTimer);
+  offersInputTimer = setTimeout(redraw, OFFERS_INPUT_WAIT);
+}
 $("#offers-search").addEventListener("input", (event) => {
   offersState.search = event.target.value;
-  offersRedraw();
+  offersRedrawSoon();
 });
+$("#offers-empty-clear").addEventListener("click", offersShowAll);
 $("#offers-good-only").addEventListener("change", (event) => {
   offersState.goodOnly = event.target.checked;
   offersRemember(OFFERS_GOOD_KEY, offersState.goodOnly ? "1" : "0");
@@ -1490,13 +1520,16 @@ for (const [id, key] of [["#offers-filter-bought", "bought"], ["#offers-filter-y
   });
 }
 $("#offers-filter-discount").addEventListener("input", (event) => {
-  offersFilters().minDiscount = Math.max(0, Math.min(75, Number(event.target.value) || 0));
-  offersFilterChanged();
+  const filters = offersFilters();
+  filters.minDiscount = Math.max(0, Math.min(75, Number(event.target.value) || 0));
+  // Het getal naast de schuif volgt meteen; de lijst pas als de schuif even stilstaat.
+  $("#offers-filter-discount-out").textContent = filters.minDiscount > 0 ? t("offers.filters.min_discount_value", { percent: I18N.formatNumber(filters.minDiscount) }) : t("offers.filters.min_discount_any");
+  offersRedrawSoon(offersFilterChanged);
 });
 $("#offers-filter-unit-price").addEventListener("input", (event) => {
   const value = Number(String(event.target.value).replace(",", "."));
   offersFilters().maxUnitPrice.value = event.target.value.trim() && Number.isFinite(value) && value > 0 ? value : null;
-  offersFilterChanged();
+  offersRedrawSoon(offersFilterChanged);
 });
 $("#offers-filter-unit").addEventListener("change", (event) => {
   offersFilters().maxUnitPrice.unit = event.target.value;

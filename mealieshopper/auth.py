@@ -24,7 +24,10 @@ from . import request_body
 
 OWNER_ID = "owner"  # de eerste gebruiker is de beheerder; alle anderen zijn gewone gebruikers
 SESSION_COOKIE_NAME = "ms_session"
-SESSION_MAX_AGE_SECONDS = 24 * 60 * 60
+# Een sessie loopt 30 dagen na het laatste gebruik af (sinds 4.10.3; daarvoor altijd 24 uur na het inloggen, ook midden in het
+# gebruik). Ze schuift mee: een sessie ouder dan een dag krijgt bij het volgende verzoek een nieuw token (`renew_session`).
+SESSION_MAX_AGE_SECONDS = 30 * 24 * 60 * 60
+SESSION_RENEW_AFTER_SECONDS = 24 * 60 * 60
 _INITIALIZED = False
 
 # De schema's die dit proces al aanmaakte, per database-pad: elke module maakt haar tabellen, indexen en migraties een keer per
@@ -636,19 +639,52 @@ def forget_runtime_state() -> None:
     _master_secrets.clear()
 
 
+def set_session_cookie(response: Any, token: str) -> None:
+    response.set_cookie(
+        SESSION_COOKIE_NAME,
+        token,
+        max_age=SESSION_MAX_AGE_SECONDS,
+        httponly=True,
+        secure=request_is_secure(),
+        samesite="Lax",
+        path="/",
+    )
+
+
 async def cookie_response(payload: dict[str, Any], token: str | None = None, status: int = 200):
     result = await make_response(jsonify(payload), status)
     if token:
-        result.set_cookie(
-            SESSION_COOKIE_NAME,
-            token,
-            max_age=SESSION_MAX_AGE_SECONDS,
-            httponly=True,
-            secure=request_is_secure(),
-            samesite="Lax",
-            path="/",
-        )
+        set_session_cookie(result, token)
     return result
+
+
+async def renew_session(response: Any) -> Any:
+    """De after_request-hook van app.py: laat een sessie meeschuiven met het gebruik.
+
+    Een geldige sessiecookie die ouder is dan `SESSION_RENEW_AFTER_SECONDS` krijgt een nieuw token en een nieuwe cookie, dus wie de
+    app regelmatig opent blijft ingelogd en wie hem `SESSION_MAX_AGE_SECONDS` niet opent logt opnieuw in. Alleen op een gelukt
+    verzoek aan de API: een statisch bestand wordt gecachet en hoort geen cookie te zetten. Niet met een `Bearer`-token (dat is
+    geen cookie), en niet als het antwoord de cookie zelf al zet of wist (inloggen, uitloggen, een fabrieksreset).
+    `current_user` controleert de handtekening, de vervaldatum en `session_epoch`, dus een ingetrokken sessie komt niet terug.
+    """
+    if not request.path.startswith("/api/") or not 200 <= response.status_code < 300:
+        return response
+    token = str(request.cookies.get(SESSION_COOKIE_NAME) or "").strip()
+    if not token or any(value.startswith(f"{SESSION_COOKIE_NAME}=") for value in response.headers.getlist("Set-Cookie")):
+        return response
+    payload = await verify_token(token)
+    if not payload or payload.get("purpose"):
+        return response
+    try:
+        age = utcnow().timestamp() - float(payload.get("iat") or 0)
+    except (TypeError, ValueError):
+        return response
+    if age < SESSION_RENEW_AFTER_SECONDS:
+        return response
+    user = await current_user()
+    if user:
+        set_session_cookie(response, await create_token(user["id"], user["username"]))
+    return response
 
 
 async def clear_cookie_response(payload: dict[str, Any]):
@@ -961,5 +997,5 @@ async def require_auth_for_request() -> tuple[dict[str, Any], int] | None:
             return {"error": tr("Dit kan alleen de beheerder.", "Only the administrator can do this.")}, 403
         return None
     if not await credentials_exist():
-        return {"error": "Setup required"}, 401
-    return {"error": "Unauthorized"}, 401
+        return {"error": tr("Stel eerst de beveiliging in.", "Set up security first.")}, 401
+    return {"error": tr("Je bent niet ingelogd. Log opnieuw in.", "You are not signed in. Sign in again.")}, 401

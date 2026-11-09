@@ -137,8 +137,41 @@ function escapeHtml(value) {
     .replaceAll("'", "&#039;");
 }
 
+// De sessie verliep terwijl de app open stond (een 401 op een gewone route): de inlogpoort komt over de pagina, met de reden
+// erbij. De pagina eronder blijft staan, dus na het inloggen ga je verder waar je was. Een keer tegelijk: tien verzoeken die
+// samen een 401 krijgen vragen de status maar een keer op.
+let sessionExpiredCheck = null;
+
+function sessionExpired() {
+  if (sessionExpiredCheck) return sessionExpiredCheck;
+  sessionExpiredCheck = (async () => {
+    try {
+      await refreshAuthStatus();
+      if (state.auth?.enabled && !state.auth?.authenticated) message("#auth-message", t("err.session_expired"), "info");
+    } catch {
+      // Geen verbinding of een serverfout: de melding van het verzoek zelf volstaat.
+    } finally {
+      sessionExpiredCheck = null;
+    }
+  })();
+  return sessionExpiredCheck;
+}
+
 async function jsonFetch(url, options = {}) {
-  const response = await fetch(url, { credentials: "same-origin", ...options });
+  let response;
+  try {
+    response = await fetch(url, { credentials: "same-origin", ...options });
+  } catch (error) {
+    // Een afgebroken verzoek (AbortController) is geen storing: wie het afbrak, handelt het zelf af.
+    if (error?.name === "AbortError") throw error;
+    // Geen netwerk of de server is weg: de browser geeft dan zijn eigen Engelse tekst ("Failed to fetch", "Load failed").
+    throw new Error(t("err.offline"));
+  }
+  // De routes onder /api/auth/ geven zelf een 401 bij een verkeerd wachtwoord of een verlopen kaartje: dat is geen verlopen sessie.
+  if (response.status === 401 && state.auth?.authenticated && state.auth?.enabled && !String(url).startsWith("/api/auth/")) {
+    sessionExpired();
+    throw new Error(t("err.session_expired"));
+  }
   let data;
   try {
     data = await response.json();
@@ -159,8 +192,12 @@ async function jsonFetch(url, options = {}) {
   return data;
 }
 
+// Een melding in het vak `target`. Soorten: "error" (de standaard), "warning", "success" en "info" (neutraal: bezig, wachten,
+// een mededeling zonder oordeel). Een fout of waarschuwing is een `alert`, de rest een `status`: zo leest een schermlezer de
+// melding voor zonder dat elk van de vakken in de pagina zelf een rol hoeft te hebben.
 function message(target, text, type = "error") {
-  $(target).innerHTML = text ? `<div class="message ${type}">${escapeHtml(text)}</div>` : "";
+  const role = type === "error" || type === "warning" ? "alert" : "status";
+  $(target).innerHTML = text ? `<div class="message ${type}" role="${role}">${escapeHtml(text)}</div>` : "";
 }
 
 function bufferToBase64url(buffer) {
@@ -332,7 +369,7 @@ async function refreshAuthStatus() {
 }
 
 async function registerPasskey({ username, credentialName, messageTarget, invite }) {
-  message(messageTarget, t("passkey.waiting"), "success");
+  message(messageTarget, t("passkey.waiting"), "info");
   const payload = await jsonFetch("/api/auth/register/options", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -387,7 +424,7 @@ async function deletePasskey(credentialId) {
 }
 
 async function loginWithPasskey() {
-  message("#auth-message", t("passkey.waiting"), "success");
+  message("#auth-message", t("passkey.waiting"), "info");
   const payload = await jsonFetch("/api/auth/login/options", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -405,7 +442,7 @@ async function loginWithPasskey() {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ credential: publicKeyCredentialToJSON(credential) }),
   });
-  message("#auth-message", "Ingelogd.", "success");
+  message("#auth-message", t("auth.logged_in"), "success");
   await refreshAuthStatus();
 }
 
@@ -1017,7 +1054,7 @@ async function loadMealPlan({ force = false } = {}) {
   state.entries = null;
   $("#meal-days").innerHTML = "";
   $("#ingredients-panel").innerHTML = "";
-  message("#planner-message", t("plan.loading"), "success");
+  message("#planner-message", t("plan.loading"), "info");
   setBusy(button, true);
   try {
     const entries = await fetchMealPlan(week);
@@ -1456,6 +1493,17 @@ function currentStore() {
   return STORES[state.store] || STORES.ah;
 }
 
+// De winkel waarvoor de open controlelijst is gezocht ("" als er geen open staat). Zoeken en toevoegen vanuit de lijst gaan
+// altijd naar die winkel, ook als de winkelkeuze erboven intussen iets anders zegt (een koppeling die wegvalt, een andere tab).
+function cartReviewStore() {
+  const store = document.querySelector("#cart-result .cart-review")?.dataset.store || "";
+  return STORES[store] ? store : "";
+}
+
+function cartReviewApi() {
+  return (STORES[cartReviewStore()] || currentStore()).api;
+}
+
 // De voorkeurssupermarkt van deze gebruiker (Instellingen, Voorkeuren; standaard Albert Heijn). Aanbiedingen en Winkels openen
 // ermee, tot je daar zelf een andere winkel kiest. Niet te verwarren met state.preferredStore, de laatste keuze in het weekmenu.
 function preferredSupermarket() {
@@ -1512,6 +1560,13 @@ function renderStoreChoice() {
       $("#cart-store-list").addEventListener("click", (event) => {
         const item = event.target.closest("[data-store]");
         if (!item) return;
+        // Een open controlelijst hoort bij de winkel waar hij voor gezocht is: zijn product-id's zeggen een andere winkel niets.
+        // Wisselen kan dus alleen door de lijst weg te doen, en dat vragen we eerst (cartReviewStore, sinds 4.10.3).
+        const reviewed = cartReviewStore();
+        if (reviewed && reviewed !== item.dataset.store) {
+          if (!window.confirm(t("cart.switch_confirm", { from: STORES[reviewed].name, to: STORES[item.dataset.store].name }))) return;
+          $("#cart-result").innerHTML = "";
+        }
         state.store = item.dataset.store;
         state.preferredStore = state.store;
         try {
@@ -1673,7 +1728,7 @@ try {
   // Geen opslag beschikbaar: AH blijft de standaard.
 }
 
-function showCartResult(data, notFound) {
+function showCartResult(data, notFound, store = state.store) {
   const lines = (data.items || [])
     .map((item) => {
       const size = item.product.unitSize ? ` (${escapeHtml(item.product.unitSize)})` : "";
@@ -1681,32 +1736,28 @@ function showCartResult(data, notFound) {
     })
     .join("");
   // Picnic, Jumbo en Crisp melden zelf ook welke producten ze niet in het mandje kregen (of al op het lijstje stonden).
-  const names = state.store === "ah" ? notFound : [...notFound, ...(data.skippedItems || [])];
+  const names = store === "ah" ? notFound : [...notFound, ...(data.skippedItems || [])];
   const missing = names.length
     ? th("cart.missing", { count: names.length, names: names.join(", ") })
     : "";
-  const ready = currentStore().ready;
+  const ready = STORES[store].ready;
   $("#cart-result").innerHTML = `
-    <div class="message success">${th(ready, { added: data.added }).replace("{missing}", missing)}</div>
+    <div class="message success" role="status">${th(ready, { added: data.added }).replace("{missing}", missing)}</div>
     ${lines ? `<ul class="cart-lines">${lines}</ul>` : ""}
+    <p><button class="button button--secondary" id="view-basket" type="button">${escapeHtml(t("basket.view"))}</button></p>
   `;
-  // Picnic, Jumbo en Crisp vullen het echte mandje: laat zien waar je het kunt bekijken en aanpassen.
-  if (["picnic", "jumbo", "crisp"].includes(state.store)) {
-    $("#cart-result").insertAdjacentHTML(
-      "beforeend",
-      `<p><button class="button button--secondary" id="view-basket" type="button">${escapeHtml(t("basket.view"))}</button></p>`
-    );
-    $("#view-basket").addEventListener("click", () => openBasket(state.store));
-  }
+  // Bij elke winkel: waar je het mandje kunt bekijken (bij Picnic en Crisp ook aanpassen). Tot 4.10.3 ontbrak de knop bij AH.
+  $("#view-basket").addEventListener("click", () => openBasket(store));
 }
 
 async function submitCart(selection, notFound) {
-  const data = await jsonFetch(`/api/${currentStore().api}/cart`, {
+  const store = cartReviewStore() || state.store;
+  const data = await jsonFetch(`/api/${STORES[store].api}/cart`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ items: selection }),
   });
-  showCartResult(data, notFound);
+  showCartResult(data, notFound, store);
 }
 
 function reviewSearchHtml(row, extra) {
@@ -1799,7 +1850,7 @@ function renderCartReview(rows) {
   const missingCount = rows.filter((row) => !row.candidates.length).length;
   const doubts = rows.filter((row) => row.candidates.length && row.candidates[0].doubt).length;
   $("#cart-result").innerHTML = `
-    <div class="box cart-review">
+    <div class="box cart-review" data-store="${escapeHtml(state.store)}">
       <h2>${escapeHtml(t("cart.review_title"))}</h2>
       <p class="muted">${escapeHtml(doubts ? tn("cart.doubts", doubts) : t("cart.review_intro"))}</p>
       ${missingCount ? `<p class="muted" id="review-missing-hint">${escapeHtml(tn("cart.missing_hint", missingCount))}</p>` : ""}
@@ -1887,7 +1938,7 @@ function renderCartReview(rows) {
     button.disabled = true;
     status.textContent = t("cart.searching");
     try {
-      const preview = await jsonFetch(`/api/${currentStore().api}/cart/preview`, {
+      const preview = await jsonFetch(`/api/${cartReviewApi()}/cart/preview`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ items: [{ query: term, display: row.display, quantity: row.quantity ?? null, unit: row.unit ?? null }] }),
@@ -1916,6 +1967,8 @@ function renderCartReview(rows) {
   updateConfirm();
 
   $("#cancel-cart").addEventListener("click", () => {
+    // Twintig regels nalopen en dan per ongeluk Annuleren: eerst vragen (sinds 4.10.3).
+    if (!window.confirm(t("cart.cancel_confirm"))) return;
     $("#cart-result").innerHTML = "";
   });
   $("#confirm-cart").addEventListener("click", async (event) => {
@@ -1937,9 +1990,10 @@ function renderCartReview(rows) {
         rows.filter((row) => !row.candidates.length).map((row) => row.display)
       );
     } catch (error) {
+      $("#cart-result > .message.error")?.remove(); // een tweede poging stapelt geen foutvakken
       $("#cart-result").insertAdjacentHTML(
         "afterbegin",
-        `<div class="message error">${escapeHtml(error.message)}</div>`
+        `<div class="message error" role="alert">${escapeHtml(error.message)}</div>`
       );
       // De knop staat in de balk onderaan; de melding staat boven de lijst en moet dus in beeld komen.
       $("#cart-result .message.error").scrollIntoView({ block: "center" });
@@ -1948,9 +2002,25 @@ function renderCartReview(rows) {
   });
 }
 
+// Albert Heijn staat altijd in de winkelkeuze, ook zonder koppeling: zoeken kan dan wel, toevoegen niet. Tot 4.10.3 liep je
+// daar pas tegenaan na het nalopen van de hele controlelijst. Nu zegt het weekmenu het vooraf, met de weg naar Koppelen.
+function cartStoreUnlinkedHtml() {
+  if (state.store !== "ah" || state.ahConnected !== false) return "";
+  const action = isRegularUser()
+    ? `<span>${escapeHtml(t("cart.ah_ask_admin"))}</span>`
+    : `<button class="button inline-button" type="button" id="cart-link-store">${escapeHtml(t("cart.ah_link"))}</button>`;
+  return `<div class="message warning message--action" role="alert"><span>${escapeHtml(t("cart.ah_unlinked"))}</span>${action}</div>`;
+}
+
 async function addToCart() {
   const ingredients = aggregateIngredients(state.entries);
   if (!ingredients.length) return;
+  const unlinked = cartStoreUnlinkedHtml();
+  if (unlinked) {
+    $("#cart-result").innerHTML = unlinked;
+    $("#cart-link-store")?.addEventListener("click", () => openLinkBlock("ah"));
+    return;
+  }
   const button = $("#add-cart");
   button.disabled = true;
   button.textContent = t("cart.searching");
@@ -2070,7 +2140,7 @@ async function importUrl(url, button = null) {
     });
     return { ok: true, html: importedMessage(data) };
   } catch (error) {
-    return { ok: false, html: error.message };
+    return { ok: false, html: escapeHtml(error.message) }; // de tekst komt van de server of van Mealie: nooit als HTML
   } finally {
     if (button) {
       button.disabled = false;
@@ -2109,10 +2179,25 @@ for (const store of Object.keys(LINK_FOLDS)) {
   });
 }
 
+// Naar het koppelblok van Mealie of een winkel onder Instellingen, Koppelen: uitgeklapt, in beeld en met de focus op de kop.
+// Tot 4.10.3 opende de knop Instellingen bovenaan, met het blok ergens verderop onder de hulpmiddelen.
+function openLinkBlock(store) {
+  openSettings();
+  state.storeFold[store] = true;
+  applyStoreFold(store, false);
+  const toggle = $(`#${LINK_FOLDS[store]}-toggle`);
+  if (!toggle || isRegularUser()) return;
+  requestAnimationFrame(() => {
+    toggle.scrollIntoView({ block: "center" });
+    toggle.focus({ preventScroll: true });
+  });
+}
+
 async function refreshAhStatus() {
   if (!$("#ah-status")) return;
   try {
     const data = await jsonFetch("/api/ah/auth/status");
+    state.ahConnected = Boolean(data.connected); // het weekmenu vraagt het na voordat het een controlelijst maakt (addToCart)
     renderLinkStatus("#ah-status", STORES.ah.name, data.connected ? "linked" : "unlinked");
     applyStoreFold("ah", Boolean(data.connected));
   } catch (error) {
@@ -2286,7 +2371,7 @@ function weekStartSettled() {
 }
 
 async function checkMealieConnection() {
-  message("#mealie-status", t("mealie.checking"), "success");
+  message("#mealie-status", t("mealie.checking"), "info");
   try {
     renderMealieStatus(await jsonFetch("/api/mealie/status?verify=1"), { verified: true });
   } catch (error) {
@@ -2322,6 +2407,18 @@ async function linkMealie(event) {
   }
 }
 
+// Ontkoppelen vraagt eerst (sinds 4.10.3): het was één klik, terwijl opnieuw koppelen bij Mealie een nieuw token vraagt en bij
+// Jumbo een computer met een console. De knop is bezig tot het antwoord er is, dus twee keer klikken doet niets.
+async function unlinkWithConfirm(button, name, unlink) {
+  if (!window.confirm(t("links.unlink_confirm", { name }))) return;
+  setBusy(button, true);
+  try {
+    await unlink();
+  } finally {
+    setBusy(button, false);
+  }
+}
+
 async function unlinkMealie() {
   try {
     const data = await jsonFetch("/api/mealie/auth/logout", { method: "POST", body: "{}" });
@@ -2334,7 +2431,7 @@ async function unlinkMealie() {
 }
 
 async function checkAhConnection() {
-  message("#ah-status", t("ah.checking"), "success");
+  message("#ah-status", t("ah.checking"), "info");
   try {
     const data = await jsonFetch("/api/ah/auth/status?verify=1");
     if (data.connected) {
@@ -3247,7 +3344,7 @@ $("#plan-recipe-chosen").addEventListener("change", (event) => {
 $("#import-form").addEventListener("submit", async (event) => {
   event.preventDefault();
   const result = await importUrl($("#import-url").value.trim());
-  $("#import-message").innerHTML = `<div class="message ${result.ok ? "success" : "error"}">${result.html}</div>`;
+  $("#import-message").innerHTML = `<div class="message ${result.ok ? "success" : "error"}" role="${result.ok ? "status" : "alert"}">${result.html}</div>`;
 });
 $("#verify-token").addEventListener("click", async () => {
   const token = $("#token-input").value.trim();
@@ -3268,15 +3365,11 @@ $("#verify-token").addEventListener("click", async () => {
 $("#check-ah").addEventListener("click", checkAhConnection);
 $("#mealie-form").addEventListener("submit", linkMealie);
 $("#check-mealie").addEventListener("click", checkMealieConnection);
-$("#mealie-unlink").addEventListener("click", unlinkMealie);
+$("#mealie-unlink").addEventListener("click", (event) => unlinkWithConfirm(event.currentTarget, "Mealie", unlinkMealie));
 $("#mealie-week-start").addEventListener("change", saveWeekStart);
 $("#mealie-nutrition-start").addEventListener("click", startNutritionBackfill);
 $("#mealie-nutrition-stop").addEventListener("click", stopNutritionBackfill);
-$("#open-mealie-setup").addEventListener("click", () => {
-  openSettings();
-  state.storeFold.mealie = true;
-  applyStoreFold("mealie", false);
-});
+$("#open-mealie-setup").addEventListener("click", () => openLinkBlock("mealie"));
 $("#load-ah-lists").addEventListener("click", loadAhFavoriteLists);
 $("#sync-all-ah-lists").addEventListener("click", syncAllAhLists);
 $("#load-ah-recipes").addEventListener("click", () => loadSavedRecipes({ refresh: true }));
@@ -3333,9 +3426,18 @@ $("#mfa-cancel").addEventListener("click", cancelMfa);
 $("#mfa-recovery-toggle").addEventListener("click", toggleRecoveryInput);
 $("#login-passkey").addEventListener("click", handlePasskeyLogin);
 $("#add-passkey").addEventListener("click", addPasskey);
-$("#auth-logout").addEventListener("click", async () => {
-  await jsonFetch("/api/auth/logout", { method: "POST", body: "{}" });
-  await refreshAuthStatus();
+$("#auth-logout").addEventListener("click", async (event) => {
+  // Mislukt het uitloggen (geen verbinding), dan zeggen we dat: op een gedeeld toestel mag je niet denken dat je weg bent.
+  const button = event.currentTarget;
+  button.disabled = true;
+  try {
+    await jsonFetch("/api/auth/logout", { method: "POST", body: "{}" });
+    await refreshAuthStatus();
+  } catch (error) {
+    window.alert(t("auth.logout_failed", { error: error.message }));
+  } finally {
+    button.disabled = false;
+  }
 });
 
 const params = new URLSearchParams(window.location.search);

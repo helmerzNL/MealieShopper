@@ -33,7 +33,7 @@ async function refreshCrispStatus() {
 }
 
 async function checkCrispConnection() {
-  message("#crisp-status", t("ah.checking"), "success");
+  message("#crisp-status", t("ah.checking"), "info");
   try {
     const data = await jsonFetch("/api/crisp/auth/status?verify=1");
     crispState.connected = Boolean(data.connected);
@@ -512,7 +512,7 @@ async function clearCrispBasket(items) {
 $("#crisp-form").addEventListener("submit", requestCrispCode);
 $("#crisp-code-form").addEventListener("submit", confirmCrispCode);
 $("#crisp-check").addEventListener("click", checkCrispConnection);
-$("#crisp-unlink").addEventListener("click", unlinkCrisp);
+$("#crisp-unlink").addEventListener("click", (event) => unlinkWithConfirm(event.currentTarget, STORES.crisp.name, unlinkCrisp));
 $("#crisp-explore-run").addEventListener("click", runCrispExplore);
 $("#load-crisp-recipes").addEventListener("click", loadCrispRecipes);
 $("#crisp-recipe-filter").addEventListener("input", (event) => {
