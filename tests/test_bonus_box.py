@@ -301,6 +301,7 @@ class BonusBoxSwitchTest(AppTestCase):
         program = f"""
 const t = (key) => key;
 const escapeHtml = (value) => String(value);
+const offersFilteredWithFamilies = (list) => list; // de zijbalkfilters hebben hun eigen tests (test_offers_scan_js.py)
 const offersState = {{
   personalOnly: false, personal: {{ supported: true }}, search: "", goodOnly: false,
   offers: [
