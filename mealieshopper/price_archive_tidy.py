@@ -279,15 +279,13 @@ class Tidy:
         """Een combi-aanbieding als eigen folderproduct, of None (zonder `keep_unlinked`, of zonder naam uit de folder).
 
         Nooit bij een product van jou, ook niet als het archief hem al aan een product hing: die koppeling is dan losgemaakt
-        (`detach`). Zonder één gewicht, inhoud of aantal geen prijs, want de prijzen van de producten in de actie lopen uiteen."""
+        (`detach`). De prijzen van het archief blijven, ook zonder één gewicht, inhoud of aantal: bij een lijnactie is de prijs per
+        stuk wat telt, en de Prijsgeschiedenis maakt hem per product kloppend (`line_offers.per_piece`)."""
         if not self.keep_unlinked:
             return None
         kept = dict(row) if is_archive_product(row) else detach(row)
         if kept is None:
             return None
-        if not known_pack(kept) and (kept.get("price") is not None or kept.get("price_before") is not None):
-            kept["price"] = kept["price_before"] = None
-            self.stats["unknownPack"] += 1
         kept["promo_label"] = line_label(kept.get("promo_label"))
         return kept
 

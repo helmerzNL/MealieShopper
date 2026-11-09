@@ -583,7 +583,7 @@ class TidyTest(ArchiveCase):
         by_id = {row["product_id"]: row for row in rows}
         self.assertEqual(sorted(by_id), ["folder:ah0001", "folder:ah0002", "folder:ah0003", "folder:ah0004"])
         self.assertEqual((summary["tidied"]["groups"], summary["tidied"]["lineOffers"]), (0, 3))
-        self.assertEqual((by_id["folder:ah0002"]["price"], by_id["folder:ah0002"]["price_before"]), (None, None))
+        self.assertEqual((by_id["folder:ah0002"]["price"], by_id["folder:ah0002"]["price_before"]), (1.02, 2.0), "de prijs per stuk blijft")
         self.assertEqual(by_id["folder:ah0004"]["promo_label"], "2 dozen, actie 3.50, was 2 stuks 5.38")
         self.assertEqual(by_store(summary)["ah"]["offers"]["new"], 4)
 

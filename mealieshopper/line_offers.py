@@ -242,3 +242,141 @@ class LineIndex:
                     if self._fits(line, have, several, known_sizes)
                 )
         return sorted(found)
+
+
+# --- de prijs per stuk van een lijnactie ---------------------------------------------------------------------------------
+#
+# Het folderarchief is hier niet consequent: "2 voor 6.00" staat er de ene week als 3.00 per stuk (was 4.29), de andere week
+# als 6.00 (was 8.58), en soms zonder prijs, alleen als tekst ("1+1 gratis"). `per_piece` maakt er per stuk van: eerst uit de
+# actietekst, dan uit de prijzen van het archief, en een prijs die het totaal van meer stuks is, herkent hij aan de gewone
+# prijs in de weken eromheen.
+
+_MONEY: str = r"(\d+[.,]\d{2})"
+_N_FOR: re.Pattern[str] = re.compile(r"(\d+)\s*voor:?\s*" + _MONEY)
+_FOR: re.Pattern[str] = re.compile(r"voor:?\s*" + _MONEY)  # na `_N_FOR`: "voor 1.99 per stuk"
+_FREE: re.Pattern[str] = re.compile(r"(\d+)\s*\+\s*(\d+)\s*(?:gratis|kosteloos)")
+_HALF: re.Pattern[str] = re.compile(r"2e\s*halve[\s-]*prijs")
+_PERCENT: re.Pattern[str] = re.compile(r"(\d{1,2})\s*%\s*korting")
+_WAS: re.Pattern[str] = re.compile(r"\bwas\s+(?:(\d+)\s*stuks\s+)?" + _MONEY)
+_ACTION: re.Pattern[str] = re.compile(r"\bactie\s+" + _MONEY)
+_COUNT: re.Pattern[str] = re.compile(r"\b(\d+)\s*(?:stuks|dozen|pakken)\b")
+NEIGHBOURS: int = 6  # zoveel lijnacties met een gewone prijs, het dichtst in de tijd, geven de gewone prijs van een week
+OTHER_PRODUCT: float = 0.3  # een gewone prijs zoveel onder of boven die van de weken eromheen: de actie gold een ander product
+
+
+def _money(value: str) -> float:
+    return float(value.replace(",", "."))
+
+
+def _number(value: object) -> float | None:
+    return float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) and value > 0 else None
+
+
+def _from_text(label: str) -> tuple[float | None, float | None, tuple[int, int] | None, float | None, bool]:
+    """Uit de actietekst: (prijs per stuk, gewone prijs per stuk, gratis als (betaald, totaal), korting als factor, en of de prijs
+    een totaal kan zijn: "actie 5.00" zonder aantal)."""
+    text: str = label.lower()
+    pieces: int | None = None
+    price: float | None = None
+    free: tuple[int, int] | None = None
+    factor: float | None = None
+    if found := _N_FOR.search(text):
+        pieces = int(found[1])
+        price = _money(found[2]) / pieces if pieces else None
+    elif found := _FREE.search(text):
+        paid, extra = int(found[1]), int(found[2])
+        free = (paid, paid + extra)
+        pieces = paid + extra
+    elif _HALF.search(text):
+        factor, pieces = 0.75, 2
+    elif found := _PERCENT.search(text):
+        factor = 1 - int(found[1]) / 100
+    elif found := _FOR.search(text):
+        price = _money(found[1])
+    regular: float | None = None
+    if found := _WAS.search(text):
+        count = int(found[1]) if found[1] else (pieces or _count(text))
+        regular = _money(found[2]) / count if count else _money(found[2])
+    maybe_total: bool = False
+    if price is None and free is None and factor is None and (found := _ACTION.search(text)):
+        count = pieces or _count(text)
+        price = _money(found[1]) / count if count else _money(found[1])
+        maybe_total = not count
+    return price, regular, free, factor, maybe_total
+
+
+def _count(text: str) -> int | None:
+    found = _COUNT.search(text)
+    return int(found[1]) if found and int(found[1]) > 1 else None
+
+
+def _median(values: list[float]) -> float | None:
+    ordered = sorted(values)
+    if not ordered:
+        return None
+    middle = len(ordered) // 2
+    return ordered[middle] if len(ordered) % 2 else (ordered[middle - 1] + ordered[middle]) / 2
+
+
+def _local_regular(regulars: list[tuple[str, float]], day: str) -> float | None:
+    """De gewone prijs rond een dag: de mediaan van de `NEIGHBOURS` lijnacties met een gewone prijs die er het dichtst bij liggen."""
+    if not regulars:
+        return None
+    nearest = sorted(regulars, key=lambda item: abs(_days(item[0]) - _days(day)))[:NEIGHBOURS]
+    return _median([value for _, value in nearest])
+
+
+def _days(day: str) -> int:
+    year, month, date = (int(part) for part in day[:10].split("-"))
+    return year * 372 + month * 31 + date  # alleen om afstanden te vergelijken
+
+
+def _as_pieces(value: float | None, typical: float | None) -> tuple[float | None, int]:
+    """Een gewone prijs die het totaal van 2 tot 4 stuks is (8.58 waar het er 4.29 hoort te zijn): per stuk, met het aantal."""
+    if value is None or typical is None or value < typical * 1.6:
+        return value, 1
+    pieces = round(value / typical)
+    if 2 <= pieces <= 4 and abs(value / pieces - typical) <= 0.25 * typical:
+        return value / pieces, pieces
+    return value, 1
+
+
+def per_piece(lines: list[dict]) -> list[dict]:
+    """Lijnacties met `price` en `priceBefore` per stuk, en `priceSource`: "text" (uit de actietekst), "archive" (de prijs van het
+    archief), "regular" (berekend uit de gewone prijs in de weken eromheen) of None (geen prijs te geven). Oudste eerst.
+
+    Een lijnactie waarvan de gewone prijs meer dan `OTHER_PRODUCT` afwijkt van die in de weken eromheen, valt weg: "Diverse Dr.
+    Oetker" met brownies van 2.09 is geen actie voor een pizza van 4.19."""
+    first: list[tuple[dict, float | None, float | None, tuple[int, int] | None, float | None]] = []
+    for line in lines:
+        price, regular, free, factor, maybe_total = _from_text(str(line.get("promoLabel") or ""))
+        source = ("total" if maybe_total else "text") if price is not None else None
+        if price is None and free is None and factor is None:
+            price = _number(line.get("price"))
+            source = "total" if price is not None else None
+        regular = regular if regular is not None else _number(line.get("priceBefore"))
+        first.append(({**line, "priceSource": source}, price, regular, free, factor))
+    plain = [(str(line["start"]), regular) for line, _, regular, _, _ in first if regular is not None]
+    typical_all = _median([value for _, value in plain])
+    corrected = [(day, _as_pieces(value, typical_all)[0]) for day, value in plain]
+    result: list[dict] = []
+    for line, price, regular, free, factor in first:
+        typical = _local_regular(corrected, str(line["start"]))
+        regular, pieces = _as_pieces(regular, typical)
+        if price is not None and pieces > 1 and line["priceSource"] == "total":
+            price = price / pieces
+        if line["priceSource"] == "total":
+            line["priceSource"] = "archive" if line.get("price") is not None and price == _number(line.get("price")) else "text"
+        if regular is not None and typical is not None and abs(regular - typical) > OTHER_PRODUCT * typical:
+            continue
+        if regular is None:
+            regular = typical
+        if price is None and regular is not None and (free or factor):
+            price = regular * free[0] / free[1] if free else regular * factor
+            line["priceSource"] = "regular"
+        if price is not None and regular is not None and price > regular * 1.05:
+            price, line["priceSource"] = None, None  # een "actieprijs" boven de gewone prijs is een totaal dat we niet kunnen delen
+        line["price"] = round(price, 2) if price is not None else None
+        line["priceBefore"] = round(regular, 2) if regular is not None else None
+        result.append(line)
+    return result

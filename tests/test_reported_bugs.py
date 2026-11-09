@@ -20,7 +20,7 @@ from helpers import db  # helpers zet ook het pad naar de app
 import test_history_stores_js  # als module: anders draait pytest die tests hier nog een keer
 from test_prices import PricesCase, offer
 
-from mealieshopper import ah_orders, assets, offers, price_archive_tidy, prices
+from mealieshopper import ah_orders, assets, offers, price_archive_tidy, price_import, prices
 from mealieshopper.app import create_app
 
 ROOT: Path = Path(__file__).resolve().parents[1]
@@ -210,6 +210,40 @@ class PriceHistoryLinkTest(PricesCase):
             ("2016-11-14", "Folder: Dr. Oetker Casa di Mama", "2 voor 4.00"),
         ])
         self.assertEqual((product["timesInLineOffer"], product["timesOnOffer"]), (2, 1))
+
+    async def test_2026_11_09_line_offers_have_a_price_per_piece_and_purchases_give_the_regular_price(self):
+        # "ik zie nogsteeds geen andere prijzen behalve de huidige hier ... ik weet zeker dat ik deze ook meermaals besteld heb dus
+        # ook dat mist hierbij. de prijsgrafiek is ook stuk nu." (4.1.10, Dr. Oetker Casa di mama pizza salami, 514010). Het archief
+        # gaf "2 voor 6.00" de ene week als 3.00 per stuk en de andere als 6.00 voor twee, de import gooide de prijs zonder
+        # verpakking weg, en de gewone prijs kwam alleen uit de bestelling van de laatste tien dagen.
+        await self.sync_offer(f"{TODAY}T05:00:00+00:00", offer("514010", "Dr. Oetker Casa di mama pizza salami", 3.65, 4.29, "Bonus Box 15% korting",
+                                                              unitSize="390 g", validFrom=TODAY, validUntil=days(6)))
+        folder = [
+            ("folder:a", "Folder: Alle Dr. Oetker Casa di Mama en Tradizionale", "2024-07-01", 3.0, 4.29, "2 voor: 6.00, was 8.58"),
+            ("folder:a", "Folder: Alle Dr. Oetker Casa di Mama en Tradizionale", "2024-09-30", 6.0, 8.58, "Diepvries2 voor: 6.00, was 2 stuks 8.58"),
+            ("folder:b", "Folder: Alle Dr. Oetker Casa di Mama", "2026-08-31", None, None, "1+1 kosteloos Diepvries, actie 1+1 gratis"),
+            ("folder:c", "Folder: Diverse Dr. Oetker", "2026-09-07", 1.78, 2.09, "15 procent voordeel Bijv. brownies choco, actie 1.78, was 2.09"),
+        ]
+        with closing(db(prices)) as conn, conn:
+            for product_id, title, start, price, before, label in folder:
+                end = (date.fromisoformat(start) + timedelta(days=6)).isoformat()
+                conn.execute(
+                    "INSERT INTO offer_history (store, product_id, title, brand, price, price_before, promo_label, valid_from, valid_until, "
+                    "first_seen, last_seen, ended_at) VALUES ('ah', ?, ?, 'Folderarchief', ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (product_id, title, price, before, label, start, end, f"{start}T00:00:00+00:00", f"{end}T23:59:59+00:00", f"{end}T23:59:59+00:00"),
+                )
+        with closing(db(price_import)) as conn, conn:
+            conn.execute(
+                "INSERT INTO imported_purchases (store, order_ref, position, day, title, quantity, paid, regular, imported_at) "
+                "VALUES ('ah', '232668613', 1, '2024-07-04', 'Dr. Oetker Casa di mama pizza salami', 1, 3.0, 4.29, ?)", (f"{TODAY}T00:00:00+00:00",),
+            )
+        product = (await self.linked("Dr. Oetker Casa di mama pizza salami", "514010"))[0]
+        self.assertEqual(product["productId"], "514010")
+        self.assertEqual([(line["start"], line["price"], line["priceBefore"]) for line in product["lineOffers"]],
+                         [("2024-07-01", 3.0, 4.29), ("2024-09-30", 3.0, 4.29), ("2026-08-31", 2.15, 4.29)], "per stuk, zonder de brownies")
+        self.assertEqual([(purchase["date"], purchase["price"]) for purchase in product["purchases"]], [("2024-07-04", 3.0)])
+        self.assertEqual(product["regular"][0]["from"], "2024-07-04", "de gewone prijs uit de ingelezen aankoop")
+        self.assertEqual(product["unitSize"], "390 g")
 
     def test_2026_11_09_line_offers_from_the_archive_are_kept_on_import(self):
         # Dezelfde melding: met "Ook regels bewaren die bij geen product van jou horen" blijft een combi als eigen folderproduct.

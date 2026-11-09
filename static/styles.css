@@ -6522,6 +6522,11 @@ html.is-standalone body {
   fill: #c98a1b;
 }
 
+.ohc-line--priced rect {
+  fill: #c98a1b;
+  opacity: 0.85;
+}
+
 .ohc-line:hover rect,
 .ohc-line:focus rect {
   fill: var(--text);
@@ -6562,6 +6567,44 @@ html.is-standalone body {
 
 .ohc-observed:focus {
   outline: none;
+}
+
+/* De actie van een folderactie, onder de naam in de folder. */
+.ohc-line-action {
+  display: block;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+/* De periode van de grafiek: 1 jaar, 3 jaar of alles. */
+.ohc-range {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 4px 0 6px;
+}
+
+.ohc-range-button {
+  min-height: 32px;
+  padding: 4px 12px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.ohc-range-button[aria-pressed="true"] {
+  border-color: var(--primary);
+  background: var(--primary);
+  color: var(--on-primary, #fff);
+}
+
+.ohc-range-button:focus-visible {
+  outline: 2px solid var(--text);
+  outline-offset: 2px;
 }
 
 .ohc-legend {

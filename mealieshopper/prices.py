@@ -161,7 +161,7 @@ _UNSYNCED: dict[str, tuple[tuple[str, str, str], ...]] = {
 
 # Welke bron voor de normale prijs voorgaat als er op één dag meer zijn: wat de winkel bij het zoeken zei, dan een bestelling,
 # dan de prijs vóór een actie.
-_REGULAR_RANK = {"search": 0, "order": 1, "offer": 2}
+_REGULAR_RANK = {"search": 0, "order": 1, "import": 1, "receipt": 1, "offer": 2}
 
 
 def _now() -> str:
@@ -900,7 +900,8 @@ def _product(store: str, product_id: str, offer: dict[str, Any] | None, observed
             for day in (episode.get("start"), episode.get("end")):
                 if day:
                     points.append((str(day)[:10], episode["priceBefore"], "offer", offer.get("unitSize") if offer else None))
-    points += [(row["day"], row["regular"], "order", row["unit_size"]) for row in bought if row["source"] == "order" and _number(row["regular"]) is not None]
+    # De gewone prijs bij een aankoop: van een bestelling, en ook van een ingelezen aankoop (*Oude aankopen importeren*) of een bon.
+    points += [(row["day"], row["regular"], row["source"], row["unit_size"]) for row in bought if _number(row["regular"]) is not None]
     # Een aanbieding die nog loopt heeft een einddatum in de toekomst. Wat de prijs dan is, weten we nog niet.
     points = [point for point in points if point[0] <= today]
     segments = _regular_segments([(day, price, source) for day, price, source, _ in points])
@@ -911,9 +912,11 @@ def _product(store: str, product_id: str, offer: dict[str, Any] | None, observed
     if segments:
         product["regularPrice"] = segments[-1]["price"]
         product["regularSince"] = segments[-1]["from"]
+    # De verpakking van de nieuwste gewone prijs die er een noemt: een ingelezen aankoop of een bon heeft er geen.
+    confirmed_unit: str | None = next((point[3] for point in sorted(points, key=lambda point: point[0], reverse=True) if point[3]), None)
     if latest_point:
-        product["unitSize"] = latest_point[3]
-    product["regularPerUnit"] = unit_price(product.get("regularPrice"), latest_point[3] if latest_point else None)
+        product["unitSize"] = confirmed_unit
+    product["regularPerUnit"] = unit_price(product.get("regularPrice"), confirmed_unit)
     regulars = [segment["price"] for segment in segments]
     product["lowestRegular"] = min(regulars) if regulars else None
     product["highestRegular"] = max(regulars) if regulars else None
@@ -974,7 +977,8 @@ async def _line_offers(store: str, catalogue: _Catalogue, ids: list[str]) -> dic
                     "validFrom": episode.get("validFrom"), "validUntil": episode.get("validUntil"), "price": episode.get("price"),
                     "priceBefore": episode.get("priceBefore"), "promoLabel": episode.get("promoLabel") or "",
                 }
-        result[product_id] = [weeks[start] for start in sorted(weeks)]
+        # Per stuk, en zonder de acties die bij de prijs van dit product niet passen (line_offers.per_piece).
+        result[product_id] = line_offers.per_piece([weeks[start] for start in sorted(weeks)])
     return result
 
 
