@@ -6,6 +6,8 @@ Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar
 
 ### Nieuw in 4.9.0
 
+Pull request: [#297](https://github.com/helmerzNL/MealieShopper/pull/297).
+
 *English summary: recipes and menus that **To week menu** (Stores, Albert Heijn, Week planner) makes from loose AH products now get servings and nutrition values. A new setting **Servings per recipe** under Settings, Preferences, Supermarket (2 by default, 1 to 8) sets the servings; the nutrition values are per person: the AH nutrition table of each product (per 100 g or ml, read with the anonymous token from the AH app's GraphQL, `product.tradeItem.nutritions`) times its whole pack, added up and divided by the servings. Only when that is known for all products in the recipe: a product without a nutrition table or with a pack in pieces leaves the recipe without nutrition values, so there are never too low totals in Mealie. Recipes that were already in Mealie do not change. The AH explorer gets a check that shows the shape of a product's nutrition table. Not tested against the live AH API.*
 
 - **Voedingswaarden in recepten en menu's van producten.** Een recept dat *Naar weekmenu* van een los product maakt (zoals soep of pizza), en een menu van meer producten (vlees, groente, aardappelen), krijgen nu voedingswaarden per persoon.
