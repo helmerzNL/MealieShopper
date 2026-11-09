@@ -18,6 +18,7 @@ from unittest import mock
 
 from helpers import db  # helpers zet ook het pad naar de app
 import test_history_stores_js  # als module: anders draait pytest die tests hier nog een keer
+import test_offers_scan_js  # idem: de Node-opbouw van offers.js
 from test_prices import PricesCase, offer
 
 from mealieshopper import ah_orders, assets, offers, price_archive_tidy, price_import, prices
@@ -288,6 +289,29 @@ class BestOffersTest(PricesCase):
         by_id = {item["id"]: item for item in response.get_json()["offers"]}
         self.assertEqual((by_id["514010"]["yearLow"]["status"], by_id["514010"]["yearLow"]["price"]), ("lowest", 2.15))
         self.assertEqual((by_id["233387"]["yearLow"]["status"], by_id["233387"]["yearLow"]["above"]), ("above", 1.5))
+
+
+@unittest.skipUnless(shutil.which("node"), "Node is niet geinstalleerd")
+class OffersFiltersTest(unittest.TestCase):
+    """Meldingen over de filters op de aanbiedingenpagina."""
+
+    def test_2026_11_09_filters_stack_and_count(self):
+        # "ik wil veel meer filters hier: /offers" (4.2.0): merk Dr. Oetker plus minstens 15 procent laat van drie aanbiedingen precies
+        # de twee pizza's door, en de actieve chips noemen beide filters.
+        offers = [
+            {"id": "1", "brand": "Dr. Oetker", "title": "Pizza salami", "badge": {"percent": 15}, "family": {"key": "a", "packs": []}},
+            {"id": "2", "brand": "Dr. Oetker", "title": "Pizza hawaii", "badge": {"percent": 20}, "family": {"key": "b", "packs": []}},
+            {"id": "3", "brand": "Unox", "title": "Rookworst", "badge": {"percent": 50}, "family": {"key": "c", "packs": []}},
+            {"id": "4", "brand": "Dr. Oetker", "title": "Brownies", "badge": {"percent": 10}, "family": {"key": "d", "packs": []}},
+        ]
+        filters = {"brands": ["Dr. Oetker"], "bought": False, "minDiscount": 15, "maxUnitPrice": {"value": None, "unit": "kg"}, "yearLow": False, "rare": False}
+        script = f"""{test_offers_scan_js.PRELUDE}
+offersState.filters = {json.dumps(filters)};
+const shown = offersFilteredWithFamilies({json.dumps(offers)});
+console.log(JSON.stringify({{ ids: shown.map((o) => o.id), chips: offersActiveFilterChips().map((c) => c.key) }}));"""
+        result = subprocess.run(["node", "-e", script], capture_output=True, text=True, timeout=30, check=False)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(json.loads(result.stdout), {"ids": ["1", "2"], "chips": ["brand:Dr. Oetker", "minDiscount"]})
 
 
 class SpeedTest(PricesCase):

@@ -31,7 +31,7 @@ def const_source(name):
 
 
 PRELUDE = "\n".join(
-    [const_source(name) for name in ("OFFER_UNIT_ORDER", "OFFER_LABEL_ORDER")]
+    [const_source(name) for name in ("OFFER_UNIT_ORDER", "OFFER_LABEL_ORDER", "OFFERS_OFTEN_PER_YEAR", "offersDimmedIds")]
     + [
         function_source(name)
         for name in (
@@ -47,17 +47,28 @@ PRELUDE = "\n".join(
             "offerPackRows",
             "offerPackWarning",
             "offerPerUnitText",
+            "offersFilterMatch",
+            "offersEmptyFilters",
+            "offersActiveFilterChips",
+            "offersFilteredWithFamilies",
+            "offersBrandCounts",
+            "offersDimmed",
+            "offersFilters",
+            "offersLoadFilters",
+            "offersUnitLabel",
         )
     ]
     + [
-        "const offersState = { sort: 'store' };",
+        "const offersState = { sort: 'store', store: 'ah', filters: null };",
         "const t = (key, params) => key + (params ? ' ' + JSON.stringify(params) : '');",
         "const escapeHtml = (value) => String(value);",
         "const offerBadgeTitle = () => 'uitleg';",
         "const monthShort = (date) => date.toLocaleDateString('nl-NL', { month: 'short' }).replace(/\\.$/, '');",
         "const formatPrice = (value) => 'EUR ' + Number(value).toFixed(2);",
-        "const offersDimmed = (offer) => offer.id === 'dim';",
         "const offerById = (id) => ({ id: String(id) });",
+        "const foldText = (value) => String(value).toLowerCase();",
+        "const matchesWords = (text, query) => query.toLowerCase().split(/\\s+/).every((word) => text.includes(word));",
+        "const I18N = { formatNumber: String };",
         "const offerDateText = (day) => String(day);",
     ]
 )
@@ -177,7 +188,7 @@ class OffersScanNodeTest(unittest.TestCase):
 
     def test_a_dimmed_pack_row_is_marked(self):
         family = {**self.FAMILY, "packs": [{**self.FAMILY["packs"][0], "productId": "dim"}, self.FAMILY["packs"][2]]}
-        html = self.run_js(f"console.log(JSON.stringify(offerPackRows({json.dumps({'id': 'dim', 'family': family})})));")
+        html = self.run_js(f"offersDimmedIds.add('dim'); console.log(JSON.stringify(offerPackRows({json.dumps({'id': 'dim', 'family': family})})));")
         self.assertEqual(html.count("offer-pack--dimmed"), 1)
 
     def test_a_single_pack_has_no_rows_and_unknown_packs_get_a_note(self):
@@ -188,6 +199,45 @@ class OffersScanNodeTest(unittest.TestCase):
     def test_the_pack_warning_names_the_cheaper_pack(self):
         self.assertIn("1000 g", self.run_js(f"console.log(JSON.stringify(offerPackWarning({json.dumps(self.FAMILY_OFFERS[0])})));"))
         self.assertEqual(self.run_js(f"console.log(JSON.stringify(offerPackWarning({json.dumps(self.FAMILY_OFFERS[2])})));"), "")
+
+    FILTER_OFFER = {"id": "1", "brand": "Dr. Oetker", "title": "Pizza", "bought": True, "badge": {"percent": 25}, "unitPricePer": {"value": 9.36, "unit": "kg"},
+                    "yearLow": {"status": "lowest"}, "verdict": {"timesThisYear": 3}, "personal": False, "family": {"key": "f1", "packs": []}}
+    EMPTY_FILTERS = {"brands": [], "bought": False, "minDiscount": 0, "maxUnitPrice": {"value": None, "unit": "kg"}, "yearLow": False, "rare": False}
+
+    def match(self, offer, filters):
+        return self.run_js(f"console.log(JSON.stringify(offersFilterMatch({json.dumps(offer)}, {json.dumps(filters)})));")
+
+    def test_filters_stack(self):
+        offer, empty = self.FILTER_OFFER, self.EMPTY_FILTERS
+        self.assertTrue(self.match(offer, empty))
+        self.assertTrue(self.match(offer, {**empty, "brands": ["Dr. Oetker"], "bought": True, "minDiscount": 25, "yearLow": True, "rare": True}))
+        self.assertFalse(self.match(offer, {**empty, "brands": ["Unox"]}))
+        self.assertFalse(self.match(offer, {**empty, "minDiscount": 30}))
+        self.assertFalse(self.match(offer, {**empty, "maxUnitPrice": {"value": 9.0, "unit": "kg"}}))
+        self.assertTrue(self.match(offer, {**empty, "maxUnitPrice": {"value": 9.0, "unit": "l"}}), "een grens in een andere eenheid raakt dit product niet")
+        self.assertFalse(self.match({**offer, "unitPricePer": None}, {**empty, "maxUnitPrice": {"value": 9.0, "unit": "kg"}}))
+        self.assertFalse(self.match({**offer, "badge": None}, {**empty, "minDiscount": 5}))
+        self.assertFalse(self.match({**offer, "verdict": {"timesThisYear": 6}}, {**empty, "rare": True}))
+        self.assertFalse(self.match({**offer, "bought": False}, {**empty, "bought": True}))
+        self.assertFalse(self.match({**offer, "yearLow": {"status": "above"}}, {**empty, "yearLow": True}))
+        self.assertEqual(self.run_js("console.log(JSON.stringify(offersEmptyFilters()));"), empty)
+
+    def test_a_brand_filter_that_matches_nothing_stays_active(self):
+        chips = self.run_js(f"offersState.filters = {json.dumps({**self.EMPTY_FILTERS, 'brands': ['Verdwenen'], 'minDiscount': 25})}; console.log(JSON.stringify(offersActiveFilterChips()));")
+        self.assertEqual([chip["key"] for chip in chips], ["brand:Verdwenen", "minDiscount"])
+        self.assertIn("Verdwenen", chips[0]["label"])
+
+    def test_the_family_stays_when_one_pack_matches_and_the_other_is_dimmed(self):
+        fam = {"key": "ah|rundergehakt|ah", "packs": []}
+        offers = [{**self.FILTER_OFFER, "id": "a", "family": fam, "badge": {"percent": 30}}, {**self.FILTER_OFFER, "id": "b", "family": fam, "badge": {"percent": 5}},
+                  {**self.FILTER_OFFER, "id": "c", "badge": {"percent": 5}}]
+        found = self.run_js(f"offersState.filters = {json.dumps({**self.EMPTY_FILTERS, 'minDiscount': 25})}; const shown = offersFilteredWithFamilies({json.dumps(offers)}); console.log(JSON.stringify({{ ids: shown.map((o) => o.id), dimmed: shown.filter((o) => offersDimmed(o)).map((o) => o.id) }}));")
+        self.assertEqual(found, {"ids": ["a", "b"], "dimmed": ["b"]})
+
+    def test_brand_counts_ignore_the_brand_filter_itself(self):
+        offers = [{**self.FILTER_OFFER, "id": "a"}, {**self.FILTER_OFFER, "id": "b", "brand": "Unox", "badge": {"percent": 5}}, {**self.FILTER_OFFER, "id": "c", "brand": "Unox"}]
+        found = self.run_js(f"offersState.filters = {json.dumps({**self.EMPTY_FILTERS, 'brands': ['Unox'], 'minDiscount': 25})}; console.log(JSON.stringify(offersBrandCounts({json.dumps(offers)})));")
+        self.assertEqual(found, [{"brand": "Dr. Oetker", "count": 1}, {"brand": "Unox", "count": 1}])
 
     def test_lower_before_disappears_when_year_low_is_known(self):
         label = {"kind": "lower_before", "price": 1.99, "month": "2010-03", "coveredSince": "2009-01-01"}

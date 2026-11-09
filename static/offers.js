@@ -15,12 +15,14 @@ const OFFERS_PERSONAL_KEY = "ms-offers-personal";
 const OFFERS_GOOD_KEY = "ms-offers-good";
 const OFFERS_SORT_KEY = "ms-offers-sort";
 const OFFERS_VIEW_KEY = "ms-offers-view";
+const OFFERS_FILTERS_KEY = "ms-offers-filters"; // per winkel: "ms-offers-filters:ah"
+const OFFERS_BRAND_CHIPS = 12; // zoveel merken staan er open in de zijbalk, de rest achter Meer merken
 const OFFERS_SORTS = ["best", "store", "discount", "unit", "lowest"];
 const OFFERS_VIEWS = ["cards", "compact"];
 const OFFER_COMPACT_ROWS = 8; // in de compacte weergave staan er per "rij" van de knop Meer zoveel regels
 const offersState = {
   store: "ah", supported: true, offers: [], categories: [], category: "all", course: "all", recipes: [], rows: OFFER_ROWS, weekStart: "",
-  personal: null, personalOnly: false, search: "", goodOnly: false, sort: "best", view: "cards",
+  personal: null, personalOnly: false, search: "", goodOnly: false, sort: "best", view: "cards", filters: null, brandsOpen: false,
   // chosen: zelf een winkel gekozen (menu of adres); tot dan volgt de pagina de voorkeurssupermarkt (Instellingen, Voorkeuren).
   // waiting: de pagina wacht nog op de koppeling van die winkel, zodat niet eerst de aanbiedingen van AH voorbijflitsen.
   chosen: false, waiting: false,
@@ -44,6 +46,124 @@ function offersRemember(key, value) {
   }
 }
 
+// De filters in de zijbalk: merken (meerdere), eerder gekocht, minimale korting (procent onder de laagste gewone prijs van 30 dagen),
+// prijs per eenheid hooguit (in een eenheid), laagste prijs in een jaar (yearLow) en zelden in de aanbieding (minder dan zes keer per
+// jaar, folderacties meegeteld). Per winkel onthouden, want merken verschillen per winkel.
+function offersEmptyFilters() {
+  return { brands: [], bought: false, minDiscount: 0, maxUnitPrice: { value: null, unit: "kg" }, yearLow: false, rare: false };
+}
+
+function offersFilters() {
+  if (!offersState.filters) offersState.filters = offersLoadFilters(offersState.store);
+  return offersState.filters;
+}
+
+function offersLoadFilters(store) {
+  const empty = offersEmptyFilters();
+  try {
+    const saved = JSON.parse(localStorage.getItem(`${OFFERS_FILTERS_KEY}:${store}`) || "null");
+    if (!saved || typeof saved !== "object") return empty;
+    return {
+      brands: Array.isArray(saved.brands) ? saved.brands.filter((brand) => typeof brand === "string") : [],
+      bought: saved.bought === true,
+      minDiscount: Number.isFinite(saved.minDiscount) ? Math.max(0, Math.min(75, saved.minDiscount)) : 0,
+      maxUnitPrice: { value: Number.isFinite(saved.maxUnitPrice && saved.maxUnitPrice.value) ? saved.maxUnitPrice.value : null, unit: ["kg", "l", "stuk"].includes(saved.maxUnitPrice && saved.maxUnitPrice.unit) ? saved.maxUnitPrice.unit : "kg" },
+      yearLow: saved.yearLow === true,
+      rare: saved.rare === true,
+    };
+  } catch {
+    return empty;
+  }
+}
+
+function offersSaveFilters() {
+  offersRemember(`${OFFERS_FILTERS_KEY}:${offersState.store}`, JSON.stringify(offersFilters()));
+}
+
+// Laat de aanbieding de filters door? Elk filter is een EN. Zonder badge voldoet een aanbieding niet aan een minimale korting, zonder
+// prijs per eenheid niet aan een grens; een grens in een andere eenheid dan die van het product raakt het niet.
+function offersFilterMatch(offer, filters) {
+  if (filters.brands.length && !filters.brands.includes(offer.brand || "")) return false;
+  if (filters.bought && !offer.bought) return false;
+  if (filters.minDiscount > 0 && !(offer.badge && typeof offer.badge.percent === "number" && offer.badge.percent >= filters.minDiscount)) return false;
+  const limit = filters.maxUnitPrice;
+  if (limit && typeof limit.value === "number") {
+    const per = offer.unitPricePer;
+    if (!per || typeof per.value !== "number") return false;
+    if (per.unit === limit.unit && per.value > limit.value + 0.005) return false;
+  }
+  if (filters.yearLow && !(offer.yearLow && offer.yearLow.status === "lowest")) return false;
+  if (filters.rare && !(offer.verdict && typeof offer.verdict.timesThisYear === "number" && offer.verdict.timesThisYear < OFFERS_OFTEN_PER_YEAR)) return false;
+  return true;
+}
+
+// Zoals prices.OFTEN_PER_YEAR: vanaf zoveel keer per jaar komt een aanbieding vaak terug.
+const OFFERS_OFTEN_PER_YEAR = 6;
+
+// De aanbiedingen die de filters doorlaten, met de familieregel: een aanbieding blijft als een verpakking van dezelfde familie
+// voldoet, en is dan gedempt (offersDimmed) als ze zelf niet voldoet. Zo zie je dat de 1000 g er is, ook als alleen de 300 g in de
+// aanbieding is.
+const offersDimmedIds = new Set();
+
+function offersFilteredWithFamilies(list) {
+  const filters = offersFilters();
+  offersDimmedIds.clear();
+  const passing = new Set();
+  const families = new Set();
+  list.forEach((offer) => {
+    if (offersFilterMatch(offer, filters)) {
+      passing.add(offer.id);
+      if (offer.family && offer.family.key) families.add(offer.family.key);
+    }
+  });
+  return list.filter((offer) => {
+    if (passing.has(offer.id)) return true;
+    if (offer.family && offer.family.key && families.has(offer.family.key)) {
+      offersDimmedIds.add(offer.id);
+      return true;
+    }
+    return false;
+  });
+}
+
+function offersDimmed(offer) {
+  return offersDimmedIds.has(offer.id);
+}
+
+// De merken in de lijst met het aantal, na de andere filters (niet het merkfilter zelf), op aantal en dan naam.
+function offersBrandCounts(list) {
+  const filters = { ...offersFilters(), brands: [] };
+  const counts = new Map();
+  list.forEach((offer) => {
+    if (!offersFilterMatch(offer, filters)) return;
+    const brand = offer.brand || "";
+    if (brand) counts.set(brand, (counts.get(brand) || 0) + 1);
+  });
+  return [...counts.entries()].map(([brand, count]) => ({ brand, count })).sort((a, b) => b.count - a.count || a.brand.localeCompare(b.brand));
+}
+
+// De actieve filters als verwijderbare chips. Een merk dat deze week niet in de lijst staat blijft een chip: nooit stil wissen.
+function offersActiveFilterChips() {
+  const filters = offersFilters();
+  const chips = filters.brands.map((brand) => ({ key: `brand:${brand}`, label: brand }));
+  if (filters.bought) chips.push({ key: "bought", label: t("offers.filters.bought") });
+  if (filters.minDiscount > 0) chips.push({ key: "minDiscount", label: t("offers.filters.min_discount_chip", { percent: I18N.formatNumber(filters.minDiscount) }) });
+  if (typeof filters.maxUnitPrice.value === "number") {
+    chips.push({ key: "maxUnitPrice", label: t("offers.filters.max_unit_chip", { price: formatPrice(filters.maxUnitPrice.value), unit: offersUnitLabel(filters.maxUnitPrice.unit) }) });
+  }
+  if (filters.yearLow) chips.push({ key: "yearLow", label: t("offers.filters.year_low") });
+  if (filters.rare) chips.push({ key: "rare", label: t("offers.filters.rare") });
+  return chips;
+}
+
+function offersUnitLabel(unit) {
+  return t({ kg: "offers.unit.kg", l: "offers.unit.l" }[unit] || "offers.unit.stuk");
+}
+
+function offersActiveFilterCount() {
+  return offersActiveFilterChips().length;
+}
+
 // Alleen de persoonlijke aanbiedingen (de Bonus Box): als de schakelaar aan staat en de winkel ze heeft.
 function offersPersonalOnly() {
   return offersState.personalOnly && Boolean(offersState.personal && offersState.personal.supported);
@@ -56,7 +176,7 @@ function offersFiltered() {
   const search = offersState.search.trim();
   if (search) shown = shown.filter((offer) => matchesWords(offerSearchText(offer), search));
   if (offersState.goodOnly) shown = shown.filter((offer) => offer.verdict && offer.verdict.kind === "good");
-  return shown;
+  return offersFilteredWithFamilies(shown);
 }
 
 // De tekst waarop het zoekveld zoekt (naam en merk, gevouwen), per aanbieding één keer berekend. Niet op de aanbieding zelf gezet:
@@ -142,12 +262,6 @@ function offerFamilies(sorted) {
     group.offers = [head, ...group.offers.filter((offer) => offer !== head)];
   });
   return groups.sort((a, b) => a.at - b.at);
-}
-
-// Een filter kan een verpakking van een familie buiten de boot laten terwijl een andere voldoet: die regel wordt gedempt, niet
-// verborgen. De filters komen in een volgende stap, tot dan is niets gedempt.
-function offersDimmed(offer) {
-  return false;
 }
 
 // "duurder per kilo dan 1000 g": de aanbieding is per eenheid duurder dan een andere verpakking van hetzelfde product.
@@ -307,6 +421,7 @@ function renderOffersStore() {
 function offersSwitchStore(store, { chosen = true } = {}) {
   offersState.chosen = chosen;
   offersState.store = offersStores().includes(store) ? store : "ah";
+  offersState.filters = null; // per winkel onthouden: offersFilters laadt die van de nieuwe winkel
   offersState.category = "all";
   offersState.course = "all";
   showOffers();
@@ -784,10 +899,46 @@ function offersTogglePersonal(on) {
   renderOfferGrid();
 }
 
+// De zijbalk: de merken met hun aantal, de schakelaars en de grenzen zoals ze staan, de teller op de knop en de actieve chips.
+function renderOffersFilters() {
+  const filters = offersFilters();
+  const brands = offersBrandCounts(offersState.offers.filter((offer) => (!offersPersonalOnly() || offer.personal) && (!offersState.goodOnly || (offer.verdict && offer.verdict.kind === "good"))));
+  const shown = offersState.brandsOpen ? brands : brands.slice(0, OFFERS_BRAND_CHIPS);
+  // Een gekozen merk dat deze week niet in de lijst staat, blijft zichtbaar als chip, met 0.
+  filters.brands.forEach((brand) => {
+    if (!shown.some((item) => item.brand === brand)) shown.push({ brand, count: brands.find((item) => item.brand === brand)?.count || 0 });
+  });
+  $("#offers-filter-brands").innerHTML = shown
+    .map((item) => `<button class="offer-chip offer-chip--small${filters.brands.includes(item.brand) ? " is-active" : ""}" type="button" data-brand="${escapeHtml(item.brand)}" aria-pressed="${filters.brands.includes(item.brand)}">${escapeHtml(item.brand)} <small>${I18N.formatNumber(item.count)}</small></button>`)
+    .join("");
+  const more = $("#offers-filter-brands-more");
+  more.hidden = brands.length <= OFFERS_BRAND_CHIPS;
+  more.textContent = offersState.brandsOpen ? t("offers.filters.fewer_brands") : t("offers.filters.more_brands", { count: I18N.formatNumber(brands.length - OFFERS_BRAND_CHIPS) });
+  $("#offers-filter-bought").checked = filters.bought;
+  $("#offers-filter-year-low").checked = filters.yearLow;
+  $("#offers-filter-rare").checked = filters.rare;
+  $("#offers-filter-discount").value = String(filters.minDiscount);
+  $("#offers-filter-discount-out").textContent = filters.minDiscount > 0 ? t("offers.filters.min_discount_value", { percent: I18N.formatNumber(filters.minDiscount) }) : t("offers.filters.min_discount_any");
+  const price = $("#offers-filter-unit-price");
+  if (document.activeElement !== price) price.value = typeof filters.maxUnitPrice.value === "number" ? String(filters.maxUnitPrice.value) : "";
+  const unit = $("#offers-filter-unit");
+  unit.innerHTML = ["kg", "l", "stuk"].map((name) => `<option value="${name}"${name === filters.maxUnitPrice.unit ? " selected" : ""}>${escapeHtml(t("offers.filters.per_unit", { unit: offersUnitLabel(name) }))}</option>`).join("");
+  const count = offersActiveFilterCount();
+  $("#offers-filters-count").textContent = count ? ` (${I18N.formatNumber(count)})` : "";
+  const active = $("#offers-active-filters");
+  active.hidden = !count;
+  active.innerHTML = count
+    ? offersActiveFilterChips()
+        .map((chip) => `<button class="offer-chip offer-chip--small is-active" type="button" data-remove="${escapeHtml(chip.key)}" aria-label="${escapeHtml(t("offers.filters.remove", { filter: chip.label }))}">${escapeHtml(chip.label)} <span aria-hidden="true">&times;</span></button>`)
+        .join("") + `<button class="link-button" type="button" data-remove="all">${escapeHtml(t("offers.filters.clear"))}</button>`
+    : "";
+}
+
 // De werkbalk: het zoekveld, de schakelaar "alleen echt voordelig" en de sorteerchips, zoals de keuzes nu staan.
 function renderOffersTools() {
   $("#offers-search").value = offersState.search;
   $("#offers-good-only").checked = offersState.goodOnly;
+  renderOffersFilters();
   $("#offers-sort").querySelectorAll("[data-sort]").forEach((chip) => {
     const active = chip.dataset.sort === offersState.sort;
     chip.classList.toggle("is-active", active);
@@ -815,7 +966,16 @@ function renderOffersStatusGood() {
   if (!base) return;
   // Over dezelfde aanbiedingen als het totaal ervoor: niet binnen het zoekveld of de Bonus Box, die telt het totaal ook niet.
   const good = offersState.goodOnly ? offersState.offers.filter((offer) => offer.verdict && offer.verdict.kind === "good").length : 0;
-  status.textContent = offersState.goodOnly ? `${base} ${t("offers.status.good", { count: I18N.formatNumber(good) })}` : base;
+  const parts = [base];
+  if (offersState.goodOnly) parts.push(t("offers.status.good", { count: I18N.formatNumber(good) }));
+  // Met een filter in de zijbalk: hoeveel er door de filters komen, van het totaal. Net als het aantal echt voordelig: over alle
+  // aanbiedingen van de week, niet binnen het zoekveld.
+  if (offersActiveFilterCount()) {
+    const filters = offersFilters();
+    const through = offersState.offers.filter((offer) => offersFilterMatch(offer, filters)).length;
+    parts.push(t("offers.status.filtered", { shown: I18N.formatNumber(through), total: I18N.formatNumber(offersState.offers.length) }));
+  }
+  status.textContent = parts.join(" ");
 }
 
 function renderOffers(data) {
@@ -1170,6 +1330,71 @@ $("#offers-good-only").addEventListener("change", (event) => {
   offersState.goodOnly = event.target.checked;
   offersRemember(OFFERS_GOOD_KEY, offersState.goodOnly ? "1" : "0");
   offersRedraw();
+});
+// De zijbalk met filters: elke wijziging bewaart de filters voor deze winkel en tekent de lijst opnieuw.
+function offersFilterChanged() {
+  offersSaveFilters();
+  offersRedraw();
+}
+$("#offers-filter-brands").addEventListener("click", (event) => {
+  const chip = event.target.closest("[data-brand]");
+  if (!chip) return;
+  const filters = offersFilters();
+  const brand = chip.dataset.brand;
+  filters.brands = filters.brands.includes(brand) ? filters.brands.filter((item) => item !== brand) : [...filters.brands, brand];
+  offersFilterChanged();
+});
+$("#offers-filter-brands-more").addEventListener("click", () => {
+  offersState.brandsOpen = !offersState.brandsOpen;
+  renderOffersFilters();
+});
+for (const [id, key] of [["#offers-filter-bought", "bought"], ["#offers-filter-year-low", "yearLow"], ["#offers-filter-rare", "rare"]]) {
+  $(id).addEventListener("change", (event) => {
+    offersFilters()[key] = event.target.checked;
+    offersFilterChanged();
+  });
+}
+$("#offers-filter-discount").addEventListener("input", (event) => {
+  offersFilters().minDiscount = Math.max(0, Math.min(75, Number(event.target.value) || 0));
+  offersFilterChanged();
+});
+$("#offers-filter-unit-price").addEventListener("input", (event) => {
+  const value = Number(String(event.target.value).replace(",", "."));
+  offersFilters().maxUnitPrice.value = event.target.value.trim() && Number.isFinite(value) && value > 0 ? value : null;
+  offersFilterChanged();
+});
+$("#offers-filter-unit").addEventListener("change", (event) => {
+  offersFilters().maxUnitPrice.unit = event.target.value;
+  offersFilterChanged();
+});
+$("#offers-active-filters").addEventListener("click", (event) => {
+  const button = event.target.closest("[data-remove]");
+  if (!button) return;
+  const key = button.dataset.remove;
+  const filters = offersFilters();
+  if (key === "all") offersState.filters = offersEmptyFilters();
+  else if (key.startsWith("brand:")) filters.brands = filters.brands.filter((brand) => `brand:${brand}` !== key);
+  else if (key === "minDiscount") filters.minDiscount = 0;
+  else if (key === "maxUnitPrice") filters.maxUnitPrice.value = null;
+  else filters[key] = false;
+  offersFilterChanged();
+});
+$("#offers-filters-clear").addEventListener("click", () => {
+  offersState.filters = offersEmptyFilters();
+  offersFilterChanged();
+});
+// Op een smal scherm is de zijbalk een uitschuifpaneel: de knop Filters opent hem, de achtergrond, het kruisje en Escape sluiten hem.
+function offersFiltersOpen(open) {
+  $("#offers-filters").classList.toggle("is-open", open);
+  $("#offers-filters-backdrop").hidden = !open;
+  $("#offers-filters-toggle").setAttribute("aria-expanded", String(open));
+  document.body.classList.toggle("offers-filters-open", open);
+}
+$("#offers-filters-toggle").addEventListener("click", () => offersFiltersOpen(!$("#offers-filters").classList.contains("is-open")));
+$("#offers-filters-close").addEventListener("click", () => offersFiltersOpen(false));
+$("#offers-filters-backdrop").addEventListener("click", () => offersFiltersOpen(false));
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && $("#offers-filters").classList.contains("is-open")) offersFiltersOpen(false);
 });
 $("#offers-sort").addEventListener("click", (event) => {
   const chip = event.target.closest("[data-sort]");
