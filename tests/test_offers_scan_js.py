@@ -12,6 +12,14 @@ ROOT = Path(__file__).resolve().parents[1]
 OFFERS_JS = (ROOT / "static" / "offers.js").read_text(encoding="utf-8")
 APP_JS = (ROOT / "static" / "app.js").read_text(encoding="utf-8")
 CSS = (ROOT / "static" / "styles.css").read_text(encoding="utf-8")
+POPOVER_JS = (ROOT / "static" / "popover.js").read_text(encoding="utf-8")
+
+
+def popover_source(name):
+    match = re.search(rf"^(?:const {re.escape(name)} = .*?;|function {re.escape(name)}\(.*?^}})$", POPOVER_JS, re.DOTALL | re.MULTILINE)
+    if not match:
+        raise AssertionError(f"{name} niet gevonden in popover.js")
+    return match.group(0)
 
 
 def function_source(name):
@@ -31,7 +39,7 @@ def const_source(name):
 
 
 PRELUDE = "\n".join(
-    [const_source(name) for name in ("OFFER_UNIT_ORDER", "OFFER_LABEL_ORDER", "OFFERS_OFTEN_PER_YEAR", "offersDimmedIds")]
+    [const_source(name) for name in ("OFFER_UNIT_ORDER", "OFFER_LABEL_ORDER", "OFFERS_OFTEN_PER_YEAR", "offersDimmedIds", "OFFER_POPUP_WIDTH", "OFFER_POPUP_PURCHASES")]
     + [
         function_source(name)
         for name in (
@@ -56,8 +64,11 @@ PRELUDE = "\n".join(
             "offersFilters",
             "offersLoadFilters",
             "offersUnitLabel",
+            "offerPopupHtml",
+            "offerAsProduct",
         )
     ]
+    + [popover_source(name) for name in ("POPOVER_GAP", "POPOVER_EDGE", "POPOVER_SIDE_MIN", "offerPopupPlace")]
     + [
         "const offersState = { sort: 'store', store: 'ah', filters: null };",
         "const t = (key, params) => key + (params ? ' ' + JSON.stringify(params) : '');",
@@ -69,6 +80,11 @@ PRELUDE = "\n".join(
         "const foldText = (value) => String(value).toLowerCase();",
         "const matchesWords = (text, query) => query.toLowerCase().split(/\\s+/).every((word) => text.includes(word));",
         "const I18N = { formatNumber: String };",
+        "const offerHistoryHead = (product, options) => '<div class=\"ohc-head\">' + product.title + '</div>';",
+        "const offerHistoryStats = () => '<dl class=\"ohc-stats\"></dl>';",
+        "const offerHistoryChartBlock = () => '<div class=\"ohc-block\"></div>';",
+        "const offerHistoryPurchasesTable = (product) => (product.purchases || []).length ? '<table class=\"ohc-table\"></table>' : '';",
+        "const priceHistoryPath = (store, title, id) => '/offers/history?product=' + id;",
         "const offerDateText = (day) => String(day);",
     ]
 )
@@ -239,6 +255,57 @@ class OffersScanNodeTest(unittest.TestCase):
         found = self.run_js(f"offersState.filters = {json.dumps({**self.EMPTY_FILTERS, 'brands': ['Unox'], 'minDiscount': 25})}; console.log(JSON.stringify(offersBrandCounts({json.dumps(offers)})));")
         self.assertEqual(found, [{"brand": "Dr. Oetker", "count": 1}, {"brand": "Unox", "count": 1}])
 
+    POPUP_OFFER = {"id": "514010", "title": "Dr. Oetker Casa di mama pizza salami", "brand": "Dr. Oetker", "unitSize": "390 g", "image": "x.png", "url": "https://ah.nl/x", "price": 3.65}
+    POPUP_PRODUCT = {"store": "ah", "productId": "514010", "title": "Dr. Oetker Casa di mama pizza salami", "purchases": [{"date": "2026-09-01", "price": 2.15}], "episodes": []}
+
+    def place(self, anchor, size, viewport):
+        return self.run_js(f"console.log(JSON.stringify(offerPopupPlace({json.dumps(anchor)}, {json.dumps(size)}, {json.dumps(viewport)})));")
+
+    def popup(self, offer, product, packs, active=None):
+        return self.run_js(f"console.log(JSON.stringify(offerPopupHtml({json.dumps(offer)}, {json.dumps(product)}, {json.dumps(packs)}, {json.dumps(active)})));")
+
+    def test_popup_placement_prefers_right_then_left_then_below_then_above(self):
+        size = {"width": 640, "height": 500}
+        self.assertEqual(self.place({"left": 100, "right": 400, "top": 100, "bottom": 400}, size, {"width": 1280, "height": 900}), {"left": 408, "top": 100, "width": 640})
+        self.assertEqual(self.place({"left": 800, "right": 1100, "top": 100, "bottom": 400}, size, {"width": 1280, "height": 900})["left"], 152)
+        self.assertEqual(self.place({"left": 300, "right": 600, "top": 100, "bottom": 300}, size, {"width": 900, "height": 900})["top"], 308)
+        self.assertEqual(self.place({"left": 300, "right": 600, "top": 700, "bottom": 880}, size, {"width": 900, "height": 900})["top"], 192)
+        cramped = self.place({"left": 300, "right": 600, "top": 20, "bottom": 880}, size, {"width": 900, "height": 600})
+        self.assertGreaterEqual(cramped["top"], 16)
+        self.assertLessEqual(cramped["top"] + 500, 600 - 16)
+        # Naast de kaart blijft de popup binnen de onderrand: hij schuift omhoog in plaats van eraf.
+        self.assertEqual(self.place({"left": 100, "right": 400, "top": 600, "bottom": 800}, size, {"width": 1280, "height": 900})["top"], 384)
+
+    def test_popup_beside_a_card_shrinks_to_the_room_there_down_to_a_minimum(self):
+        # Een kaart in het midden van een scherm van 1280 px: rechts is 481 px over, dus de popup wordt zo breed en staat ernaast
+        # in plaats van over de kaart heen. Onder 420 px gaat hij alsnog eronder, op volle breedte.
+        size = {"width": 640, "height": 500}
+        self.assertEqual(self.place({"left": 561, "right": 775, "top": 443, "bottom": 899}, size, {"width": 1280, "height": 900}), {"left": 783, "top": 384, "width": 481})
+        self.assertEqual(self.place({"left": 400, "right": 460, "top": 100, "bottom": 300}, size, {"width": 1100, "height": 900}), {"left": 468, "top": 100, "width": 616})
+        self.assertEqual(self.place({"left": 300, "right": 600, "top": 100, "bottom": 300}, size, {"width": 900, "height": 900}), {"left": 244, "top": 308, "width": 640})
+
+    def test_popup_html_has_head_stats_chart_purchases_and_the_link(self):
+        html = self.popup(self.POPUP_OFFER, self.POPUP_PRODUCT, [])
+        for marker in ('class="ohc-head"', 'class="ohc-stats"', 'class="ohc-block"', 'class="ohc-table"', "offers.popup.full_history", "/offers/history?product=514010"):
+            self.assertIn(marker, html)
+        self.assertNotIn("offer-popup__packs", html)
+
+    def test_popup_without_history_shows_the_head_and_a_loading_line(self):
+        html = self.popup(self.POPUP_OFFER, None, [])
+        self.assertIn('class="ohc-head"', html)
+        self.assertIn("offers.popup.loading", html)
+        self.assertNotIn("ohc-block", html)
+
+    def test_popup_of_a_family_has_pack_buttons_with_the_shown_pack_pressed(self):
+        packs = [{"productId": "300", "unitSize": "300 g"}, {"productId": "514010", "unitSize": "390 g"}, {"productId": "1000", "unitSize": "1000 g"}]
+        html = self.popup(self.POPUP_OFFER, self.POPUP_PRODUCT, packs, "514010")
+        self.assertEqual(html.count("data-popup-pack="), 3)
+        self.assertIn('data-popup-pack="514010" aria-pressed="true"', html)
+
+    def test_an_offer_becomes_a_product_for_the_head(self):
+        product = self.run_js(f"console.log(JSON.stringify(offerAsProduct('ah', {json.dumps(self.POPUP_OFFER)})));")
+        self.assertEqual((product["store"], product["productId"], product["title"], product["onOfferNow"]), ("ah", "514010", "Dr. Oetker Casa di mama pizza salami", True))
+
     def test_lower_before_disappears_when_year_low_is_known(self):
         label = {"kind": "lower_before", "price": 1.99, "month": "2010-03", "coveredSince": "2009-01-01"}
         self.assertIsNone(self.render("offerPriceLabel", {"priceLabel": label, "yearLow": {"status": "above", "above": 1.0}}))
@@ -312,10 +379,10 @@ class OffersScanMarkupTest(unittest.TestCase):
         self.assertNotIn("MDI_VIEW_LIST_OUTLINE", APP_JS)
         self.assertRegex(CSS, r"\.offer-card__thumb-icon \{")
 
-    def test_scrolling_with_the_zoom_closed_does_nothing(self):
+    def test_scrolling_with_the_popup_closed_does_nothing(self):
         self.assertIn(
-            "if (box.hidden && !offerZoom.timer) return;",
-            function_source("hideOfferZoom"),
+            "if (box.hidden && !offerPopup.timer) return;",
+            function_source("hideOfferPopup"),
         )
 
     def test_the_outlined_orange_and_the_grey_badge_have_hard_colours_with_contrast(

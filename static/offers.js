@@ -604,7 +604,7 @@ function offerProductCard(offer) {
     .map((line) => `<small class="${line.cls}"${line.title ? ` title="${escapeHtml(line.title)}"` : ""}>${escapeHtml(line.text)}</small>`)
     .join("");
   return `
-    <article class="product-card offer-card">
+    <article class="product-card offer-card" data-offer="${escapeHtml(offer.id)}" tabindex="0">
       ${offerThumb(offer)}
       <div class="offer-card__body">
         ${title}
@@ -642,7 +642,7 @@ function offerProductRow(offer) {
     : "";
   const chart = `<a class="icon-button" href="${escapeHtml(priceHistoryPath(offersState.store, offer.title, offer.id))}" data-route title="${escapeHtml(t("offers.card.history"))}" aria-label="${escapeHtml(t("offers.card.history"))}">${mdiIcon(MDI_CHART_LINE)}</a>`;
   return `
-    <article class="product-card offer-row">
+    <article class="product-card offer-row" data-offer="${escapeHtml(offer.id)}" tabindex="0">
       ${offerThumb(offer, "offer-row__thumb", true)}
       <span class="offer-row__badge">${offerBadge(offer)}</span>
       <div class="offer-row__product">${title}${meta ? `<small>${meta}</small>` : ""}${offerPersonalBadge(offer)}</div>
@@ -658,18 +658,25 @@ function offerRowHead() {
   return `<div class="offer-row offer-row--head" aria-hidden="true">${cells.map((cell) => `<span>${escapeHtml(cell)}</span>`).join("")}</div>`;
 }
 
-// ---- Hover-zoom: het grote plaatje naast de kaart met het prijsverloop van een jaar. Met een muis verschijnt het bij hover (na een
-// korte pauze), zonder muis opent een tik op het plaatje hetzelfde als een venster. Het prijsverloop komt per product van
-// /api/prices/history?product=..., één keer, en blijft in het geheugen van de pagina.
+// ---- De popup met de prijsgeschiedenis: met een muis bij het aanwijzen van een kaart (na een korte pauze, zoals de hovers bij de
+// aankopen in popover.js), zonder muis opent een tik op het plaatje hetzelfde als venster. De inhoud is de prijsgeschiedenis
+// van offers_history.js (kop, kerncijfers, grafiek met de periodeknoppen, de laatste aankopen) plus een link naar de volledige
+// pagina. Het product komt per product van /api/prices/history?product=..., een keer, en blijft in het geheugen van de pagina.
+// Bij een verpakkingsfamilie wissel je met knoppen van verpakking zonder de popup te sluiten.
 
-const OFFER_ZOOM_DELAY = 150;
-const OFFER_ZOOM_WIDTH = 316; // 300 binnen plus de rand en de ruimte ernaast
-const OFFER_SPARK_DAYS = 365;
-const offerZoomCache = new Map();
-const offerZoom = { timer: 0, id: "", thumb: null };
+const OFFER_POPUP_WIDTH = 640;
+const OFFER_POPUP_MIN_SCREEN = 900; // smaller: geen popup bij hover, wel het venster bij een tik
+const OFFER_POPUP_PURCHASES = 8;
+const offerZoomCache = new Map(); // winkel|id -> belofte van het product uit /api/prices/history
+const offerPopupProducts = new Map(); // winkel:id -> het geladen product, voor de periodeknoppen (offers_history.js)
+const offerPopup = { timer: 0, hideTimer: 0, id: "", anchor: null };
 
 function offerZoomFinePointer() {
   return window.matchMedia("(hover: hover) and (pointer: fine)").matches;
+}
+
+function offerPopupAllowed() {
+  return offerZoomFinePointer() && window.innerWidth >= OFFER_POPUP_MIN_SCREEN;
 }
 
 async function loadOfferZoomHistory(store, id) {
@@ -679,143 +686,150 @@ async function loadOfferZoomHistory(store, id) {
       key,
       jsonFetch(`/api/prices/history?store=${encodeURIComponent(store)}&product=${encodeURIComponent(id)}`)
         .then((data) => (data.products && data.products[0]) || null)
-        .catch(() => null) // de hover is een extraatje: zonder verloop blijft het grote plaatje staan
+        .then((product) => {
+          if (product) offerPopupProducts.set(`${store}:${id}`, product);
+          return product;
+        })
+        .catch(() => null) // de popup is een extraatje: zonder geschiedenis blijft de kop staan
     );
   }
   return offerZoomCache.get(key);
 }
 
-// Het prijsverloop van het afgelopen jaar als klein plaatje: de gewone prijs als trap, de aanbiedingen als dikke streepjes op de
-// actieprijs, de aankopen als stippen, een stip op vandaag voor de actieprijs van nu. Links de laagste prijs, rechts die van nu.
-function offerSparkline(product, nowPrice, width = 260, height = 70) {
-  const today = offerHistoryToday();
-  const xmin = today - OFFER_SPARK_DAYS;
-  const xmax = today + 1;
-  const clip = (day) => Math.min(xmax, Math.max(xmin, day));
-  const steps = (product.regular || [])
-    .map((segment) => ({ start: offerHistoryDay(segment.from), end: (offerHistoryDay(segment.to) ?? offerHistoryDay(segment.from)) + 1, price: segment.price }))
-    .filter((step) => step.start !== null && typeof step.price === "number" && step.end > xmin);
-  const bars = (product.episodes || [])
-    .map((episode) => ({ start: offerHistoryDay(episode.start), end: episode.open || !episode.end ? today : offerHistoryDay(episode.end), price: episode.price }))
-    .filter((bar) => bar.start !== null && typeof bar.price === "number" && Math.max(bar.start, bar.end) + 1 > xmin);
-  const dots = (product.purchases || [])
-    .map((purchase) => ({ day: offerHistoryDay(purchase.date), price: purchase.price }))
-    .filter((dot) => dot.day !== null && typeof dot.price === "number" && dot.day >= xmin);
-  const prices = [...steps.map((s) => s.price), ...bars.map((b) => b.price), ...dots.map((d) => d.price)];
-  if (!prices.length) return "";
-  if (typeof nowPrice === "number") prices.push(nowPrice);
-  const lowest = Math.min(...prices);
-  const highest = Math.max(...prices);
-  const left = 4;
-  const right = 4;
-  const top = 16;
-  const bottom = 6;
-  const x = (day) => left + ((clip(day) - xmin) / (xmax - xmin)) * (width - left - right);
-  const span = Math.max(highest - lowest, Math.max(0.5, highest * 0.1));
-  const y = (price) => top + (1 - (price - lowest) / span) * (height - top - bottom);
-  const parts = [];
-  steps.forEach((step, at) => {
-    parts.push(`<line class="ohc-regular" x1="${x(step.start)}" x2="${x(step.end)}" y1="${y(step.price)}" y2="${y(step.price)}"/>`);
-    const next = steps[at + 1];
-    if (next) parts.push(`<line class="ohc-regular" x1="${x(step.end)}" x2="${x(step.end)}" y1="${y(step.price)}" y2="${y(next.price)}"/>`);
-  });
-  bars.forEach((bar) => {
-    parts.push(`<line class="offer-spark__offer" x1="${x(bar.start)}" x2="${x(Math.max(bar.start, bar.end) + 1)}" y1="${y(bar.price)}" y2="${y(bar.price)}"/>`);
-  });
-  dots.forEach((dot) => parts.push(`<circle class="offer-spark__paid" cx="${x(dot.day + 0.5)}" cy="${y(dot.price)}" r="3"/>`));
-  if (typeof nowPrice === "number") parts.push(`<circle class="offer-spark__now" cx="${x(today + 0.5)}" cy="${y(nowPrice)}" r="4"/>`);
-  parts.push(`<text class="offer-spark__text" x="${left}" y="11" text-anchor="start">${escapeHtml(t("offers.zoom.lowest", { price: formatPrice(lowest) }))}</text>`);
-  if (typeof nowPrice === "number") {
-    parts.push(`<text class="offer-spark__text" x="${width - right}" y="11" text-anchor="end">${escapeHtml(t("offers.zoom.now", { price: formatPrice(nowPrice) }))}</text>`);
-  }
-  return `<svg class="offer-spark" viewBox="0 0 ${width} ${height}" width="${width}" height="${height}" role="img" aria-hidden="true">${parts.join("")}</svg>`;
+// Het geladen product van een popup, voor de periodeknoppen van de grafiek (offers_history.js zoekt hier als de klik in de popup valt).
+function offerPopupProduct(key) {
+  return offerPopupProducts.get(key) || null;
 }
 
-function offerZoomNowPrice(offer) {
-  return typeof offer.unitPrice === "number" && offer.unitPrice > 0 ? offer.unitPrice : typeof offer.price === "number" ? offer.price : null;
+// De aanbieding als product voor de kop van de popup, zolang de geschiedenis nog laadt.
+function offerAsProduct(store, offer) {
+  return {
+    store, productId: String(offer.id), title: offer.title || "", brand: offer.brand || "", unitSize: offer.unitSize || "", image: offer.image || "",
+    url: offer.url || "", onOfferNow: true, episodes: [], purchases: [], observed: [], lineOffers: [], savedImages: [],
+  };
 }
 
-function offerZoomImageHtml(offer) {
-  return offer.image ? `<img src="${escapeHtml(storeImage(offer.image))}" alt="" data-hide-on-error>` : "";
-}
-
-// Vult de chart-ruimte zodra het verloop binnen is, als de zoom dan nog hetzelfde product toont.
-async function fillOfferZoomChart(container, offer) {
-  const product = await loadOfferZoomHistory(offersState.store, offer.id);
-  if (container.dataset.id !== String(offer.id)) return;
-  const svg = product ? offerSparkline(product, offerZoomNowPrice(offer)) : "";
-  container.innerHTML = svg || `<span class="muted offer-zoom__none">${escapeHtml(t("offers.zoom.none"))}</span>`;
+// De inhoud van de popup en van het venster: de kop van de prijsgeschiedenis (compact), de verpakkingen als knoppen bij een familie,
+// de kerncijfers, de grafiek en de laatste aankopen, en de link naar de volledige prijsgeschiedenis. Zonder product (nog aan het
+// laden, of mislukt) alleen de kop en een laadregel.
+function offerPopupHtml(offer, product, packs, activeId = null) {
+  const store = offersState.store;
+  const shown = product || offerAsProduct(store, offer);
+  const buttons = packs.length > 1
+    ? `<div class="offer-popup__packs" role="group" aria-label="${escapeHtml(t("offers.popup.packs"))}">${packs
+        .map((pack) => `<button type="button" class="offer-chip offer-chip--small${String(pack.productId) === String(activeId) ? " is-active" : ""}" data-popup-pack="${escapeHtml(pack.productId)}" aria-pressed="${String(pack.productId) === String(activeId)}">${escapeHtml(pack.unitSize || pack.productId)}</button>`)
+        .join("")}</div>`
+    : "";
+  const body = product
+    ? `${offerHistoryStats(product)}${offerHistoryChartBlock(product, { width: OFFER_POPUP_WIDTH - 32 })}${offerHistoryPurchasesTable(product, { limit: OFFER_POPUP_PURCHASES })}`
+    : `<p class="muted offer-popup__loading">${escapeHtml(t("offers.popup.loading"))}</p>`;
+  return `<div class="offer-popup__inner">
+      ${offerHistoryHead(shown, { compact: true })}
+      ${buttons}
+      ${body}
+      <p class="offer-popup__foot"><a href="${escapeHtml(priceHistoryPath(store, shown.title, shown.productId))}" data-route>${escapeHtml(t("offers.popup.full_history"))}</a></p>
+    </div>`;
 }
 
 function offerById(id) {
   return offersState.offers.find((offer) => String(offer.id) === String(id)) || null;
 }
 
-function hideOfferZoom() {
-  const box = $("#offer-zoom");
-  if (box.hidden && !offerZoom.timer) return; // bij elke scroll: niets te doen als de zoom al dicht is
-  clearTimeout(offerZoom.timer);
-  offerZoom.timer = 0;
-  offerZoom.id = "";
-  offerZoom.thumb = null;
+// De verpakkingen van de familie van een aanbieding, voor de knoppen in de popup; een product van een verpakking dat zelf geen
+// aanbieding is (de 1000 g tegen gewone prijs) krijgt een kale aanbieding uit de familieregel.
+function offerPopupPacks(offer) {
+  return (offer.family && offer.family.packs) || [];
+}
+
+function offerForPack(offer, packId) {
+  const found = offerById(packId);
+  if (found) return found;
+  const pack = offerPopupPacks(offer).find((item) => String(item.productId) === String(packId));
+  return pack ? { ...offer, id: pack.productId, unitSize: pack.unitSize, price: pack.price, title: pack.title || offer.title } : offer;
+}
+
+function hideOfferPopup() {
+  const box = $("#offer-popup");
+  if (box.hidden && !offerPopup.timer) return; // bij elke scroll: niets te doen als de popup al dicht is
+  clearTimeout(offerPopup.timer);
+  clearTimeout(offerPopup.hideTimer);
+  offerPopup.timer = 0;
+  offerPopup.hideTimer = 0;
+  offerPopup.id = "";
+  offerPopup.anchor = null;
   box.hidden = true;
   box.innerHTML = "";
 }
 
-function placeOfferZoom(box, thumb) {
-  const rect = thumb.getBoundingClientRect();
-  const height = box.offsetHeight;
-  let left;
-  let top;
-  const fitsRight = rect.right + 8 + OFFER_ZOOM_WIDTH <= window.innerWidth;
-  const fitsLeft = rect.left - 8 - OFFER_ZOOM_WIDTH >= 0;
-  if (window.innerWidth < 640 || (!fitsRight && !fitsLeft)) {
-    // Smal scherm, of geen ruimte naast de kaart (een tablet): onder de kaart.
-    left = rect.left;
-    top = rect.bottom + 8;
-  } else {
-    left = fitsRight ? rect.right + 8 : rect.left - 8 - OFFER_ZOOM_WIDTH;
-    top = rect.top;
+// Eerst op volle breedte meten (de hoogte hangt van de breedte af), dan de plek en de breedte zetten en bij een smallere popup
+// de hoogte nog een keer meten voor de plek binnen de onderrand.
+function placeOfferPopup(box, anchor) {
+  const rect = anchor.getBoundingClientRect();
+  const viewport = { width: window.innerWidth, height: window.innerHeight };
+  box.style.width = "";
+  let spot = offerPopupPlace(rect, { width: box.offsetWidth || OFFER_POPUP_WIDTH, height: box.offsetHeight }, viewport);
+  if (spot.width < box.offsetWidth) {
+    box.style.width = `${spot.width}px`;
+    spot = offerPopupPlace(rect, { width: spot.width, height: box.offsetHeight }, viewport);
   }
-  left = Math.max(8, Math.min(left, window.innerWidth - OFFER_ZOOM_WIDTH - 8));
-  top = Math.max(8, Math.min(top, window.innerHeight - height - 8));
-  box.style.left = `${Math.round(left)}px`;
-  box.style.top = `${Math.round(top)}px`;
+  box.style.left = `${spot.left}px`;
+  box.style.top = `${spot.top}px`;
 }
 
-function showOfferZoom(thumb, offer) {
-  const box = $("#offer-zoom");
-  const chart = `<div class="offer-zoom__chart" data-id="${escapeHtml(offer.id)}"></div>`;
-  box.innerHTML = `${offerZoomImageHtml(offer)}${chart}`;
+// Toont de popup voor een aanbieding bij een kaart: eerst de kop (die staat al in de aanbieding), de rest zodra het product er is.
+function showOfferPopup(anchor, offer, packId = null) {
+  const box = $("#offer-popup");
+  const shownId = String(packId || offer.id);
+  const shown = offerForPack(offer, shownId);
+  const packs = offerPopupPacks(offer);
+  box.innerHTML = offerPopupHtml(shown, offerPopupProducts.get(`${offersState.store}:${shownId}`) || null, packs, shownId);
   box.hidden = false;
-  offerZoom.id = String(offer.id);
-  offerZoom.thumb = thumb;
-  placeOfferZoom(box, thumb);
-  fillOfferZoomChart(box.querySelector(".offer-zoom__chart"), offer).then(() => {
-    if (!box.hidden && offerZoom.thumb === thumb) placeOfferZoom(box, thumb);
+  offerPopup.id = shownId;
+  offerPopup.anchor = anchor;
+  box.dataset.offer = String(offer.id);
+  placeOfferPopup(box, anchor);
+  loadOfferZoomHistory(offersState.store, shownId).then((product) => {
+    if (box.hidden || offerPopup.id !== shownId || offerPopup.anchor !== anchor) return;
+    box.innerHTML = offerPopupHtml(shown, product, packs, shownId);
+    placeOfferPopup(box, anchor);
   });
 }
 
-function scheduleOfferZoom(thumb) {
-  const offer = offerById(thumb.dataset.zoom);
+function scheduleOfferPopup(anchor, packId = null) {
+  const offer = offerById(anchor.dataset.offer);
   if (!offer) return;
-  if (offerZoom.id === String(offer.id) && offerZoom.thumb === thumb) return;
-  clearTimeout(offerZoom.timer);
-  offerZoom.timer = setTimeout(() => showOfferZoom(thumb, offer), OFFER_ZOOM_DELAY);
+  clearTimeout(offerPopup.hideTimer);
+  offerPopup.hideTimer = 0;
+  const shownId = String(packId || offer.id);
+  if (offerPopup.id === shownId && offerPopup.anchor === anchor) return;
+  clearTimeout(offerPopup.timer);
+  offerPopup.timer = setTimeout(() => {
+    offerPopup.timer = 0;
+    showOfferPopup(anchor, offer, packId);
+  }, POPOVER_DELAY);
 }
 
-function openOfferZoomDialog(offer) {
+function delayHideOfferPopup() {
+  clearTimeout(offerPopup.timer);
+  offerPopup.timer = 0;
+  clearTimeout(offerPopup.hideTimer);
+  offerPopup.hideTimer = setTimeout(hideOfferPopup, POPOVER_GRACE);
+}
+
+// Zonder muis: dezelfde inhoud als venster.
+function openOfferZoomDialog(offer, packId = null) {
   const dialog = $("#offer-zoom-dialog");
-  const image = $("#offer-zoom-image");
-  image.hidden = !offer.image;
-  if (offer.image) image.src = storeImage(offer.image);
-  $("#offer-zoom-title").textContent = offer.title || "";
-  $("#offer-zoom-meta").textContent = [offer.brand, offer.unitSize, formatPrice(offerZoomNowPrice(offer))].filter(Boolean).join(" · ");
-  const chart = $("#offer-zoom-dialog-chart");
-  chart.dataset.id = String(offer.id);
-  chart.innerHTML = "";
-  dialog.showModal();
-  fillOfferZoomChart(chart, offer);
+  const body = $("#offer-zoom-dialog-body");
+  const shownId = String(packId || offer.id);
+  const shown = offerForPack(offer, shownId);
+  const packs = offerPopupPacks(offer);
+  body.dataset.offer = String(offer.id);
+  body.innerHTML = offerPopupHtml(shown, offerPopupProducts.get(`${offersState.store}:${shownId}`) || null, packs, shownId);
+  if (!dialog.open) dialog.showModal();
+  loadOfferZoomHistory(offersState.store, shownId).then((product) => {
+    if (!dialog.open || body.dataset.offer !== String(offer.id)) return;
+    body.innerHTML = offerPopupHtml(shown, product, packs, shownId);
+  });
 }
 
 // Hoeveel producten er in een rij van het raster passen; een verborgen raster geeft de ruwe waarde, dan gokken we.
@@ -951,7 +965,7 @@ function renderOffersTools() {
 
 // Na een keuze in de werkbalk: terug naar de eerste rijen en de categorieën en het raster opnieuw tekenen.
 function offersRedraw() {
-  hideOfferZoom();
+  hideOfferPopup();
   offersState.rows = OFFER_ROWS;
   renderOffersTools();
   renderOffersStatusGood();
@@ -1403,35 +1417,73 @@ $("#offers-sort").addEventListener("click", (event) => {
   offersRemember(OFFERS_SORT_KEY, offersState.sort);
   offersRedraw();
 });
-// De hover-zoom: met een muis bij het aanwijzen van een plaatje, anders bij een tik erop (als venster).
+// De popup: met een muis bij het aanwijzen van een kaart of een regel (een verpakkingsregel toont die verpakking), met het
+// toetsenbord bij focus, en zonder muis opent een tik op het plaatje hetzelfde als venster.
+function offerPopupAnchor(target) {
+  const anchor = target.closest("[data-offer]"); // een kaart of een regel, niet de kopregel van de compacte lijst
+  if (!anchor) return null;
+  const pack = target.closest("[data-zoom]");
+  return { anchor, packId: pack && pack.classList.contains("offer-pack") ? pack.dataset.zoom : null };
+}
 $("#offers-products").addEventListener("mouseover", (event) => {
-  if (!offerZoomFinePointer()) return;
-  const thumb = event.target.closest("[data-zoom]");
-  if (thumb) scheduleOfferZoom(thumb);
+  if (!offerPopupAllowed()) return;
+  const found = offerPopupAnchor(event.target);
+  if (found) scheduleOfferPopup(found.anchor, found.packId);
 });
 $("#offers-products").addEventListener("mouseout", (event) => {
-  const thumb = event.target.closest("[data-zoom]");
-  if (!thumb) return;
-  if (event.relatedTarget && thumb.contains(event.relatedTarget)) return;
-  hideOfferZoom();
+  const found = offerPopupAnchor(event.target);
+  if (!found) return;
+  const to = event.relatedTarget;
+  if (to && (found.anchor.contains(to) || $("#offer-popup").contains(to))) return;
+  delayHideOfferPopup();
+});
+$("#offers-products").addEventListener("focusin", (event) => {
+  if (!offerPopupAllowed()) return;
+  const found = offerPopupAnchor(event.target);
+  if (found) scheduleOfferPopup(found.anchor, found.packId);
 });
 $("#offers-products").addEventListener("click", (event) => {
   const thumb = event.target.closest("[data-zoom]");
   if (!thumb || offerZoomFinePointer()) return;
+  const found = offerPopupAnchor(event.target);
+  const offer = found ? offerById(found.anchor.dataset.offer) : null;
+  if (!offer) return;
   event.preventDefault();
-  const offer = offerById(thumb.dataset.zoom);
-  if (offer) openOfferZoomDialog(offer);
+  openOfferZoomDialog(offer, found.packId);
 });
-// Scrollen (ook in het vak dat scrolt, niet alleen het venster) haalt de zoom weg: de kaart staat dan ergens anders.
-document.addEventListener("scroll", hideOfferZoom, { capture: true, passive: true });
-// De zoom staat vast op het scherm en hangt onder <body>, want binnen de inhoud rekent position: fixed vanaf het vak dat scrolt.
-document.body.appendChild($("#offer-zoom"));
+$("#offer-popup").addEventListener("mouseenter", () => {
+  clearTimeout(offerPopup.hideTimer);
+  offerPopup.hideTimer = 0;
+});
+$("#offer-popup").addEventListener("mouseleave", (event) => {
+  const to = event.relatedTarget;
+  if (to && offerPopup.anchor && offerPopup.anchor.contains(to)) return;
+  delayHideOfferPopup();
+});
+// Een andere verpakking in de popup of het venster: hetzelfde product, de geschiedenis van die verpakking.
+document.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-popup-pack]");
+  if (!button) return;
+  const popup = button.closest("#offer-popup");
+  const dialogBody = button.closest("#offer-zoom-dialog-body");
+  const offer = offerById((popup || dialogBody || {}).dataset?.offer);
+  if (!offer) return;
+  if (popup && offerPopup.anchor) showOfferPopup(offerPopup.anchor, offer, button.dataset.popupPack);
+  else if (dialogBody) openOfferZoomDialog(offer, button.dataset.popupPack);
+});
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape") hideOfferPopup();
+});
+// Scrollen van de pagina (niet in de popup zelf) haalt de popup weg: de kaart staat dan ergens anders.
+document.addEventListener("scroll", (event) => {
+  if (event.target instanceof Node && $("#offer-popup").contains(event.target)) return;
+  hideOfferPopup();
+}, { capture: true, passive: true });
+// De popup staat vast op het scherm en hangt onder <body>, want binnen de inhoud rekent position: fixed vanaf het vak dat scrolt.
+document.body.appendChild($("#offer-popup"));
 $("#offer-zoom-close").addEventListener("click", () => $("#offer-zoom-dialog").close());
 $("#offer-zoom-dialog").addEventListener("click", (event) => {
   if (event.target === event.currentTarget) event.currentTarget.close();
-});
-$("#offer-zoom-image").addEventListener("error", (event) => {
-  event.target.hidden = true;
 });
 $("#offers-view").addEventListener("click", (event) => {
   const button = event.target.closest("[data-view]");

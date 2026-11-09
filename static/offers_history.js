@@ -509,15 +509,16 @@ function offerHistoryRangeLabel(key) {
   return key === "3y" ? t("offers.history.range.3y") : t("offers.history.range.all");
 }
 
-// De knoppen voor de periode en de grafiek; een klik op een knop tekent alleen dit blok opnieuw.
-function offerHistoryChartBlock(product) {
+// De knoppen voor de periode en de grafiek; een klik op een knop tekent alleen dit blok opnieuw. `width` voor een grafiek buiten de
+// prijsgeschiedenis (de popup bij een aanbieding), anders de breedte van het detailvak.
+function offerHistoryChartBlock(product, { width = null } = {}) {
   const range = offerHistoryRange(product, offerHistory.ranges[offerHistoryKey(product)]);
   const buttons = range.options.length
     ? `<div class="ohc-range" role="group" aria-label="${escapeHtml(t("offers.history.range.label"))}">${range.options
         .map((key) => `<button type="button" class="ohc-range-button" data-range="${key}" aria-pressed="${key === range.choice}">${escapeHtml(offerHistoryRangeLabel(key))}</button>`)
         .join("")}</div>`
     : "";
-  return `<div id="offers-history-chart-block">${buttons}<div class="ohc-chart" id="offers-history-chart">${offerHistoryChart(product, offerHistoryChartWidth(), range.choice)}</div></div>`;
+  return `<div class="ohc-block" data-product="${escapeHtml(offerHistoryKey(product))}"${width === null ? ' id="offers-history-chart-block"' : ` data-width="${width}"`}>${buttons}<div class="ohc-chart"${width === null ? ' id="offers-history-chart"' : ""}>${offerHistoryChart(product, width === null ? offerHistoryChartWidth() : width, range.choice)}</div></div>`;
 }
 
 function offerHistoryChartWidth() {
@@ -797,12 +798,19 @@ $("#compare-dialog").addEventListener("click", (event) => {
 $("#offers-history-detail").addEventListener("click", (event) => {
   const button = event.target.closest("[data-compare]");
   if (button) openPackCompare(button.dataset.store, button.dataset.compare);
+});
+// De periodeknoppen van een grafiek, in de prijsgeschiedenis of in de popup bij een aanbieding (offers.js, offerPopupProduct):
+// de keuze geldt per product en het blok tekent zichzelf opnieuw.
+document.addEventListener("click", (event) => {
   const range = event.target.closest("[data-range]");
-  const product = offerHistory.products.find((item) => offerHistoryKey(item) === offerHistory.selected);
-  if (range && product) {
-    offerHistory.ranges[offerHistoryKey(product)] = range.dataset.range;
-    $("#offers-history-chart-block").outerHTML = offerHistoryChartBlock(product);
-  }
+  const block = range && range.closest(".ohc-block");
+  if (!block) return;
+  const key = block.dataset.product;
+  const product = offerHistory.products.find((item) => offerHistoryKey(item) === key) || (typeof offerPopupProduct === "function" ? offerPopupProduct(key) : null);
+  if (!product) return;
+  offerHistory.ranges[key] = range.dataset.range;
+  const width = block.dataset.width ? Number(block.dataset.width) : null;
+  block.outerHTML = offerHistoryChartBlock(product, { width });
 });
 
 // Oude aankopen importeren (#178): bestellingen uit bevestigingsmails, omgezet naar JSON door een AI-assistent met de prompt van de
