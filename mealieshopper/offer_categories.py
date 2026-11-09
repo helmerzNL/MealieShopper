@@ -90,6 +90,32 @@ def categorize(title: Any, hint: Any = "") -> str:
     return OTHER
 
 
+_TAXONOMY_FOLDED: dict[str, str] = {_fold(key): value for key, value in AH_TAXONOMY.items()}
+
+
+def _taxonomy_category(hint: Any) -> str | None:
+    """De categorie uit `AH_TAXONOMY` voor een AH-categorie: letterlijk, gevouwen, of op het deel voor de eerste komma
+    ("Drogisterij, baby"). Een treffer op `overig` telt niet: dan weten de regexes het beter."""
+    if not isinstance(hint, str) or not hint.strip():
+        return None
+    folded: str = _fold(hint).strip()
+    for candidate in (folded, folded.split(",", 1)[0].strip()):
+        found: str | None = _TAXONOMY_FOLDED.get(candidate)
+        if found and found != OTHER:
+            return found
+    return None
+
+
+def offer_category(store: str, title: Any, hint: Any = "") -> str:
+    """De categorie van een aanbieding: bij AH eerst de categorie die de winkel meegeeft (`AH_TAXONOMY`), anders de regexes op
+    titel en hint (`categorize`). 660 van de 2788 AH-aanbiedingen van een week vielen in Overig toen alleen de regexes keken."""
+    if store == "ah":
+        found: str | None = _taxonomy_category(hint)
+        if found:
+            return found
+    return categorize(title, hint)
+
+
 def purchase_category(store: str, taxonomy: Any, title: Any, hint: Any = "") -> str:
     """De categorie van een aankoopregel: bij AH eerst de taxonomie van de bestelling, anders de titel.
 

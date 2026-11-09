@@ -263,6 +263,17 @@ class OffersWeekTest(TempDataDirTest):
         with mock.patch.dict(offers.FETCHERS, {"ah": lambda: returned(self.items)}):
             run(offers.sync("ah"))
 
+    def test_the_sync_stores_the_category_hint_and_uses_the_taxonomy(self):
+        items = [{"id": "pizza", "title": "Dr. Oetker Casa di mama pizza salami", "categoryHint": "Diepvries", "price": 3.65, "priceBefore": 4.29, "promoLabel": "15% korting"}]
+        with mock.patch.dict(offers.FETCHERS, {"ah": lambda: returned(items)}):
+            run(offers.sync("ah"))
+        from contextlib import closing
+
+        with closing(db(offers)) as conn:
+            row = conn.execute("SELECT category, category_hint FROM offers WHERE product_id = 'pizza'").fetchone()
+        self.assertEqual(tuple(row), ("diepvries", "Diepvries"))
+        self.assertEqual([o["category"] for o in run(offers.load("ah"))["offers"] if o["id"] == "pizza"], ["diepvries"])
+
     def test_this_week_leaves_out_next_weeks_bonus_and_counts_it(self):
         data = run(offers.load("ah", self.monday.isoformat()))
         self.assertEqual([o["id"] for o in data["offers"]], ["deze", "vandaag", "zonder", "doorlopend"], "de bonus van de week voor de doorlopende kortingen")

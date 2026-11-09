@@ -26,6 +26,28 @@ class SnackBrandsTest(unittest.TestCase):
         self.assertEqual(offer_categories.categorize("Loving Blends Avocado olie shampoo 4-pack"), "drogisterie")
 
 
+class OfferCategoryTest(unittest.TestCase):
+    """De categorie van een aanbieding: bij AH eerst de categorie die de winkel meegeeft (AH_TAXONOMY), dan de regexes."""
+
+    def test_an_ah_hint_from_the_taxonomy_wins(self):
+        self.assertEqual(offer_categories.offer_category("ah", "Dr. Oetker Casa di mama pizza salami", "Diepvries"), "diepvries")
+        self.assertEqual(offer_categories.offer_category("ah", "GUM Soft-picks comfort flex", "Drogisterij"), "drogisterie")
+
+    def test_a_hint_with_a_comma_matches_its_first_part(self):
+        self.assertEqual(offer_categories.offer_category("ah", "Zwitsal shampoo", "Drogisterij, baby"), "drogisterie")
+        self.assertEqual(offer_categories.offer_category("ah", "Philips Led kogel", "huishouden"), "huishouden", "gevouwen")
+
+    def test_a_hint_that_maps_to_other_falls_through(self):
+        self.assertEqual(offer_categories.offer_category("ah", "Doritos Sweet chilli pepper", "Overige"), "snacks_snoep")
+
+    def test_without_a_hint_the_rules_decide(self):
+        self.assertEqual(offer_categories.offer_category("ah", "AH Spaghetti", None), "maaltijden")
+        self.assertEqual(offer_categories.offer_category("ah", "Lowlander Blond", "Nieuw schap"), offer_categories.categorize("Lowlander Blond", "Nieuw schap"))
+
+    def test_other_stores_ignore_the_ah_taxonomy(self):
+        self.assertEqual(offer_categories.offer_category("jumbo", "Jumbo Halfvolle melk", "Diepvries"), offer_categories.categorize("Jumbo Halfvolle melk", "Diepvries"))
+
+
 class PurchaseCategoryTest(unittest.TestCase):
     def test_an_ah_taxonomy_maps_to_an_offer_category(self):
         self.assertEqual(offer_categories.purchase_category("ah", "Groente, aardappelen", "AH Komkommer"), "groente_fruit")
