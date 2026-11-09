@@ -700,6 +700,7 @@
           </div>
           <p class="offers-period" id="offers-period" hidden></p>
           <p class="muted" id="offers-status"></p>
+          <p class="muted offers-note" id="offers-note" hidden></p>
           <p class="muted offers-later" id="offers-later" hidden><span id="offers-later-text"></span> <button class="link-button link-button--inline" id="offers-later-show" type="button" data-i18n="offers.later.show">Bekijk de week erna</button></p>
           <div id="offers-message"></div>
           <div class="offers-tools">
@@ -1331,7 +1332,7 @@
         <div class="box fold fold--compact" id="offers-sync-box">
           <h2 class="fold__title"><button type="button" class="fold__toggle" id="offers-sync-toggle" aria-expanded="true" aria-controls="offers-sync-body"><span data-i18n="offers.sync.title">Aanbiedingen</span><svg class="fold__chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="M7.41,8.58L12,13.17L16.59,8.58L18,10L12,16L6,10L7.41,8.58Z"/></svg></button></h2>
           <div class="fold__body" id="offers-sync-body">
-            <p class="muted" data-i18n="offers.sync.intro">MealieShopper haalt elke dag de aanbiedingen van Albert Heijn, Picnic, Jumbo en Crisp op (Picnic, Jumbo en Crisp zodra ze gekoppeld zijn). Met de knop haal je ze meteen op.</p>
+            <p class="muted" data-i18n="offers.sync.intro">MealieShopper haalt elke dag de aanbiedingen van Albert Heijn, Picnic, Jumbo, Crisp, Lidl en Aldi op (Picnic, Jumbo en Crisp zodra ze gekoppeld zijn; Lidl en Aldi zonder koppeling). Met de knop haal je ze meteen op.</p>
             <div class="toolbar">
               <button class="button" id="offers-sync-all" type="button" data-i18n="offers.sync.button">Aanbiedingen synchroniseren</button>
             </div>
@@ -1636,6 +1637,9 @@
               <option value="ah" data-i18n="audit.service.ah">Albert Heijn</option>
               <option value="picnic" data-i18n="audit.service.picnic">Picnic</option>
               <option value="jumbo" data-i18n="audit.service.jumbo">Jumbo</option>
+              <option value="crisp" data-i18n="audit.service.crisp">Crisp</option>
+              <option value="lidl" data-i18n="audit.service.lidl">Lidl</option>
+              <option value="aldi" data-i18n="audit.service.aldi">Aldi</option>
               <option value="hellofresh" data-i18n="audit.service.hellofresh">HelloFresh</option>
               <option value="marleyspoon" data-i18n="audit.service.marleyspoon">Marley Spoon</option>
               <option value="mcp" data-i18n="audit.service.mcp">AI-assistenten (MCP)</option>

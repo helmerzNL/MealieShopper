@@ -464,6 +464,8 @@ class SyncAllTest(TempDataDirTest):
             "picnic": lambda: returned([{"id": "p1", "title": "Melk"}]),
             "jumbo": lambda: returned([{"id": "j1", "title": "Kaas"}, {"id": "j2", "title": "Brood"}]),
             "crisp": lambda: returned([{"id": "c1", "title": "Eieren"}]),
+            "lidl": lambda: returned([{"id": "l1", "title": "Croky chips", "price": 1.99, "promoLabel": "XXL"}]),
+            "aldi": lambda: returned([{"id": "a1", "title": "Mandarijnen", "price": 1.69, "priceBefore": 1.99, "promoLabel": "-15%"}]),
         }
         base.update(overrides)
         return mock.patch.dict(offers.FETCHERS, base)
@@ -489,6 +491,13 @@ class SyncAllTest(TempDataDirTest):
         self.assertEqual(result["stores"]["picnic"]["count"], 1)
         self.assertEqual(run(offers.load("jumbo"))["total"], 2, "de vorige kopie blijft staan")
 
+    def test_lidl_and_aldi_need_no_link(self):
+        self.assertTrue(run(offers.linked("lidl")) and run(offers.linked("aldi")))
+        with self.fetchers():
+            result = run(offers.sync_all())
+        self.assertEqual((result["stores"]["lidl"]["count"], result["stores"]["aldi"]["count"]), (1, 1))
+        self.assertIn("skipped", result["stores"]["picnic"], "zonder koppeling")
+
     def test_linked_follows_the_store_connections(self):
         self.assertTrue(run(offers.linked("ah")))
         self.assertFalse(run(offers.linked("picnic")))
@@ -504,7 +513,8 @@ class SyncAllTest(TempDataDirTest):
         with self.fetchers(), mock.patch.object(offers, "linked", return_value=True):
             run(offers.sync_all())
         overview = run(offers.overview())
-        self.assertEqual(sorted(overview), ["ah", "crisp", "jumbo", "picnic"])
+        self.assertEqual(sorted(overview), ["ah", "aldi", "crisp", "jumbo", "lidl", "picnic"])
+        self.assertEqual((overview["lidl"]["total"], overview["aldi"]["total"]), (1, 1))
         self.assertEqual(overview["crisp"]["total"], 1)
         self.assertEqual((overview["jumbo"]["total"], bool(overview["jumbo"]["syncedAt"])), (2, True))
 
@@ -614,7 +624,8 @@ class RoutesTest(TempDataDirTest):
 
     async def test_status_and_sync_all(self):
         status = (await self.client.get("/api/offers/status")).get_json()
-        self.assertEqual(sorted(status["stores"]), ["ah", "crisp", "jumbo", "picnic"])
+        self.assertEqual(sorted(status["stores"]), ["ah", "aldi", "crisp", "jumbo", "lidl", "picnic"])
+        self.assertTrue(status["stores"]["lidl"]["linked"] and status["stores"]["aldi"]["linked"], "zonder koppeling")
         with mock.patch.object(offers, "sync_all", new_callable=mock.AsyncMock, return_value={"stores": {"ah": {"count": 2}}, "finishedAt": "x"}):
             response = await self.client.post("/api/offers/sync-all")
         self.assertEqual((response.status_code, response.get_json()["stores"]["ah"]["count"]), (200, 2))
@@ -632,6 +643,55 @@ class RoutesTest(TempDataDirTest):
         link = html[html.index('id="settings-link"'):html.index('id="settings-users"')]
         self.assertIn('id="offers-sync-all"', link)
         self.assertIn('id="offers-sync-stores"', link)
+
+
+
+class OfferOnlyStoresTest(TempDataDirTest):
+    """Lidl en Aldi: de aanbiedingen van hun openbare pagina, door de gewone synchronisatie (zie test_lidl.py en test_aldi.py)."""
+
+    LIDL_CARD = {
+        "productId": 11563244, "fullTitle": "Croky chips", "category": "Food", "canonicalUrl": "/p/croky-chips/p11563244",
+        "image": "https://www.lidl.nl/assets/croky.png", "storeStartDate": None,
+        "regionsPrices": {"1": {"currentPrice": {"price": 1.99, "startDate": "2026-01-01T00:00Z", "endDate": "2099-12-31T22:59:59Z",
+                                                 "discount": {"discountText": "XXL"}, "packaging": {"text": "300 g"}}}},
+    }
+
+    def lidl_page(self, *cards):
+        import html as html_module  # pylint: disable=import-outside-toplevel
+
+        return "".join(f'<div data-grid-data="{html_module.escape(json.dumps(card), quote=True)}"></div>' for card in cards)
+
+    def test_sync_lidl_from_the_page(self):
+        with served(return_value=httpx.Response(200, text=self.lidl_page(self.LIDL_CARD))) as get:
+            data = run(offers.sync("lidl"))
+        self.assertTrue(str(get.calls[0].request.url).startswith("https://www.lidl.nl/"))
+        [offer] = data["offers"]
+        self.assertEqual((offer["title"], offer["price"], offer["promoLabel"], offer["category"]), ("Croky chips", 1.99, "XXL", "snacks_snoep"))
+        self.assertTrue(data["supported"])
+        history = run(offers.history("lidl"))
+        self.assertEqual([product["title"] for product in history["products"]], ["Croky chips"], "de aanbieding loopt al: in de geschiedenis")
+
+    def test_an_empty_page_keeps_the_previous_copy(self):
+        with served(return_value=httpx.Response(200, text=self.lidl_page(self.LIDL_CARD))):
+            run(offers.sync("lidl"))
+        with served(return_value=httpx.Response(200, text="<html></html>")), self.assertRaises(RuntimeError):
+            run(offers.sync("lidl"))
+        self.assertEqual(run(offers.load("lidl"))["total"], 1)
+
+    def test_sync_aldi_from_the_page(self):
+        today = datetime.now(timezone.utc).date()
+        item = {
+            "objectID": "1219324", "name": "Mandarijnen", "salesUnit": "1 kg", "productSlug": "mandarijnen-1219324",
+            "promotionPrices": [{"priceValue": 1.69, "strikePrice": {"strikePriceValue": 1.99}, "priceTagLabels": {"promoText1": "-15%"},
+                                 "validFromLocalDate": str(today - timedelta(days=1)), "validUntilLocalDate": str(today + timedelta(days=5))}],
+        }
+        api = [["OFFER_GET", {"res": {"algoliaDataMap": {"1219324": item}, "categories": []}}]]
+        page = f'<script id="__NEXT_DATA__" type="application/json">{json.dumps({"props": {"pageProps": {"apiData": json.dumps(api)}}})}</script>'
+        with served(return_value=httpx.Response(200, text=page)):
+            data = run(offers.sync("aldi"))
+        [offer] = data["offers"]
+        self.assertEqual((offer["title"], offer["price"], offer["priceBefore"], offer["mechanic"], offer["unitPrice"]), ("Mandarijnen", 1.69, 1.99, "percent", 1.69))
+        self.assertEqual(offer["url"], "https://www.aldi.nl/product/mandarijnen-1219324.html")
 
 
 if __name__ == "__main__":

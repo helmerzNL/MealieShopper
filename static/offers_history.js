@@ -323,7 +323,7 @@ function offerHistoryDetail(product) {
   const status = product.onOfferNow ? "offers.history.now"
     : ((product.observed || []).length && !(product.episodes || []).length ? "offers.history.no_confirmed_offer" : "offers.history.not_now");
   const link = product.url
-    ? `<a href="${escapeHtml(product.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(t("offers.history.open", { store: STORES[product.store].name }))}</a>`
+    ? `<a href="${escapeHtml(product.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(t("offers.history.open", { store: storeDisplayName(product.store) }))}</a>`
     : "";
   return `
     <div class="ohc-head">
@@ -332,7 +332,7 @@ function offerHistoryDetail(product) {
         <h3>${escapeHtml(product.title)}</h3>
         ${meta ? `<p class="muted">${escapeHtml(meta)}</p>` : ""}
         <p class="${product.onOfferNow ? "bonus" : "muted"}">${escapeHtml(t(status))}${link ? ` · ${link}` : ""}</p>
-        ${product.regularPerUnit ? `<button class="link-button" type="button" data-compare="${escapeHtml(product.productId)}" data-store="${escapeHtml(product.store)}">${escapeHtml(t("offers.compare.open"))}</button>` : ""}
+        ${product.regularPerUnit && !offersOnlyStore(product.store) ? `<button class="link-button" type="button" data-compare="${escapeHtml(product.productId)}" data-store="${escapeHtml(product.store)}">${escapeHtml(t("offers.compare.open"))}</button>` : ""}
       </div>
     </div>
     <dl class="ohc-stats">${stats}</dl>
@@ -466,6 +466,7 @@ async function loadOfferHistory() {
 function offerHistoryStoreChanged() {
   offerHistory.selected = "";
   offerHistory.products = [];
+  priceImportShowButton();
   if (document.querySelector("#offers-history.is-active")) loadOfferHistory();
   else offerHistory.loadedStore = "";
 }
@@ -648,12 +649,13 @@ $("#offers-history-detail").addEventListener("click", (event) => {
 // opent ook bij Bestellingen, voor de winkel die daar gekozen is; de ingelezen bestellingen staan daar bij de afgelopen bestellingen.
 const priceImport = { store: "", prompt: "", checked: null, busy: false };
 
+// Lidl en Aldi hebben geen webwinkel en dus geen bevestigingsmails: daar valt niets te importeren.
 function priceImportShowButton() {
-  $("#offers-history-import").hidden = !priceImportIsOwner();
+  $("#offers-history-import").hidden = !priceImportIsOwner() || offersOnlyStore(offersState.store);
 }
 
 function priceImportStoreName() {
-  return (STORES[priceImport.store] && STORES[priceImport.store].name) || priceImport.store;
+  return storeDisplayName(priceImport.store);
 }
 
 function priceImportDay(iso) {

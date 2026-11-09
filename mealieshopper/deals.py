@@ -116,10 +116,16 @@ def effective_unit_price(
     if kind == NTH_PERCENT and base and mechanic.get("minQuantity"):
         count = mechanic["minQuantity"]
         return round(base * (count - mechanic["percent"] / 100) / count, 2)
-    if kind == PERCENT and base:
-        return round(base * (1 - mechanic["percent"] / 100), 2)
-    if kind == AMOUNT_OFF and base:
-        return round(max(0.0, base - mechanic["amountOff"]), 2)
+    if kind in (PERCENT, AMOUNT_OFF) and base:
+        if kind == PERCENT:
+            computed = round(base * (1 - mechanic["percent"] / 100), 2)
+        else:
+            computed = round(max(0.0, base - mechanic["amountOff"]), 2)
+        # Een afgerond percentage ("-30%" op 1,69) geeft soms een cent verschil met de prijs die de winkel zelf noemt (1,19). Geldt de
+        # korting al vanaf één stuk en ligt de prijs van de winkel binnen twee cent, dan wint die.
+        if mechanic.get("minQuantity", 1) <= 1 and price_now is not None and 0 < price_now < base and abs(price_now - computed) <= 0.02:
+            return round(price_now, 2)
+        return computed
     if kind == FIXED and mechanic.get("fixedPrice") is not None:
         return round(mechanic["fixedPrice"], 2)
     if kind == FIXED and price_now is not None:
@@ -140,6 +146,47 @@ def parse_date(value: Any) -> date | None:
         return date.fromisoformat(text[:10])
     except ValueError:
         return None
+
+
+def _last_sunday(year: int, month: int) -> date:
+    """De laatste zondag van een maand met 31 dagen (maart of oktober): de dag waarop de zomertijd begint of eindigt."""
+    last = date(year, month, 31)
+    return last - timedelta(days=(last.weekday() + 1) % 7)
+
+
+def _amsterdam_offset(moment: datetime) -> timedelta:
+    """Het verschil met UTC in Nederland op een moment in UTC (naïef): de zomertijd van de EU loopt van de laatste zondag van
+    maart tot de laatste zondag van oktober, steeds om 01:00 UTC. Een vaste regel, zodat de image geen tijdzonegegevens nodig heeft."""
+    start = datetime.combine(_last_sunday(moment.year, 3), datetime.min.time()) + timedelta(hours=1)
+    end = datetime.combine(_last_sunday(moment.year, 10), datetime.min.time()) + timedelta(hours=1)
+    return timedelta(hours=2) if start <= moment < end else timedelta(hours=1)
+
+
+def local_day(value: Any) -> str | None:
+    """De dag in Nederland (`JJJJ-MM-DD`) van een tijdstip: unix-seconden, of een ISO-tekst met `Z` of een tijdverschil.
+
+    Lidl en Aldi geven het einde van een aanbieding als `2026-11-15T22:59:59Z` of als unix-tijd: de eerste tien tekens daarvan
+    zijn soms de dag ervoor. Een ISO-tekst zonder tijdverschil telt al als Nederlandse tijd. Wat geen tijdstip is, geeft None.
+    """
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        try:
+            moment = datetime(1970, 1, 1) + timedelta(seconds=float(value))
+        except (OverflowError, ValueError):
+            return None
+        return (moment + _amsterdam_offset(moment)).date().isoformat()
+    text = str(value or "").strip()
+    if len(text) < 10:
+        return None
+    try:
+        parsed = datetime.fromisoformat(text)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return parsed.date().isoformat()
+    utc = (parsed - parsed.utcoffset()).replace(tzinfo=None)
+    return (utc + _amsterdam_offset(utc)).date().isoformat()
 
 
 def validity(valid_from: Any, valid_until: Any, today: date | None = None) -> str:

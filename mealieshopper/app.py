@@ -89,7 +89,7 @@ def _ah_proxy_cookie(headers: Iterable[str]) -> str | None:
 
 def create_app() -> Quart:
     app = Quart(__name__, template_folder="../templates", static_folder="../static")
-    app.config["ASSET_VERSION"] = environ.get("MEALIESHOPPER_ASSET_VERSION", "20261107-2")
+    app.config["ASSET_VERSION"] = environ.get("MEALIESHOPPER_ASSET_VERSION", "20261109-1")
     # Quart bewaart statische bestanden standaard 12 uur in de browser (Flask niet). Met 0 vraagt de browser elke keer na of het
     # bestand veranderd is (ETag, 304), zoals voorheen. None helpt niet: dan valt de browser terug op zijn eigen schatting.
     app.config["SEND_FILE_MAX_AGE_DEFAULT"] = 0
@@ -781,8 +781,8 @@ def create_app() -> Quart:
         # Doet één zoekopdracht bij de winkel, in dezelfde vorm voor elke winkel (prices.link_candidates).
         try:
             return jsonify(await prices.link_candidates(request.args.get("store"), request.args.get("q") or ""))
-        except ValueError:
-            return jsonify({"error": tr("Onbekende winkel (kies ah, picnic, jumbo of crisp)", "Unknown store (choose ah, picnic, jumbo or crisp)")}), 400
+        except ValueError as exc:  # een onbekende winkel, of een winkel met alleen aanbiedingen (Lidl, Aldi): de tekst is van onszelf
+            return jsonify({"error": str(exc)}), 400
         except Exception:  # noqa: BLE001 - de winkel gaf een fout: niet gekoppeld, of niet bereikbaar
             app.logger.exception("Zoeken om te koppelen mislukt")
             return jsonify({"error": tr("Zoeken mislukt", "Search failed")}), 424

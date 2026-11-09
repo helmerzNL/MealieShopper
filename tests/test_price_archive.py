@@ -410,7 +410,7 @@ class RefusedTest(ArchiveCase):
         today = date.today()
         cases = [
             ({"type": "visit"}, "type"),
-            ({"type": "offer", **offer(1), "store": "lidl"}, "store"),
+            ({"type": "offer", **offer(1), "store": "nope"}, "store"),
             ({"type": "price", **price(1, source="receipt")}, "source"),
             ({"type": "price", **price(1, source="order")}, "source"),
             ({"type": "offer", **offer(1, url="http://www.supermarktaanbiedingen.com/x")}, "url"),
@@ -440,7 +440,7 @@ class RefusedTest(ArchiveCase):
         await self.refused(own([]), "empty")
 
     async def test_a_bad_line_in_the_gist_names_the_file_and_line(self):
-        rows = jsonl([offer(3, "jumbo"), {**offer(4, "jumbo"), "store": "aldi"}])
+        rows = jsonl([offer(3, "jumbo"), {**offer(4, "jumbo"), "store": "nope"}])
         body = await self.refused(gist_zip(tar_gz(gist_files(**{"jumbo/reports/observations.jsonl": rows}))), "bad_row")
         self.assertIn("jumbo/reports/observations.jsonl, regel 2", body["error"])
 
@@ -645,7 +645,7 @@ class TidyTest(ArchiveCase):
     async def test_a_line_it_cannot_read_is_left_to_the_checks(self):
         body = await self.refused(own([{"type": "offer", **offer(1, unit_size=500)}]), "bad_row")
         self.assertIn("unit_size", body["error"])
-        await self.refused(own([{"type": "offer", **offer(1), "store": "lidl"}]), "bad_row")
+        await self.refused(own([{"type": "offer", **offer(1), "store": "nope"}]), "bad_row")
 
 
 class LinkedOnlyTest(ArchiveCase):
@@ -894,7 +894,7 @@ class ExportTest(ArchiveCase):
         missing = await self.stage(rebuilt(lambda name, content: None if name == "prices/ah/2026-10.jsonl" else content))
         self.assertEqual((missing.status_code, missing.get_json()["code"]), (400, "missing_file"))
         self.assertIn("prices/ah/2026-10.jsonl", missing.get_json()["error"])
-        broken = await self.stage(rebuilt(lambda name, content: content.replace(b'"store": "ah"', b'"store": "aldi"') if name == "offers/ah/2026-10.jsonl" else content))
+        broken = await self.stage(rebuilt(lambda name, content: content.replace(b'"store": "ah"', b'"store": "nope"') if name == "offers/ah/2026-10.jsonl" else content))
         self.assertEqual((broken.status_code, broken.get_json()["code"]), (400, "bad_row"))
         self.assertIn("offers/ah/2026-10.jsonl", broken.get_json()["error"])
         outside = dict(header, files=header["files"] + ["../geheim.jsonl"])

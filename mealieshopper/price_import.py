@@ -34,7 +34,7 @@ import aiosqlite
 from . import auth, offers, purchase_lines
 from .i18n import tr
 
-STORES = offers.STORES
+STORES = offers.SHOP_STORES  # bestellingen per mail: Lidl en Aldi hebben geen webwinkel
 MAX_TEXT_CHARS = 5_000_000
 MAX_ORDERS = 5000
 MAX_ITEMS = 1000

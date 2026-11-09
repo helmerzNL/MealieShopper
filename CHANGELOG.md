@@ -2,6 +2,45 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub; een stabiele release krijgt de teksten van alle versies sinds de vorige stabiele release.
 
+## v4.4.0
+
+### Nieuw in 4.4.0
+
+*English summary: MealieShopper now shows the offers of **Lidl** and **Aldi**, without an account. Neither sells groceries online, so there is no basket, search or link: the offers come from their public offers pages (lidl.nl and aldi.nl, pages their `robots.txt` allows), once per sync, with MealieShopper's own User-Agent. They are in the store menu of **Offers** for everyone, in the daily sync, the price history of the offers, the recipe suggestions, the AI features for the offers, the MCP tools for offers and price history, and the price archive export and import. Lidl Plus prices count as the offer when there is no regular offer, labelled "-31% met Lidl Plus". Non-food and plants are left out. Compare pack sizes, Import old purchases, product links and the preferred supermarket stay with the stores that have an online shop. When a percentage label is one cent off the store's own price (rounding), the store's price now wins for every store. The research into Lidl and the other Dutch supermarkets (Plus, Hoogvliet, Dirk, Spar and more) is in `docs/onderzoek-lidl.md` and `docs/onderzoek-supermarkten.md`. Reload the page once after updating.*
+
+- **Lidl en Aldi bij Aanbiedingen.** Lidl en Aldi verkopen geen boodschappen online, dus een mandje vullen kan niet. Hun aanbiedingen van de week kan MealieShopper wel tonen, zonder account:
+  - **Waar ze vandaan komen:** de openbare aanbiedingenpagina van Lidl (`/c/aanbiedingen/a10008785`, met per product een blok JSON in `data-grid-data`) en van Aldi (`aanbiedingen.html`, met de aanbiedingen in `__NEXT_DATA__` onder `apiData`). Beide pagina's staan in `robots.txt` toegestaan. De zoek-API van Lidl (`*search?q=*`) niet, en die gebruikt MealieShopper dus ook niet. Per synchronisatie gaat er één verzoek naar elke winkel, met de naam MealieShopper in de User-Agent.
+  - **Waar ze staan:** in het winkelmenu van **Aanbiedingen**, voor iedereen en zonder koppeling, zoals de bonus van AH. Verder in de dagelijkse synchronisatie en de knop onder **Instellingen, Koppelen**, de Prijsgeschiedenis van de aanbiedingen, de receptvoorstellen, de AI-functies bij de aanbiedingen, de MCP-tools voor aanbiedingen en prijsgeschiedenis, en het prijsarchief (exporteren en importeren).
+  - **Uitleg erbij:** boven de lijst staat dat het de aanbiedingen in de winkels zijn, zonder mandje of koppeling. Bij Lidl staat er ook wat "met Lidl Plus" betekent.
+  - **Fouten:** geeft een winkel een andere pagina dan verwacht, of geen aanbiedingen, dan blijft de vorige kopie staan en noemt de synchronisatie de fout, net als bij de andere winkels. Ook een 403 of 429, of een doorverwijzing naar een andere host, geeft een fout.
+- **Lidl:**
+  - **Welke aanbieding telt:** een gewone aanbieding (een prijs met een einddatum) gaat voor. Heeft een product alleen een vaste prijs, maar wel een prijs met de gratis app *Lidl Plus*, dan is die de aanbieding, met het label *-31% met Lidl Plus* en de gewone prijs als oude prijs. Een vaste prijs zonder actie is geen aanbieding.
+  - **Looptijd:** van de eerste dag in de winkel (`storeStartDate`) tot de laatste dag van de prijs, in Nederlandse tijd.
+  - **Wat wegvalt:** non-food en planten (`NonFood` en `P+F`). Een merk "-" is geen merk.
+  - **Regio's:** Lidl heeft zes prijsregio's; MealieShopper leest de prijzen die de pagina toont (regio 1).
+- **Aldi:**
+  - **Periodes:** een actieperiode komt uit `promotionPrices`, met de datums in Nederlandse tijd. Zonder die lijst telt de huidige prijs als die een label of een oude prijs heeft (*OP=OP* loopt soms door), en anders alleen binnen de periode van haar groep in de folder. Rond de wissel van de week staat daar al de gewone prijs van na de actie.
+  - **"2 VOOR":** de prijs is dan die voor twee. Bij *2 VOOR* met een prijs van 3,00 wordt het 1,50 per stuk met het label *2 voor 3,00*. Het lege label *-- Select option --* valt weg.
+  - **Wat wegvalt:** producten die alleen in groepen met non-food staan, zoals speelgoed, kleding, wintersport, elektronica en kerstverlichting. Huishouden en drogisterij blijven, net als bij de andere winkels.
+  - **Foto's en links:** de foto's komen verkleind (500 bij 500), en de link gaat naar de productpagina op aldi.nl.
+- **Wat bij Lidl en Aldi niet kan:** het mandje, zoeken en **Vergelijk verpakkingen** (de knop staat er niet). Ook **Oude aankopen importeren** en zelf koppelen kunnen daar niet: er zijn geen bestellingen. De API antwoordt met 400 en een uitleg (`prices.compare`, `link_candidates`, `product_links` en `price_import` gebruiken `offers.SHOP_STORES`). Lidl en Aldi zijn ook geen keuze als voorkeurssupermarkt: die opent ook Winkels, en daar staat voor hen niets.
+- **De prijs van de winkel wint van een afgerond percentage.** *-30%* op 1,69 is 1,183. Lidl vraagt 1,19, en de kaart toonde 1,18 met "per stuk 1,18". Geldt de korting vanaf één stuk en ligt de prijs van de winkel binnen twee cent van de berekende, dan geldt nu de prijs van de winkel. Dat geldt voor elke winkel.
+- **Foto's en auditlog:**
+  - De foto's van Lidl (`www.lidl.nl/assets/…` en `imgproxy-retcat.assets.schwarz`) en Aldi (`s7g10.scene7.com/is/image/aldinord/…`) gaan door de afbeeldingencache. Het pad telt mee: de rest van lidl.nl en andere klanten van het CDN van Adobe niet.
+  - Het verkeer staat in het auditlog onder *Lidl* en *Aldi*, en de keuzelijst van het auditlog heeft nu ook Crisp, Lidl en Aldi.
+  - Op **Over** staan Lidl en Aldi bij de koppelingen.
+- **MCP:** de winkelkeuze van `review_offer_matches`, `report_offer_mismatch`, `list_offer_mismatches` en `get_price_history` volgt nu `offers.STORES` en kent dus ook Lidl en Aldi.
+- **Onderzoek:** `docs/onderzoek-lidl.md` (Lidl: geen online boodschappen, de aanbiedingenpagina, de folder-API, de zoek-API die `robots.txt` uitsluit, de kassabonnen van Lidl Plus en de voorwaarden) en `docs/onderzoek-supermarkten.md` (Aldi, Plus, Hoogvliet, Dirk, Spar, Poiesz, Vomar, DekaMarkt en meer, met marktaandeel en een voorstel). Volgende stappen staan daar: de aanbiedingen van Dirk, Plus als volledige winkel, en de kassabonnen van Lidl Plus.
+- **Tests:**
+  - `tests/test_lidl.py` en `tests/test_aldi.py` lezen een ingekorte kopie van de echte pagina's (`tests/fixtures/`) en zelfgemaakte randgevallen, en proberen de HTTP-fouten.
+  - `test_deals.py` test `deals.local_day` (winter, zomer en de twee omschakeldagen) en de afronding.
+  - `test_offers_stores.py` synchroniseert Lidl en Aldi zonder koppeling.
+  - `test_preferred_store.py` controleert dat ze bij Aanbiedingen staan, maar niet bij het mandje, Winkels of de voorkeurssupermarkt.
+  - Een ongeldige winkel heet in de tests nu `"nope"`.
+  - `test_linking_ui.py` geeft zijn script via stdin aan node: met het hele Nederlandse woordenboek erin was het groter dan Linux in één argument toelaat.
+- **Handleiding** (NL en EN): een nieuw stuk *Lidl en Aldi*, en Lidl en Aldi bij het winkelmenu van Aanbiedingen, de voorkeurssupermarkt, het koppelen en het auditlog. De README's, de `.env`-voorbeelden en de Home Assistant-add-on noemen ze ook.
+- **Nieuw adres voor de scripts en stijlen** (`MEALIESHOPPER_ASSET_VERSION`). Ververs de pagina één keer.
+
 ## v4.3.1
 
 ### Gewijzigd in 4.3.1

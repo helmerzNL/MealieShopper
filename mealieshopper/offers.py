@@ -5,8 +5,9 @@ winkel in een keer, en mislukt het ophalen, dan blijft de vorige kopie staan. Vo
 we een index met de ingrediënten van je recepten (Mealie, Jumbo, Picnic en bewaarde AH-recepten). De voorstellen
 komen daarna uit een lokale vergelijking: geen aanroep naar een winkel of een AI-dienst (de optionele AI-beoordeling in `ai_review.py` draait alleen op een knop).
 
-De aanbiedingen van AH (Bonus), Picnic en Jumbo worden elke dag door `offers_schedule` opgehaald, en op verzoek via
-`sync_all` (de knop onder Instellingen > Koppelen) of per winkel via `sync` (de knop bij Aanbiedingen).
+De aanbiedingen van AH (Bonus), Picnic, Jumbo, Crisp, Lidl en Aldi worden elke dag door `offers_schedule` opgehaald, en op verzoek
+via `sync_all` (de knop onder Instellingen > Koppelen) of per winkel via `sync` (de knop bij Aanbiedingen). Lidl en Aldi hebben geen
+webwinkel: van hen hebben we alleen de aanbiedingen (`OFFER_ONLY_STORES`), zonder account, zoeken of mandje.
 
 Bij AH horen daar ook je persoonlijke aanbiedingen bij, de Bonus Box (zie `ah.get_bonus_box`), zodra je AH-account gekoppeld is. Die staan
 tussen de gewone aanbiedingen met `personal` (en `activated`: of je ze in de AH-app geactiveerd hebt), zodat je erop kunt filteren.
@@ -24,7 +25,7 @@ from typing import Any, Callable, Iterable, TypeVar
 
 import aiosqlite
 
-from . import about, ah, ah_lists, deals, offer_categories, offer_courses, offer_translate, ah_recipes, auth, crisp, jumbo, jumbo_recipes, mealie, mealie_images, picnic, picnic_recipes
+from . import about, ah, ah_lists, aldi, deals, lidl, offer_categories, offer_courses, offer_translate, ah_recipes, auth, crisp, jumbo, jumbo_recipes, mealie, mealie_images, picnic, picnic_recipes
 from .i18n import tr
 
 # Winkels waarvan we aanbiedingen kunnen ophalen, met de functie die dat doet.
@@ -33,8 +34,16 @@ FETCHERS: dict[str, Callable[[], Awaitable[list[dict[str, Any]]]]] = {
     "picnic": picnic.get_offers,
     "jumbo": jumbo.get_offers,
     "crisp": crisp.get_offers,
+    "lidl": lidl.get_offers,
+    "aldi": aldi.get_offers,
 }
-STORES = ("ah", "picnic", "jumbo", "crisp")
+# Winkels met een webwinkel of app: daar kunnen we zoeken, het mandje vullen en bestellingen lezen.
+SHOP_STORES = ("ah", "picnic", "jumbo", "crisp")
+# Winkels zonder webwinkel: alleen de aanbiedingen van hun openbare aanbiedingenpagina, zonder account (zie docs/onderzoek-lidl.md
+# en docs/onderzoek-supermarkten.md). Wat bij de winkel zoekt of een bestelling importeert, kent ze niet (`SHOP_STORES`).
+OFFER_ONLY_STORES = ("lidl", "aldi")
+STORES = SHOP_STORES + OFFER_ONLY_STORES
+STORE_NAMES = {"ah": "Albert Heijn", "picnic": "Picnic", "jumbo": "Jumbo", "crisp": "Crisp", "lidl": "Lidl", "aldi": "Aldi"}
 # Winkels met persoonlijke aanbiedingen (AH: de Bonus Box), met de functie die ze ophaalt. Die vraagt een koppeling, en een fout laat de
 # gewone aanbiedingen staan: dan blijven de persoonlijke van de vorige keer staan en meldt `load` de fout.
 PERSONAL_FETCHERS: dict[str, Callable[[], Awaitable[list[dict[str, Any]]]]] = {
@@ -43,7 +52,7 @@ PERSONAL_FETCHERS: dict[str, Callable[[], Awaitable[list[dict[str, Any]]]]] = {
 
 
 async def linked(store: str) -> bool:
-    """Of we bij deze winkel kunnen vragen: AH Bonus werkt zonder inlog, Picnic, Jumbo en Crisp vragen een koppeling."""
+    """Of we bij deze winkel kunnen vragen: AH Bonus, Lidl en Aldi werken zonder inlog, Picnic, Jumbo en Crisp vragen een koppeling."""
     if store == "picnic":
         return bool(await picnic.configured_auth_key())
     if store == "jumbo":
@@ -322,7 +331,8 @@ def _now() -> str:
 def _valid_store(store: Any) -> str:
     store = str(store or "").strip().lower()
     if store not in STORES:
-        raise ValueError(tr("Onbekende winkel (kies ah, picnic, jumbo of crisp)", "Unknown store (choose ah, picnic, jumbo or crisp)"))
+        choices = ", ".join(STORES[:-1])
+        raise ValueError(tr(f"Onbekende winkel (kies {choices} of {STORES[-1]})", f"Unknown store (choose {choices} or {STORES[-1]})"))
     return store
 
 

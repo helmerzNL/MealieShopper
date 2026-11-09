@@ -112,7 +112,7 @@ function priceArchiveStoreLine(store, stats) {
   if (offers.covered) parts.push(tn("price_archive.part.covered", offers.covered));
   if (prices.kept) parts.push(tn("price_archive.part.kept", prices.kept));
   const period = stats.earliest && stats.latest ? t("price_archive.period", { from: priceArchiveDate(stats.earliest), to: priceArchiveDate(stats.latest) }) : "";
-  const name = STORES[store]?.name || store;
+  const name = storeDisplayName(store);
   return `<li><strong>${escapeHtml(name)}</strong>${period ? ` <span class="muted">${escapeHtml(period)}</span>` : ""}<br>${escapeHtml(parts.join(", "))}</li>`;
 }
 
