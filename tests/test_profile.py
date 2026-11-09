@@ -122,6 +122,18 @@ class ProfileTest(AppTestCase):
         self.assertFalse((await self.client.get("/api/auth/status")).get_json()["cookingMode"], "een weigering verandert niets")
         self.assertTrue((await self.client.put("/api/profile/preferences", json={"cookingMode": True})).get_json()["cookingMode"])
 
+    async def test_calories_are_shown_by_default_and_can_be_hidden(self):
+        # Issue #283: iedere gebruiker kiest zelf of hij de calorieën bij een recept (en het filter erop) ziet.
+        self.assertTrue((await self.client.get("/api/auth/status")).get_json()["showCalories"], "standaard aan")
+        reply = await self.client.put("/api/profile/preferences", json={"showCalories": False})
+        self.assertEqual((reply.status_code, reply.get_json()["showCalories"]), (200, False))
+        await self.client.put("/api/profile/preferences", json={"cookingMode": False})
+        self.assertFalse((await self.client.get("/api/auth/status")).get_json()["showCalories"], "een andere voorkeur laat hem staan")
+        for bad in ({"showCalories": 0}, {"showCalories": "nee"}, {"showCalories": None}):
+            self.assertEqual((await self.client.put("/api/profile/preferences", json=bad)).status_code, 400, bad)
+        self.assertFalse((await self.client.get("/api/profile")).get_json()["showCalories"], "een weigering verandert niets")
+        self.assertTrue((await self.client.put("/api/profile/preferences", json={"showCalories": True})).get_json()["showCalories"])
+
     async def test_preferred_store_is_albert_heijn_until_another_is_chosen(self):
         self.assertEqual((await self.client.get("/api/auth/status")).get_json()["preferredStore"], "ah", "standaard Albert Heijn")
         for store in ("jumbo", "picnic", "crisp", "ah", "jumbo"):

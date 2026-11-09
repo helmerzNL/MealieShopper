@@ -9,7 +9,7 @@ prijzen van supermarkten ophalen. Er is niet ingelogd en er is geen account gebr
 
 ## Status
 
-Gebouwd in v4.4.0: **Aldi** staat, net als Lidl, als winkel met alleen aanbiedingen in MealieShopper
+Gebouwd in v4.5.0: **Aldi** staat, net als Lidl, als winkel met alleen aanbiedingen in MealieShopper
 (`mealieshopper/aldi.py`), zonder account en zonder mandje. De andere ketens zijn niet gebouwd; het voorstel staat onder
 [Voorstel](#voorstel).
 

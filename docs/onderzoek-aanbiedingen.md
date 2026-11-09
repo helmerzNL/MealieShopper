@@ -73,5 +73,5 @@ heeft geen AI nodig.
 - Het ophalen van aanbiedingen gebeurt met de eigen koppeling van de gebruiker. Winkelvoorwaarden over geautomatiseerd
   gebruik kunnen daarop van toepassing zijn.
 - Andere winkels vallen buiten dit onderzoek; geen ervan heeft een officiële open bron voor zijn aanbiedingen. Lidl en Aldi
-  staan er sinds v4.4.0 in met hun openbare aanbiedingenpagina (zie [onderzoek-lidl.md](onderzoek-lidl.md) en
+  staan er sinds v4.5.0 in met hun openbare aanbiedingenpagina (zie [onderzoek-lidl.md](onderzoek-lidl.md) en
   [onderzoek-supermarkten.md](onderzoek-supermarkten.md)); Plus, Dirk en Hoogvliet nog niet.

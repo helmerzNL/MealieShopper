@@ -1858,6 +1858,91 @@ html.no-cook-mode .cook-ingredient input:checked + .cook-ingredient__text {
   text-decoration: none;
 }
 
+/* Calorieën (issue #283). Een kcal-waarde staat in een eigen span achter de andere feiten; de punt ervoor komt van hier,
+   zodat er niets blijft hangen als Calorieën tonen uit staat (html.no-calories, zie static/theme.js). */
+.kcal {
+  white-space: nowrap; /* "490 kcal p.p." bij elkaar; afbreken mag wel bij de punt ervoor */
+}
+
+.kcal--after::before {
+  content: "\20\b7\20"; /* " · " */
+  white-space: pre-wrap;
+}
+
+html.no-calories .kcal,
+html.no-calories .nutrition-facts,
+html.no-calories .kcal-filter,
+html.no-calories .plan-servings__kcal {
+  display: none;
+}
+
+/* Het filter op calorieën: "Kcal per persoon [min.] – [max.]", in de receptkiezer en bij Recepten zoeken. */
+.kcal-filter {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+}
+
+.kcal-filter__label {
+  color: var(--muted);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.kcal-filter__input {
+  width: 96px;
+  min-width: 0;
+}
+
+.kcal-filter__dash {
+  color: var(--muted);
+}
+
+.kcal-filter--search {
+  margin: 10px 0 14px;
+}
+
+.kcal-filter__note {
+  flex-basis: 100%;
+  font-size: 13px;
+}
+
+/* Op een telefoon past "Kcal per persoon" niet naast twee velden: het label staat erboven. */
+@media (max-width: 480px) {
+  .kcal-filter__label {
+    flex-basis: 100%;
+  }
+
+  .kcal-filter__input {
+    flex: 1 1 0;
+    width: auto;
+  }
+}
+
+/* Porties kiezen in het plan-venster, onder het gekozen recept, met de kcal ernaast. */
+.plan-servings {
+  display: flex;
+  flex-basis: 100%;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  padding-top: 4px;
+}
+
+.plan-servings__label {
+  font-weight: 600;
+}
+
+.plan-servings .qty {
+  justify-content: flex-start;
+}
+
+.plan-servings__kcal {
+  color: var(--muted);
+  font-size: 14px;
+}
+
 .cook-steps {
   display: grid;
   gap: 12px;

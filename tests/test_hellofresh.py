@@ -208,7 +208,9 @@ class SearchLoadTest(TempDataDirTest):
                 self.assertEqual(search.call_args.kwargs["load"], expected, raw)
         with served(return_value=page(recipe_page())):
             body = (await client.get(f"/api/hellofresh/recipes/{KEY}")).get_json()
-        self.assertEqual((body["id"], body["name"], body["portions"], body["nutrition"]), (KEY, "Pasta met pesto", "2", []))
+        self.assertEqual((body["id"], body["name"], body["portions"]), (KEY, "Pasta met pesto", "2"))
+        # De voedingswaarden per portie, als getal met de eenheid van nutrition.py (zonder de lege cholesterol).
+        self.assertEqual(body["nutrition"], [{"key": "calories", "quantity": 600, "unit": "kcal"}, {"key": "fatContent", "quantity": 20.5, "unit": "g"}])
         self.assertEqual(body["ingredients"][0], {"line": "200 gram Pasta"})
         self.assertEqual(body["url"], f"https://www.hellofresh.nl/recipes/{KEY}")
         with served(side_effect=AssertionError("geen verzoek")):

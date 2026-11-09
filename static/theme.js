@@ -24,6 +24,9 @@
 // De kookmodus (Instellingen, Weergave, Voorkeuren): staat hij uit, dan zet paint() de klasse no-cook-mode op <html> en verbergt
 // styles.css bij een recept Start met koken, de voortgang, Scherm aan laten en de vinkjes bij de ingrediënten
 // (static/recipe_view.js). Standaard staat hij aan.
+//
+// Calorieën tonen (Instellingen, Voorkeuren, Weergave; issue #283): staat het uit, dan zet paint() de klasse no-calories op
+// <html> en verbergt styles.css de kcal bij recepten en maaltijden, de voedingswaarden en het filter op calorieën.
 (function () {
   "use strict";
 
@@ -202,7 +205,7 @@
   }
 
   // ---- de keuze
-  const look = { theme: null, darkBackground: "green", accent: "", navbarStyle: "auto", navbarGlass: NAV_GLASS, cookingMode: true };
+  const look = { theme: null, darkBackground: "green", accent: "", navbarStyle: "auto", navbarGlass: NAV_GLASS, cookingMode: true, showCalories: true };
 
   function storedTheme() {
     try {
@@ -242,6 +245,7 @@
           navbarStyle: look.navbarStyle,
           navbarGlass: look.navbarGlass,
           cookingMode: look.cookingMode,
+          showCalories: look.showCalories,
           vars: vars || {},
         })
       );
@@ -264,6 +268,7 @@
     root.setAttribute("data-nav", navStyle());
     applyNavGlass(look.navbarGlass, root);
     root.classList.toggle("no-cook-mode", !look.cookingMode);
+    root.classList.toggle("no-calories", !look.showCalories);
     const bar = theme === "dark" ? DARK_BG[look.darkBackground] || DARK_BG.green : vars ? vars["--accent-light"] : BRAND.light;
     document.querySelectorAll('meta[name="theme-color"]').forEach((meta) => meta.setAttribute("content", bar));
     document.querySelectorAll("[data-theme-toggle]").forEach((button) => {
@@ -303,6 +308,7 @@
     if ("navbarStyle" in prefs) look.navbarStyle = NAV_STYLES.includes(prefs.navbarStyle) ? prefs.navbarStyle : "auto";
     if ("navbarGlass" in prefs) look.navbarGlass = cleanGlass(prefs.navbarGlass);
     if ("cookingMode" in prefs) look.cookingMode = prefs.cookingMode !== false; // alleen een echte false zet hem uit
+    if ("showCalories" in prefs) look.showCalories = prefs.showCalories !== false;
     remember();
     if (prefs.theme === "system" || prefs.theme === "light" || prefs.theme === "dark") choose(prefs.theme, { announce: false });
     else paint();
@@ -317,6 +323,7 @@
       navbarGlass: look.navbarGlass,
       navShown: navStyle(),
       cookingMode: look.cookingMode,
+      showCalories: look.showCalories,
     };
   }
 
@@ -337,6 +344,7 @@
   look.navbarStyle = NAV_STYLES.includes(cached.navbarStyle) ? cached.navbarStyle : "auto";
   look.navbarGlass = cleanGlass(cached.navbarGlass);
   look.cookingMode = cached.cookingMode !== false;
+  look.showCalories = cached.showCalories !== false;
   look.theme = choice();
 
   window.THEME = { current, set: choose, choose, choice, apply, appearance, variants, contrast, mix, ACCENTS, BRAND, navStyle, applyNavGlass, platform };

@@ -114,7 +114,11 @@ class SearchLoadTest(TempDataDirTest):
                 self.assertEqual(search.call_args.kwargs["load"], expected, raw)
         with served(side_effect=detail_requests()):
             body = (await client.get(f"/api/marleyspoon/recipes/{SLUG}")).get_json()
-        self.assertEqual((body["id"], body["portions"], body["nutrition"], body["url"]), (SLUG, "2", [], f"https://marleyspoon.nl/menu/{SLUG}"))
+        self.assertEqual((body["id"], body["portions"], body["url"]), (SLUG, "2", f"https://marleyspoon.nl/menu/{SLUG}"))
+        self.assertEqual(body["nutrition"], [
+            {"key": "calories", "quantity": 945, "unit": "kcal"}, {"key": "fatContent", "quantity": 44.5, "unit": "g"},
+            {"key": "sodiumContent", "quantity": 145.5, "unit": "mg"},
+        ])
         self.assertEqual(body["ingredients"][0], {"line": "150g bulgur"})
         self.assertEqual(body["steps"][0], "Bulgur koken: Voeg de bulgur toe.\nRoer door.")
         with served(side_effect=AssertionError("geen verzoek")):

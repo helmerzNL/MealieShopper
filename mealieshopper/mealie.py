@@ -15,7 +15,7 @@ from urllib.parse import urlparse
 
 import httpx
 
-from . import ah, auth, http_client, ingredients, jumbo, jumbo_recipes
+from . import ah, auth, http_client, ingredients, jumbo, jumbo_recipes, nutrition
 from .i18n import tr
 
 log = logging.getLogger(__name__)
@@ -804,8 +804,13 @@ async def _fetch_recipe(slug: str) -> dict[str, Any]:
 
 
 async def get_recipe(slug: str) -> dict[str, Any]:
+    # Late import: recipe_nutrition gebruikt zelf dit module om recepten op te halen.
+    from . import recipe_nutrition
+
     # Regels die Mealie niet analyseerde ("1" + "200 ml melk") krijgen aantal, eenheid en ingrediënt.
-    return ingredients.normalize_recipe(await _fetch_recipe(slug))
+    recipe = ingredients.normalize_recipe(await _fetch_recipe(slug))
+    await recipe_nutrition.remember(recipe)  # elk opgehaald recept houdt de calorieën bij, om op te kunnen zoeken
+    return recipe
 
 
 def _image_path(recipe: dict[str, Any] | None) -> str | None:
@@ -845,6 +850,13 @@ async def get_meal_plan_with_recipes(start_date: str, end_date: str) -> list[dic
         # Een kopie per maaltijd: hetzelfde recept kan twee keer in de week staan, met een andere schaal.
         enriched["recipeDetail"] = ingredients.scale_recipe(detail, scale) if detail else detail
         enriched["servings"] = _servings(detail or recipe, scale) if recipe else None
+        # De calorieën per portie (issue #283) en voor de geplande porties samen; None als Mealie ze niet heeft.
+        per_serving = nutrition.kcal(detail.get("nutrition")) if detail else None
+        enriched["kcal"] = (
+            {"perServing": round(per_serving), "total": nutrition.total(per_serving, (enriched["servings"] or {}).get("planned"))}
+            if per_serving is not None else None
+        )
+        enriched["nutrition"] = nutrition.items(detail.get("nutrition")) if detail else []  # per portie, voor het venster
         enriched["imageUrl"] = _image_path(detail) or _image_path(recipe)
         # Voor het recept in een venster (een tik op de maaltijd): de bereidingstijd en de link naar het recept in Mealie.
         enriched["recipeMinutes"] = _minutes(detail.get("totalTime")) if detail else None
@@ -881,6 +893,8 @@ def _servings(recipe: dict[str, Any], scale: float) -> dict[str, Any]:
 ENTRY_TYPES = ("breakfast", "lunch", "dinner", "side")
 EXTRA_ENTRY_TYPES = ("snack", "drink", "dessert")  # Mealie kent deze pas vanaf v3.7.0; een ouder Mealie geeft 422
 EXTRA_ENTRY_TYPES_SINCE = (3, 7, 0)
+RECIPE_SCALE_SINCE = (3, 29, 0)  # sindsdien heeft een maaltijd porties (`recipeScale`, PR mealie-recipes/mealie#8701)
+MAX_RECIPE_SCALE = 20.0  # hoogstens twintig keer het recept (een recept voor 4 voor 80 personen)
 TITLE_MAX = 200
 TEXT_MAX = 1000
 SEARCH_PAGE = 24
@@ -921,6 +935,30 @@ async def entry_types() -> list[str]:
     parsed = _version_tuple(await version())
     extra = parsed is not None and parsed >= EXTRA_ENTRY_TYPES_SINCE
     return list(ENTRY_TYPES + (EXTRA_ENTRY_TYPES if extra else ()))
+
+
+async def supports_recipe_scale() -> bool:
+    """Of de gekoppelde Mealie porties per maaltijd kent (`recipeScale`, v3.29.0); bij een onbekende versie niet."""
+    parsed = _version_tuple(await version())
+    return parsed is not None and parsed >= RECIPE_SCALE_SINCE
+
+
+async def _recipe_scale(value: Any) -> float:
+    """De schaal van een maaltijd uit een verzoek (porties gedeeld door de porties van het recept), voor Mealie."""
+    try:
+        scale = float(str(value).strip().replace(",", "."))
+    except (TypeError, ValueError):
+        scale = math.nan
+    if isinstance(value, bool) or not math.isfinite(scale) or scale <= 0 or scale > MAX_RECIPE_SCALE:
+        raise ValueError(tr("Kies een geldig aantal porties.", "Choose a valid number of servings."))
+    if not await supports_recipe_scale():
+        raise ValueError(
+            tr(
+                "Porties instellen kan vanaf Mealie 3.29; werk Mealie bij of plan zonder porties.",
+                "Setting servings needs Mealie 3.29; update Mealie or plan without servings.",
+            )
+        )
+    return round(scale, 4)
 
 
 def _mealie_error(response: httpx.Response, nl: str, en: str) -> RuntimeError:
@@ -994,8 +1032,9 @@ def _recipe_uuid(value: Any) -> str:
 async def _clean_entry(values: dict[str, Any], partial: bool = False) -> dict[str, Any]:
     """Controleer de velden van een maaltijd en geef ze zoals Mealie ze wil.
 
-    `values` kent `date`, `entryType`, `recipeId`, `recipeSlug` (wordt een `recipeId`), `title` en `text`. Bij `partial`
-    (wijzigen) alleen wat is meegegeven; een lege `recipeId` haalt het recept weg (de maaltijd wordt een notitie).
+    `values` kent `date`, `entryType`, `recipeId`, `recipeSlug` (wordt een `recipeId`), `title`, `text` en `recipeScale` (de
+    porties, als schaal van het recept; vanaf Mealie 3.29). Bij `partial` (wijzigen) alleen wat is meegegeven; een lege
+    `recipeId` haalt het recept weg (de maaltijd wordt een notitie).
     """
     if not isinstance(values, dict):
         raise ValueError(tr("Ongeldige invoer.", "Invalid input."))
@@ -1014,6 +1053,8 @@ async def _clean_entry(values: dict[str, Any], partial: bool = False) -> dict[st
         fields["recipeId"] = _recipe_uuid((await _fetch_recipe(valid_slug(values["recipeSlug"]))).get("id"))
     elif "recipeId" in values or not partial:
         fields["recipeId"] = None
+    if values.get("recipeScale") not in (None, ""):
+        fields["recipeScale"] = await _recipe_scale(values["recipeScale"])
     return fields
 
 
@@ -1027,6 +1068,8 @@ async def create_meal_plan_entry(values: dict[str, Any]) -> dict[str, Any]:
     base, token = await _configured()
     fields = await _clean_entry(values)
     _require_recipe_or_title(fields)
+    if not fields.get("recipeId"):
+        fields.pop("recipeScale", None)  # een notitie heeft geen porties
     response = await _client().post(
         f"{base}/api/households/mealplans", headers=_headers(token), json=fields, timeout=30
     )
@@ -1062,8 +1105,13 @@ async def update_meal_plan_entry(entry_id: Any, values: dict[str, Any]) -> dict[
     merged = {key: value for key, value in current.items() if key not in _READ_ONLY_ENTRY_FIELDS}
     merged.update(changes)
     merged["id"] = number
-    if "recipeScale" in current and "recipeId" in changes and not _same_recipe(changes["recipeId"], current.get("recipeId")):
+    if (
+        "recipeScale" in current and "recipeScale" not in changes and "recipeId" in changes
+        and not _same_recipe(changes["recipeId"], current.get("recipeId"))
+    ):
         merged["recipeScale"] = 1.0  # een ander recept (of een notitie): de porties van het oude gelden niet, net als in Mealie
+    if not merged.get("recipeId") and "recipeScale" in changes:
+        merged["recipeScale"] = 1.0  # een notitie heeft geen porties
     _require_recipe_or_title(merged)
     response = await _client().put(
         f"{base}/api/households/mealplans/{number}", headers=_headers(token), json=merged, timeout=30
@@ -1170,7 +1218,18 @@ async def search_recipes(query: Any, page: Any = 1, per_page: int = SEARCH_PAGE)
     total = data.get("total") if isinstance(data, dict) and isinstance(data.get("total"), int) else len(items)
     total_pages = data.get("total_pages") if isinstance(data, dict) else None
     more = number < total_pages if isinstance(total_pages, int) else len(items) >= size
-    return {"recipes": [recipe_card(item) for item in items], "total": total, "page": number, "more": bool(more)}
+    return {"recipes": await with_kcal([recipe_card(item) for item in items]), "total": total, "page": number, "more": bool(more)}
+
+
+async def with_kcal(cards: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Zet de bekende kcal per portie bij de kaarten (`kcal`, of None); de lijst van Mealie zelf heeft ze niet."""
+    from . import recipe_nutrition  # late import, zie get_recipe
+
+    known = await recipe_nutrition.lookup([card["slug"] for card in cards])
+    for card in cards:
+        kcal = known.get(card["slug"])
+        card["kcal"] = round(kcal) if kcal is not None else None
+    return cards
 
 
 async def recipe_detail(slug: Any) -> dict[str, Any]:
@@ -1195,29 +1254,46 @@ async def recipe_detail(slug: Any) -> dict[str, Any]:
         if isinstance(step, dict) and str(step.get("text") or "").strip():
             steps.append(str(step.get("text")).strip())
             titles.append(" ".join(str(step.get("title") or "").split()))
+    kcal = nutrition.kcal(recipe.get("nutrition"))
     detail = {
         **recipe_card(recipe),
         "description": str(recipe.get("description") or "").strip(),
         "ingredients": ingredients,
         "steps": steps,
         "url": await recipe_page_url(clean),
+        "nutrition": nutrition.items(recipe.get("nutrition")),  # per portie, zoals bij de winkels
+        "kcal": round(kcal) if kcal is not None else None,
     }
     if any(titles):
         detail["stepTitles"] = titles  # even lang als steps; "" is een stap zonder titel
     return detail
 
 
-async def list_recipes(limit: int = 500) -> list[dict[str, Any]]:
-    """Alle recepten in Mealie (naam, slug, afbeelding), voor het zoeken naar receptvoorstellen."""
+async def update_recipe_nutrition(slug: str, fields: dict[str, str]) -> None:
+    """Zet de voedingswaarden van een recept in Mealie (`PATCH /api/recipes/{slug}`). Mealie vervangt het hele blok, dus
+    `fields` bevat ook wat er al stond; tekst zonder eenheid, zoals Mealie ze na een import zelf bewaart."""
+    base, token = await _configured()
+    response = await _client().patch(
+        f"{base}/api/recipes/{valid_slug(slug)}", headers=_headers(token), json={"nutrition": fields}, timeout=30
+    )
+    if response.status_code >= 400:
+        raise _mealie_error(response, "Voedingswaarden bijwerken in Mealie mislukt", "Updating the nutrition in Mealie failed")
+
+
+async def list_recipes(limit: int = 500, search: str = "") -> list[dict[str, Any]]:
+    """Alle recepten in Mealie (de samenvattingen: naam, slug, afbeelding, `updatedAt`, bron), voor het zoeken naar
+    receptvoorstellen en de calorieën (recipe_nutrition.py). Met `search` alleen de treffers, in de volgorde van Mealie."""
     base, token = await _configured()
     items: list[dict[str, Any]] = []
     page = 1
     per_page = 100
+    text = " ".join(str(search or "").split())[:200]
+    order: dict[str, Any] = {"search": text} if text else {"orderBy": "name", "orderDirection": "asc"}
     while len(items) < limit:
         response = await _client().get(
             f"{base}/api/recipes",
             headers=_headers(token),
-            params={"page": page, "perPage": per_page, "orderBy": "name", "orderDirection": "asc"},
+            params={"page": page, "perPage": per_page, **order},
             timeout=30,
         )
         if response.status_code >= 400:

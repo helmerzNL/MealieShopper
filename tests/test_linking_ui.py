@@ -332,7 +332,7 @@ class LinkingPluralTest(unittest.TestCase):
     """De tellingen in de melding met de echte teksten: geen "1 regels op 1 bonnen" of "1 zoekopdrachten"."""
 
     def render(self, lang: str, expression: str) -> str:
-        # Via stdin, niet met -e: met het hele woordenboek erin is het script groter dan wat Linux in één argument toelaat (128 kB).
+        # Via stdin: met het hele woordenboek erin is het script groter dan wat Linux als één argument toestaat (128 KiB).
         done = subprocess.run(
             ["node", "-"], input=f"{dictionary_prelude(lang)}\nconsole.log(JSON.stringify({expression}));",
             capture_output=True, text=True, timeout=30, check=False,

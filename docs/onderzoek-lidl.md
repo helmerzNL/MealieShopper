@@ -8,7 +8,7 @@ ingelogd en er is geen account gebruikt. De andere supermarkten staan in [onderz
 
 ## Status
 
-Gebouwd in v4.4.0: Lidl staat als **winkel met alleen aanbiedingen** in MealieShopper (`mealieshopper/lidl.py`), zonder
+Gebouwd in v4.5.0: Lidl staat als **winkel met alleen aanbiedingen** in MealieShopper (`mealieshopper/lidl.py`), zonder
 account en zonder mandje.
 
 - **Wel**:
