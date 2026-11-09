@@ -23,7 +23,7 @@ import jwt
 from helpers import AppTestCase, db  # helpers zet ook het pad naar de app
 import test_history_stores_js  # als module: anders draait pytest die tests hier nog een keer
 import test_offers_scan_js  # idem: de Node-opbouw van offers.js
-from test_auth_password import AuthPasswordTestCase
+from test_auth_password import PASSWORD, AuthPasswordTestCase
 from test_prices import PricesCase, offer
 
 from mealieshopper import ah_orders, assets, auth, offers, price_archive_tidy, price_import, prices
@@ -309,6 +309,7 @@ class JsonBodyTest(AppTestCase):
         "/api/backup/uploads/<token>/stage": 404,
         "/api/price-archive/uploads/<token>": 404,
         "/api/price-archive/uploads/<token>/stage": 404,
+        "/api/auth/logout": 200,  # leest alleen de cookie (om de sessie in te trekken), geen body
         "/api/price-archive/export": 200,  # leest alleen queryparameters
         "/api/picnic/explore": 200,  # leest alleen queryparameters
         "/mcp": 404,  # JSON-RPC, en zonder OAuth-instelling niet beschikbaar
@@ -385,6 +386,37 @@ class SessionLifetimeTest(AuthPasswordTestCase):
         cookies = out.headers.getlist("Set-Cookie")
         self.assertEqual(len(cookies), 1, cookies)
         self.assertIn("ms_session=;", cookies[0])
+
+
+    async def test_2026_11_09_logout_revokes_the_session_and_renewal_keeps_what_was_checked(self):
+        # Uit de beveiligingsreview van de fix: de verlenging neemt de sessieteller uit de gecontroleerde cookie mee (niet de
+        # nieuwste uit de database), houdt dezelfde sessie-id en inlogtijd, stopt een jaar na de inlog, en uitloggen trekt de
+        # sessie serverzijde in, ook de verlengde cookies van dezelfde sessie.
+        token, _ = self.session_token(await self.setup_password())
+        claims = jwt.decode(token, options={"verify_signature": False})
+        self.assertEqual(claims["auth_time"], claims["iat"])
+        self.assertEqual(len(claims["sid"]), 32)
+        secret = await auth.signing_secret()
+        old = jwt.encode({**claims, "iat": claims["iat"] - 2 * 86400, "exp": claims["exp"] - 2 * 86400}, secret, algorithm="HS256")
+        client = self.new_client()
+        with mock.patch.object(auth, "session_epoch", mock.AsyncMock(return_value=99)):
+            renewed = await client.get("/api/auth/status", headers={"Cookie": f"ms_session={old}"})
+        new_token, _ = self.session_token(renewed)
+        new_claims = jwt.decode(new_token, options={"verify_signature": False})
+        self.assertEqual((new_claims["ep"], new_claims["sid"], new_claims["auth_time"]), (claims["ep"], claims["sid"], claims["auth_time"]))
+        # Een jaar na de inlog: de sessie geldt nog tot hij verloopt, maar wordt niet meer verlengd.
+        aged_token = jwt.encode({**claims, "iat": claims["iat"] - 2 * 86400, "exp": claims["exp"] - 2 * 86400, "auth_time": claims["iat"] - 400 * 86400}, secret, algorithm="HS256")
+        aged = await client.get("/api/auth/status", headers={"Cookie": f"ms_session={aged_token}"})
+        self.assertTrue(aged.get_json()["authenticated"])
+        self.assertEqual(self.session_token(aged), (None, ""))
+        # Uitloggen met de oude cookie: daarna zijn de oude en de verlengde cookie allebei ongeldig, een andere sessie niet.
+        other_token, _ = self.session_token(await self.post("/api/auth/password/login", {"username": "admin", "password": PASSWORD}, self.new_client()))
+        self.assertEqual((await client.post("/api/auth/logout", headers={"Cookie": f"ms_session={old}"})).status_code, 200)
+        for name, cookie in (("oud", old), ("verlengd", new_token)):
+            with self.subTest(name):
+                self.assertEqual((await client.get("/api/mealplan?start=a&end=b", headers={"Cookie": f"ms_session={cookie}"})).status_code, 401)
+                self.assertFalse((await client.get("/api/auth/status", headers={"Cookie": f"ms_session={cookie}"})).get_json()["authenticated"])
+        self.assertTrue((await client.get("/api/auth/status", headers={"Cookie": f"ms_session={other_token}"})).get_json()["authenticated"])
 
 
 class RecipeImportUrlTest(AppTestCase):

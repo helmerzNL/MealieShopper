@@ -90,7 +90,7 @@ DATA_TABLES = (
 )
 # Tabellen die er bewust niet in zitten: de inloggegevens van de app, tijdelijke staat, caches en logboeken.
 EXCLUDED_TABLES = frozenset({
-    "users", "passkey_credentials", "auth_challenges", "password_credentials", "mfa_totp", "mfa_recovery_codes",
+    "users", "passkey_credentials", "auth_challenges", "revoked_sessions", "password_credentials", "mfa_totp", "mfa_recovery_codes",
     "login_attempts", "invites", "oauth_clients", "oauth_codes", "oauth_tokens",
     "app_settings",  # staat er wel in, maar apart: zie SECRET_KEYS en PLAIN_SETTINGS
     "audit_log", "mealie_images", "backup_jobs", "sqlite_sequence",
