@@ -6,6 +6,8 @@ Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar
 
 ### Gewijzigd en opgelost in 4.4.2
 
+Pull request: [#291](https://github.com/helmerzNL/MealieShopper/pull/291).
+
 *English summary: the first round of a design review of the interface. **Check your basket** no longer runs out of its card: the card uses the full width (it was capped at 680 px while a line needed more), a line has named areas that adapt to the width (one row on a wide screen, the drop-down under the ingredient on a laptop, stacked on a phone, with the checkbox and photo next to each other), so a product name in the drop-down is no longer cut off, and **Add to basket** and **Cancel** sit in a bar that stays in view at the bottom. In the **week menu** titles no longer break per syllable ("Boeren-koolstamp-pot"): in a narrow day card the photo sits above the text, and a day that already has a meal shows a small **+** next to the date instead of a full **Add** button under it (an empty day keeps that button). The hint "Cheaper per unit" on an offer is a tile instead of a pill over three lines, product photos on an offer card are an inset tile in the dark theme instead of a white block to the edge, and product names that are links (basket, orders, receipts, the compare window) are in the text colour with a faint underline instead of green and underlined. Nothing changed on the server. Reload the page once after updating.*
 
 - **Controleer je mandje past in zijn kaart.** De kaart was, zoals elke `.box`, maximaal 680 px breed, terwijl de zes vaste kolommen van een regel samen meer vroegen. Op een laptop staken de regels daardoor rechts buiten de kaart, brak het ingrediënt af ("400 g / spaghetti") en kapte de keuzelijst de productnaam af. Nu:
