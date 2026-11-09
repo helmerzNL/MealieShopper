@@ -697,12 +697,12 @@ def create_app() -> Quart:
         data["packMargin"] = prices.PACK_MARGIN  # de client vergelijkt verpakkingen per eenheid met dezelfde marge
         return data
 
-    async def warm_offers() -> None:
-        """Rekent de lijst met oordeel van elke winkel alvast uit voor deze week en de volgende, in de cache van /api/offers. Na een
-        synchronisatie (offers_schedule) en bij de start, zodat de eerste bezoeker er niet op wacht. Een fout bij een winkel laat de
-        andere met rust."""
+    async def warm_offers(stores: tuple[str, ...] | None = None) -> None:
+        """Rekent de lijst met oordeel van elke winkel (of van `stores`) alvast uit voor deze week en de volgende, in de cache van
+        /api/offers. Na een synchronisatie (offers_schedule, of de knop per winkel) en bij de start, zodat de eerste bezoeker er
+        niet op wacht. Een fout bij een winkel laat de andere met rust."""
         today = date.today()
-        for store in offers.STORES:
+        for store in stores or offers.STORES:
             for week in (today.isoformat(), (today + timedelta(days=7)).isoformat()):
                 try:
                     etag = await offers_etag(store, week)
@@ -879,7 +879,14 @@ def create_app() -> Quart:
     @app.post("/api/offers/sync")
     async def offers_sync():
         body = await request_body.json_object()
-        return await offers_action(lambda: offers.sync(body.get("store") or "ah"), tr("Aanbiedingen ophalen mislukt", "Fetching the offers failed"))
+        response = await offers_action(lambda: offers.sync(body.get("store") or "ah"), tr("Aanbiedingen ophalen mislukt", "Fetching the offers failed"))
+        # De lijst is anders: het oordeel alvast uitrekenen, op de achtergrond, zodat de knop niet wacht en de eerste bezoeker ook niet.
+        if isinstance(response, Response) and response.status_code == 200:
+            tasks.spawn("warm-offers", app.extensions["mealieshopper_warm_offers"]((_valid_store_arg(body.get("store")),)))
+        return response
+
+    def _valid_store_arg(value: Any) -> str:
+        return value if value in offers.STORES else "ah"
 
     @app.get("/api/offers/status")
     async def offers_status():

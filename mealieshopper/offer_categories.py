@@ -41,6 +41,7 @@ AH_TAXONOMY: dict[str, str] = {
     "Bier, wijn, aperitieven": "bier_wijn",
     "Diepvries": "diepvries",
     "Huishouden": "huishouden",
+    "Koken, tafelen, vrije tijd": "huishouden",  # pannen, glazen, kaarsen, speelgoed: geen eten, het dichtst bij huishouden
     "Drogisterij": "drogisterie",
     "Gezondheid en sport": "drogisterie",
     "Baby en kind": "baby",

@@ -377,6 +377,26 @@ class OffersWeekTest(TempDataDirTest):
         self.assertEqual((await client.get(f"/api/offers/recipes?store=ah&week={self.next_monday.isoformat()}")).status_code, 200)
 
 
+class SyncWarmTest(AppTestCase):
+    """De knop `Aanbiedingen synchroniseren` per winkel verandert de ETag: daarna warmt de app de lijst met oordeel alvast op."""
+
+    async def test_the_per_store_sync_warms_the_offers_afterwards(self):
+        patcher = mock.patch.dict(os.environ, {"PASSKEY_AUTH_ENABLED": "false"})
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        app = create_app()
+        warmer = mock.AsyncMock()
+        app.extensions["mealieshopper_warm_offers"] = warmer
+        client = self.client_for(app)
+        with mock.patch.object(offers, "sync", new_callable=mock.AsyncMock, return_value={"store": "ah", "offers": []}):
+            self.assertEqual((await client.post("/api/offers/sync", json={"store": "ah"})).status_code, 200)
+        for _ in range(20):
+            if warmer.await_count:
+                break
+            await asyncio.sleep(0.01)
+        warmer.assert_awaited_once_with(("ah",))
+
+
 class OffersTableMigrationTest(TempDataDirTest):
     def test_a_table_from_before_2_84_loses_its_key_and_keeps_its_rows(self):
         with closing(db()) as conn, conn:
@@ -1389,7 +1409,8 @@ class EnglishRecipesTest(TempDataDirTest):
 class OffersRoutesTest(TempDataDirTest):
     def setUp(self):
         super().setUp()
-        self.client = self.client_for(create_app())
+        self.app = create_app()
+        self.client = self.client_for(self.app)
 
     async def test_routes_load_sync_and_suggest(self):
         self.assertEqual((await self.client.get("/api/offers?store=ah")).get_json()["syncedAt"], None)
@@ -1451,6 +1472,7 @@ class OffersRoutesTest(TempDataDirTest):
         # Het prijsoordeel is het dure deel: met dezelfde ETag rekent de server het niet opnieuw uit, ook niet voor een tweede
         # browser zonder If-None-Match of voor aanvragen die tegelijk binnenkomen.
         fetched = [{"id": "1", "title": "AH Kipfilet", "price": 3.0, "priceBefore": 4.0, "promoLabel": "Bonus"}]
+        self.app.extensions["mealieshopper_warm_offers"] = mock.AsyncMock()  # de opwarmer na de knop zou hier de telling vertekenen
         with mock.patch.dict(offers.FETCHERS, {"ah": lambda: returned(fetched)}):
             await self.client.post("/api/offers/sync", json={"store": "ah"})
         real_annotate = prices.annotate

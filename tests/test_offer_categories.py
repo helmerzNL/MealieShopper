@@ -1,4 +1,6 @@
+import json
 import unittest
+from pathlib import Path
 
 from mealieshopper import offer_categories
 
@@ -36,6 +38,17 @@ class OfferCategoryTest(unittest.TestCase):
     def test_a_hint_with_a_comma_matches_its_first_part(self):
         self.assertEqual(offer_categories.offer_category("ah", "Zwitsal shampoo", "Drogisterij, baby"), "drogisterie")
         self.assertEqual(offer_categories.offer_category("ah", "Philips Led kogel", "huishouden"), "huishouden", "gevouwen")
+
+    def test_kitchen_and_leisure_goods_are_household(self):
+        # "Koken, tafelen, vrije tijd": pannen, glazen, kaarsen en speelgoed. Geen eten, en het dichtst bij huishouden.
+        self.assertEqual(offer_categories.offer_category("ah", "Tefal Koekenpan 28 cm", "Koken, tafelen, vrije tijd"), "huishouden")
+
+    def test_at_most_eight_percent_of_a_production_week_is_other(self):
+        # De AH-aanbiedingen van de week van 9 november 2026 (titel en categorie van AH, zonder prijzen en zonder Bonus Box).
+        rows = json.loads((Path(__file__).parent / "fixtures" / "ah_offer_hints.json").read_text())
+        self.assertGreater(len(rows), 2000)
+        other = sum(1 for row in rows if offer_categories.offer_category("ah", row["title"], row["hint"]) == offer_categories.OTHER)
+        self.assertLessEqual(other / len(rows), 0.08, f"{other} van {len(rows)} in Overig")
 
     def test_a_hint_that_maps_to_other_falls_through(self):
         self.assertEqual(offer_categories.offer_category("ah", "Doritos Sweet chilli pepper", "Overige"), "snacks_snoep")
