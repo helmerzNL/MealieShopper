@@ -54,6 +54,10 @@ PRELUDE = "\n".join(
             "offerFamilies",
             "offerPackRows",
             "offerPackPricier",
+            "offersUnitsInList",
+            "offersUnitChoice",
+            "offersCardCount",
+            "offersFiltersOpen",
             "offerPackWarning",
             "offerPerUnitText",
             "offersFilterMatch",
@@ -364,6 +368,30 @@ class OffersScanNodeTest(unittest.TestCase):
         self.assertIn('data-ranges="popup"', html, "de grafiek leest de periodekeuze van de popup, niet van de pagina")
         self.assertIn("offerPopup.ranges = {}", function_source("showOfferPopup"), "een nieuwe popup begint zonder periodekeuze")
 
+    def test_the_unit_choice_only_lists_units_in_the_offers(self):
+        offers = [{"unitPricePer": {"unit": "stuk", "value": 1}}, {"unitPricePer": {"unit": "kg", "value": 2}}, {"unitPricePer": None}]
+        self.assertEqual(self.run_js(f"console.log(JSON.stringify(offersUnitsInList({json.dumps(offers)})));"), ["kg", "stuk"])
+
+    def test_an_unknown_remembered_unit_falls_back_to_the_first(self):
+        self.assertEqual(self.run_js("console.log(JSON.stringify([offersUnitChoice({ maxUnitPrice: { unit: 'l' } }, ['kg', 'stuk']), offersUnitChoice({ maxUnitPrice: { unit: 'stuk' } }, ['kg', 'stuk']), offersUnitChoice({ maxUnitPrice: { unit: 'l' } }, [])]));"), ["kg", "stuk", "kg"])
+
+    def test_the_counter_counts_cards_after_switches(self):
+        fam = {"key": "f", "packs": []}
+        offers = [{"id": "a", "family": fam, "verdict": {}}, {"id": "b", "family": fam, "verdict": {}}, {"id": "c", "family": {"key": "g", "packs": []}, "verdict": {}}]
+        self.assertEqual(self.run_js(f"console.log(offersCardCount({json.dumps(offers)}));"), 2)
+        body = function_source("renderOffersStatusGood")
+        self.assertIn("offersCardCount(offersFiltered({ search: false }))", body)
+        self.assertIn("offersCardCount(offersState.offers)", body)
+
+    def test_focusout_closes_the_popup_and_a_closed_drawer_is_inert(self):
+        listeners = OFFERS_JS.split('$("#offers-products").addEventListener("focusout"')
+        self.assertEqual(len(listeners), 2, "een focusout-listener op de kaarten")
+        self.assertIn("delayHideOfferPopup();", listeners[1].split("});")[0])
+        body = function_source("offersFiltersOpen")
+        self.assertIn('matchMedia("(max-width: 1099px)")', body)
+        self.assertIn(".inert = ", body)
+        self.assertIn('setAttribute("aria-hidden"', body)
+
     def test_an_offer_becomes_a_product_for_the_head(self):
         product = self.run_js(f"console.log(JSON.stringify(offerAsProduct('ah', {json.dumps(self.POPUP_OFFER)})));")
         self.assertEqual((product["store"], product["productId"], product["title"], product["onOfferNow"]), ("ah", "514010", "Dr. Oetker Casa di mama pizza salami", True))
@@ -409,10 +437,10 @@ class OffersScanMarkupTest(unittest.TestCase):
             'offersState.offers.filter((offer) => offer.verdict && offer.verdict.kind === "good").length',
             body,
         )
-        self.assertNotIn(
-            "offersFiltered()",
+        self.assertIn(
+            "offersCardCount(offersFiltered({ search: false }))",
             body,
-            "niet het zoekveld of de Bonus Box: het totaal ervoor telt die ook niet",
+            "de teller telt kaarten na alle filters en schakelaars, zonder het zoekveld",
         )
 
     def test_the_lower_before_tooltip_always_names_the_year(self):

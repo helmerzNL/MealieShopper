@@ -176,10 +176,11 @@ function offersPersonalOnly() {
 
 // De aanbiedingen die de schakelaars en het zoekveld doorlaten, in de volgorde van de winkel: de Bonus Box, het zoekveld (elk woord
 // moet in de naam of het merk staan, zonder hoofdletters en accenten) en "alleen echt voordelig" (het oordeel is good).
-function offersFiltered() {
+// `search: false`: zonder het zoekveld, voor de teller "door de filters".
+function offersFiltered({ search = true } = {}) {
   let shown = offersPersonalOnly() ? offersState.offers.filter((offer) => offer.personal) : offersState.offers;
-  const search = offersState.search.trim();
-  if (search) shown = shown.filter((offer) => matchesWords(offerSearchText(offer), search));
+  const term = search ? offersState.search.trim() : "";
+  if (term) shown = shown.filter((offer) => matchesWords(offerSearchText(offer), term));
   if (offersState.goodOnly) shown = shown.filter((offer) => offer.verdict && offer.verdict.kind === "good");
   return offersFilteredWithFamilies(shown);
 }
@@ -270,6 +271,22 @@ function offerFamilies(sorted) {
     group.offers = [head, ...group.offers.filter((offer) => offer !== head)];
   });
   return groups.sort((a, b) => a.at - b.at);
+}
+
+// Het aantal kaarten in een lijst: een verpakkingsfamilie telt als een.
+function offersCardCount(list) {
+  return offerFamilies(list).length;
+}
+
+// De eenheden die in de aanbiedingen van de week voorkomen, in de vaste volgorde, voor de keuzelijst bij "Prijs per eenheid".
+function offersUnitsInList(list) {
+  return ["kg", "l", "stuk"].filter((unit) => list.some((offer) => offer.unitPricePer && offer.unitPricePer.unit === unit));
+}
+
+// De eenheid voor de keuzelijst: de onthouden eenheid als die voorkomt, anders de eerste die er is (of kg).
+function offersUnitChoice(filters, units) {
+  const unit = filters.maxUnitPrice && filters.maxUnitPrice.unit;
+  return units.includes(unit) ? unit : units[0] || "kg";
 }
 
 // "duurder per kilo dan 1000 g": de aanbieding is per eenheid duurder dan een andere verpakking van hetzelfde product.
@@ -962,7 +979,9 @@ function renderOffersFilters() {
   const price = $("#offers-filter-unit-price");
   if (document.activeElement !== price) price.value = typeof filters.maxUnitPrice.value === "number" ? String(filters.maxUnitPrice.value) : "";
   const unit = $("#offers-filter-unit");
-  unit.innerHTML = ["kg", "l", "stuk"].map((name) => `<option value="${name}"${name === filters.maxUnitPrice.unit ? " selected" : ""}>${escapeHtml(t("offers.filters.per_unit", { unit: offersUnitLabel(name) }))}</option>`).join("");
+  const units = offersUnitsInList(offersState.offers);
+  filters.maxUnitPrice.unit = offersUnitChoice(filters, units);
+  unit.innerHTML = (units.length ? units : ["kg"]).map((name) => `<option value="${name}"${name === filters.maxUnitPrice.unit ? " selected" : ""}>${escapeHtml(t("offers.filters.per_unit", { unit: offersUnitLabel(name) }))}</option>`).join("");
   const count = offersActiveFilterCount();
   $("#offers-filters-count").textContent = count ? ` (${I18N.formatNumber(count)})` : "";
   const active = $("#offers-active-filters");
@@ -1008,12 +1027,11 @@ function renderOffersStatusGood() {
   const good = offersState.goodOnly ? offersState.offers.filter((offer) => offer.verdict && offer.verdict.kind === "good").length : 0;
   const parts = [base];
   if (offersState.goodOnly) parts.push(t("offers.status.good", { count: I18N.formatNumber(good) }));
-  // Met een filter in de zijbalk: hoeveel er door de filters komen, van het totaal. Net als het aantal echt voordelig: over alle
-  // aanbiedingen van de week, niet binnen het zoekveld.
-  if (offersActiveFilterCount()) {
-    const filters = offersFilters();
-    const through = offersState.offers.filter((offer) => offersFilterMatch(offer, filters)).length;
-    parts.push(t("offers.status.filtered", { shown: I18N.formatNumber(through), total: I18N.formatNumber(offersState.offers.length) }));
+  // Met een filter of schakelaar: hoeveel kaarten er door de filters en de schakelaars komen (een verpakkingsfamilie telt als een),
+  // van alle kaarten van de week. Niet binnen het zoekveld.
+  if (offersActiveFilterCount() || offersState.goodOnly || offersPersonalOnly()) {
+    const shown = offersCardCount(offersFiltered({ search: false }));
+    parts.push(t("offers.status.filtered", { shown: I18N.formatNumber(shown), total: I18N.formatNumber(offersCardCount(offersState.offers)) }));
   }
   status.textContent = parts.join(" ");
 }
@@ -1445,11 +1463,18 @@ $("#offers-filters-clear").addEventListener("click", () => {
 });
 // Op een smal scherm is de zijbalk een uitschuifpaneel: de knop Filters opent hem, de achtergrond, het kruisje en Escape sluiten hem.
 function offersFiltersOpen(open) {
-  $("#offers-filters").classList.toggle("is-open", open);
+  const aside = $("#offers-filters");
+  aside.classList.toggle("is-open", open);
   $("#offers-filters-backdrop").hidden = !open;
   $("#offers-filters-toggle").setAttribute("aria-expanded", String(open));
   document.body.classList.toggle("offers-filters-open", open);
+  // Als lade (onder 1100 px) staat de dichte zijbalk buiten beeld: dan ook buiten de tabvolgorde en voor schermlezers.
+  const drawerClosed = window.matchMedia("(max-width: 1099px)").matches && !open;
+  aside.inert = drawerClosed;
+  aside.setAttribute("aria-hidden", String(drawerClosed));
 }
+offersFiltersOpen(false);
+window.matchMedia("(max-width: 1099px)").addEventListener("change", () => offersFiltersOpen($("#offers-filters").classList.contains("is-open")));
 $("#offers-filters-toggle").addEventListener("click", () => offersFiltersOpen(!$("#offers-filters").classList.contains("is-open")));
 $("#offers-filters-close").addEventListener("click", () => offersFiltersOpen(false));
 $("#offers-filters-backdrop").addEventListener("click", () => offersFiltersOpen(false));
@@ -1488,6 +1513,13 @@ $("#offers-products").addEventListener("focusin", (event) => {
   if (!offerPopupAllowed()) return;
   const found = offerPopupAnchor(event.target);
   if (found) scheduleOfferPopup(found.anchor, found.packId);
+});
+$("#offers-products").addEventListener("focusout", (event) => {
+  const found = offerPopupAnchor(event.target);
+  if (!found) return;
+  const to = event.relatedTarget;
+  if (to && (found.anchor.contains(to) || $("#offer-popup").contains(to))) return; // tabben naar de popup zelf mag
+  delayHideOfferPopup();
 });
 $("#offers-products").addEventListener("click", (event) => {
   const thumb = event.target.closest("[data-zoom]");
