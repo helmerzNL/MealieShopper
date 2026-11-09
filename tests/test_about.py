@@ -64,11 +64,11 @@ class VersionTest(AppTestCase):
         read_commit.assert_called_once_with()
 
     def test_the_version_is_read_once_for_the_user_agent(self):
-        # crisp, hellofresh en marleyspoon zetten de versie in hun User-Agent bij elk verzoek: het bestand niet elke keer lezen.
-        from mealieshopper import crisp, hellofresh, marleyspoon
+        # crisp, hellofresh, marleyspoon, lidl en aldi zetten de versie in hun User-Agent bij elk verzoek: het bestand niet elke keer lezen.
+        from mealieshopper import aldi, crisp, hellofresh, lidl, marleyspoon
 
         with mock.patch.dict(os.environ, {"MEALIESHOPPER_VERSION": "7.8.9"}), mock.patch.object(about, "read_version", wraps=about.read_version) as read:
-            agents = {crisp._user_agent(), hellofresh._user_agent(), marleyspoon._user_agent(), crisp._user_agent()}
+            agents = {crisp._user_agent(), hellofresh._user_agent(), marleyspoon._user_agent(), crisp._user_agent(), lidl._user_agent(), aldi._user_agent()}
         self.assertEqual(agents, {"MealieShopper/7.8.9 (+https://github.com/helmerzNL/MealieShopper)"})
         self.assertEqual(read.call_count, 1)
 

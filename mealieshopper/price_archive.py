@@ -99,7 +99,8 @@ GIST_TAR_NAME = re.compile(r"supermarket-archives/(\d{4}-\d{2}-\d{2})/(.+)")
 SITE_FORMAT = "data.mealieshopper.nl"
 DATA_SITE_URL = "https://data.mealieshopper.nl"
 SITE_MANIFEST = "data-site-manifest.json"
-SITE_KINDS: dict[str, str] = {"offers": "offer", "prices": "price"}
+# `observations/`: prijsmetingen zonder bekende actie (de gists van Picnic en Crisp), in de vorm van een prijs.
+SITE_KINDS: dict[str, str] = {"offers": "offer", "prices": "price", "observations": "price"}
 SITE_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}\.json$")  # een bestandsnaam zoals de site hem toestaat
 SITE_COLLECTION = re.compile(r"^[a-z0-9][a-z0-9-]{0,62}$")
 SITE_UPLOAD_PATH = re.compile(r"^data/([a-z0-9][a-z0-9-]{0,62})/[A-Za-z0-9][A-Za-z0-9._-]{0,127}\.zip$")

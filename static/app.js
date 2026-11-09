@@ -1,6 +1,7 @@
 const state = {
   weekOffset: 0,
   firstDayOfWeek: 1, // waar de week begint, zoals Mealie telt (0 = zondag, 1 = maandag); komt uit /api/mealie/status
+  weekStartKnown: false, // het antwoord van /api/mealie/status is binnen (of mislukt): tot dan is de week een gok, zie weekStartSettled
   entries: null,
   planAutoLoaded: false, // het weekmenu is na het koppelen van Mealie eenmaal vanzelf geladen
   auth: null,
@@ -109,7 +110,8 @@ function $(selector) {
 // Een productfoto van een winkel via de eigen cache (/api/images/<token>, zie image_cache.py): de server haalt hem een keer op
 // en serveert hem daarna van schijf, zodat de browser niet bij de winkel hotlinkt. Een adres van een andere host (Mealie, een
 // maaltijdbox) blijft zoals het is. Het token is het adres in URL-veilige base64 zonder "=".
-const STORE_IMAGE_HOSTS = [/(^|\.)static\.ah\.nl$/, /(^|\.)jumbo\.com$/, /\.picnicinternational\.com$/, /(^|\.)crispapp\.nl$/];
+// Lidl en Aldi: alleen de hosts van hun productfoto's (de server controleert ook het pad, zie image_cache.store_for).
+const STORE_IMAGE_HOSTS = [/(^|\.)static\.ah\.nl$/, /(^|\.)jumbo\.com$/, /\.picnicinternational\.com$/, /(^|\.)crispapp\.nl$/, /^www\.lidl\.nl$/, /^imgproxy-retcat\.assets\.schwarz$/, /^s7g10\.scene7\.com$/];
 
 function storeImage(url) {
   if (!url) return url;
@@ -1427,6 +1429,27 @@ const STORES = {
   crisp: { name: "Crisp", api: "crisp", linked: "crisp", button: "plan.add_cart_crisp", ready: "cart.ready_crisp" },
 };
 
+// Winkels zonder webwinkel: van hen zijn er alleen de aanbiedingen, zonder koppeling, mandje of zoeken (offers.OFFER_ONLY_STORES).
+// Ze staan bewust niet in STORES: die lijst voedt het mandje, Winkels en de voorkeurssupermarkt.
+const OFFER_ONLY_STORES = {
+  lidl: { name: "Lidl" },
+  aldi: { name: "Aldi" },
+};
+
+// De naam van een winkel, ook van een winkel met alleen aanbiedingen.
+function storeDisplayName(key) {
+  return (STORES[key] || OFFER_ONLY_STORES[key])?.name || key;
+}
+
+function offersOnlyStore(key) {
+  return Object.hasOwn(OFFER_ONLY_STORES, key);
+}
+
+// Een winkel die zonder koppeling te kiezen is bij Aanbiedingen: AH (de Bonus werkt zonder inlog) en de winkels met alleen aanbiedingen.
+function storeWithoutLink(key) {
+  return key === "ah" || offersOnlyStore(key);
+}
+
 function currentStore() {
   return STORES[state.store] || STORES.ah;
 }
@@ -2238,7 +2261,17 @@ async function refreshMealieStatus() {
     renderMealieStatus(await jsonFetch("/api/mealie/status"));
   } catch (error) {
     message("#mealie-status", error.message);
+  } finally {
+    weekStartSettled();
   }
+}
+
+// De eerste dag van de week is bekend (of het opvragen mislukte en maandag blijft). Aanbiedingen wacht daarop bij het openen: een
+// week die op zondag begint, hoort op zondag al bij de volgende bonusweek, en anders laadt de pagina eerst de verkeerde week.
+function weekStartSettled() {
+  if (state.weekStartKnown) return;
+  state.weekStartKnown = true;
+  if (typeof offersWeekStartKnown === "function") offersWeekStartKnown();
 }
 
 async function checkMealieConnection() {
@@ -2982,6 +3015,7 @@ document.querySelectorAll(".subtab[data-subtab], .subtab-menu__item[data-subtab]
     }
     const target = panel.querySelector(`#${subtab.dataset.subtab}`);
     if (target) target.classList.add("is-active");
+    if (panel.id === "offers" && typeof showOffers === "function") showOffers();
     if (subtab.dataset.subtab === "planner") ensureMealPlan();
     if (subtab.dataset.subtab === "settings-link" && typeof loadOffersSyncStatus === "function") loadOffersSyncStatus();
     if (subtab.dataset.subtab === "settings-link" && typeof loadLinkingBox === "function") loadLinkingBox();

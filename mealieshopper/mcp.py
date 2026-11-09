@@ -625,7 +625,7 @@ PRICE_HISTORY_ITEMS = 12  # per product de laatste aanbiedingen, prijsperiodes e
 async def tool_get_price_history(args: dict[str, Any]) -> Any:
     store = args.get("store") or None
     if store is not None and store not in offers.STORES:
-        raise ToolError("Kies als winkel ah, picnic, jumbo of crisp")
+        raise ToolError(f"Kies als winkel {', '.join(offers.STORES[:-1])} of {offers.STORES[-1]}")
     data = await prices.history(store, _text(args.get("query"), 200), _int_arg(args, "limit", 10, 1, 50), bought=bool(args.get("bought")))
     keep = PRICE_HISTORY_ITEMS
     return {
@@ -1048,7 +1048,7 @@ TOOLS: dict[str, dict[str, Any]] = {
         ),
         "inputSchema": _schema(
             {
-                "store": {"type": "string", "enum": ["ah", "picnic", "jumbo", "crisp"], "description": "De winkel waarvan de aanbiedingen worden vergeleken."},
+                "store": {"type": "string", "enum": list(offers.STORES), "description": "De winkel waarvan de aanbiedingen worden vergeleken."},
                 "limit": {"type": "integer", "minimum": 1, "maximum": 100, "description": "Aantal paren, standaard 40."},
                 "offset": {"type": "integer", "minimum": 0, "description": "Vanaf welk paar, standaard 0."},
             },
@@ -1065,7 +1065,7 @@ TOOLS: dict[str, dict[str, Any]] = {
         ),
         "inputSchema": _schema(
             {
-                "store": {"type": "string", "enum": ["ah", "picnic", "jumbo", "crisp"], "description": "De winkel van het product."},
+                "store": {"type": "string", "enum": list(offers.STORES), "description": "De winkel van het product."},
                 "ingredient": {"type": "string", "description": "De ingrediëntregel, precies zoals in review_offer_matches."},
                 "offer_id": {"type": "string", "description": "Het offerId uit review_offer_matches."},
                 "reason": {"type": "string", "description": "Korte reden, bijvoorbeeld 'sauzen zijn geen rauw vlees'."},
@@ -1080,7 +1080,7 @@ TOOLS: dict[str, dict[str, Any]] = {
         "description": "De gemelde onjuiste koppelingen (door de eigenaar met de vlag of door een assistent), de nieuwste eerst, met ingrediënt, product en reden.",
         "inputSchema": _schema(
             {
-                "store": {"type": "string", "enum": ["ah", "picnic", "jumbo", "crisp"], "description": "Alleen deze winkel; standaard alle."},
+                "store": {"type": "string", "enum": list(offers.STORES), "description": "Alleen deze winkel; standaard alle."},
                 "limit": {"type": "integer", "minimum": 1, "maximum": MAX_LIST_ITEMS, "description": "Aantal meldingen, standaard 100."},
             }
         ),
@@ -1088,11 +1088,11 @@ TOOLS: dict[str, dict[str, Any]] = {
         "handler": tool_list_offer_mismatches,
     },
     "get_price_history": {
-        "description": "De prijsgeschiedenis van producten uit de lokale kopie: wanneer ze in de aanbieding waren en voor welke prijs, de normale prijs door de tijd en wat je betaalde (uit bestellingen en kassabonnen). Handig om te zien of een aanbieding echt voordelig is.",
+        "description": "De prijsgeschiedenis van producten uit de lokale kopie: wanneer ze in de aanbieding waren en voor welke prijs, de normale prijs door de tijd en wat je betaalde (uit bestellingen en kassabonnen). Handig om te zien of een aanbieding echt voordelig is. Van Lidl en Aldi zijn er alleen aanbiedingen (geen webwinkel).",
         "inputSchema": _schema(
             {
                 "query": {"type": "string", "description": "Woorden uit de productnaam en eventueel een maat, bijvoorbeeld 'penne' of 'gehakt 500 gram'. Leeg: de producten met de recentste gegevens."},
-                "store": {"type": "string", "enum": ["ah", "picnic", "jumbo", "crisp"], "description": "Alleen deze winkel; standaard alle."},
+                "store": {"type": "string", "enum": list(offers.STORES), "description": "Alleen deze winkel; standaard alle."},
                 "limit": {"type": "integer", "minimum": 1, "maximum": 50, "description": "Aantal producten, standaard 10."},
                 "bought": {"type": "boolean", "description": "Alleen producten die je minstens één keer kocht (uit bestellingen en kassabonnen)."},
             }

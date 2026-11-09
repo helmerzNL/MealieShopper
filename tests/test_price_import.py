@@ -89,7 +89,7 @@ class PromptTest(AppTestCase):
 
     def test_an_unknown_store_is_refused(self):
         with self.assertRaises(ValueError):
-            price_import.prompt("lidl")
+            price_import.prompt("nope")
 
 
 class ParseTest(AppTestCase):
@@ -498,7 +498,7 @@ class RouteTest(ImportCase):
         self.assertEqual((await client.get("/api/imported-orders/ah/AB%2F12")).get_json()["number"], "AB/12")
         self.assertEqual(len((await client.get("/api/imported-orders/ah/dag:2025-06-01:9.50")).get_json()["items"]), 2)
         self.assertEqual((await client.get("/api/imported-orders/ah/999")).status_code, 404)
-        self.assertEqual((await client.get("/api/imported-orders/lidl")).status_code, 400)
+        self.assertEqual((await client.get("/api/imported-orders/nope")).status_code, 400)
         self.assertEqual((await client.delete("/api/prices/import?store=ah&ref=AB%2F12")).get_json(), {"store": "ah", "removed": 1, "ref": "AB/12"})
         self.assertEqual(len((await client.get("/api/imported-orders/ah")).get_json()["orders"]), 2)
 
@@ -519,7 +519,8 @@ class RouteTest(ImportCase):
         self.assertEqual((await client.post("/api/prices/import", json=body)).get_json()["imported"], 2)
         self.assertEqual((await client.post("/api/prices/import", json=body)).get_json()["duplicates"], 1)
         self.assertEqual((await client.post("/api/prices/import", json={"store": "ah", "data": "nee"})).status_code, 400)
-        self.assertEqual((await client.post("/api/prices/import", json={"store": "lidl", "data": "[]"})).status_code, 400)
+        self.assertEqual((await client.post("/api/prices/import", json={"store": "nope", "data": "[]"})).status_code, 400)
+        self.assertEqual((await client.post("/api/prices/import", json={"store": "lidl", "data": "[]"})).status_code, 400, "geen webwinkel, geen bestellingen")
         self.assertEqual((await client.delete("/api/prices/import?store=ah")).get_json()["removed"], 1)
 
     def test_only_the_administrator_may_import(self):

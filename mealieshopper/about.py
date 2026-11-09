@@ -30,6 +30,8 @@ COMPONENTS: list[tuple[str, str, str, str | None, str | None, str | None, str]] 
     ("picnic", "integrations", "Picnic", None, None, None, "https://picnic.app"),
     ("jumbo", "integrations", "Jumbo", None, None, None, "https://www.jumbo.com"),
     ("crisp", "integrations", "Crisp", None, None, None, "https://crisp.nl"),
+    ("lidl", "integrations", "Lidl", None, None, None, "https://www.lidl.nl"),
+    ("aldi", "integrations", "Aldi", None, None, None, "https://www.aldi.nl"),
     ("webauthn", "integrations", "WebAuthn (passkeys)", None, None, None, "https://www.w3.org/TR/webauthn-2/"),
     ("totp", "integrations", "TOTP (RFC 6238)", None, None, None, "https://www.rfc-editor.org/rfc/rfc6238"),
     ("python", "server", "Python", None, "python", "PSF-2.0", "https://www.python.org"),
@@ -110,6 +112,12 @@ async def build_info() -> dict[str, str]:
         number: str = read_version()
         _build_info = {"version": number, "commit": commit, "label": f"v{number}" + (f" ({commit})" if commit else "")}
     return _build_info
+
+
+async def build_commit() -> str:
+    """De commit van deze build, voor de ETag van /api/offers: twee builds van dezelfde versie geven anders dezelfde ETag, en een
+    browser houdt na een deploy de oude lijst vast."""
+    return (await build_info())["commit"]
 
 
 def reset() -> None:

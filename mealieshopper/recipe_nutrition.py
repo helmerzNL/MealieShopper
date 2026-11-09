@@ -58,7 +58,7 @@ CREATE TABLE IF NOT EXISTS mealie_recipe_nutrition_meta (
 """
 
 # Kolommen die later kwamen, zoals `offers.COLUMN_MIGRATIONS`: (tabel, kolom, soort).
-# - `nutrition` (4.5.0): alle voedingswaarden als JSON (`{veld: getal}`, zie nutrition.values). Een rij van daarvoor heeft NULL
+# - `nutrition` (4.7.0): alle voedingswaarden als JSON (`{veld: getal}`, zie nutrition.values). Een rij van daarvoor heeft NULL
 #   en wordt bij de volgende ronde opnieuw opgehaald.
 COLUMN_MIGRATIONS: tuple[tuple[str, str, str], ...] = (("mealie_recipe_nutrition", "nutrition", "TEXT"),)
 
@@ -78,7 +78,7 @@ async def _connect() -> AsyncIterator[aiosqlite.Connection]:
 
 
 def _values(row: Any) -> dict[str, float]:
-    """De voedingswaarden van een rij; een rij van vóór 4.5.0 (`nutrition` NULL) heeft alleen de kcal."""
+    """De voedingswaarden van een rij; een rij van vóór 4.7.0 (`nutrition` NULL) heeft alleen de kcal."""
     raw = row["nutrition"]
     if raw is None:
         return {"calories": row["kcal"]} if row["kcal"] is not None else {}
@@ -183,7 +183,7 @@ async def _run_refresh() -> None:
 
         def stale(summary: dict[str, Any]) -> bool:
             row = known.get(str(summary.get("id") or ""))
-            if row is None or row[2] is None:  # nieuw, of van vóór 4.5.0 (alleen de kcal)
+            if row is None or row[2] is None:  # nieuw, of van vóór 4.7.0 (alleen de kcal)
                 return True
             stamp = _stamp(summary)
             return stamp != row[0] if stamp else now - row[1] > STALE_WITHOUT_STAMP

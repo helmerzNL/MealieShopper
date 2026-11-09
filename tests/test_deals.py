@@ -352,3 +352,46 @@ class WeekTests(unittest.TestCase):
         self.assertTrue(deals.in_week("2026-10-01", None, monday, sunday), "doorlopend")
         self.assertFalse(deals.in_week("2026-10-26", "2026-11-01", monday, sunday))
         self.assertFalse(deals.in_week("2026-11-09", "2026-11-15", monday, sunday))
+
+
+class LocalDayTests(unittest.TestCase):
+    """`deals.local_day`: de dag in Nederland van een tijdstip van Lidl of Aldi (UTC of unix-tijd)."""
+
+    def test_winter_and_summer(self):
+        self.assertEqual(deals.local_day("2026-11-04T23:00Z"), "2026-11-05", "23:00 UTC is in de winter al middernacht")
+        self.assertEqual(deals.local_day("2026-11-15T22:59:59Z"), "2026-11-15")
+        self.assertEqual(deals.local_day("2026-11-04T23:00:00.000Z"), "2026-11-05")
+        self.assertEqual(deals.local_day("2026-07-05T22:00:00Z"), "2026-07-06", "in de zomer is het twee uur later")
+        self.assertEqual(deals.local_day("2026-07-05T21:59:59Z"), "2026-07-05")
+        self.assertEqual(deals.local_day("2026-07-05T23:30:00+02:00"), "2026-07-05", "een tijdverschil telt mee")
+
+    def test_the_days_the_clock_changes(self):
+        # De zomertijd begint op 29 maart 2026 om 01:00 UTC en eindigt op 25 oktober 2026 om 01:00 UTC.
+        self.assertEqual(deals.local_day("2026-03-28T23:30:00Z"), "2026-03-29", "nog wintertijd: +1")
+        self.assertEqual(deals.local_day("2026-03-29T22:30:00Z"), "2026-03-30", "al zomertijd: +2")
+        self.assertEqual(deals.local_day("2026-10-24T22:30:00Z"), "2026-10-25", "nog zomertijd: +2")
+        self.assertEqual(deals.local_day("2026-10-25T22:30:00Z"), "2026-10-25", "weer wintertijd: +1")
+        self.assertEqual(deals.local_day("2026-10-25T23:00:00Z"), "2026-10-26")
+
+    def test_unix_seconds(self):
+        self.assertEqual(deals.local_day(1794178800), "2026-11-09", "Lidl: storeStartDate")
+        self.assertEqual(deals.local_day(1794783599), "2026-11-15", "Lidl: storeEndDate")
+        self.assertEqual(deals.local_day(1794178800.0), "2026-11-09")
+
+    def test_local_text_and_rubbish(self):
+        self.assertEqual(deals.local_day("2026-11-09"), "2026-11-09", "zonder tijdverschil is het al een Nederlandse dag")
+        self.assertEqual(deals.local_day("2200-01-01T22:59:59Z"), "2200-01-01")
+        for rubbish in (None, "", "morgen", "2026-13-01T00:00Z", True, [], {}, 10**30):
+            self.assertIsNone(deals.local_day(rubbish), rubbish)
+
+
+class StorePriceRoundingTests(unittest.TestCase):
+    def test_the_store_price_wins_from_a_rounded_percentage(self):
+        """Lidl: "-30%" op 1,69 is 1,183; Lidl vraagt 1,19. Binnen twee cent wint de prijs van de winkel."""
+        mechanic = deals.parse_mechanic("-30% met Lidl Plus")
+        self.assertEqual(deals.effective_unit_price(mechanic, 1.69, 1.19), 1.19)
+        self.assertEqual(deals.effective_unit_price(mechanic, 1.69, 1.69), 1.18, "de gewone prijs als prijs: dan rekenen we")
+        self.assertEqual(deals.effective_unit_price(mechanic, 1.69, 0.99), 1.18, "te ver ervan af: dan rekenen we")
+        self.assertEqual(deals.effective_unit_price(mechanic, 1.69, None), 1.18)
+        self.assertEqual(deals.effective_unit_price(deals.parse_mechanic("20% korting vanaf 2 stuks"), 2.49, 1.99), 1.99, "rekenen gaf al 1,99")
+        self.assertEqual(deals.effective_unit_price(deals.parse_mechanic("30% korting vanaf 2 stuks"), 1.69, 1.19), 1.18, "met een voorwaarde rekenen we")

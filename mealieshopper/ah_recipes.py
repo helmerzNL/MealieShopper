@@ -9,7 +9,7 @@ De receptgroepen (zoals in de AH-app: je eigen groepen naast de standaardgroep) 
 mee in dezelfde vernieuwing. Lukt het ophalen van de groepen niet, dan worden de
 recepten wel bewaard, zonder groepen.
 
-De voedingswaarden per portie (4.5.0) staan er ook bij, als JSON (zie nutrition.py). De
+De voedingswaarden per portie (4.7.0) staan er ook bij, als JSON (zie nutrition.py). De
 lijst van AH heeft ze niet: ze komen mee als MealieShopper het recept toch ophaalt (het
 recept openen, de receptindex van de aanbiedingen), en na een vernieuwing haalt
 `start_fill` er telkens een deel bij, met de pauzes van de bulkimport. Een vernieuwing
@@ -69,7 +69,7 @@ CREATE TABLE IF NOT EXISTS ah_saved_recipe_group_items (
 
 
 # Kolommen die later kwamen, zoals `offers.COLUMN_MIGRATIONS`: (tabel, kolom, soort).
-# - `ah_saved_recipes.nutrition` (4.5.0): de voedingswaarden per portie als JSON; NULL is nog niet opgehaald, '{}' is "AH heeft
+# - `ah_saved_recipes.nutrition` (4.7.0): de voedingswaarden per portie als JSON; NULL is nog niet opgehaald, '{}' is "AH heeft
 #   ze niet" (dan vragen we het niet opnieuw).
 COLUMN_MIGRATIONS: tuple[tuple[str, str, str], ...] = (("ah_saved_recipes", "nutrition", "TEXT"),)
 

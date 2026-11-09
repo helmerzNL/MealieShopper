@@ -6785,6 +6785,16 @@ html.is-standalone body {
   background: var(--surface-muted);
 }
 
+.ohc-head--compact {
+  align-items: flex-start;
+}
+
+.ohc-head--compact img {
+  width: 160px;
+  height: 160px;
+  background: #fff;
+}
+
 .ohc-head h3,
 .ohc-head p {
   margin: 0;
@@ -6898,6 +6908,25 @@ html.is-standalone body {
   stroke: var(--text);
 }
 
+/* Een folderactie voor de hele lijn (uit het folderarchief): een streepje onderaan, zonder prijs. */
+.ohc-line rect {
+  fill: #c98a1b;
+}
+
+.ohc-line--priced rect {
+  fill: #c98a1b;
+  opacity: 0.85;
+}
+
+.ohc-line:hover rect,
+.ohc-line:focus rect {
+  fill: var(--text);
+}
+
+.ohc-line:focus {
+  outline: none;
+}
+
 /* Een aankoop: een stip op de prijs per stuk die je betaalde. */
 .ohc-paid circle {
   fill: var(--surface);
@@ -6929,6 +6958,44 @@ html.is-standalone body {
 
 .ohc-observed:focus {
   outline: none;
+}
+
+/* De actie van een folderactie, onder de naam in de folder. */
+.ohc-line-action {
+  display: block;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+/* De periode van de grafiek: 1 jaar, 3 jaar of alles. */
+.ohc-range {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 4px 0 6px;
+}
+
+.ohc-range-button {
+  min-height: 32px;
+  padding: 4px 12px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.ohc-range-button[aria-pressed="true"] {
+  border-color: var(--primary);
+  background: var(--primary);
+  color: var(--on-primary, #fff);
+}
+
+.ohc-range-button:focus-visible {
+  outline: 2px solid var(--text);
+  outline-offset: 2px;
 }
 
 .ohc-legend {
@@ -6969,6 +7036,12 @@ html.is-standalone body {
   height: 9px;
   border: 2px solid var(--text);
   border-radius: 50%;
+}
+
+.ohc-key--line {
+  height: 8px;
+  border-radius: 1.5px;
+  background: #c98a1b;
 }
 
 .ohc-key--observed {
@@ -7589,78 +7662,68 @@ html.is-standalone body {
 
 /* De hover-zoom naast een kaart: het grote plaatje met daaronder het prijsverloop van een jaar. Vast op het scherm, nooit buiten
    beeld (offers.js rekent de plek uit), en zonder muisgevoeligheid zodat hij niet zelf de hover vasthoudt. */
-.offer-zoom {
+/* De popup met de prijsgeschiedenis bij een aanbieding (offers.js): vast op het scherm, 640 px breed, scrolt binnen het venster. */
+.offer-popup {
   position: fixed;
   z-index: 60;
-  width: 300px;
-  padding: 8px;
+  width: 640px;
+  max-width: calc(100vw - 32px);
+  max-height: calc(100vh - 32px);
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding: 16px;
   background: var(--surface);
+  color: var(--text);
   border: 1px solid var(--border);
   border-radius: var(--radius-card);
   box-shadow: var(--shadow-lg);
-  pointer-events: none;
 }
 
-.offer-zoom[hidden] {
+.offer-popup[hidden] {
   display: none;
 }
 
-.offer-zoom img {
-  display: block;
-  width: 100%;
-  height: 284px;
-  object-fit: contain;
-  background: #fff;
-  border-radius: var(--radius-control);
+.offer-popup__inner .ohc-stats {
+  margin: 10px 0;
 }
 
-.offer-zoom__chart {
+.offer-popup__packs {
   display: flex;
-  align-items: center;
-  justify-content: center;
-  height: 70px;
-  margin-top: 6px;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 10px 0 0;
 }
 
-.offer-zoom__none {
-  font-size: 13px;
+.offer-popup__loading {
+  margin: 14px 0;
 }
 
-.offer-spark {
-  display: block;
-  width: 100%;
-  height: 70px;
-}
-
-.offer-spark__offer {
-  stroke: var(--primary);
-  stroke-width: 4;
-  stroke-linecap: round;
-}
-
-.offer-spark__paid {
-  fill: var(--surface);
-  stroke: var(--text);
-  stroke-width: 2;
-}
-
-.offer-spark__now {
-  fill: var(--primary-strong);
-}
-
-.offer-spark__text {
-  fill: var(--muted);
-  font-size: 10px;
+.offer-popup__foot {
+  margin: 10px 0 0;
   font-weight: 600;
 }
 
-.offer-zoom-dialog .offer-zoom__chart {
-  height: 80px;
+/* Het venster zonder muis: zo breed als de popup plus de rand, op een telefoon het scherm. */
+.offer-zoom-dialog {
+  width: min(682px, calc(100vw - 32px));
 }
 
-.offer-zoom-dialog .offer-spark {
-  width: 100%;
-  height: 80px;
+.offer-popup__dialog {
+  min-width: 0;
+}
+
+@media (max-width: 640px) {
+  .offer-popup__dialog .ohc-head--compact img {
+    width: 96px;
+    height: 96px;
+  }
+}
+
+/* De grafiek is getekend op 608 px en schaalt mee met een smallere popup of het venster. */
+.offer-popup .ohc-chart svg,
+.offer-popup__dialog .ohc-chart svg {
+  max-width: 100%;
+  height: auto;
 }
 
 /* De hovervensters op de aankopenlijst (popover.js): alleen met een muis, vast op het scherm en binnen de randen (popover.js
@@ -7877,6 +7940,175 @@ html.is-standalone body {
 
 /* De schakelaar "Alleen Bonus Box" boven de categorieën, met wat er over je Bonus Box te zeggen is. */
 /* De werkbalk boven de categorieën: het zoekveld, de schakelaars (Bonus Box, alleen echt voordelig) en de sorteerchips. */
+/* De aanbiedingen met de filterzijbalk links. Vanaf 1100 px staat de zijbalk open naast de kaarten, daaronder is hij een
+   uitschuifpaneel achter de knop Filters. */
+.offers-layout {
+  display: grid;
+  grid-template-columns: 240px minmax(0, 1fr);
+  gap: 24px;
+  align-items: start;
+}
+
+.offers-main {
+  min-width: 0;
+}
+
+.offers-filters {
+  position: sticky;
+  top: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+}
+
+.offers-filters__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.offers-filters__head h3,
+.offers-filters__section h4 {
+  margin: 0;
+  font-size: 14px;
+}
+
+.offers-filters__section h4 {
+  margin-bottom: 8px;
+  color: var(--muted);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-size: 12px;
+}
+
+.offers-filters__section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.offers-filters .ohc-filter {
+  margin: 0;
+}
+
+.offers-filters .offer-cats {
+  margin-top: 0;
+  gap: 6px;
+}
+
+.offer-chip--small {
+  min-height: 30px;
+  padding: 0 10px;
+  font-size: 13px;
+}
+
+.offer-chip--small small {
+  margin-left: 2px;
+  font-weight: 400;
+  opacity: 0.8;
+}
+
+.offers-filters__field label {
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.offers-filters__range {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.offers-filters__range input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.offers-filters__range output {
+  min-width: 84px;
+  color: var(--muted);
+  font-size: 13px;
+  text-align: right;
+}
+
+.offers-filters__unit {
+  display: flex;
+  gap: 8px;
+}
+
+.offers-filters__unit .input {
+  min-height: var(--control-height);
+  padding: 0 10px;
+}
+
+.offers-filters__unit input {
+  flex: 1 1 80px;
+  min-width: 0;
+}
+
+.offers-filters__unit select {
+  flex: 0 1 120px;
+}
+
+.offers-filters__close,
+.offers-filters__toggle,
+.offers-filters__backdrop {
+  display: none;
+}
+
+.offer-cats--active-filters {
+  margin-top: 10px;
+  align-items: center;
+}
+
+@media (max-width: 1099px) {
+  .offers-layout {
+    display: block;
+  }
+
+  .offers-filters {
+    position: fixed;
+    inset: 0 auto 0 0;
+    z-index: 60;
+    width: min(320px, 86vw);
+    overflow: auto;
+    border-radius: 0 var(--radius-card) var(--radius-card) 0;
+    transform: translateX(-100%);
+    transition: transform 0.2s var(--ease);
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.25);
+  }
+
+  .offers-filters.is-open {
+    transform: none;
+  }
+
+  .offers-filters__close,
+  .offers-filters__toggle {
+    display: inline-flex;
+  }
+
+  .offers-filters__backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 59;
+    background: rgba(0, 0, 0, 0.35);
+  }
+
+  .offers-filters__backdrop[hidden] {
+    display: none;
+  }
+
+  body.offers-filters-open {
+    overflow: hidden;
+  }
+}
+
 .offers-tools {
   display: flex;
   flex-wrap: wrap;
@@ -8247,10 +8479,85 @@ html.is-standalone body {
   white-space: normal;
 }
 
+.product-card .verdict--year-low {
+  background: var(--success-bg);
+  box-shadow: inset 0 0 0 1px var(--success-border);
+  color: var(--success-text);
+}
+
+.product-card .verdict--year-above {
+  background: var(--surface-muted);
+  box-shadow: inset 0 0 0 1px var(--border);
+  color: var(--muted);
+  white-space: normal;
+}
+
 .product-card .verdict--often {
   background: var(--warning-bg);
   box-shadow: inset 0 0 0 1px var(--warning-border);
   color: var(--warning-text);
+}
+
+/* De verpakkingen van een product onder de kaart: maat, prijs en prijs per eenheid, de goedkoopste vet, een punt bij een aanbieding. */
+.offer-packs {
+  display: grid;
+  gap: 2px;
+  margin: 8px 0 0;
+  padding: 6px 0 0;
+  border-top: 1px dashed var(--border);
+  list-style: none;
+  font-size: 12px;
+}
+
+.offer-pack {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 8px;
+  align-items: baseline;
+  min-width: 0;
+  padding: 2px 4px;
+  border-radius: 6px;
+  cursor: default;
+}
+
+.offer-pack__size {
+  white-space: nowrap;
+}
+
+.offer-pack--cheapest {
+  background: var(--success-bg);
+  font-weight: 600;
+}
+
+.offer-pack--dimmed {
+  opacity: 0.45;
+}
+
+.offer-pack__dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin: 0 4px 1px 0;
+  border-radius: 50%;
+  background: var(--primary);
+}
+
+.offer-pack__unit {
+  color: var(--muted);
+}
+
+.offer-pack__unit b {
+  color: var(--success-text);
+}
+
+.offer-pack__warning {
+  flex-basis: 100%;
+  color: var(--warning-text);
+}
+
+.offer-packs__note {
+  display: block;
+  margin-top: 4px;
 }
 
 /* Verpakkingen vergelijken: de prijs per eenheid voorop, gekleurd naar plek in de lijst. */

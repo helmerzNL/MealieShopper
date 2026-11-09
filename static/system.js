@@ -15,7 +15,7 @@ async function loadImageCacheStatus() {
     line.textContent = t("system.images_line", { count: stats.count, size: (stats.bytes / (1024 * 1024)).toFixed(1) });
     if (paused) {
       const lines = (stats.paused || []).map((pause) =>
-        t("system.images_paused", { store: STORES[pause.store]?.name || pause.host, until: formatSyncTime(pause.until) || pause.until }),
+        t("system.images_paused", { store: (STORES[pause.store] || OFFER_ONLY_STORES[pause.store])?.name || pause.host, until: formatSyncTime(pause.until) || pause.until }),
       );
       paused.textContent = lines.join(" ");
       paused.hidden = !lines.length;

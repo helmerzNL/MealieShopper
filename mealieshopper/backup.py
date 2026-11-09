@@ -100,6 +100,7 @@ EXCLUDED_TABLES = frozenset({
     "image_cache",  # cache van winkelfoto's op schijf (image_cache.py), opnieuw op te bouwen
     "mealie_recipe_nutrition", "mealie_recipe_nutrition_meta",  # calorieën van de recepten in Mealie (recipe_nutrition.py), herlaadbaar
     "price_archive_jobs",  # de import van een prijsarchief die loopt (price_archive.py): tijdelijke staat
+    "catalogue_changes",  # de versie van de catalogus van de prijzen (prices._catalogue_version): bijhouden, niet bewaren
 })
 
 # Opgeslagen koppelingen (versleuteld in app_settings) en bij welke koppeling ze horen.

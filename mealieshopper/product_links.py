@@ -27,7 +27,7 @@ import aiosqlite
 from . import ah_lists, auth, offers
 from .i18n import tr
 
-STORES = offers.STORES
+STORES = offers.SHOP_STORES  # koppelen zoekt bij de winkel: Lidl en Aldi hebben geen webwinkel
 KINDS = ("article", "name")
 MAX_NAME_CHARS = 300
 MAX_ID_CHARS = 64

@@ -93,6 +93,7 @@ async def run_all(trigger: str, now: datetime | None = None, *, wait_for_images:
     afbeeldingencache aanvullen (image_cache.prefetch), en de gewone prijs per aankoopregel bijwerken
     (prices.fill_regular_prices_nightly). Elk extraatje staat alleen in de uitkomst als het iets te doen had."""
     result = await offers.sync_all()
+    await prices.warm_catalogues()  # de catalogus is na de synchronisatie anders: nu opbouwen, niet bij de eerste aanvraag
     # Het koppelen en de foto's van de bonnen krijgen hetzelfde tijdstip mee: zo staan ze samen in een laatste ronde
     # (ah_orders.SETTING_LAST_ROUND), net als bij een ronde op afroep.
     linking_now = _utc_iso(_local_now())

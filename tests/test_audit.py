@@ -79,9 +79,14 @@ class OutboundTest(AuditTestCase):
             ("https://auth.jumbo.com/oauth/token", "jumbo"),
             ("https://marleyspoon.nl/menu", "marleyspoon"),
             ("https://api.marleyspoon.com/public/graphql", "marleyspoon"),
+            ("https://www.lidl.nl/c/aanbiedingen/a10008785", "lidl"),
+            ("https://imgproxy-retcat.assets.schwarz/x.jpg", "lidl"),
+            ("https://www.aldi.nl/aanbiedingen.html", "aldi"),
+            ("https://s7g10.scene7.com/is/image/aldinord/x", "aldi"),
         ):
             self.assertEqual(audit.service_for(url), service, url)
-        for url in ("https://mealie.example.com/api", "https://evilah.nl/", "https://ah.nl.evil.example/", "https://github.com/x"):
+        for url in ("https://mealie.example.com/api", "https://evilah.nl/", "https://ah.nl.evil.example/", "https://github.com/x",
+                    "https://evillidl.nl/", "https://s7g11.scene7.com/x"):
             self.assertEqual(audit.service_for(url), "", url)
 
     async def test_a_request_is_logged_with_status_duration_and_body(self):
