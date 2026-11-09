@@ -466,6 +466,17 @@ console.log(JSON.stringify(offerPopupHtml({json.dumps(offer)}, {json.dumps(produ
         self.assertLess(html.index('class="ohc-legend"'), html.index('class="ohc-table"'), "boven de aankopen")
 
 
+class OfferPopupPassThroughTest(unittest.TestCase):
+    """Melding van 2026-11-10: "met de huidige popup is het heel lastig om door te gaan naar het volgende product omdat de popup daar
+    overheen gaat". Gekozen: de muis gaat door de popup heen, zodat de kaart eronder reageert en de popup daarheen verspringt."""
+
+    def test_2026_11_10_the_mouse_goes_through_the_popup_and_the_keyboard_can_still_use_it(self):
+        css = (ROOT / "static" / "styles.css").read_text(encoding="utf-8")
+        self.assertIn(".offer-popup {\n  pointer-events: none;\n}", css, "de kaart onder de popup blijft aan te wijzen")
+        self.assertIn(".offer-popup:focus-within {\n  pointer-events: auto;\n}", css, "met de focus in de popup werken de knoppen en links")
+        self.assertNotIn("pointer-events", css[css.index(".offer-popup__dialog") :].split("}")[0], "het venster op een aanraakscherm blijft gewoon klikbaar")
+
+
 class PackFamiliesTest(PricesCase):
     """Melding van 2026-11-09: "rundergehakt van 300gr, 500gr of 1000gr hebben vaak losse prijzen waarbij de 300gr in de aanbieding
     is, dat maakt het nog niet goedkoper dan de bulk 1000gr verpakking"."""
