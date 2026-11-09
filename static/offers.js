@@ -119,6 +119,69 @@ function offerSortKey(offer) {
   return [0];
 }
 
+// Verpakkingsfamilies (prices.family): de aanbiedingen van hetzelfde product in zijn verpakkingen op een kaart. De kop van de groep
+// is haar eerste aanbieding in de sorteervolgorde die niet per eenheid duurder is dan een andere verpakking, anders gewoon de
+// eerste, en de groep staat op de plek van die kop. In winkelvolgorde blijft de groep bij haar eerste aanbieding staan.
+function offerFamilies(sorted) {
+  const byKey = new Map();
+  sorted.forEach((offer, index) => {
+    const key = offer.family && offer.family.key ? offer.family.key : `id:${offer.id}`;
+    let group = byKey.get(key);
+    if (!group) {
+      group = { key, head: offer, offers: [], packs: (offer.family && offer.family.packs) || [], at: index };
+      byKey.set(key, group);
+    }
+    group.offers.push(offer);
+  });
+  const groups = [...byKey.values()];
+  if (offersState.sort === "store") return groups;
+  groups.forEach((group) => {
+    const head = group.offers.find((offer) => !(offer.verdict && offer.verdict.cheaperPack)) || group.offers[0];
+    group.head = head;
+    group.at = sorted.indexOf(head);
+    group.offers = [head, ...group.offers.filter((offer) => offer !== head)];
+  });
+  return groups.sort((a, b) => a.at - b.at);
+}
+
+// Een filter kan een verpakking van een familie buiten de boot laten terwijl een andere voldoet: die regel wordt gedempt, niet
+// verborgen. De filters komen in een volgende stap, tot dan is niets gedempt.
+function offersDimmed(offer) {
+  return false;
+}
+
+// "duurder per kilo dan 1000 g": de aanbieding is per eenheid duurder dan een andere verpakking van hetzelfde product.
+function offerPackWarning(offer) {
+  const pack = offer.verdict && offer.verdict.cheaperPack;
+  if (!pack) return "";
+  return t("offers.pack.pricier_than", { size: pack.unitSize || pack.title || "", unit: t({ kg: "offers.unit.kg", l: "offers.unit.l" }[(pack.unitPrice || {}).unit] || "offers.unit.stuk") });
+}
+
+// De regels van de verpakkingen onder een kaart: maat, prijs, prijs per eenheid, een punt voor "in de aanbieding", de goedkoopste
+// per eenheid vet. Een regel die per eenheid duurder is dan de goedkoopste krijgt de melding. Niets bij een verpakking.
+function offerPackRows(offer) {
+  const family = offer.family || {};
+  const packs = family.packs || [];
+  const note = family.unknownPacks ? `<small class="muted offer-packs__note">${escapeHtml(t("offers.pack.unknown"))}</small>` : "";
+  if (packs.length < 2) return note;
+  const cheapest = packs.find((pack) => pack.cheapest);
+  const rows = packs
+    .map((pack) => {
+      const member = offerById(pack.productId);
+      const pricier = cheapest && !pack.cheapest && pack.unitPrice && cheapest.unitPrice && pack.unitPrice.unit === cheapest.unitPrice.unit && pack.unitPrice.value > cheapest.unitPrice.value;
+      const cls = ["offer-pack", pack.cheapest ? "offer-pack--cheapest" : "", pack.onOffer ? "offer-pack--offer" : "", member && offersDimmed(member) ? "offer-pack--dimmed" : ""].filter(Boolean).join(" ");
+      const warning = pricier && pack.onOffer ? `<small class="offer-pack__warning">${escapeHtml(t("offers.pack.pricier_than", { size: cheapest.unitSize || "", unit: t({ kg: "offers.unit.kg", l: "offers.unit.l" }[cheapest.unitPrice.unit] || "offers.unit.stuk") }))}</small>` : "";
+      return `<li class="${cls}" data-zoom="${escapeHtml(pack.productId)}">
+        <span class="offer-pack__size">${pack.onOffer ? '<i class="offer-pack__dot" aria-hidden="true"></i>' : ""}${escapeHtml(pack.unitSize || "")}</span>
+        <span class="offer-pack__price">${escapeHtml(formatPrice(pack.price))}</span>
+        <span class="offer-pack__unit">${escapeHtml(offerPerUnitText(pack.unitPrice))}${pack.cheapest ? ` <b>${escapeHtml(t("offers.pack.cheapest"))}</b>` : ""}</span>
+        ${warning}
+      </li>`;
+    })
+    .join("");
+  return `<ul class="offer-packs" aria-label="${escapeHtml(t("offers.pack.list"))}">${rows}</ul>${note}`;
+}
+
 function offersSorted(list) {
   if (offersState.sort === "store") return list;
   const keyed = list.map((offer, index) => ({ offer, index, key: offerSortKey(offer) }));
@@ -437,6 +500,7 @@ function offerProductCard(offer) {
         ${offerPriceHtml(offer)}
         ${perUnit ? `<small class="offer-card__per-unit">${escapeHtml(perUnit)}</small>` : ""}
         ${chips}
+        ${offerPackRows(offer)}
       </div>
       ${offerCardFoot(offer)}
     </article>`;
@@ -452,7 +516,10 @@ function offerProductRow(offer) {
   const perUnit = offerPerUnitText(offer.unitPricePer);
   const label = offerPriceLabel(offer);
   const often = offerVerdictLines(offer).find((line) => line.cls.includes("verdict--often"));
-  const history = label
+  const warning = offerPackWarning(offer);
+  const history = warning
+    ? `<small class="verdict verdict--pack">${escapeHtml(warning)}</small>`
+    : label
     ? `<span class="${label.cls}"${label.title ? ` title="${escapeHtml(label.title)}"` : ""}>${escapeHtml(label.text)}</span>`
     : often ? `<small class="${often.cls}" title="${escapeHtml(often.title)}">${escapeHtml(often.text)}</small>` : "";
   const compare = offer.unitPricePer
@@ -665,9 +732,11 @@ function renderOfferGrid() {
   const grid = $("#offers-products");
   grid.classList.toggle("product-grid--compact", compact); // eerst de klasse, dan pas de kolommen meten
   const limit = offersState.rows * (compact ? OFFER_COMPACT_ROWS : offerColumns());
-  const cards = shown.slice(0, limit).map(compact ? offerProductRow : offerProductCard).join("");
-  grid.innerHTML = compact && shown.length ? offerRowHead() + cards : cards;
-  $("#offers-more").hidden = shown.length <= limit;
+  // In de kaartenweergave een kaart per verpakkingsfamilie (offerFamilies), in de compacte weergave een regel per verpakking.
+  const units = compact ? shown : offerFamilies(shown).map((group) => group.head);
+  const cards = units.slice(0, limit).map(compact ? offerProductRow : offerProductCard).join("");
+  grid.innerHTML = compact && units.length ? offerRowHead() + cards : cards;
+  $("#offers-more").hidden = units.length <= limit;
 }
 
 // "Geldig ma 26 okt t/m zo 1 nov": de looptijd die de meeste aanbiedingen delen, of niets als de winkel er geen geeft.

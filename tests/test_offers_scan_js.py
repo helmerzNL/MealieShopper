@@ -43,6 +43,10 @@ PRELUDE = "\n".join(
             "offerBestKey",
             "offerYearLowLine",
             "offerPriceLabel",
+            "offerFamilies",
+            "offerPackRows",
+            "offerPackWarning",
+            "offerPerUnitText",
         )
     ]
     + [
@@ -52,6 +56,8 @@ PRELUDE = "\n".join(
         "const offerBadgeTitle = () => 'uitleg';",
         "const monthShort = (date) => date.toLocaleDateString('nl-NL', { month: 'short' }).replace(/\\.$/, '');",
         "const formatPrice = (value) => 'EUR ' + Number(value).toFixed(2);",
+        "const offersDimmed = (offer) => offer.id === 'dim';",
+        "const offerById = (id) => ({ id: String(id) });",
         "const offerDateText = (day) => String(day);",
     ]
 )
@@ -134,6 +140,54 @@ class OffersScanNodeTest(unittest.TestCase):
         self.assertIn("EUR 0.65", above["text"])
         self.assertIsNone(self.render("offerYearLowLine", {"yearLow": {"status": "unknown"}}))
         self.assertIsNone(self.render("offerYearLowLine", {}))
+
+    FAMILY = {
+        "key": "ah|rundergehakt|ah",
+        "unknownPacks": False,
+        "packs": [
+            {"productId": "300", "unitSize": "300 g", "price": 2.49, "unitPrice": {"value": 8.3, "unit": "kg"}, "onOffer": True, "cheapest": False},
+            {"productId": "500", "unitSize": "500 g", "price": 4.19, "unitPrice": {"value": 8.38, "unit": "kg"}, "onOffer": True, "cheapest": False},
+            {"productId": "1000", "unitSize": "1000 g", "price": 7.49, "unitPrice": {"value": 7.49, "unit": "kg"}, "onOffer": False, "cheapest": True},
+        ],
+    }
+    FAMILY_OFFERS = [
+        {"id": "300", "title": "AH Rundergehakt 300 g", "family": FAMILY, "yearLow": {"status": "lowest"}, "badge": {"percent": 30}, "verdict": {"cheaperPack": {"productId": "1000", "title": "AH Rundergehakt", "unitSize": "1000 g", "unitPrice": {"value": 7.49, "unit": "kg"}}}},
+        {"id": "x", "title": "AH Pindakaas", "family": {"key": "ah|pindakaas|ah", "packs": [], "unknownPacks": False}, "yearLow": {"status": "lowest"}, "badge": {"percent": 10}, "verdict": {"cheaperPack": None}},
+        {"id": "500", "title": "AH Rundergehakt 500 g", "family": FAMILY, "yearLow": {"status": "above", "above": 0.2}, "badge": {"percent": 20}, "verdict": {"cheaperPack": None}},
+    ]
+
+    def families(self, offers, sort="best"):
+        return self.run_js(f"offersState.sort = '{sort}'; console.log(JSON.stringify(offerFamilies(offersSorted({json.dumps(offers)}))));")
+
+    def test_families_group_the_offers_and_take_the_place_of_their_best_offer(self):
+        groups = self.families(self.FAMILY_OFFERS)
+        # De familie staat op de plek van de 500 g: de 300 g is laagste van het jaar maar per kilo duurder dan de 1000 g, dus niet beste.
+        self.assertEqual([group["head"]["id"] for group in groups], ["x", "500"])
+        self.assertEqual([offer["id"] for offer in groups[1]["offers"]], ["500", "300"])
+        self.assertEqual([group["head"]["id"] for group in self.families(self.FAMILY_OFFERS, "store")], ["300", "x"], "in winkelvolgorde staat de familie bij haar eerste aanbieding")
+
+    def test_the_pack_rows_list_every_pack_and_mark_the_cheapest(self):
+        html = self.run_js(f"console.log(JSON.stringify(offerPackRows({json.dumps(self.FAMILY_OFFERS[0])})));")
+        self.assertEqual(html.count('<li class="offer-pack'), 3)
+        self.assertEqual(html.count("offer-pack--cheapest"), 1)
+        self.assertEqual(html.count("offer-pack--offer"), 2)
+        self.assertIn("offers.pack.pricier_than", html)  # op de regel van de 300 g en de 500 g
+        self.assertIn('data-zoom="1000"', html)
+        self.assertIn("EUR 7.49", html)
+
+    def test_a_dimmed_pack_row_is_marked(self):
+        family = {**self.FAMILY, "packs": [{**self.FAMILY["packs"][0], "productId": "dim"}, self.FAMILY["packs"][2]]}
+        html = self.run_js(f"console.log(JSON.stringify(offerPackRows({json.dumps({'id': 'dim', 'family': family})})));")
+        self.assertEqual(html.count("offer-pack--dimmed"), 1)
+
+    def test_a_single_pack_has_no_rows_and_unknown_packs_get_a_note(self):
+        self.assertEqual(self.run_js(f"console.log(JSON.stringify(offerPackRows({json.dumps(self.FAMILY_OFFERS[1])})));"), "")
+        lonely = {"id": "300", "family": {**self.FAMILY, "packs": self.FAMILY["packs"][:1], "unknownPacks": True}}
+        self.assertIn("offers.pack.unknown", self.run_js(f"console.log(JSON.stringify(offerPackRows({json.dumps(lonely)})));"))
+
+    def test_the_pack_warning_names_the_cheaper_pack(self):
+        self.assertIn("1000 g", self.run_js(f"console.log(JSON.stringify(offerPackWarning({json.dumps(self.FAMILY_OFFERS[0])})));"))
+        self.assertEqual(self.run_js(f"console.log(JSON.stringify(offerPackWarning({json.dumps(self.FAMILY_OFFERS[2])})));"), "")
 
     def test_lower_before_disappears_when_year_low_is_known(self):
         label = {"kind": "lower_before", "price": 1.99, "month": "2010-03", "coveredSince": "2009-01-01"}

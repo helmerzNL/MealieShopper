@@ -95,6 +95,9 @@ def family_key(store: str, title: Any, brand: Any, known_brands: dict[str, set[s
     return f"{store}|{base}|{folded}"
 
 
+_UNIT_RANK: dict[str, int] = {"kg": 3, "l": 2, "stuk": 1}
+
+
 def _size_order(unit_size: Any) -> tuple[int, float]:
     from . import packs  # noqa: PLC0415
 
@@ -110,7 +113,7 @@ def _mark_cheapest(found: list[dict[str, Any]], unit: str) -> None:
     priced = [pack for pack in found if pack.get("unitPrice") and pack["unitPrice"].get("value") is not None and pack["unitPrice"].get("unit") == unit]
     for pack in found:
         pack["cheapest"] = False
-    if not priced:
+    if len(priced) < 2:  # een verpakking alleen heeft niets om mee te vergelijken
         return
     lowest: float = min(pack["unitPrice"]["value"] for pack in priced)
     tied = [pack for pack in priced if pack["unitPrice"]["value"] <= lowest * (1 + PACK_MARGIN)]
@@ -154,7 +157,8 @@ def families(store: str, packs_known: list[dict[str, Any]], known_titles: dict[s
         units: dict[str, int] = {}
         for pack in by_id.values():
             units[pack["unitPrice"]["unit"]] = units.get(pack["unitPrice"]["unit"], 0) + 1
-        unit = max(units, key=lambda name: (units[name], name))
+        # De eenheid van de meerderheid, bij gelijk eerst kilo, dan liter, dan stuk: gewicht zegt meer dan een aantal.
+        unit = max(units, key=lambda name: (units[name], _UNIT_RANK.get(name, 0)))
         found = sorted(by_id.values(), key=lambda pack: (pack["unitPrice"]["unit"] != unit, *_size_order(pack["unitSize"])))
         _mark_cheapest(found, unit)
         result[key] = {"key": key, "packs": found, "unknownPacks": bool(known_keys.get(key, set()) - set(by_id))}

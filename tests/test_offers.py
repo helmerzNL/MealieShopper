@@ -1406,7 +1406,12 @@ class OffersRoutesTest(TempDataDirTest):
             self.assertNotIn("2031-02-03", etag)
             self.assertIn("2031-02-03", await offers.signature("ah"))
         with mock.patch.object(offers.about, "version", return_value="9.9.9"):
-            self.assertTrue((await offers.signature("ah")).endswith("9.9.9"))
+            self.assertIn("9.9.9", await offers.signature("ah"))
+        # Ook een andere build van dezelfde versie (een deploy van een commit) geeft een andere ETag: anders houdt de browser na een
+        # deploy de oude lijst vast, zonder de velden die de nieuwe build erbij zet.
+        with mock.patch.object(offers.about, "build_commit", return_value="abc1234"):
+            self.assertIn("abc1234", await offers.signature("ah"))
+        self.assertNotEqual(await offers.signature("ah"), etag)
         self.assertEqual((await self.client.get("/api/offers?store=lidl", headers={"If-None-Match": etag})).status_code, 400)
 
     async def test_the_server_keeps_the_list_per_etag_and_computes_concurrent_requests_once(self):

@@ -7938,6 +7938,68 @@ html.is-standalone body {
   color: var(--warning-text);
 }
 
+/* De verpakkingen van een product onder de kaart: maat, prijs en prijs per eenheid, de goedkoopste vet, een punt bij een aanbieding. */
+.offer-packs {
+  display: grid;
+  gap: 2px;
+  margin: 8px 0 0;
+  padding: 6px 0 0;
+  border-top: 1px dashed var(--border);
+  list-style: none;
+  font-size: 12px;
+}
+
+.offer-pack {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 8px;
+  align-items: baseline;
+  min-width: 0;
+  padding: 2px 4px;
+  border-radius: 6px;
+  cursor: default;
+}
+
+.offer-pack__size {
+  white-space: nowrap;
+}
+
+.offer-pack--cheapest {
+  background: var(--success-bg);
+  font-weight: 600;
+}
+
+.offer-pack--dimmed {
+  opacity: 0.45;
+}
+
+.offer-pack__dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin: 0 4px 1px 0;
+  border-radius: 50%;
+  background: var(--primary);
+}
+
+.offer-pack__unit {
+  color: var(--muted);
+}
+
+.offer-pack__unit b {
+  color: var(--success-text);
+}
+
+.offer-pack__warning {
+  flex-basis: 100%;
+  color: var(--warning-text);
+}
+
+.offer-packs__note {
+  display: block;
+  margin-top: 4px;
+}
+
 /* Verpakkingen vergelijken: de prijs per eenheid voorop, gekleurd naar plek in de lijst. */
 .compare-list {
   display: grid;

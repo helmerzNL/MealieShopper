@@ -107,6 +107,14 @@ class FamiliesTest(unittest.TestCase):
         family = found["ah|rundergehakt|ah"]
         self.assertEqual([(p["productId"], p["cheapest"]) for p in family["packs"]], [("300", False), ("500", True), ("4p", False)])
 
+    def test_mixed_units_prefer_mass_and_need_two_packs_for_a_cheapest(self) -> None:
+        # Een 300 g per kilo naast een 4-pack per stuk: gelijkspel, dan telt de kilo. En een eenheid met maar een verpakking kent
+        # geen goedkoopste: er is niets om mee te vergelijken.
+        found = families("ah", [pack("300", "300 g", 3.65, True), pack("4p", "4 stuks", 20.33, True)], {})
+        self.assertEqual([(p["productId"], p["cheapest"]) for p in found["ah|rundergehakt|ah"]["packs"]], [("300", False), ("4p", False)])
+        found = families("ah", [pack("300", "300 g", 3.65, True), pack("500", "500 g", 4.19, True), pack("4p", "4 stuks", 20.33, True)], {})
+        self.assertEqual([(p["productId"], p["cheapest"]) for p in found["ah|rundergehakt|ah"]["packs"]], [("300", False), ("500", True), ("4p", False)])
+
     def test_cheapest_needs_the_pack_margin(self) -> None:
         found = families("ah", [pack("a", "500 g", 4.19, True), pack("b", "1000 g", 8.30, False)], {})  # 8.38 tegen 8.30 per kilo: binnen 2 procent
         self.assertEqual([p["cheapest"] for p in found["ah|rundergehakt|ah"]["packs"]], [True, False])

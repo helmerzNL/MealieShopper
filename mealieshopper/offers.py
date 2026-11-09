@@ -347,7 +347,7 @@ async def signature(store: Any, week: Any = None) -> str:
         meta = await auth.fetchone(conn, "SELECT synced_at FROM offers_meta WHERE store = ?", (store,))
     # Een nieuwe of verbroken koppeling verandert wat er over de persoonlijke aanbiedingen (de Bonus Box) bij de lijst staat.
     personal = "personal" if await personal_linked(store) else ""
-    return "|".join((store, meta["synced_at"] if meta else "", date.today().isoformat(), monday, personal, about.version()))
+    return "|".join((store, meta["synced_at"] if meta else "", date.today().isoformat(), monday, personal, about.version(), await about.build_commit()))
 
 
 def _for_week(offers: list[dict[str, Any]], week: Any) -> tuple[list[dict[str, Any]], dict[str, Any]]:
