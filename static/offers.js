@@ -686,7 +686,8 @@ const OFFER_POPUP_MIN_SCREEN = 900; // smaller: geen popup bij hover, wel het ve
 const OFFER_POPUP_PURCHASES = 8;
 const offerZoomCache = new Map(); // winkel|id -> belofte van het product uit /api/prices/history
 const offerPopupProducts = new Map(); // winkel:id -> het geladen product, voor de periodeknoppen (offers_history.js)
-const offerPopup = { timer: 0, hideTimer: 0, id: "", anchor: null };
+// `ranges`: de periodekeuze van de grafiek per product, binnen deze popup (de pagina Prijsgeschiedenis heeft haar eigen).
+const offerPopup = { timer: 0, hideTimer: 0, id: "", anchor: null, ranges: {} };
 
 function offerZoomFinePointer() {
   return window.matchMedia("(hover: hover) and (pointer: fine)").matches;
@@ -745,10 +746,10 @@ function offerPopupHtml(offer, product, packs, activeId = null) {
     : "";
   // `product`: het product uit de prijsgeschiedenis, null zolang het laadt, false als het laden mislukte.
   const body = product
-    ? `${offerHistoryStats(product)}${offerHistoryChartBlock(product, { width: OFFER_POPUP_WIDTH - 32 })}${offerHistoryPurchasesTable(product, { limit: OFFER_POPUP_PURCHASES })}`
+    ? `${offerHistoryStats(product)}${offerHistoryChartBlock(product, { width: OFFER_POPUP_WIDTH - 32, ranges: offerPopup.ranges })}${offerHistoryPurchasesTable(product, { limit: OFFER_POPUP_PURCHASES })}`
     : `<p class="muted offer-popup__loading">${escapeHtml(t(product === false ? "offers.popup.none" : "offers.popup.loading"))}</p>`;
   return `<div class="offer-popup__inner">
-      ${offerHistoryHead(shown, { compact: true })}
+      ${offerHistoryHead(shown, { compact: true, offer })}
       ${buttons}
       ${body}
       <p class="offer-popup__foot"><a href="${escapeHtml(priceHistoryPath(store, shown.title, shown.productId))}" data-route>${escapeHtml(t("offers.popup.full_history"))}</a></p>
@@ -806,6 +807,7 @@ function showOfferPopup(anchor, offer, packId = null) {
   const shownId = String(packId || offer.id);
   const shown = offerForPack(offer, shownId);
   const packs = offerPopupPacks(offer);
+  if (offerPopup.anchor !== anchor) offerPopup.ranges = {}; // een andere kaart: de periodekeuze begint opnieuw
   box.innerHTML = offerPopupHtml(shown, offerPopupProducts.get(`${offersState.store}:${shownId}`) || null, packs, shownId);
   box.hidden = false;
   offerPopup.id = shownId;

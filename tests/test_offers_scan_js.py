@@ -39,7 +39,7 @@ def const_source(name):
 
 
 PRELUDE = "\n".join(
-    [const_source(name) for name in ("OFFER_UNIT_ORDER", "OFFER_LABEL_ORDER", "OFFERS_OFTEN_PER_YEAR", "offersDimmedIds", "OFFER_POPUP_WIDTH", "OFFER_POPUP_PURCHASES")]
+    [const_source(name) for name in ("OFFER_UNIT_ORDER", "OFFER_LABEL_ORDER", "OFFERS_OFTEN_PER_YEAR", "offersDimmedIds", "OFFER_POPUP_WIDTH", "OFFER_POPUP_PURCHASES", "offerPopup")]
     + [
         function_source(name)
         for name in (
@@ -82,9 +82,9 @@ PRELUDE = "\n".join(
         "const foldText = (value) => String(value).toLowerCase();",
         "const matchesWords = (text, query) => query.toLowerCase().split(/\\s+/).every((word) => text.includes(word));",
         "const I18N = { formatNumber: String };",
-        "const offerHistoryHead = (product, options) => '<div class=\"ohc-head\">' + product.title + '</div>';",
+        "const offerHistoryHead = (product, options) => '<div class=\"ohc-head\" data-offer-price=\"' + (options && options.offer ? options.offer.price : '') + '\">' + product.title + '</div>';",
         "const offerHistoryStats = () => '<dl class=\"ohc-stats\"></dl>';",
-        "const offerHistoryChartBlock = () => '<div class=\"ohc-block\"></div>';",
+        "const offerHistoryChartBlock = (product, options) => '<div class=\"ohc-block\" data-ranges=\"' + (options && options.ranges && options.ranges === offerPopup.ranges ? 'popup' : '') + '\"></div>';",
         "const offerHistoryPurchasesTable = (product) => (product.purchases || []).length ? '<table class=\"ohc-table\"></table>' : '';",
         "const priceHistoryPath = (store, title, id) => '/offers/history?product=' + id;",
         "const offerDateText = (day) => String(day);",
@@ -357,6 +357,12 @@ class OffersScanNodeTest(unittest.TestCase):
         self.assertIn("3 stuks · EUR 26.16", html)
         plain = self.popup(self.POPUP_OFFER, self.POPUP_PRODUCT, [{"productId": "1", "unitSize": "300 g", "price": 2.49}, {"productId": "2", "unitSize": "500 g", "price": 4.19}], "1")
         self.assertNotIn("EUR", plain)
+
+    def test_the_popup_passes_the_offer_and_its_own_ranges(self):
+        html = self.popup(self.POPUP_OFFER, self.POPUP_PRODUCT, [])
+        self.assertIn('data-offer-price="3.65"', html, "de kop krijgt de aanbieding voor de prijsregel")
+        self.assertIn('data-ranges="popup"', html, "de grafiek leest de periodekeuze van de popup, niet van de pagina")
+        self.assertIn("offerPopup.ranges = {}", function_source("showOfferPopup"), "een nieuwe popup begint zonder periodekeuze")
 
     def test_an_offer_becomes_a_product_for_the_head(self):
         product = self.run_js(f"console.log(JSON.stringify(offerAsProduct('ah', {json.dumps(self.POPUP_OFFER)})));")
