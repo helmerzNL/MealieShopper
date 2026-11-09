@@ -126,7 +126,7 @@ async def test_explore_sends_nothing_itself_and_reports_every_route() -> None:
 
 
 def test_the_nutrition_probe_shows_the_shape_without_the_numbers() -> None:
-    """De controle voor de voedingswaarden van een product (4.9.0): soorten, namen en eenheden, de cijfers als 9."""
+    """De controle voor de voedingswaarden van een product (4.10.0): soorten, namen en eenheden, de cijfers als 9."""
     data = {"product": {"tradeItem": {"nutritions": [
         {"nutrients": [{"type": "ENER-", "name": "Energie", "value": "1595 kJ (380 kcal)"}, {"type": "FAT", "name": "Vet", "value": "12,5 g"}]},
         {"nutrients": []},

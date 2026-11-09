@@ -190,7 +190,7 @@ function renderAppearancePlanner() {
   $("#appearance-planner-servings").value = String(appearancePlannerServings());
 }
 
-// Porties per recept dat de weekplanner van producten maakt (4.9.0): 1 tot en met 8, standaard 2. De voedingswaarden in zo'n
+// Porties per recept dat de weekplanner van producten maakt (4.10.0): 1 tot en met 8, standaard 2. De voedingswaarden in zo'n
 // recept staan per persoon.
 const APPEARANCE_SERVINGS = { min: 1, max: 8, fallback: 2 };
 

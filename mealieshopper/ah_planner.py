@@ -11,7 +11,7 @@ weekmenu van Mealie, als diner (AH kent geen soort maaltijd):
   als naam ("Pizza"); met *soep en pizza altijd los* (`splitMeals`) krijgen soep en pizza dan toch een eigen recept. Zonder
   `combine` wordt elk product een eigen recept. Een recept of menu dat MealieShopper eerder van dezelfde producten maakte,
   wordt teruggevonden aan zijn bron en hergebruikt.
-- **Porties en voedingswaarden** (4.9.0). Een recept of menu dat MealieShopper maakt, is voor *Porties per recept*
+- **Porties en voedingswaarden** (4.10.0). Een recept of menu dat MealieShopper maakt, is voor *Porties per recept*
   (`servings`, Voorkeuren, Supermarkt; standaard 2) en krijgt de voedingswaarden per persoon: de voedingstabel van AH (per
   100 g of ml) maal de verpakking, opgeteld en gedeeld door de porties. Alleen als dat van alle producten erin bekend is.
 
@@ -245,7 +245,7 @@ def _source(products: list[dict[str, Any]], menu: bool) -> str:
     return f"{base}#menu-{'-'.join(str(number) for number in ids)}" if menu else base
 
 
-# --- voedingswaarden (4.9.0) -----------------------------------------------------------------------------------------
+# --- voedingswaarden (4.10.0) -----------------------------------------------------------------------------------------
 # AH geeft ze per 100 g of ml (ah.get_product_nutrition); met de verpakking ("570 ml", "450 g") wordt dat de hele verpakking.
 # Een recept of menu krijgt alleen voedingswaarden als ze van alle producten erin bekend zijn (besluit van de eigenaar): een
 # product zonder tabel of in stuks ("2 stuks") maakt het geheel onbekend, zodat er nooit te lage totalen in Mealie staan.

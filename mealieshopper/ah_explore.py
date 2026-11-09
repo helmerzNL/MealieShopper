@@ -180,7 +180,7 @@ async def explore() -> dict[str, Any]:
         found: Any = await _raw_get("/mobile-services/product/search/v2", {"query": term, "page": 0, "size": 25, "sortOn": "RELEVANCE"})
         return (found or {}).get("products") or []
 
-    # De voedingswaarden van een product (4.9.0, de weekplanner van de AH-app): hoe de tabel eruitziet, zodat te zien is of het
+    # De voedingswaarden van een product (4.10.0, de weekplanner van de AH-app): hoe de tabel eruitziet, zodat te zien is of het
     # lezen in ah.product_nutrition klopt. De cijfers worden 9, de rest blijft (soorten en eenheden zijn geen persoonlijke gegevens).
     async def nutrition_of_a_product() -> Any:
         products = await search("melk")

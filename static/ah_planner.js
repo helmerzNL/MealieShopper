@@ -21,7 +21,7 @@ function ahPlannerOptions() {
   return {
     combine: state.auth?.plannerCombine !== false,
     splitMeals: state.auth?.plannerSplitMeals !== false,
-    // Porties per recept dat MealieShopper van producten maakt (4.9.0); de voedingswaarden staan per persoon.
+    // Porties per recept dat MealieShopper van producten maakt (4.10.0); de voedingswaarden staan per persoon.
     servings: Number.isInteger(servings) && servings >= 1 && servings <= 8 ? servings : 2,
   };
 }

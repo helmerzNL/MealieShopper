@@ -2327,7 +2327,7 @@ def recipe_nutrition(raw: Any) -> dict[str, float]:
     return found
 
 
-# --- De voedingswaarden van een product (4.9.0) ----------------------------------------------------------------------
+# --- De voedingswaarden van een product (4.10.0) ----------------------------------------------------------------------
 # Voor de recepten en menu's die de weekplanner van losse producten maakt (ah_planner.py). De vorm van de vraag komt uit
 # olekpuchka/albert-heijn-mcp (Apache-2.0, src/ahapi/products.ts, getNutrition): de eerste tabel van `tradeItem.nutritions`,
 # meestal per 100 g of ml, met per regel `{type name value}`. Introspectie staat bij AH uit en het precieze formaat van

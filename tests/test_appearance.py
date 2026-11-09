@@ -302,7 +302,7 @@ class PlannerPreferencesTest(unittest.TestCase):
         self.assertIn('<div id="appearance-planner-message"></div>', store)
 
     def test_servings_per_recipe_is_a_small_number_next_to_its_explanation(self):
-        # Porties per recept (4.9.0): de voedingswaarden in een recept van producten staan per persoon.
+        # Porties per recept (4.10.0): de voedingswaarden in een recept van producten staan per persoon.
         store = HTML[HTML.index('id="appearance-store-box"'):HTML.index('id="appearance-display-box"')]
         field = re.search(r'<input type="number"[^>]*id="appearance-planner-servings"[^>]*>', store).group(0)
         for part in ('min="1"', 'max="8"', 'step="1"', 'value="2"', 'aria-labelledby="appearance-planner-servings-label"', 'aria-describedby="appearance-planner-servings-help"'):

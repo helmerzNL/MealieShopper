@@ -148,7 +148,7 @@ class ProfileTest(AppTestCase):
         self.assertEqual((await self.client.get("/api/profile")).get_json()["preferredStore"], "jumbo")
 
     async def test_week_planner_servings_are_two_until_another_number_is_chosen(self):
-        # Porties per recept dat de AH-weekplanner van producten maakt (4.9.0): een geheel getal van 1 tot en met 8.
+        # Porties per recept dat de AH-weekplanner van producten maakt (4.10.0): een geheel getal van 1 tot en met 8.
         self.assertEqual((await self.client.get("/api/auth/status")).get_json()["plannerServings"], 2, "standaard 2")
         for number in (1, 4, 8):
             reply = await self.client.put("/api/profile/preferences", json={"plannerServings": number})

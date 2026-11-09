@@ -56,7 +56,7 @@ Wat er gebouwd is:
 - **Fouten.** Een onderdeel dat niet lukt, houdt de andere niet op. Het antwoord van AH of Mealie staat alleen in het logboek;
   de gebruiker krijgt een algemene tekst.
 
-## Voedingswaarden (4.9.0)
+## Voedingswaarden (4.10.0)
 
 | Onderdeel | Bevinding |
 | --- | --- |

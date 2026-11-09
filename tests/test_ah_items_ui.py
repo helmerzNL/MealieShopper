@@ -116,7 +116,7 @@ class WeekPlannerMarkupTest(unittest.TestCase):
         self.assertIn("combine: state.auth?.plannerCombine !== false,", planner)
         self.assertIn("splitMeals: state.auth?.plannerSplitMeals !== false,", planner)
         self.assertNotIn('"/api/profile/preferences"', planner, "bewaren doet appearance.js")
-        # Porties per recept (4.9.0) gaan mee naar de server, standaard 2.
+        # Porties per recept (4.10.0) gaan mee naar de server, standaard 2.
         self.assertIn("servings: Number.isInteger(servings) && servings >= 1 && servings <= 8 ? servings : 2,", planner)
 
 

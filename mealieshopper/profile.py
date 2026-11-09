@@ -70,7 +70,7 @@ _ADDED_COLUMNS = {
     "planner_combine": "INTEGER NOT NULL DEFAULT 1",
     "planner_split_meals": "INTEGER NOT NULL DEFAULT 1",
     "show_calories": "INTEGER NOT NULL DEFAULT 1",  # de calorieën bij een recept en het filter erop (4.4.0, #283); standaard aan
-    "planner_servings": "INTEGER NOT NULL DEFAULT 2",  # porties per recept dat de AH-weekplanner van producten maakt (4.9.0)
+    "planner_servings": "INTEGER NOT NULL DEFAULT 2",  # porties per recept dat de AH-weekplanner van producten maakt (4.10.0)
 }
 
 
@@ -139,7 +139,7 @@ def clean_preferred_store(value: Any) -> str:
     return value if value in PREFERRED_STORES else PREFERRED_STORES[0]
 
 
-# Porties per recept dat de weekplanner van de AH-app van producten maakt (4.9.0): de voedingswaarden staan per persoon.
+# Porties per recept dat de weekplanner van de AH-app van producten maakt (4.10.0): de voedingswaarden staan per persoon.
 PLANNER_SERVINGS_MIN = 1
 PLANNER_SERVINGS_MAX = 8
 PLANNER_SERVINGS_DEFAULT = 2

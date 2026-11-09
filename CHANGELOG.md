@@ -2,9 +2,9 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub; een stabiele release krijgt de teksten van alle versies sinds de vorige stabiele release.
 
-## v4.9.0
+## v4.10.0
 
-### Nieuw in 4.9.0
+### Nieuw in 4.10.0
 
 Pull request: [#297](https://github.com/helmerzNL/MealieShopper/pull/297).
 
@@ -40,6 +40,8 @@ Pull request: [#297](https://github.com/helmerzNL/MealieShopper/pull/297).
   - het getalveld in Voorkeuren
   - de controle in de verkenner
 
+## v4.9.0
+
 ### Gewijzigd in 4.9.0
 
 Pull request: [#296](https://github.com/helmerzNL/MealieShopper/pull/296).
@@ -62,6 +64,7 @@ Pull request: [#296](https://github.com/helmerzNL/MealieShopper/pull/296).
   - De zin over bekijken en inplannen stond vijf keer in de woordenboeken en staat er nu één keer. De statusregel van de bewaarde AH-recepten is korter (Vernieuwen staat er als knop naast).
 - **Handleiding** (NL en EN): het uitlegpatroon en de nieuwe breekpunten. **Huisstijl**: de typeschaal, de radius-tokens, de breekpunten, de segmentbediening en het uitlegpatroon.
 - **Tests:** in `tests/test_brand.py` de typeschaal (geen letterlijke grootte buiten de uitzonderingen), de radius-tokens en de drie breekpunten in CSS en JS; het nieuwe `tests/test_system_ui.py` (de segmentbediening, `aria-current`, elk uitklapblok met *Hoe werkt dit?*, waarschuwingen buiten de blokken); `tests/test_nav_tree.py`, `tests/test_link_menu.py`, `tests/test_cards_ui.py`, `tests/test_purchase_sort.py` en `tests/test_i18n.py` gaan mee.
+
 ## v4.8.0
 
 ### Gewijzigd in 4.8.0

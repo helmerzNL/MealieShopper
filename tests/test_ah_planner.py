@@ -475,7 +475,7 @@ class ProductsTest(ToMealPlanTestCase):
 
 
 class ProductNutritionTest(unittest.TestCase):
-    """`ah.product_nutrition` en `ah.get_product_nutrition`: de voedingstabel van een AH-product, per 100 g of ml (4.9.0)."""
+    """`ah.product_nutrition` en `ah.get_product_nutrition`: de voedingstabel van een AH-product, per 100 g of ml (4.10.0)."""
 
     def test_a_table_by_name(self):
         found = ah.product_nutrition([
@@ -533,7 +533,7 @@ POTATOES = {"calories": 100, "fatContent": 2, "proteinContent": 2, "sodiumConten
 
 
 class NutritionInRecipesTest(ToMealPlanTestCase):
-    """Een recept of menu van producten krijgt porties en, als alles bekend is, voedingswaarden per persoon (4.9.0)."""
+    """Een recept of menu van producten krijgt porties en, als alles bekend is, voedingswaarden per persoon (4.10.0)."""
 
     async def test_a_menu_of_two_products_per_person(self):
         self.ah_has_pack(101, "AH Burger smokey", "300 g", BURGER)
