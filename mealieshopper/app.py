@@ -14,6 +14,7 @@ from quart import Quart, Response, jsonify, redirect, render_template, request, 
 
 from . import about, ah, ah_explore, ah_lists, ah_orders, ah_recipes, ai_match, ai_review, audit, auth_password, backup, crisp, crisp_orders, factory_reset, hellofresh, image_cache, jumbo, jumbo_explore, jumbo_lists, jumbo_orders, jumbo_recipes, marleyspoon, mcp_http, mealie, mealie_images, offers, offers_schedule, onboarding, picnic, picnic_explore, picnic_orders, picnic_recipes, price_archive, price_import, prices, product_images, product_links, profile, recipe_bulk, server_settings, updates, users
 from . import auth, deals, http_client, tasks
+from . import assets
 from .body_limits import DEFAULT_MAX_BODY, SizedRequest
 from .forwarded import ForwardedHeaders
 from .keep_running import FinishAfterDisconnect
@@ -90,7 +91,8 @@ def _ah_proxy_cookie(headers: Iterable[str]) -> str | None:
 
 def create_app() -> Quart:
     app = Quart(__name__, template_folder="../templates", static_folder="../static")
-    app.config["ASSET_VERSION"] = environ.get("MEALIESHOPPER_ASSET_VERSION", "20261108-3")
+    # De versie van de statische bestanden: uit hun inhoud (assets.py), tenzij MEALIESHOPPER_ASSET_VERSION hem vastzet.
+    app.config["ASSET_VERSION"] = environ.get("MEALIESHOPPER_ASSET_VERSION") or assets.asset_version(Path(app.static_folder or "static"))
     # Quart bewaart statische bestanden standaard 12 uur in de browser (Flask niet). Met 0 vraagt de browser elke keer na of het
     # bestand veranderd is (ETag, 304), zoals voorheen. None helpt niet: dan valt de browser terug op zijn eigen schatting.
     app.config["SEND_FILE_MAX_AGE_DEFAULT"] = 0
@@ -200,7 +202,8 @@ def create_app() -> Quart:
 
     @app.get("/healthz")
     async def healthz():
-        return jsonify({"ok": True})
+        # assetVersion: een tabblad dat al open stond, vergelijkt hem met zijn eigen versie (router.js, routerStale).
+        return jsonify({"ok": True, "assetVersion": app.config["ASSET_VERSION"]})
 
     @app.get("/api/about")
     async def about_info():

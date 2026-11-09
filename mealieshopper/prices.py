@@ -678,16 +678,21 @@ async def _known_products(conn: aiosqlite.Connection, store: str, today: str, re
     for sql in _purchase_sources(await _tables(conn), store):
         add(await conn.execute_fetchall(f"SELECT {columns}, MAX(day) AS last FROM ({sql}) WHERE day <= ? GROUP BY {columns}", (today,)))
     add({**row, "last": row["day"]} for row in receipts)
-    add(await conn.execute_fetchall(_UPCOMING_SQL.format(columns=f"{columns}, valid_from AS last"), (store, today)))
+    add(await conn.execute_fetchall(_UPCOMING_SQL.format(columns=f"{columns}, COALESCE(valid_from, ?) AS last"), (today, store, today, today, store)))
     for row in receipts:  # de naam op de bon van een gekoppelde regel blijft vindbaar ("RB PICOLIENT")
         if row.get("receipt_name") and row["product_id"] in found:
             found[row["product_id"]]["names"].add(_fold_name(row["receipt_name"]))
     return {product_id: _Known(entry["last"], frozenset(entry["names"]), frozenset(entry["sizes"])) for product_id, entry in found.items()}
 
 
-# De aanbiedingen in de lokale kopie die nog moeten beginnen (de bonus van volgende week): `offers._started` zet ze pas in
-# `offer_history` als ze gelden.
-_UPCOMING_SQL = "SELECT {columns} FROM offers WHERE store = ? AND valid_from > ?"
+# De aanbiedingen in de lokale kopie die (nog) niet in de geschiedenis staan: die nog moeten beginnen (de bonus van volgende
+# week: `offers._started` zet ze pas in `offer_history` als ze gelden), en die al begonnen zijn maar nog geen open periode
+# hebben (de nieuwe week begon om middernacht, de synchronisatie die hem vastlegt komt pas 's nachts). Parameters: winkel,
+# vandaag, vandaag, winkel.
+_UPCOMING_SQL = (
+    "SELECT {columns} FROM offers WHERE store = ? AND (valid_from > ? OR (COALESCE(valid_until, '9999-12-31') >= ? "
+    "AND product_id NOT IN (SELECT product_id FROM offer_history WHERE store = ? AND ended_at IS NULL)))"
+)
 
 
 # --- de catalogus: de gekoppelde bonregels en de namen van alle producten, bewaard tot er iets aan verandert ----------------
@@ -752,12 +757,13 @@ async def _catalogue(conn: aiosqlite.Connection, store: str, today: str) -> _Cat
 
 
 async def _upcoming(conn: aiosqlite.Connection, store: str, ids: list[str], today: str) -> dict[str, dict[str, Any]]:
-    """Per product de eerstvolgende aanbieding die nog moet beginnen, met wat de kaart van de aanbieding ook toont."""
+    """Per product de eerstvolgende aanbieding die nog niet in de geschiedenis staat (`_UPCOMING_SQL`), met wat de kaart van de
+    aanbieding ook toont."""
     found: dict[str, dict[str, Any]] = {}
     if not ids:
         return found
     rows = await conn.execute_fetchall(
-        _UPCOMING_SQL.format(columns="*") + f" AND product_id IN ({_in(ids)}) ORDER BY valid_from, personal", (store, today, *ids)
+        _UPCOMING_SQL.format(columns="*") + f" AND product_id IN ({_in(ids)}) ORDER BY valid_from, personal", (store, today, today, store, *ids)
     )
     for row in rows:
         found.setdefault(str(row["product_id"]), {
@@ -766,6 +772,31 @@ async def _upcoming(conn: aiosqlite.Connection, store: str, ids: list[str], toda
             "unitSize": row["unit_size"], "image": row["image"], "url": row["url"],
         })
     return found
+
+
+# Waar een product uit een link nog meer kan staan dan in de bronnen van de catalogus: de aanbiedingen van nu, al je bestellingen
+# (ook een die nog niet geleverd is: de catalogus telt alleen geleverde) en bij AH de koppeling van een artikelnummer op de bon.
+_PINNED_FIELDS: tuple[tuple[str, str], ...] = (("title", "title"), ("brand", "brand"), ("unitSize", "unit_size"), ("image", "image"))
+
+
+async def _pinned(conn: aiosqlite.Connection, store: str, product_id: str, tables: set[str]) -> dict[str, Any] | None:
+    """Naam, merk, verpakking en foto van een product uit een link (`pin`) dat nergens in de prijsgeschiedenis staat, of None als
+    de app het product nergens kent. Zo opent een link van een aankomende bestelling of een bon het product zelf, ook zonder
+    prijzen, in plaats van alleen andere producten met die naam."""
+    sources: list[tuple[str, str, tuple[Any, ...]]] = [
+        ("offers", "store = ? AND product_id = ?", (store, product_id)),
+        (f"{store}_order_items", "CAST(product_id AS TEXT) = ?", (product_id,)),
+    ]
+    if store == "ah":
+        sources.append(("ah_receipt_products", "CAST(product_id AS TEXT) = ?", (product_id,)))
+    for table, where, args in sources:
+        if table not in tables:
+            continue
+        row = await auth.fetchone(conn, f"SELECT * FROM {table} WHERE {where} ORDER BY rowid DESC LIMIT 1", args)
+        if row is not None:
+            columns = set(row.keys())
+            return {key: row[column] for key, column in _PINNED_FIELDS if column in columns and row[column]}
+    return None
 
 
 def _in(ids: list[str]) -> str:
@@ -816,7 +847,8 @@ def _regular_segments(points: list[tuple[str, float, str]]) -> list[dict[str, An
 
 
 def _product(store: str, product_id: str, offer: dict[str, Any] | None, observed: list[Any], bought: list[Any], today: str,
-             images: list[dict[str, Any]] | None = None, upcoming: dict[str, Any] | None = None) -> dict[str, Any]:
+             images: list[dict[str, Any]] | None = None, upcoming: dict[str, Any] | None = None,
+             known: dict[str, Any] | None = None) -> dict[str, Any]:
     product: dict[str, Any] = dict(offer) if offer else {
         "store": store, "productId": product_id, "episodes": [], "timesOnOffer": 0, "lowestPrice": None, "highestPrice": None,
         "regularPrice": None, "onOfferNow": False, "category": None, "firstSeen": None, "lastSeen": None,
@@ -826,6 +858,10 @@ def _product(store: str, product_id: str, offer: dict[str, Any] | None, observed
     for key in ("title", "brand", "unitSize", "image", "url"):
         if upcoming and not product.get(key) and upcoming.get(key):
             product[key] = upcoming[key]
+    # Een product uit een link dat nergens in de geschiedenis staat (`_pinned`): naam, merk, verpakking en foto van daar.
+    for key, value in (known or {}).items():
+        if not product.get(key):
+            product[key] = value
     # Titel, merk en plaatje: uit de aanbiedingen, anders de nieuwste zoekopdracht, anders de nieuwste bestelling (een kassabon
     # heeft alleen een afgekorte naam, die nemen we als er niets anders is).
     named = [row for row in reversed(bought) if row["source"] == "order"] + list(reversed(bought))
@@ -941,6 +977,7 @@ async def history(store: Any = None, query: Any = "", limit: Any = 50, today: st
         receipts = {name: catalogue.receipts for name, catalogue in catalogues.items()}
         unsynced = {name: await _unsynced(conn, name) for name in stores}
         candidates: dict[tuple[str, str], str] = {}
+        pinned_known: dict[str, dict[str, Any]] = {}  # winkel -> wat `_pinned` van het product uit de link weet
         for name in stores:
             keep = await _bought(conn, name, today, receipts[name]) if bought else None
             for product_id, day in _candidates(catalogues[name].products, wanted, always=pinned).items():
@@ -948,6 +985,14 @@ async def history(store: Any = None, query: Any = "", limit: Any = 50, today: st
                     continue
                 if keep is None or product_id in keep or product_id == pinned:
                     candidates[(name, product_id)] = day
+            # Het product uit de link staat nergens in de prijsgeschiedenis (alleen in een open bestelling, of in een
+            # aanbieding die net begon): dan toch het product zelf, met wat de app ervan weet. Alleen met een winkel: een id
+            # hoort bij een winkel.
+            if pinned is not None and store and only is None and (name, pinned) not in candidates:
+                known = await _pinned(conn, name, pinned, await _tables(conn))
+                if known is not None:
+                    candidates[(name, pinned)] = today
+                    pinned_known[name] = known
         ranked = sorted(candidates, key=lambda key: (key[1] == pinned, candidates[key], key[0], key[1]), reverse=True)
         chosen = ranked[:limit]
         found: dict[str, tuple[dict[str, list[Any]], dict[str, list[Any]], dict[str, list[dict[str, Any]]]]] = {}
@@ -961,7 +1006,7 @@ async def history(store: Any = None, query: Any = "", limit: Any = 50, today: st
     offered = {name: await offers.history_of(name, [pid for s, pid in chosen if s == name]) for name in stores}
     products = [
         _product(name, product_id, offered[name].get(product_id), found[name][0].get(product_id, []), found[name][1].get(product_id, []), today,
-                 found[name][2].get(product_id, []), upcoming[name].get(product_id))
+                 found[name][2].get(product_id, []), upcoming[name].get(product_id), pinned_known.get(name) if product_id == pinned else None)
         for name, product_id in chosen
     ]
     return {"products": products, "total": len(ranked), "unsynced": unsynced}

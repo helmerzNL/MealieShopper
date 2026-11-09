@@ -210,6 +210,10 @@ function routerApply(href) {
 
 function routerNavigate(href) {
   const url = new URL(href, window.location.origin);
+  if (typeof routerStale === "function" && routerStale()) {
+    window.location.assign(url.pathname + url.search); // nieuwe scripts: de hele pagina opnieuw
+    return;
+  }
   if (url.pathname + url.search !== window.location.pathname + window.location.search) history.pushState({ ms: true }, "", url.pathname + url.search);
   routerApply(url.href);
 }
@@ -251,5 +255,41 @@ document.addEventListener(
 );
 
 window.addEventListener("popstate", () => {
+  if (typeof routerStale === "function" && routerStale()) {
+    window.location.reload(); // het adres is al dat van de stap terug: de nieuwe scripts openen het
+    return;
+  }
   if (router.started) routerApply(window.location.href);
 });
+
+// ---- een tabblad van voor een nieuwe versie
+
+// Een tabblad dat open bleef staan, draait na een deploy nog de oude scripts: zijn links en het opvragen van gegevens gaan
+// dan zoals in de oude versie. Daarom vraagt het af en toe (bij terugkomen in het tabblad, en elke vijf minuten) aan /healthz
+// welke versie van de statische bestanden de server heeft. Is die anders, dan laadt de volgende klik of stap terug de hele
+// pagina opnieuw in plaats van alleen het scherm te wisselen.
+const ROUTER_ASSET_VERSION = document.querySelector('meta[name="ms-asset-version"]')?.content || "";
+const ROUTER_ASSET_INTERVAL = 5 * 60 * 1000;
+const routerAssets = { server: ROUTER_ASSET_VERSION, checked: 0 };
+
+async function routerCheckAssets() {
+  if (Date.now() - routerAssets.checked < 60 * 1000) return;
+  routerAssets.checked = Date.now();
+  try {
+    const response = await fetch("/healthz", { cache: "no-store", credentials: "same-origin" });
+    const data = response.ok ? await response.json() : {};
+    if (typeof data.assetVersion === "string" && data.assetVersion) routerAssets.server = data.assetVersion;
+  } catch {
+    // Geen verbinding: dan gewoon verder met wat er is.
+  }
+}
+
+function routerStale() {
+  return Boolean(ROUTER_ASSET_VERSION && routerAssets.server && routerAssets.server !== ROUTER_ASSET_VERSION);
+}
+
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible") routerCheckAssets();
+});
+window.addEventListener("focus", routerCheckAssets);
+setInterval(routerCheckAssets, ROUTER_ASSET_INTERVAL);
