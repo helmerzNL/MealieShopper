@@ -14,7 +14,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from os import environ
-from typing import Any
+from typing import Any, Awaitable, Callable
 
 import aiosqlite
 
@@ -36,6 +36,14 @@ CREATE TABLE IF NOT EXISTS offers_schedule (
 """
 
 _task: asyncio.Task[None] | None = None
+# De opwarmer van /api/offers (create_app registreert hem): rekent na een synchronisatie het oordeel alvast uit, zodat de
+# eerste bezoeker niet wacht. Zonder registratie (tests, scripts) doet de synchronisatie niets extra's.
+_warmer: Callable[[], Awaitable[None]] | None = None
+
+
+def set_warmer(warmer: Callable[[], Awaitable[None]] | None) -> None:
+    global _warmer
+    _warmer = warmer
 
 
 def enabled() -> bool:
@@ -113,7 +121,23 @@ async def run_all(trigger: str, now: datetime | None = None, *, wait_for_images:
     else:  # de knop: een gewone aanvraag mag niet tien minuten duren, de foto's gaan in een eigen task
         await image_cache.prefetch_async(limit=image_cache.PREFETCH_LIMIT)
     await _record(trigger, result, now)
+    # Als laatste: de extraatjes hierboven schrijven in catalogustabellen en veranderen de ETag, dus pas nu heeft opwarmen zin.
+    # De nachtelijke run wacht erop (niets heeft haast), de knop niet: die geeft antwoord en warmt op in een eigen task.
+    if _warmer is not None:
+        if wait_for_images:
+            await _warm()
+        else:
+            tasks.spawn("warm-offers", _warm())
     return result
+
+
+async def _warm() -> None:
+    if _warmer is None:
+        return
+    try:
+        await _warmer()
+    except Exception:  # noqa: BLE001 - opwarmen is een extraatje
+        log.warning("Aanbiedingen opwarmen na de synchronisatie mislukt", exc_info=True)
 
 
 async def sync_now(trigger: str = "manual") -> dict[str, Any]:

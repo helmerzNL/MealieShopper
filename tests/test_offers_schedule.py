@@ -4,7 +4,7 @@ import os
 import unittest
 from unittest import mock
 
-from mealieshopper import offers_schedule, tasks  # noqa: E402
+from mealieshopper import ah_orders, image_cache, offers, offers_schedule, prices, tasks  # noqa: E402
 
 
 class StartTest(unittest.IsolatedAsyncioTestCase):
@@ -61,3 +61,67 @@ class StartTest(unittest.IsolatedAsyncioTestCase):
         self.assertIn("Aanbiedingen van alle winkels vernieuwd", messages)
         self.assertIn("Dagelijkse aanbiedingen-run mislukt", messages)
         self.assertEqual([r.levelno for r in logs.records if r.exc_info], [logging.ERROR])
+
+
+class WarmerTest(unittest.IsolatedAsyncioTestCase):
+    """Na de synchronisatie rekent de app het oordeel van /api/offers alvast uit, via een opwarmer die create_app registreert."""
+
+    def setUp(self) -> None:
+        self.order: list[str] = []
+        self.addCleanup(offers_schedule.set_warmer, None)
+
+    def step(self, name: str, value=None):
+        async def run(*args, **kwargs):
+            self.order.append(name)
+            return value
+        return run
+
+    async def run_all(self, wait_for_images: bool = False) -> None:
+        with mock.patch.object(offers, "sync_all", self.step("sync", {})), \
+             mock.patch.object(prices, "warm_catalogues", self.step("catalogues")), \
+             mock.patch.object(ah_orders, "resolve_receipt_products_nightly", self.step("receipts")), \
+             mock.patch.object(ah_orders, "backfill_receipt_images_nightly", self.step("images")), \
+             mock.patch.object(prices, "fill_regular_prices_nightly", self.step("regular")), \
+             mock.patch.object(image_cache, "prefetch_async", self.step("prefetch")), \
+             mock.patch.object(offers_schedule, "_record", self.step("record")):
+            await offers_schedule.run_all("manual", wait_for_images=wait_for_images)
+
+    async def test_run_all_calls_the_registered_warmer_last(self) -> None:
+        offers_schedule.set_warmer(self.step("warmer"))
+        with mock.patch.object(image_cache, "prefetch_nightly", self.step("nightly")):
+            await self.run_all(wait_for_images=True)
+        self.assertEqual(self.order[-1], "warmer")
+        self.assertEqual(self.order.count("warmer"), 1)
+        self.assertLess(self.order.index("regular"), self.order.index("warmer"), "na de extraatjes die de ETag veranderen")
+
+    async def test_run_all_without_a_warmer_runs_as_before(self) -> None:
+        offers_schedule.set_warmer(None)
+        await self.run_all()
+        self.assertNotIn("warmer", self.order)
+        self.assertEqual(self.order[-1], "record")
+
+    async def test_the_button_does_not_wait_for_the_warmer(self) -> None:
+        # De knop Alles ophalen (wait_for_images=False) geeft antwoord zodra de uitkomst vastligt: de opwarmer draait in een eigen task.
+        started = asyncio.Event()
+        release = asyncio.Event()
+
+        async def slow_warmer() -> None:
+            started.set()
+            await release.wait()
+            self.order.append("warmer")
+
+        offers_schedule.set_warmer(slow_warmer)
+        await asyncio.wait_for(self.run_all(), timeout=2)
+        self.assertEqual(self.order[-1], "record", "run_all is klaar terwijl de opwarmer nog loopt")
+        await asyncio.wait_for(started.wait(), timeout=2)
+        release.set()
+        await asyncio.sleep(0)
+        self.assertEqual(self.order[-1], "warmer")
+
+    async def test_a_failing_warmer_does_not_fail_the_run(self) -> None:
+        async def broken() -> None:
+            raise RuntimeError("kapot")
+        offers_schedule.set_warmer(broken)
+        with self.assertLogs(offers_schedule.log, level="WARNING"), mock.patch.object(image_cache, "prefetch_nightly", self.step("nightly")):
+            await self.run_all(wait_for_images=True)
+        self.assertEqual(self.order[-1], "record")

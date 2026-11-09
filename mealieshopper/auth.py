@@ -20,6 +20,7 @@ from webauthn import verify_authentication_response, verify_registration_respons
 from webauthn.helpers.cose import COSEAlgorithmIdentifier
 
 from .i18n import tr
+from . import request_body
 
 OWNER_ID = "owner"  # de eerste gebruiker is de beheerder; alle anderen zijn gewone gebruikers
 SESSION_COOKIE_NAME = "ms_session"
@@ -719,7 +720,7 @@ def register_routes(app: Quart) -> None:
     async def register_options():
         if not auth_enabled():
             return jsonify({"error": "Passkey auth is disabled"}), 400
-        body = await request.get_json(silent=True) or {}
+        body = await request_body.json_object()
         from . import users  # lokaal: users importeert dit module
 
         invite = None
@@ -764,7 +765,7 @@ def register_routes(app: Quart) -> None:
         await ensure_db()
         if not auth_enabled():
             return jsonify({"error": "Passkey auth is disabled"}), 400
-        body = await request.get_json(silent=True) or {}
+        body = await request_body.json_object()
         from . import users  # lokaal: users importeert dit module
 
         invite = None
@@ -860,8 +861,10 @@ def register_routes(app: Quart) -> None:
     async def login_verify():
         if not auth_enabled():
             return jsonify({"error": "Passkey auth is disabled"}), 400
-        body = await request.get_json(silent=True) or {}
-        credential = body.get("credential") or {}
+        body = await request_body.json_object()
+        credential = body.get("credential")
+        if not isinstance(credential, dict):
+            credential = {}
         credential_id = str(credential.get("id") or "")
         challenge = await pop_challenge("login")
         if not credential_id:

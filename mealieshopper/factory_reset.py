@@ -23,7 +23,7 @@ from typing import Any
 
 from quart import Quart, jsonify, request
 
-from . import auth, auth_password, backup, price_archive
+from . import auth, auth_password, backup, price_archive, request_body
 from .i18n import tr
 
 CONFIRM_PHRASE = "RESET"
@@ -165,7 +165,7 @@ def register_routes(app: Quart) -> None:
 
     @app.post("/api/system/factory-reset")
     async def factory_reset():
-        body = await request.get_json(silent=True) or {}
+        body = await request_body.json_object()
         if str(body.get("confirm") or "").strip() != CONFIRM_PHRASE:
             return jsonify({"error": tr(f"Typ {CONFIRM_PHRASE} om te bevestigen.", f"Type {CONFIRM_PHRASE} to confirm.")}), 400
 

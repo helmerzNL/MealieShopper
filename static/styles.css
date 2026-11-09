@@ -7004,6 +7004,19 @@ html.is-standalone body {
   margin: 0;
 }
 
+.ohc-head__price b {
+  font-size: 16px;
+}
+
+.ohc-head__price s {
+  color: var(--muted);
+}
+
+.ohc-head__price small {
+  margin-left: 6px;
+  color: var(--muted);
+}
+
 .ohc-stats {
   display: flex;
   flex-wrap: wrap;

@@ -12,7 +12,7 @@ import httpx
 
 os.environ.setdefault("MEALIESHOPPER_DATA_DIR", tempfile.mkdtemp())
 
-from mealieshopper import ah, ah_recipes, auth, offers, prices  # noqa: E402
+from mealieshopper import ah, ah_recipes, auth, offer_categories, offers, offers_schedule, prices  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
 from helpers import AppTestCase, db, returned, routes, run, served  # noqa: E402
 
@@ -263,6 +263,17 @@ class OffersWeekTest(TempDataDirTest):
         with mock.patch.dict(offers.FETCHERS, {"ah": lambda: returned(self.items)}):
             run(offers.sync("ah"))
 
+    def test_the_sync_stores_the_category_hint_and_uses_the_taxonomy(self):
+        items = [{"id": "pizza", "title": "Dr. Oetker Casa di mama pizza salami", "categoryHint": "Diepvries", "price": 3.65, "priceBefore": 4.29, "promoLabel": "15% korting"}]
+        with mock.patch.dict(offers.FETCHERS, {"ah": lambda: returned(items)}):
+            run(offers.sync("ah"))
+        from contextlib import closing
+
+        with closing(db(offers)) as conn:
+            row = conn.execute("SELECT category, category_hint FROM offers WHERE product_id = 'pizza'").fetchone()
+        self.assertEqual(tuple(row), ("diepvries", "Diepvries"))
+        self.assertEqual([o["category"] for o in run(offers.load("ah"))["offers"] if o["id"] == "pizza"], ["diepvries"])
+
     def test_this_week_leaves_out_next_weeks_bonus_and_counts_it(self):
         data = run(offers.load("ah", self.monday.isoformat()))
         self.assertEqual([o["id"] for o in data["offers"]], ["deze", "vandaag", "zonder", "doorlopend"], "de bonus van de week voor de doorlopende kortingen")
@@ -331,6 +342,47 @@ class OffersWeekTest(TempDataDirTest):
         self.assertEqual([o["promoLabel"] for o in run(offers.load("ah", self.next_monday.isoformat()))["offers"]], ["2e halve prijs"])
         self.assertEqual([o["promoLabel"] for o in run(offers.load("ah", self.monday.isoformat()))["offers"]], ["Feestfavoriet"])
 
+    async def test_warm_offers_fills_the_cache_so_the_first_request_does_not_annotate(self):
+        app = create_app()
+        client = self.client_for(app)
+        with mock.patch.object(prices, "annotate", wraps=prices.annotate) as spy:
+            await app.extensions["mealieshopper_warm_offers"]()
+            warmed = spy.await_count
+            self.assertGreaterEqual(warmed, 2, "deze week en volgende week van AH")
+            self.assertEqual((await client.get("/api/offers?store=ah")).status_code, 200)
+            self.assertEqual(spy.await_count, warmed, "de eerste aanvraag komt uit de cache")
+
+    async def test_the_warm_up_and_a_request_with_a_week_share_the_cache_key(self):
+        # De browser vraagt altijd ?week=<maandag>; de opwarmer rekent op een dinsdag met de datum van vandaag. Dezelfde sleutel.
+        from mealieshopper import app as app_module
+
+        app = create_app()
+        client = self.client_for(app)
+        tuesday = self.monday + timedelta(days=1)
+
+        class Today(date):
+            @classmethod
+            def today(cls):
+                return tuesday
+
+        with mock.patch.object(app_module, "date", Today), mock.patch.object(offers, "STORES", ("ah",)), mock.patch.object(prices, "annotate", wraps=prices.annotate) as spy:
+            await app.extensions["mealieshopper_warm_offers"]()
+            warmed = spy.await_count
+            self.assertEqual((await client.get(f"/api/offers?store=ah&week={self.monday.isoformat()}")).status_code, 200)
+            self.assertEqual(spy.await_count, warmed, "de aanvraag van de browser komt uit de opgewarmde cache")
+
+    async def test_a_request_during_the_warm_up_shares_the_computation(self):
+        app = create_app()
+        client = self.client_for(app)
+        with mock.patch.object(offers, "STORES", ("ah",)), mock.patch.object(prices, "annotate", wraps=prices.annotate) as spy:
+            await asyncio.gather(app.extensions["mealieshopper_warm_offers"](), client.get("/api/offers?store=ah"))
+            self.assertEqual(spy.await_count, 2, "deze week een keer (gedeeld) en volgende week een keer")
+
+    async def test_the_offers_carry_the_pack_margin(self):
+        # De client vergelijkt verpakkingen per eenheid met dezelfde marge als de server (prices.PACK_MARGIN, 2 procent).
+        client = self.client_for(create_app())
+        self.assertEqual((await client.get("/api/offers?store=ah")).get_json()["packMargin"], 0.02)
+
     async def test_the_routes_take_the_week_and_default_to_this_week(self):
         client = self.client_for(create_app())
         default = await client.get("/api/offers?store=ah")
@@ -342,6 +394,75 @@ class OffersWeekTest(TempDataDirTest):
         self.assertEqual((await client.get("/api/offers?store=ah&week=morgen")).status_code, 400)
         self.assertEqual((await client.get("/api/offers/recipes?store=ah&week=morgen")).status_code, 400)
         self.assertEqual((await client.get(f"/api/offers/recipes?store=ah&week={self.next_monday.isoformat()}")).status_code, 200)
+
+
+class SyncWarmTest(AppTestCase):
+    """De knop `Aanbiedingen synchroniseren` per winkel verandert de ETag: daarna warmt de app de lijst met oordeel alvast op."""
+
+    async def test_the_per_store_sync_warms_the_offers_afterwards(self):
+        patcher = mock.patch.dict(os.environ, {"PASSKEY_AUTH_ENABLED": "false"})
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        app = create_app()
+        warmer = mock.AsyncMock()
+        app.extensions["mealieshopper_warm_offers"] = warmer
+        client = self.client_for(app)
+        with mock.patch.object(offers, "sync", new_callable=mock.AsyncMock, return_value={"store": "ah", "offers": []}):
+            self.assertEqual((await client.post("/api/offers/sync", json={"store": "ah"})).status_code, 200)
+        for _ in range(20):
+            if warmer.await_count:
+                break
+            await asyncio.sleep(0.01)
+        warmer.assert_awaited_once_with(("ah",))
+
+    async def test_the_store_of_the_sync_is_folded_before_warming(self):
+        # offers.sync neemt " Jumbo " aan als jumbo, dus de opwarmer moet dezelfde winkel krijgen en niet terugvallen op ah.
+        patcher = mock.patch.dict(os.environ, {"PASSKEY_AUTH_ENABLED": "false"})
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        app = create_app()
+        warmer = mock.AsyncMock()
+        app.extensions["mealieshopper_warm_offers"] = warmer
+        client = self.client_for(app)
+        with mock.patch.object(offers, "sync", new_callable=mock.AsyncMock, return_value={"store": "jumbo", "offers": []}):
+            self.assertEqual((await client.post("/api/offers/sync", json={"store": " Jumbo "})).status_code, 200)
+        for _ in range(20):
+            if warmer.await_count:
+                break
+            await asyncio.sleep(0.01)
+        warmer.assert_awaited_once_with(("jumbo",))
+
+
+class WarmerLifetimeTest(TempDataDirTest):
+    """create_app registreert zijn opwarmer bij offers_schedule; na het stoppen laat de app hem los, tenzij een latere app hem al verving."""
+
+    def setUp(self):
+        super().setUp()
+        self.addCleanup(offers_schedule.set_warmer, None)
+
+    async def test_shutdown_lets_go_of_the_warmer(self):
+        app = create_app()
+        async with app.test_app():
+            self.assertIs(offers_schedule._warmer, app.extensions["mealieshopper_warm_offers"])
+        self.assertIsNone(offers_schedule._warmer)
+
+    async def test_shutdown_leaves_the_warmer_of_a_later_app_alone(self):
+        first = create_app()
+        second = create_app()
+        async with first.test_app():
+            pass
+        self.assertIs(offers_schedule._warmer, second.extensions["mealieshopper_warm_offers"])
+
+
+class HistoryProductsTest(unittest.TestCase):
+    def test_a_row_without_a_category_asks_offer_category_with_the_store(self):
+        row = {"store": "ah", "product_id": "1", "title": "AH Halfvolle melk", "brand": "AH", "unit_size": "1 l", "category": None,
+               "first_seen": "2026-11-01", "ended_at": None, "last_seen": "2026-11-09", "price": 1.0, "price_before": 1.5, "promo_label": "",
+               "valid_from": None, "valid_until": None, "syncs": 1, "continued": 0, "image": "", "url": ""}
+        with mock.patch.object(offer_categories, "offer_category", return_value="zuivel") as category:
+            products = offers._history_products([row])
+        category.assert_called_once_with("ah", "AH Halfvolle melk")
+        self.assertEqual(products[("ah", "1")]["category"], "zuivel")
 
 
 class OffersTableMigrationTest(TempDataDirTest):
@@ -1358,7 +1479,8 @@ class EnglishRecipesTest(TempDataDirTest):
 class OffersRoutesTest(TempDataDirTest):
     def setUp(self):
         super().setUp()
-        self.client = self.client_for(create_app())
+        self.app = create_app()
+        self.client = self.client_for(self.app)
 
     async def test_routes_load_sync_and_suggest(self):
         self.assertEqual((await self.client.get("/api/offers?store=ah")).get_json()["syncedAt"], None)
@@ -1420,6 +1542,7 @@ class OffersRoutesTest(TempDataDirTest):
         # Het prijsoordeel is het dure deel: met dezelfde ETag rekent de server het niet opnieuw uit, ook niet voor een tweede
         # browser zonder If-None-Match of voor aanvragen die tegelijk binnenkomen.
         fetched = [{"id": "1", "title": "AH Kipfilet", "price": 3.0, "priceBefore": 4.0, "promoLabel": "Bonus"}]
+        self.app.extensions["mealieshopper_warm_offers"] = mock.AsyncMock()  # de opwarmer na de knop zou hier de telling vertekenen
         with mock.patch.dict(offers.FETCHERS, {"ah": lambda: returned(fetched)}):
             await self.client.post("/api/offers/sync", json={"store": "ah"})
         real_annotate = prices.annotate
