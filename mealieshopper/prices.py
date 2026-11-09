@@ -33,7 +33,7 @@ from typing import Any, Callable, Iterable, NamedTuple
 
 import aiosqlite
 
-from . import ah, ah_lists, ah_orders, auth, deals, line_offers, offers, packs, price_import, product_links
+from . import ah, ah_lists, ah_orders, auth, deals, line_offers, offer_ranking, offers, packs, price_import, product_links
 from .i18n import tr
 
 log = logging.getLogger(__name__)
@@ -947,14 +947,16 @@ def _product(store: str, product_id: str, offer: dict[str, Any] | None, observed
     return product
 
 
-async def _line_offers(store: str, catalogue: _Catalogue, ids: list[str]) -> dict[str, list[dict[str, Any]]]:
+async def _line_offers(
+    store: str, catalogue: _Catalogue, ids: list[str], fallback: dict[str, _Known] | None = None
+) -> dict[str, list[dict[str, Any]]]:
     """Per product de folderacties voor zijn hele lijn (line_offers.py): elke periode van een folderproduct waarvan alle woorden
     in een naam van het product staan, met de foldernaam erbij, oudste eerst. Een week met meer van zulke acties ("Alle Dr.
     Oetker Casa di Mama pizza's" en "Dr. Oetker pizza's") telt een keer, met de eerste naam. Een folderproduct zelf krijgt er
-    geen."""
+    geen. `fallback` geeft de namen van producten die nog niet in de catalogus staan (een aanbieding van deze week)."""
     wanted: dict[str, list[str]] = {}
     for product_id in ids:
-        known = catalogue.products.get(product_id)
+        known = catalogue.products.get(product_id) or (fallback or {}).get(product_id)
         if known is None or product_id.startswith("folder:"):
             continue
         found = catalogue.lines.lines_for(known.names, known.sizes)
@@ -1266,7 +1268,9 @@ async def signature(store: Any) -> str:
                     conn, "SELECT COUNT(*) AS n, MAX(imported_at) AS last FROM imported_purchases WHERE store = ?", (str(store),)
                 )
                 imported = f":{extra['n']}:{extra['last'] or ''}"
-        return f"{row['n']}:{row['last'] or ''}{imported}"
+            # De catalogusversie: een archiefimport, een nieuwe bon of bestelling verandert de folderacties, de families en de ladder.
+            catalogue = await _catalogue_version(conn)
+        return f"{row['n']}:{row['last'] or ''}{imported}:{catalogue}"
     except Exception:  # noqa: BLE001 - de cache mag nooit de aanbiedingen tegenhouden
         log.warning("Handtekening van de prijzen mislukt", exc_info=True)
         return ""
@@ -1297,40 +1301,40 @@ _WANTED_SQL = "product_id IN (SELECT value FROM json_each(?))"
 
 async def _history_points(
     conn: aiosqlite.Connection, store: str, today: str, receipts: list[dict[str, Any]], wanted: Iterable[str]
-) -> dict[str, list[tuple[str, float]]]:
-    """Per product uit `wanted` de (dag, effectieve prijs per stuk) uit alles wat de app bewaart: de afgesloten aanbiedingen (op hun
-    begindag, wat een stuk met de actie kostte), de bewaarde gewone prijzen en de aankopen (wat je per stuk betaalde, gratis telt
-    niet). De lopende aanbieding zelf staat er niet in: die is wat we vergelijken. Gesorteerd op dag. `receipts` zijn de bonregels
-    en ingelezen aankopen van `_receipt_rows`.
+) -> dict[str, list[tuple[str, float, str]]]:
+    """Per product uit `wanted` de (dag, effectieve prijs per stuk, bron) uit alles wat de app bewaart: de afgesloten aanbiedingen
+    (bron `offer`, op hun begindag, wat een stuk met de actie kostte), de bewaarde gewone prijzen (`observation`) en de aankopen
+    (`purchase`, wat je per stuk betaalde, gratis telt niet). De lopende aanbieding zelf staat er niet in: die is wat we
+    vergelijken. Gesorteerd op dag. `receipts` zijn de bonregels en ingelezen aankopen van `_receipt_rows`.
 
     Alleen de gevraagde producten: de aanbiedingen van een week zijn er een paar honderd, de geschiedenis van een winkel heeft er
     tienduizenden, en de actietekst van elke afgesloten periode lezen (`_episode_effective`) kost per regel tijd."""
     ids = {str(product_id) for product_id in wanted if product_id}
-    points: dict[str, list[tuple[str, float]]] = {}
+    points: dict[str, list[tuple[str, float, str]]] = {}
     if not ids:
         return points
     selected = json.dumps(sorted(ids))
 
-    def add(product_id: Any, day: Any, price: Any) -> None:
+    def add(product_id: Any, day: Any, price: Any, source: str) -> None:
         value = _number(price)
         if product_id and day and value is not None and value > 0 and str(day)[:10] <= today:
-            points.setdefault(str(product_id), []).append((str(day)[:10], value))
+            points.setdefault(str(product_id), []).append((str(day)[:10], value, source))
 
     for row in await conn.execute_fetchall(
         f"SELECT * FROM offer_history WHERE store = ? AND ended_at IS NOT NULL AND {_WANTED_SQL} ORDER BY product_id, first_seen, id",
         (store, selected),
     ):
-        add(row["product_id"], offers._episode_span(row)["start"], _episode_effective(row))
+        add(row["product_id"], offers._episode_span(row)["start"], _episode_effective(row), "offer")
     for row in await conn.execute_fetchall(
         f"SELECT product_id, day, price FROM price_observations WHERE store = ? AND {_WANTED_SQL}", (store, selected)
     ):
-        add(row["product_id"], row["day"], row["price"])
+        add(row["product_id"], row["day"], row["price"], "observation")
     for sql in _purchase_sources(await _tables(conn), store):
         for row in await conn.execute_fetchall(f"SELECT product_id, day, paid FROM ({sql}) WHERE paid > 0 AND {_WANTED_SQL}", (selected,)):
-            add(row["product_id"], row["day"], row["paid"])
+            add(row["product_id"], row["day"], row["paid"], "purchase")
     for row in receipts:
         if str(row["product_id"]) in ids:
-            add(row["product_id"], row["day"], row["paid"])
+            add(row["product_id"], row["day"], row["paid"], "purchase")
     return {product_id: sorted(found) for product_id, found in points.items()}
 
 
@@ -1441,11 +1445,30 @@ async def _annotate(store: str, items: list[dict[str, Any]], today: str) -> None
         ):
             episodes.setdefault(row["product_id"], []).append(row)
         try:
-            receipts = (await _catalogue(conn, store, today)).receipts
-            points = await _history_points(conn, store, today, receipts, ids)
+            catalogue = await _catalogue(conn, store, today)
+            points = await _history_points(conn, store, today, catalogue.receipts, ids)
         except Exception:  # noqa: BLE001 - de ladder is een extraatje: zonder blijven het oordeel en de badge staan
             log.exception("Prijslabels: de geschiedenis van %s kon niet worden gelezen", store)
-            points = {}
+            catalogue, points = None, {}
+    # De folderacties voor de hele lijn (per stuk), zonder de weken waarin het product zelf in de aanbieding was: ze tellen mee als
+    # keer in de aanbieding en als prijs van het jaar (offer_ranking.year_low). Voor een product dat nog niet in de catalogus staat
+    # (de aanbieding van deze week is zijn eerste spoor) zoekt de app op de naam van de aanbieding.
+    lines: dict[str, list[dict[str, Any]]] = {}
+    if catalogue is not None:
+        fallback = {
+            str(offer.get("id")): _Known("", frozenset({_fold_name(f"{offer.get('title') or ''} {offer.get('brand') or ''}")}),
+                                   frozenset(size for size in (_size_of(offer.get("unitSize"), offer.get("title")),) if size))
+            for offer in items
+        }
+        try:
+            lines = await _line_offers(store, catalogue, ids, fallback)
+        except Exception:  # noqa: BLE001 - zonder folderacties blijft de rest van het oordeel staan
+            log.exception("Folderacties bij de aanbiedingen van %s konden niet worden gelezen", store)
+    for product_id, found in lines.items():
+        spans = [{"start": offers._episode_span(row)["start"], "end": offers._episode_span(row)["end"]} for row in episodes.get(product_id, [])]
+        lines[product_id] = _without_own_weeks(found, spans)
+        points.setdefault(product_id, []).extend((line["start"], line["price"], "line") for line in lines[product_id] if _number(line.get("price")))
+        points[product_id].sort()
 
     # Wat elke verpakking per eenheid kost: de gewone prijs uit de bewaarde prijzen en de actieprijs van de andere aanbiedingen.
     packs_known: list[dict[str, Any]] = [
@@ -1486,9 +1509,11 @@ async def _annotate(store: str, items: list[dict[str, Any]], today: str) -> None
         }
         mine = [row for row in episodes.get(product_id, []) if not row["continued"]]
         started = [row for row in mine if (offers._episode_span(row)["start"] or "") >= since_year]
-        verdict["timesThisYear"] = max(len(started), 1)
+        line_weeks = [line for line in lines.get(product_id, []) if str(line["start"]) >= since_year]
+        verdict["timesThisYear"] = max(len(started) + len(line_weeks), 1)
         verdict["often"] = verdict["timesThisYear"] >= OFTEN_PER_YEAR
-        offer["priceLabel"] = price_label(effective, points.get(product_id, []), today)
+        offer["priceLabel"] = price_label(effective, [(day, price) for day, price, _ in points.get(product_id, [])], today)
+        offer["yearLow"] = offer_ranking.year_low(effective, points.get(product_id, []), today)
         verdict["cheaperPack"] = None
         mine_unit = offer["unitPricePer"]
         base = base_title(offer.get("title"))

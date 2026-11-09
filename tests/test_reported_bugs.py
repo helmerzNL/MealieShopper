@@ -264,6 +264,32 @@ class PriceHistoryLinkTest(PricesCase):
         )
 
 
+class BestOffersTest(PricesCase):
+    """Meldingen over de volgorde van de aanbiedingen: de beste bovenaan."""
+
+    async def test_2026_11_09_the_best_offer_is_the_lowest_price_of_the_year(self):
+        # "daarnaast wil ik de beste aanbiedingen bovenaan, waarbij beste de laagste prijs van het afgelopen jaar is" (4.2.0). De
+        # laagste prijs komt uit alles wat de app bewaart, ook het folderarchief, niet alleen uit wat de app zelf een jaar lang mat.
+        with closing(db(prices)) as conn, conn:
+            for start in (-370, -200):  # een folderweek van ruim een jaar terug geeft de dekking, een van dit jaar de laagste prijs
+                conn.execute(
+                    "INSERT INTO offer_history (store, product_id, title, brand, price, price_before, promo_label, valid_from, valid_until, first_seen, last_seen, ended_at) "
+                    "VALUES ('ah', 'folder:a', 'Folder: Alle Dr. Oetker Casa di Mama', 'Folderarchief', 2.15, 4.29, '1+1 gratis', ?, ?, ?, ?, ?)",
+                    (days(start), days(start + 6), f"{days(start)}T00:00:00+00:00", f"{days(start + 6)}T23:59:59+00:00", f"{days(start + 6)}T23:59:59+00:00"),
+                )
+        await self.sync_offer(
+            f"{TODAY}T05:00:00+00:00",
+            offer("514010", "Dr. Oetker Casa di mama pizza salami", 2.15, 4.29, "nu 2,15", unitSize="390 g", brand="Dr. Oetker", validFrom=TODAY, validUntil=days(6)),
+            offer("233387", "Dr. Oetker Casa di mama pizza salame extra piccante", 3.65, 4.29, "nu 3,65", unitSize="415 g", brand="Dr. Oetker", validFrom=TODAY, validUntil=days(6)),
+        )
+        client = self.client_for(create_app())
+        response = await client.get("/api/offers?store=ah")
+        self.assertEqual(response.status_code, 200)
+        by_id = {item["id"]: item for item in response.get_json()["offers"]}
+        self.assertEqual((by_id["514010"]["yearLow"]["status"], by_id["514010"]["yearLow"]["price"]), ("lowest", 2.15))
+        self.assertEqual((by_id["233387"]["yearLow"]["status"], by_id["233387"]["yearLow"]["above"]), ("above", 1.5))
+
+
 class SpeedTest(PricesCase):
     """Meldingen over traagheid: het dure werk gebeurt een keer, niet bij elke aanvraag."""
 

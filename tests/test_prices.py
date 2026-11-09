@@ -52,7 +52,8 @@ async def history_points(store: str = "ah", wanted: tuple[str, ...] = ("1",)) ->
     async def points(conn):
         return await prices._history_points(conn, store, TODAY, await prices._receipt_rows(conn, store, TODAY), wanted)
 
-    return (await in_db(prices._connect, points))[0]
+    found = (await in_db(prices._connect, points))[0]
+    return {product_id: [(day, price) for day, price, _ in rows] for product_id, rows in found.items()}  # zonder de bron, die testen we apart
 
 
 def offer(product_id, title, price=1.0, before=1.5, label="25% korting", **extra):
@@ -591,6 +592,33 @@ class VerdictTest(PricesCase):
         self.assertEqual(annotated["priceLabel"]["kind"], "lowest_6m")
         higher = (await self.annotate(deal("1", "AH Pindakaas", 2.79, 2.99, "nu 2,79")))["1"]
         self.assertEqual(higher["priceLabel"]["kind"], "lower_before")
+        self.assertEqual(annotated["yearLow"]["status"], "unknown", "de app volgt het product nog geen jaar")
+
+    async def test_year_low_uses_offers_line_offers_purchases_and_observations(self):
+        # Casa di Mama pizza salami (514010): folderactie 1+1 gratis in sept 2026 per stuk 2.15, gewone prijs 4.29 een jaar geleden.
+        with closing(db(prices)) as conn, conn:
+            conn.execute(
+                "INSERT INTO offer_history (store, product_id, title, brand, price, price_before, promo_label, valid_from, valid_until, first_seen, last_seen, ended_at) "
+                "VALUES ('ah', 'folder:a', 'Folder: Alle Dr. Oetker Casa di Mama', 'Folderarchief', 2.15, 4.29, '1+1 gratis', '2026-08-31', '2026-09-06', "
+                "'2026-08-31T00:00:00+00:00', '2026-09-06T23:59:59+00:00', '2026-09-06T23:59:59+00:00')"
+            )
+        await self.observe("2025-10-01", "514010", "Dr. Oetker Casa di mama pizza salami", 4.29, size="390 g", brand="Dr. Oetker")
+        offer_now = deal("514010", "Dr. Oetker Casa di mama pizza salami", 3.65, 4.29, "Bonus Box 15% korting", size="390 g", brand="Dr. Oetker")
+        found = (await self.annotate(offer_now))["514010"]
+        self.assertEqual({k: found["yearLow"][k] for k in ("status", "price", "source", "above")}, {"status": "above", "price": 2.15, "source": "line", "above": 1.5})
+        self.assertEqual((found["verdict"]["timesThisYear"], found["verdict"]["often"]), (1, False), "de folderactie telt als keer in de aanbieding")
+        # "1+1 gratis" bij AH: price is de gewone prijs, de vergelijking gaat op de prijs per stuk (_effective), dus 2.15 en niet 4.29.
+        free = (await self.annotate(deal("514010", "Dr. Oetker Casa di mama pizza salami", 4.29, None, "1+1 gratis", size="390 g", brand="Dr. Oetker")))["514010"]
+        self.assertEqual((free["yearLow"]["status"], free["yearLow"]["above"]), ("lowest", 0.0))
+
+    async def test_the_price_signature_changes_with_the_catalogue(self):
+        before = await prices.signature("ah")
+        with closing(db(prices)) as conn, conn:
+            conn.execute(
+                "INSERT INTO offer_history (store, product_id, title, first_seen, last_seen, ended_at) "
+                "VALUES ('ah', 'folder:b', 'Folder: Alle Ajax', '2026-01-05T00:00:00+00:00', '2026-01-11T23:59:59+00:00', '2026-01-11T23:59:59+00:00')"
+            )
+        self.assertNotEqual(await prices.signature("ah"), before, "een archiefimport ververst het oordeel bij de aanbiedingen")
 
     def test_the_price_label_ladder(self):
         cases = [  # (punten, effectieve prijs, verwachte trede)
