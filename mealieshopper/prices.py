@@ -880,6 +880,15 @@ def _product(store: str, product_id: str, offer: dict[str, Any] | None, observed
         "store": store, "productId": product_id, "episodes": [], "timesOnOffer": 0, "lowestPrice": None, "highestPrice": None,
         "regularPrice": None, "onOfferNow": False, "category": None, "firstSeen": None, "lastSeen": None,
     }
+    # Wat een stuk bij elke periode kostte (`perPiece`): bij "2e halve prijs" noemt AH de gewone prijs als prijs, en de grafiek, de
+    # laagste actieprijs en de kaart bij de aanbiedingen (`_effective`, `offer_ranking.year_low`) horen dezelfde prijs te noemen.
+    product["episodes"] = [
+        {**episode, "perPiece": _episode_effective({"promo_label": episode.get("promoLabel"), "price": episode.get("price"), "price_before": episode.get("priceBefore")})}
+        for episode in product["episodes"]
+    ]
+    per_piece: list[float] = [episode["perPiece"] for episode in product["episodes"] if episode["perPiece"] is not None]
+    if per_piece:
+        product["lowestPrice"], product["highestPrice"] = min(per_piece), max(per_piece)
     # De folderacties voor de hele lijn (`_line_offers`), zonder de weken waarin het product zelf al in de aanbieding was.
     product["lineOffers"] = _without_own_weeks(lines or [], product["episodes"])
     product["timesInLineOffer"] = len(product["lineOffers"])

@@ -602,8 +602,20 @@ function offerPriceLabelHtml(offer) {
   return label ? `<span class="${label.cls}"${label.title ? ` title="${escapeHtml(label.title)}"` : ""}>${escapeHtml(label.text)}</span>` : "";
 }
 
-// De rij onderaan de kaart: Vergelijk verpakkingen (een knop) en Prijsgeschiedenis (een link) als twee icoonknoppen rechts, zoals in
-// de compacte rij (sinds 4.8.0; daarvoor twee onderstreepte links op elke kaart). De tekst staat in aria-label en title.
+// De titel van een aanbieding: de link naar haar prijsgeschiedenis. Naar de winkel gaat het winkelicoon (offerStoreLink).
+function offerTitleLink(offer) {
+  return `<a class="offer-card__link" href="${escapeHtml(priceHistoryPath(offersState.store, offer.title, offer.id))}" data-route><strong>${escapeHtml(offer.title)}</strong></a>`;
+}
+
+// Het winkelicoon: de aanbieding bij de winkel zelf, in een nieuw tabblad. Zonder adres van de winkel geen icoon.
+function offerStoreLink(offer) {
+  if (!offer.url) return "";
+  const label = escapeHtml(t("offers.history.open", { store: storeDisplayName(offersState.store) }));
+  return `<a class="icon-button offer-card__store" href="${escapeHtml(offer.url)}" target="_blank" rel="noopener noreferrer" title="${label}" aria-label="${label}">${mdiIcon(MDI_STORE)}</a>`;
+}
+
+// De rij onderaan de kaart: Vergelijk verpakkingen (een knop), Prijsgeschiedenis en de winkel (twee links) als icoonknoppen rechts,
+// zoals in de compacte rij (sinds 4.8.0; daarvoor twee onderstreepte links op elke kaart). De tekst staat in aria-label en title.
 function offerCardFoot(offer) {
   // Vergelijk verpakkingen zoekt bij de winkel; bij een winkel met alleen aanbiedingen (Lidl, Aldi) kan dat niet.
   const compareLabel = escapeHtml(t("offers.compare.open"));
@@ -612,19 +624,17 @@ function offerCardFoot(offer) {
     ? `<button class="icon-button offer-card__compare" type="button" data-compare="${escapeHtml(offer.id)}" title="${compareLabel}" aria-label="${compareLabel}">${mdiIcon(MDI_COMPARE_HORIZONTAL)}</button>`
     : "";
   const history = `<a class="icon-button offer-card__history" href="${escapeHtml(priceHistoryPath(offersState.store, offer.title, offer.id))}" data-route title="${historyLabel}" aria-label="${historyLabel}">${mdiIcon(MDI_CHART_LINE)}</a>`;
-  return `<div class="offer-card__foot">${compare}${history}</div>`;
+  return `<div class="offer-card__foot">${compare}${history}${offerStoreLink(offer)}</div>`;
 }
 
 // Het plaatje van een aanbieding met de badge en het prijslabel erop (of kaal, in de compacte rij). Zonder plaatje een leeg vlak
-// van dezelfde hoogte. De link naar de winkel zit alleen om het plaatje (de titel is de link voor schermlezers), de badge en het
+// van dezelfde hoogte. De link naar de prijsgeschiedenis zit alleen om het plaatje (de titel is de link voor schermlezers), de badge en het
 // label staan ernaast, zodat een schermlezer ze wel leest. `withLabel` false: de kaart zet het prijslabel bij de andere inzichten
 // onder de prijs (sinds 4.8.0), alleen de badge staat dan op het plaatje.
 function offerThumb(offer, extraClass = "", bare = false, withLabel = true) {
   const image = offer.image ? `<img src="${escapeHtml(storeImage(offer.image))}" alt="" loading="lazy" data-hide-on-error>` : mdiIcon(MDI_IMAGE_OUTLINE, "mdi offer-card__thumb-icon");
   const overlay = bare ? "" : `${offerBadge(offer)}${withLabel ? offerPriceLabelHtml(offer) : ""}`;
-  const link = offer.url
-    ? `<a class="offer-card__thumb-link" href="${escapeHtml(offer.url)}" target="_blank" rel="noopener noreferrer" tabindex="-1" aria-hidden="true">${image}</a>`
-    : `<span class="offer-card__thumb-link">${image}</span>`;
+  const link = `<a class="offer-card__thumb-link" href="${escapeHtml(priceHistoryPath(offersState.store, offer.title, offer.id))}" data-route tabindex="-1" aria-hidden="true">${image}</a>`;
   return `<div class="offer-card__thumb${offer.image ? "" : " offer-card__thumb--empty"}${extraClass ? ` ${extraClass}` : ""}" data-zoom="${escapeHtml(offer.id)}">${link}${overlay}</div>`;
 }
 
@@ -641,8 +651,7 @@ function offerPriceHtml(offer) {
 
 function offerProductCard(offer) {
   const meta = [offer.brand, offer.unitSize].filter(Boolean).join(" · ");
-  const name = `<strong>${escapeHtml(offer.title)}</strong>`;
-  const title = offer.url ? `<a class="offer-card__link" href="${escapeHtml(offer.url)}" target="_blank" rel="noopener noreferrer">${name}</a>` : name;
+  const title = offerTitleLink(offer);
   const perUnit = offerPerUnitText(offer.unitPricePer);
   const conditions = offerConditionsText(offer);
   // De inzichten in één rij onder de prijs: het prijslabel (laagste ooit, in 12 maanden ...) en de chips van het oordeel.
@@ -669,10 +678,9 @@ function offerProductCard(offer) {
 }
 
 // De compacte weergave: één regel per aanbieding, met de badge als eigen kolom, de titel met inhoud en actie, de prijs, de prijs per
-// eenheid, het prijslabel (of de chip "n× dit jaar") en twee iconen voor Vergelijk verpakkingen en Prijsgeschiedenis.
+// eenheid, het prijslabel (of de chip "n× dit jaar") en drie iconen voor Vergelijk verpakkingen, Prijsgeschiedenis en de winkel.
 function offerProductRow(offer) {
-  const name = `<strong>${escapeHtml(offer.title)}</strong>`;
-  const title = offer.url ? `<a class="offer-card__link" href="${escapeHtml(offer.url)}" target="_blank" rel="noopener noreferrer">${name}</a>` : name;
+  const title = offerTitleLink(offer);
   const promo = offer.promoLabel ? `<b class="offer-row__promo">${escapeHtml(offer.promoLabel)}</b>` : "";
   const meta = [offer.unitSize ? escapeHtml(offer.unitSize) : "", promo].filter(Boolean).join(" · ");
   const perUnit = offerPerUnitText(offer.unitPricePer);
@@ -696,7 +704,7 @@ function offerProductRow(offer) {
       <span class="offer-row__price">${offerPriceHtml(offer)}</span>
       <small class="offer-row__unit">${escapeHtml(perUnit)}</small>
       <span class="offer-row__history">${history}</span>
-      <div class="offer-row__links">${compare}${chart}</div>
+      <div class="offer-row__links">${compare}${chart}${offerStoreLink(offer)}</div>
     </article>`;
 }
 

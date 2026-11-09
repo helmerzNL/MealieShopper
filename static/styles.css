@@ -7714,7 +7714,7 @@ html.is-standalone body {
   margin-top: 24px;
 }
 
-/* Aanbiedingen: de titel is de link naar de winkel, zodat de kaart ook een knop kan hebben (Vergelijk verpakkingen). */
+/* Aanbiedingen: de titel is de link naar de prijsgeschiedenis, zodat de kaart ook knoppen kan hebben (Vergelijk verpakkingen, de winkel). */
 .offer-card .offer-card__link {
   color: inherit;
   text-decoration: none;
@@ -8401,7 +8401,7 @@ html.is-standalone body {
 
 .offer-row {
   display: grid;
-  grid-template-columns: 48px 60px minmax(0, 1fr) 110px 100px 150px 72px;
+  grid-template-columns: 48px 60px minmax(0, 1fr) 110px 100px 150px 106px;
   align-items: center;
   gap: 10px;
   min-height: 56px;
@@ -8525,7 +8525,7 @@ html.is-standalone body {
    alleen (bij 1280 px met beide open is de lijst ~690 px breed). */
 @container (max-width: 799px) {
   .offer-row {
-    grid-template-columns: 48px 60px minmax(0, 1fr) 100px 90px 72px;
+    grid-template-columns: 48px 60px minmax(0, 1fr) 100px 90px 106px;
     row-gap: 2px;
   }
 

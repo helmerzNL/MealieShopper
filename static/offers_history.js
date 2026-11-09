@@ -55,8 +55,15 @@ function offerHistoryPeriodText(episode) {
   return t("offers.history.period", { from: offerHistoryDayText(from), to: offerHistoryDayText(to) });
 }
 
+// Wat een stuk bij een periode kostte (prices._product: `perPiece`). Bij "2e halve prijs" noemt de winkel de gewone prijs als prijs,
+// en de kaart bij de aanbiedingen rekent met de stukprijs: de grafiek en de tabel doen dat ook.
+function offerHistoryEpisodePrice(episode) {
+  return typeof episode.perPiece === "number" ? episode.perPiece : typeof episode.price === "number" ? episode.price : null;
+}
+
 function offerHistoryBarTitle(episode) {
-  const price = typeof episode.price === "number" ? offerHistoryPrice(episode.price) : t("offers.history.no_price");
+  const value = offerHistoryEpisodePrice(episode);
+  const price = value === null ? t("offers.history.no_price") : value !== episode.price ? t("offers.history.line_price", { price: offerHistoryPrice(value) }) : offerHistoryPrice(value);
   return [offerHistoryPeriodText(episode), price, offerHistoryLabel(episode)].filter(Boolean).join(" · ");
 }
 
@@ -184,7 +191,7 @@ function offerHistoryChart(product, width, range = undefined) {
   const withYear = xmax - xmin > 330;
   const x = (day) => left + ((day - xmin) / (xmax - xmin)) * (W - left - right);
   const prices = [
-    ...shownBars.map((bar) => bar.episode.price),
+    ...shownBars.map((bar) => offerHistoryEpisodePrice(bar.episode)),
     ...shownSteps.map((step) => step.segment.price),
     ...shownDots.map((dot) => dot.purchase.price),
     ...shownMeasured.map((dot) => dot.point.price),
@@ -255,8 +262,8 @@ function offerHistoryChart(product, width, range = undefined) {
   }
   const drawn = [];
   for (const bar of shownBars) {
-    const price = bar.episode.price;
-    if (typeof price !== "number") continue;
+    const price = offerHistoryEpisodePrice(bar.episode);
+    if (price === null) continue;
     const x0 = x(bar.start);
     const x1 = Math.max(x(bar.end), x0 + 4);
     const cy = y(price);
@@ -381,9 +388,13 @@ function offerHistoryHead(product, { compact = false, offer = null } = {}) {
   const compare = !compact && product.regularPerUnit && !offersOnlyStore(product.store)
     ? `<button class="link-button" type="button" data-compare="${escapeHtml(product.productId)}" data-store="${escapeHtml(product.store)}">${escapeHtml(t("offers.compare.open"))}</button>`
     : "";
-  // De prijsregel van de aanbieding zelf (de popup): actieprijs, de oude prijs doorgestreept en de actietekst, zoals op de kaart.
-  const price = offer && typeof offer.price === "number"
-    ? `<p class="ohc-head__price"><b>${escapeHtml(offerHistoryPrice(offer.price))}</b>${typeof offer.priceBefore === "number" && offer.priceBefore > offer.price ? ` <s>${escapeHtml(offerHistoryPrice(offer.priceBefore))}</s>` : ""}${offer.promoLabel || offer.personal ? ` <small>${escapeHtml(offer.promoLabel || t("offers.personal.badge"))}</small>` : ""}</p>`
+  // De prijsregel van de aanbieding zelf (de popup), zoals op de kaart (offerPriceHtml): wat een stuk met de actie kost, doorgestreept
+  // de laagste gewone prijs die de app kent (anders de "van"-prijs van de winkel) en de actietekst.
+  const now = offer && typeof offer.unitPrice === "number" && offer.unitPrice > 0 ? offer.unitPrice : offer ? offer.price : null;
+  const lowestRegular = offer && offer.verdict ? offer.verdict.lowestRegular : null;
+  const before = typeof lowestRegular === "number" ? lowestRegular : offer ? offer.priceBefore : null;
+  const price = typeof now === "number"
+    ? `<p class="ohc-head__price"><b>${escapeHtml(offerHistoryPrice(now))}</b>${typeof before === "number" && before > now + 0.005 ? ` <s>${escapeHtml(offerHistoryPrice(before))}</s>` : ""}${offer.promoLabel || offer.personal ? ` <small>${escapeHtml(offer.promoLabel || t("offers.personal.badge"))}</small>` : ""}</p>`
     : "";
   return `<div class="ohc-head${compact ? " ohc-head--compact" : ""}">
       ${image ? `<img src="${escapeHtml(storeImage(image))}" alt="" loading="lazy" data-hide-on-error>` : ""}
@@ -458,7 +469,7 @@ function offerHistoryDetail(product) {
     .reverse()
     .map(
       (episode) =>
-        `<tr><td>${escapeHtml(offerHistoryPeriodText(episode))}</td><td>${escapeHtml(typeof episode.price === "number" ? offerHistoryPrice(episode.price) : "")}</td><td>${escapeHtml(offerHistoryLabel(episode))}</td></tr>`
+        `<tr><td>${escapeHtml(offerHistoryPeriodText(episode))}</td><td>${escapeHtml(offerHistoryEpisodePrice(episode) === null ? "" : offerHistoryPrice(offerHistoryEpisodePrice(episode)))}</td><td>${escapeHtml(offerHistoryLabel(episode))}</td></tr>`
     )
     .join("");
   const lineRows = (product.lineOffers || [])

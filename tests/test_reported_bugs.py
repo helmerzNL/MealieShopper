@@ -19,6 +19,7 @@ from pathlib import Path
 from unittest import mock
 
 from helpers import AppTestCase, db  # helpers zet ook het pad naar de app
+import test_history_chart_js  # als module, voor de Node-opbouw van offers_history.js
 import test_history_stores_js  # als module: anders draait pytest die tests hier nog een keer
 import test_offers_scan_js  # idem: de Node-opbouw van offers.js
 from test_prices import PricesCase, offer
@@ -402,6 +403,51 @@ console.log(JSON.stringify(offerPopupHtml({json.dumps(offer)}, {json.dumps(produ
             self.assertIn(marker, html)
 
 
+@unittest.skipUnless(shutil.which("node"), "Node is not installed")
+class OfferCardLinksTest(unittest.TestCase):
+    """Verzoek van 2026-11-09: "ik wil overigens dat klikken naar de prijsgeschiedenis pagina gaat daar. maak een winkel (e.g. AH)
+    icoontje waarmee je wel direct naar de winkel gaat". De foto en de titel van een aanbieding gingen naar de winkel."""
+
+    STUBS: str = """
+const mdiIcon = (path) => '<svg data-icon="' + path + '"></svg>';
+const MDI_IMAGE_OUTLINE = 'image'; const MDI_COMPARE_HORIZONTAL = 'compare'; const MDI_CHART_LINE = 'chart'; const MDI_STORE = 'store';
+const storeImage = (url) => url; const storeDisplayName = () => 'Albert Heijn'; const offersOnlyStore = () => false;
+const offerPriceLabelHtml = () => '';
+"""
+
+    def render(self, offer: dict) -> dict:
+        names = ("offerThumb", "offerCardFoot", "offerTitleLink", "offerStoreLink")
+        script = f"""{test_offers_scan_js.PRELUDE}
+{chr(10).join(test_offers_scan_js.function_source(name) for name in names)}
+{self.STUBS}
+const offer = {json.dumps(offer)};
+console.log(JSON.stringify({{ thumb: offerThumb(offer), title: offerTitleLink(offer), foot: offerCardFoot(offer), store: offerStoreLink(offer) }}));"""
+        result = subprocess.run(["node", "-e", script], capture_output=True, text=True, timeout=30, check=False)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        return json.loads(result.stdout)
+
+    def test_2026_11_09_photo_and_title_open_the_price_history_and_an_icon_opens_the_store(self):
+        html = self.render({"id": "234871", "title": "Mutti Pizzasaus aromatica", "image": "i.png", "url": "https://www.ah.nl/producten/product/wi234871"})
+        for part in ("thumb", "title"):
+            self.assertIn('href="/offers/history?product=234871" data-route', html[part], part)
+            self.assertNotIn("ah.nl", html[part], part)
+            self.assertNotIn("_blank", html[part], part)
+        store = html["store"]
+        self.assertIn('href="https://www.ah.nl/producten/product/wi234871" target="_blank" rel="noopener noreferrer"', store)
+        self.assertIn('aria-label="offers.history.open {"store":"Albert Heijn"}"', store, "het icoon heeft een naam voor een schermlezer")
+        self.assertIn('data-icon="store"', store)
+        self.assertIn(store, html["foot"], "het winkelicoon staat onderaan de kaart")
+        row = test_offers_scan_js.function_source("offerProductRow")
+        self.assertIn("offerTitleLink(offer)", row)
+        self.assertIn("offerStoreLink(offer)", row, "ook in de compacte rij")
+        self.assertIn("offerTitleLink(offer)", test_offers_scan_js.function_source("offerProductCard"))
+
+    def test_2026_11_09_without_a_store_address_there_is_no_store_icon(self):
+        html = self.render({"id": "folder:1", "title": "Alle Mutti", "image": "", "url": ""})
+        self.assertEqual(html["store"], "")
+        self.assertIn('href="/offers/history?product=folder:1" data-route', html["title"])
+
+
 class PackFamiliesTest(PricesCase):
     """Melding van 2026-11-09: "rundergehakt van 300gr, 500gr of 1000gr hebben vaak losse prijzen waarbij de 300gr in de aanbieding
     is, dat maakt het nog niet goedkoper dan de bulk 1000gr verpakking"."""
@@ -412,6 +458,52 @@ class PackFamiliesTest(PricesCase):
         family = found["300"]["family"]
         self.assertEqual([(p["productId"], p["cheapest"]) for p in family["packs"]], [("300", False), ("1000", True)])
         self.assertEqual(found["300"]["verdict"]["cheaperPack"]["productId"], "1000", "de 300 g in de aanbieding is per kilo duurder dan de 1000 g")
+
+
+class ConditionalOfferPriceTest(PricesCase):
+    """Melding van 2026-11-09 bij Mutti Pizzasaus aromatica (2e halve prijs): "ik zie 2x een lagere prijs afgelopen jaar ook al
+    heb ik 'laagste prijs in een jaar' aangeklikt. er staat vandaag 2,49 euro in de grafiek". De kaart en het filter rekenden met
+    wat een stuk bij de actie kost (1,87), de prijsgeschiedenis in de popup met de gewone prijs die AH bij zo'n actie als prijs
+    noemt (2,49): als actieprijs van vandaag, als laagste actieprijs en als balk in de grafiek."""
+
+    def mutti(self) -> dict:
+        return {"id": "234871", "title": "Mutti Pizzasaus aromatica", "price": 2.49, "priceBefore": None, "promoLabel": "2e halve prijs",
+                "unitSize": "388 ml", "brand": "Mutti"}
+
+    async def test_2026_11_09_the_history_gives_what_a_piece_costs_with_the_offer(self):
+        await self.sync_offer(f"{TODAY}T05:00:00+00:00", self.mutti())
+        product = await self.product("234871")
+        episode = product["episodes"][0]
+        self.assertEqual((episode["price"], episode["perPiece"]), (2.49, 1.87), "de prijs van de winkel blijft, de stukprijs komt erbij")
+        self.assertEqual((product["lowestPrice"], product["highestPrice"]), (1.87, 1.87), "de laagste actieprijs is de stukprijs")
+        annotated = (await prices.annotate("ah", [self.mutti()], today=TODAY))[0]
+        self.assertEqual(annotated["unitPrice"], episode["perPiece"], "de kaart en de prijsgeschiedenis noemen dezelfde prijs")
+
+    async def test_2026_11_09_a_plain_discount_keeps_its_price(self):
+        await self.sync_offer(f"{TODAY}T05:00:00+00:00", offer("1", "AH Penne", 0.89, 1.19, "25% korting"))
+        product = await self.product("1")
+        self.assertEqual((product["episodes"][0]["perPiece"], product["lowestPrice"]), (0.89, 0.89))
+
+    @unittest.skipUnless(shutil.which("node"), "Node is not installed")
+    def test_2026_11_09_the_chart_and_the_popup_show_the_price_per_piece(self):
+        product = {
+            "store": "ah", "productId": "234871", "title": "Mutti Pizzasaus aromatica", "unitSize": "388 ml", "onOfferNow": True,
+            "episodes": [{"start": days(0), "end": days(6), "open": False, "price": 2.49, "perPiece": 1.87, "priceBefore": None, "promoLabel": "2e halve prijs"}],
+            "timesOnOffer": 1, "lowestPrice": 1.87, "regularPrice": 2.49, "regular": [{"from": days(-300), "to": days(0), "price": 2.49}],
+            "purchases": [{"date": days(-247), "price": 1.87, "quantity": 1, "source": "import", "ref": "1"}], "observed": [], "lineOffers": [],
+        }
+        shown = {"price": 2.49, "unitPrice": 1.87, "promoLabel": "2e halve prijs", "verdict": {"lowestRegular": 2.49}}
+        html = test_history_chart_js.HistoryChartTest().render(product, offer=shown)
+        bar = re.search(r'<g class="ohc-bar[^"]*"[^>]*><title>(.*?)</title><rect x="[\d.]+" y="([\d.]+)"', html["chart"])
+        paid = re.search(r'class="ohc-paid".*?<circle cx="[\d.]+" cy="([\d.]+)"', html["chart"])
+        head = re.search(r'<p class="ohc-head__price">(.*?)</p>', html["headOffer"])
+        assert bar and paid and head, html
+        self.assertIn("1,87", bar.group(1), "het hoverlabel noemt de stukprijs")
+        self.assertNotIn("2,49", bar.group(1))
+        # De balk van vandaag staat op de hoogte van de aankoop van 1,87: `y` is de bovenkant van de balk, `cy` het midden van het rondje.
+        self.assertLess(abs(float(bar.group(2)) - float(paid.group(1))), 12, "de balk van vandaag staat op 1,87, niet op 2,49")
+        self.assertRegex(html["detail"], r"<td>[^<]*1,87[^<]*</td><td>[^<]*2e halve prijs", "de tabel met periodes noemt de stukprijs")
+        self.assertRegex(head.group(1), r"<b>[^<]*1,87</b> <s>[^<]*2,49</s>", "de kop van de popup toont de prijs zoals de kaart")
 
 
 class SpeedTest(PricesCase):
