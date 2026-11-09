@@ -152,7 +152,10 @@ const jumboCart = {
 
 // Kies een winkel in de keuzelijst bovenaan het tabblad Mandje.
 async function openBasket(page, store) {
-  await page.click('[data-tab="basket"]');
+  // Op een telefoon staat Mandje niet in de menubalk maar onder Meer (het menu van de avatar): dan dat menu-item, dat naar /cart gaat.
+  const tab = page.locator('[data-tab="basket"]');
+  if (await tab.isVisible()) await tab.click();
+  else await page.evaluate(() => document.querySelector('[data-user-action="basket"]').click());
   await page.waitForSelector("#basket-store");
   if (store) await page.selectOption("#basket-store", store);
   await page.waitForTimeout(700);

@@ -2,6 +2,26 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub; een stabiele release krijgt de teksten van alle versies sinds de vorige stabiele release.
 
+## v4.4.1
+
+### Gewijzigd en opgelost in 4.4.1
+
+*English summary: the first round of a design review of the interface. **Check your basket** no longer runs out of its card: the card uses the full width (it was capped at 680 px while a line needed more), a line has named areas that adapt to the width (one row on a wide screen, the drop-down under the ingredient on a laptop, stacked on a phone, with the checkbox and photo next to each other), so a product name in the drop-down is no longer cut off, and **Add to basket** and **Cancel** sit in a bar that stays in view at the bottom. In the **week menu** titles no longer break per syllable ("Boeren-koolstamp-pot"): in a narrow day card the photo sits above the text, and a day that already has a meal shows a small **+** next to the date instead of a full **Add** button under it (an empty day keeps that button). The hint "Cheaper per unit" on an offer is a tile instead of a pill over three lines, product photos on an offer card are an inset tile in the dark theme instead of a white block to the edge, and product names that are links (basket, orders, receipts, the compare window) are in the text colour with a faint underline instead of green and underlined. Nothing changed on the server. Reload the page once after updating.*
+
+- **Controleer je mandje past in zijn kaart.** De kaart was, zoals elke `.box`, maximaal 680 px breed, terwijl de zes vaste kolommen van een regel samen meer vroegen. Op een laptop staken de regels daardoor rechts buiten de kaart, brak het ingrediënt af ("400 g / spaghetti") en kapte de keuzelijst de productnaam af. Nu:
+  - gebruikt de kaart de hele breedte van de inhoud (`.box.cart-review`);
+  - heeft een regel benoemde vlakken die zich naar de breedte van de lijst voegen (container queries): op een breed scherm alles op één regel, van ingrediënt naar product; op een laptop of tablet de foto links en rechts het ingrediënt met *Bekijk product*, met daaronder de keuzelijst en het aantal; op een telefoon vinkje, foto en ingrediënt bovenaan, daaronder de keuzelijst over de volle breedte en dan *Bekijk product* en het aantal. De tekstkolommen kunnen niet meer breder worden dan de regel;
+  - staan **Voeg N producten toe aan mandje** en **Annuleren** in een balk die onderaan in beeld blijft (zoals die van *In bulk importeren*, op een telefoon boven de menubalk), in plaats van bovenaan de lijst;
+  - hebben *Kies* en *Zoek een ander product* weer de hoogte die bedoeld was: de 44 px van `.link-button` won van de regel van de controlelijst en gaf grote gaten tussen de regels tekst.
+- **Weekmenu: titels heel.** In een smalle dagkaart (vier of meer dagen naast elkaar) kreeg de titel naast de foto zo'n 120 px en brak hij per lettergreep af. Nu staat de foto in een smalle kaart boven de tekst, over de volle breedte, met het potlood als vlakje op de foto, en breekt een titel alleen nog tussen woorden. Op een telefoon blijft de foto naast de tekst. Dat geldt ook voor de *Weekplanner* van AH, die dezelfde dagkaart gebruikt.
+- **Weekmenu: compactere dagen.** Op een dag met maaltijden is *Toevoegen* een kleine **+** rechts naast de datum (met hetzelfde label voor schermlezers, "Toevoegen op <dag>"), in plaats van een volle gestippelde knop onder de maaltijden. Een lege dag houdt die knop, want daar is toevoegen de enige handeling. Past *Vandaag* niet naast de datum, dan staat het eronder in plaats van de datum af te breken.
+- **Aanbiedingen:** de hint *Per eenheid goedkoper* is een tegel met de radius van een knop, geen pil over drie regels. In het donkere thema staat de productfoto als ingezette tegel op de kaart, in plaats van een wit vlak tot de rand.
+- **Productnamen** die een link zijn (een kaart in het mandje, een bestelling of bon, en het venster *Vergelijk verpakkingen*) staan in de tekstkleur met een vage onderstreping, en worden groen bij hover en focus. Een lijst vol groene, onderstreepte namen was onrustig.
+- **Handleiding** (NL en EN): de **+** naast de datum in het weekmenu en de balk onderaan de controlelijst. De screenshots van het weekmenu, de controlelijst, het mandje, de aanbiedingen en het donkere thema zijn opnieuw gemaakt.
+- **Tests:** `tests/test_tabbar.py` controleert nu ook dat de balk van de controlelijst op een telefoon boven de menubalk blijft.
+- **Screenshots:** de scenario's van het mandje (`basket`, `basket-picnic`, `basket-jumbo`) liepen op de telefoon vast, omdat *Mandje* daar niet in de menubalk staat maar onder *Meer*. `openBasket` in `scripts/screenshots/scenarios/10-week-and-basket.js` kiest dan het menu-item.
+- **Nieuw adres voor de stijlen en scripts** (`MEALIESHOPPER_ASSET_VERSION`). Ververs de pagina één keer.
+
 ## v4.4.0
 
 ### Nieuw in 4.4.0

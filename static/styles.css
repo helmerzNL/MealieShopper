@@ -1036,12 +1036,14 @@ a.subtab-menu__item[hidden] {
   text-transform: uppercase;
 }
 
+/* Geen automatisch afbreken: in een smalle dagkaart brak dat elke titel per lettergreep ("Boeren-koolstamp-pot"). Alleen
+   een woord dat echt niet past, breekt. */
 .meal strong {
   display: block;
   margin-top: 2px;
   font-size: 15px;
   overflow-wrap: break-word;
-  hyphens: auto;
+  hyphens: manual;
 }
 
 .meal small {
@@ -2158,20 +2160,104 @@ html.no-calories .plan-servings__kcal {
   }
 }
 
+/* De controlelijst gebruikt de hele breedte van de inhoud, niet de 680 px van .box: een regel heeft een ingrediënt, een foto, een
+   keuzelijst met lange productnamen, een link en een aantal. */
+.box.cart-review {
+  max-width: none;
+}
+
 .review-list {
   display: grid;
   gap: 8px;
   margin-top: 14px;
+  container-type: inline-size;
 }
 
+/* Een regel in drie breedtes, met benoemde vlakken zodat niets buiten de regel kan (de tekstkolommen zijn minmax(0, ...)):
+   smal (telefoon): vinkje, foto en ingrediënt bovenaan, de keuzelijst eronder over de volle breedte, dan link en aantal;
+   middel: foto en vinkje links over twee regels, rechts het ingrediënt met de link en daaronder keuzelijst en aantal;
+   breed (vanaf 900 px): alles op één regel, van ingrediënt naar product. */
 .review-row {
   display: grid;
-  grid-template-columns: auto minmax(120px, 1fr) 56px minmax(180px, 2fr) auto 72px;
+  grid-template-columns: auto 56px minmax(0, 1fr) 72px;
+  grid-template-areas:
+    "include thumb ingredient ingredient"
+    "product product product product"
+    "link link link qty";
   align-items: center;
-  gap: 12px;
+  gap: 10px 12px;
   border: 1px solid var(--border);
   border-radius: var(--radius-card);
   padding: 10px 12px;
+}
+
+.review-row > input[type="checkbox"] {
+  grid-area: include;
+  align-self: start;
+  margin: 2px 0 0;
+}
+
+.review-row .review-ingredient {
+  grid-area: ingredient;
+  align-self: start;
+  min-width: 0;
+}
+
+.review-row .review-thumb {
+  grid-area: thumb;
+  align-self: start;
+}
+
+.review-row .review-product {
+  grid-area: product;
+  min-width: 0;
+}
+
+.review-row .review-link {
+  grid-area: link;
+}
+
+.review-row .review-qty {
+  grid-area: qty;
+  width: 72px;
+}
+
+.review-row .review-search--extra {
+  grid-column: 1 / -1;
+}
+
+@container (min-width: 520px) {
+  .review-row {
+    grid-template-columns: auto 56px minmax(0, 1fr) 72px;
+    grid-template-areas:
+      "include thumb ingredient link"
+      "include thumb product qty";
+  }
+
+  .review-row .review-link {
+    align-self: start;
+    justify-self: end;
+  }
+
+  .review-row .review-search--extra {
+    grid-column: 3 / -1;
+  }
+}
+
+@container (min-width: 900px) {
+  .review-row {
+    grid-template-columns: auto 56px minmax(0, 1fr) minmax(0, 1.4fr) auto 72px;
+    grid-template-areas: "include thumb ingredient product link qty";
+  }
+
+  .review-row > input[type="checkbox"] {
+    align-self: center;
+    margin: 0;
+  }
+
+  .review-row .review-link {
+    align-self: center;
+  }
 }
 
 .review-row.is-doubt {
@@ -2179,9 +2265,66 @@ html.no-calories .plan-servings__kcal {
   background: var(--warning-bg);
 }
 
+/* Niet gevonden: geen foto, keuzelijst of aantal, wel het zoekveld. */
 .review-row.is-missing {
-  grid-template-columns: auto minmax(120px, 1fr) 2fr;
+  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-areas:
+    "include ingredient"
+    "search search";
   border-style: dashed;
+}
+
+.review-row.is-missing .review-search {
+  grid-area: search;
+}
+
+@container (min-width: 520px) {
+  .review-row.is-missing .review-search {
+    grid-column: 2;
+  }
+}
+
+@container (min-width: 900px) {
+  .review-row.is-missing {
+    grid-template-columns: auto minmax(0, 1fr) minmax(0, 1.4fr);
+    grid-template-areas: "include ingredient search";
+  }
+
+  .review-row.is-missing .review-search {
+    grid-column: auto;
+  }
+}
+
+/* Toevoegen en Annuleren in een balk die onderaan in beeld blijft, zoals de balk van In bulk importeren: na het nalopen van een
+   lange lijst hoef je niet terug naar boven. */
+.cart-review__actions {
+  position: sticky;
+  z-index: 5;
+  bottom: max(12px, env(safe-area-inset-bottom));
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+  box-shadow: var(--shadow-md);
+}
+
+/* Op een telefoon naast elkaar: de toevoegknop neemt de ruimte, zodat de balk laag blijft. */
+@media (max-width: 640px) {
+  .cart-review__actions {
+    flex-wrap: nowrap;
+    margin-inline: -12px;
+    padding: 8px;
+  }
+
+  .cart-review__actions #confirm-cart {
+    flex: 1 1 auto;
+  }
 }
 
 .review-row.is-missing .review-note {
@@ -2213,9 +2356,11 @@ html.no-calories .plan-servings__kcal {
   display: none;
 }
 
-.review-search-toggle {
+/* .review-row erbij: .link-button (44 px hoog) staat verderop en zou anders winnen. Een losse tekstlink van 24 px met ruimte
+   eromheen (WCAG 2.5.8); "Kies" staat in de zin en mag zo hoog zijn als de regel. */
+.review-row .review-search-toggle {
   display: block;
-  min-height: 0;
+  min-height: 24px;
   margin-top: 4px;
   padding: 0;
   font-size: 13px;
@@ -2247,7 +2392,9 @@ html.no-calories .plan-servings__kcal {
   display: none;
 }
 
-.review-cheaper .link-button {
+.review-row .review-cheaper .link-button {
+  min-height: 0;
+  padding: 0;
   font-size: 13px;
 }
 
@@ -2372,45 +2519,6 @@ select.input {
 
 .review-link:hover {
   text-decoration: underline;
-}
-
-@media (max-width: 720px) {
-  .review-row {
-    grid-template-columns: auto 1fr auto;
-  }
-
-  .review-row .review-ingredient,
-  .review-row .review-product {
-    grid-column: 2 / 4;
-  }
-
-  /* De foto staat onder het vinkje, naast de keuzelijst en het aantal. */
-  .review-row .review-include {
-    justify-self: center;
-  }
-
-  .review-row .review-thumb {
-    grid-column: 1;
-    grid-row: 2 / span 2;
-    align-self: center;
-  }
-
-  .review-row .review-link {
-    grid-column: 2;
-  }
-
-  .review-row .review-qty {
-    grid-column: 3;
-    width: 72px;
-  }
-
-  .review-row.is-missing {
-    grid-template-columns: auto 1fr;
-  }
-
-  .review-row.is-missing .review-search {
-    grid-column: 1 / -1;
-  }
 }
 
 @media (max-width: 640px) {
@@ -2878,10 +2986,61 @@ html:has(#cook-mode[open]) {
   }
 }
 
-/* De weekplanner: elke dag een kaart, met onderaan een rustige knop om een maaltijd toe te voegen. */
+/* De weekplanner: elke dag een kaart. Een lege dag heeft onderaan een rustige knop om een maaltijd toe te voegen, een dag met
+   maaltijden een kleine "+" in de kop. De kaart is een container: is hij smal (vier of meer dagen naast elkaar), dan staat de
+   foto boven de tekst, zodat de titel de hele breedte krijgt. */
 .day-card {
   display: flex;
   flex-direction: column;
+  container-type: inline-size;
+}
+
+.day-card__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 12px;
+}
+
+/* De datum blijft heel; past "Vandaag" er niet naast, dan schuift het label naar de regel eronder. */
+.day-card__head h3 {
+  flex: 1;
+  flex-wrap: wrap;
+  row-gap: 4px;
+  min-width: 0;
+  margin: 0;
+  white-space: nowrap;
+}
+
+.day-card > .meal:last-child {
+  margin-bottom: 0;
+}
+
+@container (max-width: 279px) {
+  .meal--with-image:not(.meal--planned),
+  .meal--with-image .meal__open {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+  }
+
+  .meal--with-image .meal__open {
+    padding-right: 8px;
+  }
+
+  .meal--with-image .meal__image {
+    width: 100%;
+    height: auto;
+    aspect-ratio: 2 / 1;
+  }
+
+  /* Het potlood staat dan op de foto: een eigen vlakje, zodat het op elke foto leesbaar blijft. */
+  .meal--with-image .meal__edit {
+    top: 10px;
+    right: 10px;
+    background: var(--surface);
+    box-shadow: var(--shadow-xs);
+  }
 }
 
 .day-card__add {
@@ -2913,6 +3072,23 @@ html:has(#cook-mode[open]) {
   width: 18px;
   height: 18px;
   fill: currentColor;
+}
+
+/* De "+" in de kop: even groot als het potlood eronder en met het midden op dezelfde lijn; de negatieve marges houden de kop
+   even hoog als zonder knop. */
+.day-card__add--compact {
+  flex: none;
+  width: 36px;
+  min-height: 0;
+  height: 36px;
+  margin: -10px -6px -10px 0;
+  border: 0;
+  color: var(--primary);
+}
+
+.day-card__add--compact svg {
+  width: 22px;
+  height: 22px;
 }
 
 /* De plan-dialoog: dag en maaltijd naast elkaar, een segmentbediening voor recept of notitie en een lijst recepten uit Mealie. */
@@ -4209,6 +4385,11 @@ html.is-standalone body {
 
   /* De balk van In bulk importeren boven de menubalk. */
   html.has-tabbar .bulk-bar {
+    bottom: calc(var(--tabbar-h) + 14px + env(safe-area-inset-bottom));
+  }
+
+  /* En die met Toevoegen en Annuleren onder de controlelijst van het mandje. */
+  html.has-tabbar .cart-review__actions {
     bottom: calc(var(--tabbar-h) + 14px + env(safe-area-inset-bottom));
   }
 
@@ -7174,6 +7355,13 @@ html.is-standalone body {
   overflow: hidden;
 }
 
+/* In het donkere thema geen wit vlak tot de rand (een dambord van felle blokken), maar een ingezette tegel. */
+:root[data-theme="dark"] .offer-card__thumb {
+  margin: 0 0 6px;
+  border-bottom: 0;
+  border-radius: var(--radius-control);
+}
+
 .offer-card__thumb--empty {
   background: var(--surface-muted);
 }
@@ -7964,7 +8152,10 @@ html.is-standalone body {
   color: var(--muted);
 }
 
+/* Deze hint loopt vaak over twee of drie regels: een tegel met de radius van een bedieningselement, geen pil. */
 .product-card .verdict--pack {
+  border-radius: var(--radius-control);
+  padding: 3px 8px;
   background: var(--warning-bg);
   box-shadow: inset 0 0 0 1px var(--warning-border);
   color: var(--warning-text);
@@ -8018,8 +8209,32 @@ html.is-standalone body {
   min-width: 0;
 }
 
-.compare-item__body a {
+/* Productnamen die een link zijn (een kaart van een bestelling, bon of het mandje, en het vergelijkvenster): in de tekstkleur met
+   een vage onderstreping, zodat ze ook op een touchscreen als link herkenbaar blijven, en groen bij hover en focus. Een lijst
+   vol groene, onderstreepte namen was onrustig. */
+.compare-item__body a,
+.product-card strong a {
+  color: var(--text);
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, currentColor 30%, transparent);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+  transition: color 0.15s var(--ease), text-decoration-color 0.15s var(--ease);
+}
+
+.compare-item__body a:hover,
+.compare-item__body a:focus-visible,
+.product-card strong a:hover,
+.product-card strong a:focus-visible {
   color: var(--primary);
+  text-decoration-color: currentColor;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .compare-item__body a,
+  .product-card strong a {
+    transition: none;
+  }
 }
 
 .compare-item .rank-1,
