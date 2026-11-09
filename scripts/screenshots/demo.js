@@ -71,4 +71,12 @@ function perUnit(price, unitSize) {
   return { value: Math.round((price / (amount * factor)) * 100) / 100, unit };
 }
 
-module.exports = { svg, dish, product, DISHES, base, WEEK, mealieUrl, VERSION, NEWER, perUnit };
+// Een subtab openen. Vanaf 860 px staan de subtabs in het zijmenu en is de link in de balk verborgen: dan via de DOM, zoals
+// routerOpenSubtab in static/router.js dat ook doet.
+async function openSubtab(page, id) {
+  const link = page.locator(`[data-subtab="${id}"]`).first();
+  if (await link.isVisible()) await link.click();
+  else await page.evaluate((sub) => document.querySelector(`[data-subtab="${sub}"]`).click(), id);
+}
+
+module.exports = { svg, dish, product, DISHES, base, WEEK, mealieUrl, VERSION, NEWER, perUnit, openSubtab };

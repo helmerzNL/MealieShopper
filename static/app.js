@@ -2914,6 +2914,9 @@ document.querySelectorAll(".subtab[data-subtab], .subtab-menu__item[data-subtab]
       .querySelectorAll(".subtab, .subtab-menu__item[data-subtab], .subpanel")
       .forEach((item) => item.classList.remove("is-active"));
     subtab.classList.add("is-active");
+    // Op een telefoon is de balk één regel die horizontaal scrolt: het gekozen tabblad in beeld (App-Guidance, web-app-design.md).
+    const bar = subtab.closest(".subtabs");
+    if (bar && bar.scrollWidth > bar.clientWidth) subtab.scrollIntoView({ block: "nearest", inline: "center" });
     const menu = subtab.closest(".subtab-menu");
     if (menu) {
       menu.querySelector(".subtab-menu__toggle").classList.add("is-active");

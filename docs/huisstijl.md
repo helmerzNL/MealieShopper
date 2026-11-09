@@ -63,7 +63,7 @@ Het palet verandert niet; de afwerking wel. Aanvullende tokens in `:root` (en in
 Regels:
 
 - **Dieptelagen.** Pagina (`--bg`), kaart (`--shadow-sm`), oplichtende kaart of menu (`--shadow-md`), venster of inlogkaart (`--shadow-lg`). Gebruik niet meer dan twee niveaus naast elkaar.
-- **Navigatie.** Het hoofdmenu markeert het actieve onderdeel met `--selection` en een groen streepje (groot scherm); het tweede niveau (`.subtabs`) is een segmentbediening met een oplichtend actief segment. Een volledig groen vlak is voorbehouden aan primaire acties, het actieve filter (`.offer-chip`) en de pil van de huidige dag.
+- **Navigatie.** Vanaf 860 px staat het hoofdmenu links (het breekpunt van App-Guidance), met alleen onder het open onderdeel zijn subtabs; het markeert het actieve onderdeel met `--selection` en een groen streepje. Het tweede niveau (`.subtabs`) is een segmentbediening met een oplichtend actief segment; op een telefoon is dat één regel die horizontaal scrolt, en het gekozen segment scrolt in beeld. Een scherm zonder eigen kaarttitel heeft een `.page-title`. Een volledig groen vlak is voorbehouden aan primaire acties, het actieve filter (`.offer-chip`) en de pil van de huidige dag.
 - **Knoppen en velden.** Primair heeft een lichte bovenrand en geeft 1 px indruk bij `:active`; secundair heeft een rand en `--shadow-xs`. Velden krijgen bij focus een rand van 2 px in `--primary` met een halo van `--ring`.
 - **Meldingen.** Een gekleurde balk links (4 px) naast de bestaande kleur en tekst; kleur alleen is nooit de enige aanwijzing.
 - **Prijzen en acties in een lijst.** `.product-card__price` is vet in Manrope; *Bonus* is een pil (`.product-card .bonus`).
@@ -133,13 +133,13 @@ In de geïnstalleerde app (PWA) op een klein scherm (tot 640 px breed) staat het
 zwevende, glazen **onderste menubalk**, zoals een native tabbalk op iOS: vijf items met een
 MDI-icoon en een kort label (`Recepten`, `Aanbod`, `Winkels`, `Boxen` en `Meer` met een hamburger-icoon), een
 groen vlak onder het actieve item en minimaal 56 px hoog. `Meer` opent het menu dat op een groter scherm onder de
-avatar in de kop zit: avatar en naam, een lijn, `Mandje`, `Profiel`, `Instellingen`, `Over`, een lijn en `Uitloggen`,
-elk met een MDI-icoon. `Mandje` staat op een klein scherm (tot 640 px, ook in een gewone browser) alleen in dat menu,
+avatar in de kop zit: avatar en naam, een lijn, `Mandje`, `Profiel`, `Instellingen`, `Over`, een lijn, `Donkere modus`
+(of `Lichte modus`) en de andere taal (`English` of `Nederlands`), een lijn en `Uitloggen`, elk met een MDI-icoon. `Mandje` staat op een klein scherm (tot 640 px, ook in een gewone browser) alleen in dat menu,
 niet in de balk; `Meer` licht op als het mandje, het profiel, de instellingen of `Over` open staat. De balk zweeft 12 px van de randen en
 houdt rekening met de veilige zone (home-indicator) via `env(safe-area-inset-*)`; daarvoor staat
-de viewport op `viewport-fit=cover`. Wisselen van tab brengt je terug naar boven. Op grotere
-schermen, en in een gewone browser, blijven de tabs bovenaan staan, met hetzelfde icoon links van
-de tekst.
+de viewport op `viewport-fit=cover`. Wisselen van tab brengt je terug naar boven. Tussen 641 en
+859 px, en in een gewone browser tot 859 px, staan de tabs bovenaan, met hetzelfde icoon links van de tekst; vanaf 860 px
+staat het menu links.
 
 - **Twee stijlen, één balk** (zoals [`navigation-bar.md`](https://github.com/Flux76HQ/App-Guidance/blob/main/shared/guidelines/navigation-bar.md)
   van Flux76HQ/App-Guidance). `data-nav` op `<html>` kiest het uiterlijk: `ios` is de zwevende
@@ -211,12 +211,17 @@ logo, het manifest en de deelafbeelding veranderen niet.
 - **Kookmodus uit** zet `no-cook-mode` op `<html>` (ook al in het script in de kop); dan verbergt
   `styles.css` bij een recept de balk met Start met koken en de vinkjes bij de ingrediënten.
 
-## Taalkiezer
+## Taal en thema
 
-Twee vlaggetjes (Nederland en Verenigd Koninkrijk) als losse knoppen van minstens 44 px, met de
-taalnaam in de eigen taal als `aria-label` en `aria-pressed` voor de gekozen taal; de gekozen vlag heeft
-een groene ring, de andere is gedimd. De vlaggen zijn inline SVG (geen emoji, want Windows toont daar
-letters) en staan in de kop, op de inlogpagina en in de installatiehulp. Zie het onderdeel Taal in de [handleiding](handleiding.md#taal).
+De kop van de app heeft alleen het logo en de avatar (sinds 4.7.0). Taal en thema staan in het menu onder de avatar
+(op een telefoon onder `Meer`) en bij Instellingen, Voorkeuren: het menu-item zegt wat een tik doet (`Donkere modus`
+of `Lichte modus`, en de andere taal in die taal zelf). De slogan staat alleen op de inlogkaart.
+
+Op de inlogpagina, bij een uitnodiging en in de installatiehulp, waar er nog geen menu is, staat een taalkiezer met de
+knop voor licht en donker ernaast. De taalkiezer is tekst, `NL` en `EN`, geen vlaggen: een vlag staat voor een land,
+niet voor een taal. Twee knoppen van minstens 44 px, met de taalnaam in de eigen taal als `aria-label` en `aria-pressed`
+voor de gekozen taal; de gekozen taal heeft het selectievlak met zijn rand. Zie het onderdeel Taal in de
+[handleiding](handleiding.md#taal).
 
 ## Wat is gecontroleerd
 

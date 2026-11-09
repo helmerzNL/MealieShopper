@@ -1,7 +1,7 @@
-// Het zijmenu op een groot scherm als boom: onder elk onderdeel staan zijn subtabs (Winkels > Recepten, Lijstjes,
+// Het zijmenu (vanaf 860px) als boom: onder het onderdeel dat open is staan zijn subtabs (Winkels > Recepten, Lijstjes,
 // Bestellingen), zodat je meteen op Bestellingen klikt in plaats van eerst op Winkels. De subtabbalk boven de inhoud
 // verdwijnt dan, alleen een keuzemenu erin (de winkel bij Winkels en Aanbiedingen) blijft staan. De balk komt terug als het
-// menu is ingeklapt tot pictogrammen, op een scherm onder 1024px, of als de boom niet in de hoogte van het scherm past
+// menu is ingeklapt tot pictogrammen, op een scherm onder 860px, of als de boom niet in de hoogte van het scherm past
 // (html.nav-tree valt dan weg, zie styles.css).
 //
 // De boom is een kopie van de subtabbalken: dezelfde links (router.js opent ze), dezelfde teksten en dezelfde zichtbaarheid.
@@ -10,7 +10,7 @@
 
 const NAV_TREE_TOP = 88; // de bovenkant van het vastgeplakte menu, als in `.shell > .tabs` in styles.css
 const NAV_TREE_BOTTOM = 24; // ruimte onder het menu
-const NAV_TREE_WIDE = "(min-width: 1024px)";
+const NAV_TREE_WIDE = "(min-width: 860px)";
 
 const navTree = { observers: [], frame: 0 };
 

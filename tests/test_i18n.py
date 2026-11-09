@@ -183,26 +183,38 @@ class PageTest(AppTestCase):
         order = [HTML.index(name) for name in ("i18n.js", "i18n/nl.js", "i18n/en.js", "app.js", "onboarding.js")]
         self.assertEqual(order, sorted(order))
 
-    def test_language_switch_in_header_login_invitation_and_onboarding(self):
-        self.assertEqual(HTML.count('class="lang-switch"'), 4)
-        self.assertEqual(HTML.count('data-lang="nl"'), 4)
-        self.assertEqual(HTML.count('data-lang="en"'), 4)
-        self.assertIn('id="flag-nl"', HTML)
-        self.assertIn('id="flag-gb"', HTML)
+    def test_language_switch_on_login_invitation_and_onboarding_not_in_the_header(self):
+        # Sinds 4.7.0 staan taal en thema in de app in het menu onder je naam en bij Voorkeuren, niet meer in de kop. De taalkiezer
+        # is tekst (NL, EN), geen vlag: een vlag staat voor een land, niet voor een taal.
+        self.assertEqual(HTML.count('class="lang-switch"'), 3)
+        self.assertEqual(HTML.count('data-lang="nl"'), 3)
+        self.assertEqual(HTML.count('data-lang="en"'), 3)
+        for gate in ('id="auth-gate"', 'id="invite-gate"', 'id="onboarding"'):
+            start = HTML.index(gate)
+            self.assertLess(HTML.index('class="lang-switch"', start), HTML.index("</section>", start), gate)
+        header = HTML[HTML.index('<header class="topbar">'):HTML.index("</header>")]
+        self.assertNotIn("lang-switch", header)
+        self.assertNotIn("data-theme-toggle", header)
+        self.assertNotIn("brand.tagline", header, "de slogan staat alleen nog op de inlogkaart")
+        self.assertNotIn('id="flag-nl"', HTML)
+        self.assertNotIn('id="flag-gb"', HTML)
+        self.assertEqual(re.findall(r'<span class="lang-switch__code" aria-hidden="true">(\w+)</span>', HTML), ["NL", "EN"] * 3)
         for button in re.findall(r"<button[^>]*data-lang=[^>]*>", HTML):
             self.assertIn("aria-label=", button)
             self.assertIn("aria-pressed=", button)
             self.assertIn("lang=", button)
 
     def test_theme_toggle_sits_next_to_every_language_switch(self):
-        self.assertEqual(HTML.count('class="switches"'), 4)
-        self.assertEqual(HTML.count("data-theme-toggle"), 4)
+        self.assertEqual(HTML.count('class="switches"'), 3)
+        self.assertEqual(HTML.count("data-theme-toggle"), 3)
         for button in re.findall(r"<button[^>]*data-theme-toggle[^>]*>", HTML):
             self.assertIn("aria-label=", button)
             self.assertIn("aria-pressed=", button)
             self.assertIn("theme.dark", button)
-        self.assertEqual(sorted({k for k in NL if k.startswith("theme.")}), ["theme.dark"])
+        # theme.light is het label van het menu-item als donker aan staat.
+        self.assertEqual(sorted({k for k in NL if k.startswith("theme.")}), ["theme.dark", "theme.light"])
         self.assertIn("theme.dark", EN)
+        self.assertIn("theme.light", EN)
 
     def test_theme_is_set_in_the_head_before_the_styles_and_the_script_loads_after_the_dictionaries(self):
         self.assertLess(HTML.index('setAttribute("data-theme"'), HTML.index("styles.css"))

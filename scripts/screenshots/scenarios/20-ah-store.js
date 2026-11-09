@@ -1,5 +1,5 @@
 // Winkels > Albert Heijn: bewaarde recepten, lijstjes, bestellingen en kassabonnen.
-const { dish, product, DISHES, mealieUrl } = require("../demo");
+const { dish, product, DISHES, mealieUrl, openSubtab } = require("../demo");
 
 // De taal van de pagina staat in de cookie ms_lang; teksten die normaal van de server komen volgen die.
 async function lang(request) {
@@ -348,7 +348,7 @@ const plannerRoutes = {
 const openStores = (subtab) => async (page) => {
   await page.click('[data-tab="ah-items"]');
   await page.waitForTimeout(500);
-  if (subtab) await page.click(`[data-subtab="${subtab}"]`);
+  if (subtab) await openSubtab(page, subtab);
   await page.waitForTimeout(700);
 };
 

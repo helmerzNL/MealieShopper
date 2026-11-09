@@ -52,8 +52,20 @@ function renderUserMenu() {
   $("#user-menu-who-user").textContent = auth.username && auth.username !== name ? auth.username : "";
   $("#auth-logout").hidden = !auth.enabled;
   $("#auth-logout-separator").hidden = !auth.enabled;
+  renderUserMenuSwitches();
   renderProfileAvatars();
   renderProfilePage();
+}
+
+// Thema en taal in het menu (sinds 4.7.0 niet meer in de kop): het item zegt wat een tik doet. Donker staat aan, dan "Lichte
+// modus"; de taal noemt de andere taal, in die taal zelf ("English" als Nederlands aan staat).
+function renderUserMenuSwitches() {
+  const dark = window.THEME?.current() === "dark";
+  $("#user-menu-theme").textContent = t(dark ? "theme.light" : "theme.dark");
+  const other = I18N.lang() === "nl" ? "en" : "nl";
+  const lang = $("#user-menu-lang");
+  lang.textContent = other === "en" ? "English" : "Nederlands";
+  lang.lang = other;
 }
 
 // ---- Het menu
@@ -114,6 +126,8 @@ $("#user-menu-list").addEventListener("click", (event) => {
   if (item.dataset.userAction === "profile") openProfile();
   if (item.dataset.userAction === "settings") openSettings();
   if (item.dataset.userAction === "about") showPanel("about");
+  if (item.dataset.userAction === "theme") THEME.choose(THEME.current() === "dark" ? "light" : "dark");
+  if (item.dataset.userAction === "lang") I18N.setLang(I18N.lang() === "nl" ? "en" : "nl");
 });
 
 // ---- De profielpagina
@@ -209,3 +223,4 @@ $("#profile-avatar-remove").addEventListener("click", async () => {
 });
 
 window.addEventListener("ms:languagechange", renderUserMenu);
+window.addEventListener("ms:appearancepaint", renderUserMenuSwitches);

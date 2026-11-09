@@ -1,5 +1,5 @@
 // Winkels > Picnic (recepten, favorieten, bestellingen) en Winkels > Jumbo (lijstjes, bestellingen, recepten).
-const { DISHES, dish, product } = require("../demo");
+const { DISHES, dish, product, openSubtab } = require("../demo");
 
 // De data-uri's zijn lang; een scenario gebruikt ze per naam.
 const P = {
@@ -30,7 +30,7 @@ async function openStore(page, store, subtab) {
   await page.click(`#items-store-list [data-store="${store}"]`);
   await page.waitForTimeout(600);
   if (subtab) {
-    await page.click(`[data-subtab="${subtab}"]`);
+    await openSubtab(page, subtab);
     await page.waitForTimeout(700);
   }
 }
