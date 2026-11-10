@@ -6,7 +6,7 @@ Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar
 
 ### Nieuw in 4.15.0
 
-Issue: [#311](https://github.com/helmerzNL/MealieShopper/issues/311).
+Pull request: [#314](https://github.com/helmerzNL/MealieShopper/pull/314). Issue: [#311](https://github.com/helmerzNL/MealieShopper/issues/311).
 
 *English summary: A cooking timer now also rings when the phone is locked or the app has been in the background for a long time. Until now the alarm and the notification came from the page itself, and a locked phone pauses the web app. Now the app tells the server its running timers with their remaining time whenever you start, pause, resume or stop one, and at 0 the server sends the notification with **Web Push**, through the browser's push service, also when the app is paused or closed. If the app is still running when a timer ends, it reports it itself and no second notification follows. The message is encrypted for the browser (RFC 8291) and signed (VAPID, RFC 8292) with `http-ece` and `py-vapid`, the two libraries pywebpush is built on; the server only sends to the push services of Google, Apple, Mozilla and Microsoft. There is nothing to configure: it works over HTTPS once notifications are allowed, on an iPhone only in the installed app (iOS 16.4 or newer). The server now needs outbound HTTPS to those push services. Logging out, deleting a user and the factory reset remove the push subscriptions; they and the server's key are not in the backup. Checked against Google's real push service: our signed message is accepted (201), one with another key refused (403).*
 
