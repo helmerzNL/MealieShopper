@@ -431,7 +431,17 @@ def _match_name(index: dict[str, str], bare: dict[str, str], store: str, name: s
     if name in index:
         return index[name]
     stripped = _without_house_brand(store, name)
-    return bare.get(stripped) if stripped else None
+    return (bare.get(stripped) if stripped else None) or bare.get(_near_name(name))
+
+
+_NEAR_MARK = "~"  # voor een sleutel van `_near_name` in de index van `_bare_index`: geen gevouwen naam begint zo
+_NEAR_NOISE: frozenset[str] = frozenset({"online"})  # "AH Les pain triomphe heel online" in een oude bevestigingsmail
+
+
+def _near_name(name: str) -> str:
+    """Een naam om bijna-gelijke namen te herkennen: de woorden in enkelvoud, op volgorde van het alfabet. AH noemde het brood
+    in de mails van 2022 "AH Les pain triomphe heel" en nu "AH Les pains triomphe heel": hetzelfde product."""
+    return _NEAR_MARK + " ".join(sorted(line_offers.words(name) - _NEAR_NOISE))
 
 
 def _words(name: str) -> set[str]:
@@ -448,12 +458,14 @@ def _names_agree(receipt_name: str, titles: Iterable[str]) -> bool:
 
 
 def _bare_index(index: dict[str, str], store: str) -> dict[str, str]:
-    """Kale naam -> product, voor de namen waar maar een product bij hoort."""
+    """Kale naam -> product, voor de namen waar maar een product bij hoort. Ook de bijna-gelijke naam (`_near_name`) -> product,
+    met dezelfde eis."""
     found: dict[str, set[str]] = {}
     for name, product_id in index.items():
         stripped = _without_house_brand(store, name)
         if stripped:
             found.setdefault(stripped, set()).add(product_id)
+        found.setdefault(_near_name(name), set()).add(product_id)
     return {name: next(iter(ids)) for name, ids in found.items() if len(ids) == 1}
 
 

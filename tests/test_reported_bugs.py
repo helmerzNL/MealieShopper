@@ -1032,6 +1032,20 @@ class TwoNumbersOneProductTest(PricesCase):
             self.assertEqual((product["productId"], product["timesBought"]), (asked, 4))
         self.assertEqual(await prices.bought_ids("ah", TODAY) & {"446408", "230786"}, {"446408", "230786"})
 
+    async def test_2026_11_10_an_old_order_with_the_name_in_singular_is_the_same_bread(self) -> None:
+        # "ook dan kan het niet kloppen. ik heb dit zowel in de winkel met een bon gekocht als online via een bestelling": de
+        # bevestigingsmails van 2022 noemen het "AH Les pain triomphe heel", een keer met "online" erachter.
+        with closing(db(price_import)) as conn, conn:
+            conn.executemany(
+                "INSERT INTO imported_purchases (store, order_ref, position, day, title, quantity, paid, regular, imported_at) "
+                "VALUES ('ah', ?, 1, ?, ?, 1, 2.39, 2.39, 'x')",
+                (("M1", "2022-05-31", "AH Les pain triomphe heel"), ("M2", "2022-12-14", "AH Les pain triomphe heel online"),
+                 ("M3", "2023-02-11", "AH Les pain triomphe blanc heel")),
+            )
+        found: dict = await prices.history("ah", "triomphe", 50, today=TODAY)
+        bought: dict[str, int] = {product["productId"]: product["timesBought"] for product in found["products"]}
+        self.assertEqual(bought, {"446408": 6, "import:ah les pain triomphe blanc heel": 1}, "het witte brood is een ander product")
+
     async def test_2026_11_10_another_pack_with_the_same_name_stays_its_own_product(self) -> None:
         await self.ah_order(102, "delivered", days(-5), order_item(999, self.NAME, 1.29, "400 g"))
         found: dict = await prices.history("ah", "triomphe", 50, today=TODAY)
