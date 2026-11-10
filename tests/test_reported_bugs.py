@@ -339,6 +339,64 @@ class SameNameTwoProductsTest(PricesCase):
         self.assertIn(linked[self.NAME]["productId"], {"579310", "123865"})
 
 
+class ReceiptLinkedPackSizeTest(PricesCase):
+    """2026-11-10: "bij dit product staat niet hoeveel het is. is het X gram, X aantal?" (123865, AH Sweet palermo rode
+    puntpaprika). De app kende het product alleen van de kassabon, en de bonkoppeling bewaarde de naam en de foto, niet de inhoud."""
+
+    def link(self, **columns: str | None) -> None:
+        self.ah_receipt("R1", "2025-06-06T12:00:00", (526638, "PUNTPAPRIKA", 1, 1.69, 1.69))
+        row: dict[str, str | int | None] = {
+            "receipt_product_id": 526638, "product_id": 123865, "title": "AH Sweet palermo rode puntpaprika", "checked_at": "x",
+            "image": "https://static.ah.nl/p.png", **columns,
+        }
+        with closing(db(ah_orders)) as conn, conn:
+            conn.execute(f"INSERT INTO ah_receipt_products ({', '.join(row)}) VALUES ({', '.join('?' * len(row))})", tuple(row.values()))
+
+    async def test_the_price_history_shows_the_pack_size_of_the_link(self) -> None:
+        self.link(brand="AH", unit_size="2 stuks")
+        product: dict = await self.product("123865")
+        self.assertEqual((product["unitSize"], product["brand"]), ("2 stuks", "AH"))
+
+    async def test_a_size_in_the_search_finds_the_product(self) -> None:
+        self.link(brand="AH", unit_size="2 stuks")
+        found: list[str] = [p["productId"] for p in (await self.history(query="puntpaprika 2 stuks"))["products"]]
+        missed: list[str] = [p["productId"] for p in (await self.history(query="puntpaprika 500 gram"))["products"]]
+        self.assertEqual((found, missed), (["123865"], []))
+
+    async def test_an_imported_purchase_of_the_product_shows_the_pack_size_too(self) -> None:
+        self.link(brand="AH", unit_size="2 stuks")
+        with closing(db(price_import)) as conn, conn:
+            conn.execute(
+                "INSERT INTO imported_purchases (store, order_ref, position, day, title, quantity, paid, regular, imported_at) "
+                "VALUES ('ah', 'M1', 1, '2025-07-28', 'AH Sweet palermo rode puntpaprika', 1, 0.99, 1.69, 'x')"
+            )
+        linked: dict[str, dict] = await prices.link_names("ah", ["AH Sweet palermo rode puntpaprika"])
+        self.assertEqual(linked["AH Sweet palermo rode puntpaprika"]["unitSize"], "2 stuks", "de bestelpagina")
+        product: dict = await self.product("123865")
+        self.assertEqual(product["unitSize"], "2 stuks", "de nieuwste gewone prijs komt uit de ingelezen aankoop")
+        self.assertEqual(product["regularPerUnit"], prices.unit_price(1.69, "2 stuks"), "en dus ook de prijs per stuk")
+
+    async def test_an_old_link_with_a_photo_still_gets_its_pack_size(self) -> None:
+        self.link()  # van voor deze fix: wel een foto, geen inhoud
+        answer: list[dict] = [{"id": 123865, "title": "AH Sweet palermo rode puntpaprika", "brand": "AH", "unitSize": "2 stuks", "image": "https://static.ah.nl/new.png"}]
+        with mock.patch.object(ah, "get_products_by_ids", new_callable=mock.AsyncMock, return_value=answer) as lookup:
+            first: dict | None = await ah_orders.backfill_receipt_images_nightly("2026-11-10T03:00:00+00:00")
+            second: dict | None = await ah_orders.backfill_receipt_images_nightly("2026-11-11T03:00:00+00:00")
+        self.assertEqual((lookup.call_count, first, second), (1, {"products": 0, "requests": 1, "failed": 0}, None), "een keer, daarna is het compleet")
+        with closing(db(ah_orders)) as conn:
+            saved: tuple = tuple(conn.execute("SELECT brand, unit_size, image FROM ah_receipt_products WHERE product_id = 123865").fetchone())
+        self.assertEqual(saved, ("AH", "2 stuks", "https://static.ah.nl/p.png"), "de foto die er al was blijft")
+        self.assertEqual((await self.product("123865"))["unitSize"], "2 stuks")
+
+    async def test_a_link_to_another_product_forgets_the_old_pack_size(self) -> None:
+        self.link(brand="AH", unit_size="2 stuks")
+        with closing(db(ah_orders)) as conn, conn:
+            conn.execute(ah_orders._UPSERT_RECEIPT_PRODUCT, (526638, 579310, "AH Sweet Palermo rode puntpaprika", "y", "https://static.ah.nl/q.png"))
+            conn.execute(ah_orders._UPSERT_RECEIPT_PRODUCT, (526638, 579310, "AH Sweet Palermo rode puntpaprika", "z", "https://static.ah.nl/q.png"))
+            saved: tuple = tuple(conn.execute("SELECT product_id, brand, unit_size FROM ah_receipt_products").fetchone())
+        self.assertEqual(saved, (579310, None, None))
+
+
 class OrdersSyncedNightlyTest(PricesCase):
     """2026-11-10: bij dezelfde melding stond de bestelling van 3 november een week na de bezorging nog op "open", en haar
     producten ontbraken in de prijsgeschiedenis. Bestellingen en kassabonnen kwamen alleen binnen via de knop op de bestelpagina."""

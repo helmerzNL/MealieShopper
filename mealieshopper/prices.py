@@ -457,15 +457,30 @@ def _bare_index(index: dict[str, str], store: str) -> dict[str, str]:
     return {name: next(iter(ids)) for name, ids in found.items() if len(ids) == 1}
 
 
-_RECEIPT_PRODUCTS_SQL = "SELECT receipt_product_id, product_id, title FROM ah_receipt_products WHERE product_id IS NOT NULL"
+_RECEIPT_PRODUCTS_SQL = "SELECT * FROM ah_receipt_products WHERE product_id IS NOT NULL"
 
 
-def _receipt_product_map(rows: Iterable[Any]) -> dict[str, tuple[str, str]]:
-    return {str(row["receipt_product_id"]): (str(row["product_id"]), row["title"] or "") for row in rows}
+class _Linked(NamedTuple):
+    """Het webwinkelproduct bij een artikelnummer van de kassabon (`ah_receipt_products`)."""
+
+    product_id: str
+    title: str
+    brand: str | None  # het merk en de inhoud: None als ze (nog) niet zijn opgezocht of AH ze niet geeft
+    unit_size: str | None
 
 
-async def _receipt_products(conn: aiosqlite.Connection) -> dict[str, tuple[str, str]]:
-    """Artikelnummer op de bon -> (id van de webwinkel, naam in de webwinkel), voor zover AH ze koppelde (zie
+def _receipt_product_map(rows: Iterable[Any]) -> dict[str, _Linked]:
+    found: dict[str, _Linked] = {}
+    for row in rows:
+        columns = row.keys()  # `brand` en `unit_size` zijn er pas als ah_orders zijn schema heeft bijgewerkt
+        brand: str | None = (row["brand"] if "brand" in columns else None) or None
+        unit_size: str | None = (row["unit_size"] if "unit_size" in columns else None) or None
+        found[str(row["receipt_product_id"])] = _Linked(str(row["product_id"]), row["title"] or "", brand, unit_size)
+    return found
+
+
+async def _receipt_products(conn: aiosqlite.Connection) -> dict[str, _Linked]:
+    """Artikelnummer op de bon -> het product van de webwinkel (`_Linked`), voor zover AH ze koppelde (zie
     `ah_orders.resolve_receipt_products`)."""
     if "ah_receipt_products" not in await _tables(conn):
         return {}
@@ -530,12 +545,13 @@ async def _receipt_rows(conn: aiosqlite.Connection, store: str, today: str) -> l
 
 
 def _link_receipt_rows(
-    store: str, rows: list[Any], names: _Names, linked: dict[str, tuple[str, str]], mine: product_links.Links
+    store: str, rows: list[Any], names: _Names, linked: dict[str, _Linked], mine: product_links.Links
 ) -> list[dict[str, Any]]:
     """Het koppelen van `_receipt_rows`, zonder database: de regels, de namen (`_names`), de koppelingen van AH
     (`_receipt_products`) en je eigen koppelingen (`product_links.load`)."""
     index: dict[str, str] = names.index
     bare = _bare_index(index, store)
+    webshop: dict[str, _Linked] = {link.product_id: link for link in linked.values()}
     titles: dict[str, list[str]] = {}
     for title, product_id in index.items():
         titles.setdefault(product_id, []).append(title)
@@ -554,16 +570,21 @@ def _link_receipt_rows(
         other_product = bool(own) and own in titles and not same_id
         if own in linked:
             # Gekoppeld via het artikelnummer: de echte naam uit de webwinkel ("Red Band Winegums original" in plaats van "RED BAND").
-            # De naam op de bon blijft vindbaar (`receipt_name`).
-            webshop_id, webshop_title = linked[own]
-            found.append({**dict(row), "product_id": webshop_id, "title": webshop_title or row["title"], "receipt_name": row["title"]})
+            # De naam op de bon blijft vindbaar (`receipt_name`). Het merk en de inhoud komen ook van de koppeling: een bon heeft ze niet.
+            shop: _Linked = linked[own]
+            found.append({
+                **dict(row), "product_id": shop.product_id, "title": shop.title or row["title"], "brand": shop.brand,
+                "unit_size": shop.unit_size, "receipt_name": row["title"],
+            })
             continue
         matched: str | None = _match_name(index, bare, store, name)
         if name in names.shared:  # twee producten met precies deze naam: de prijs kiest
             matched = _nearest_priced(names.shared[name], row, matched) or matched
         key = own if same_id else (matched or (None if other_product else own) or fallback)
         # Een bonregel met een artikelnummer dat (nog) bij geen enkel product hoort: die kan `history` meteen laten opzoeken.
-        found.append({**dict(row), "product_id": key, "lookup": row["source"] == "receipt" and bool(own) and key in (own, fallback)})
+        # Op naam bij een product dat de app van de bonkoppeling kent: dan ook met het merk en de inhoud van daar.
+        known: dict[str, Any] = {"brand": webshop[key].brand, "unit_size": webshop[key].unit_size} if key in webshop and not row["unit_size"] else {}
+        found.append({**dict(row), **known, "product_id": key, "lookup": row["source"] == "receipt" and bool(own) and key in (own, fallback)})
     return found
 
 
@@ -584,6 +605,11 @@ async def _product_details(conn: aiosqlite.Connection, store: str, ids: list[str
             for key, column in fields:
                 if not details.get(key) and row[column]:
                     details[key] = row[column]
+    for linked in (await _receipt_products(conn)).values() if store == "ah" else ():  # als laatste: wat de bonkoppeling weet
+        details = found.get(linked.product_id)
+        for key, value in (("title", linked.title), ("brand", linked.brand), ("unitSize", linked.unit_size)) if details is not None else ():
+            if not details.get(key) and value:
+                details[key] = value
     missing = [product_id for product_id, details in found.items() if not details.get("image")]
     for product_id, images in (await _saved_images(conn, store, missing) if missing else {}).items():
         found[product_id]["image"] = images[0]["url"]
