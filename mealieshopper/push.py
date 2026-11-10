@@ -45,7 +45,7 @@ import http_ece
 import httpx
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ec
-from py_vapid import Vapid02
+from py_vapid import Vapid02, VapidException
 from quart import Quart, jsonify
 
 from . import about, auth, http_client, request_body, tasks
@@ -428,7 +428,7 @@ async def _deliver(row: Mapping[str, Any], key: ec.EllipticCurvePrivateKey, now:
     except httpx.HTTPError as exc:
         log.info("Push naar %s mislukt: %s", _host(row["endpoint"]), type(exc).__name__)
         status = None
-    except ValueError:  # het abonnement zelf is onbruikbaar (sleutels, adres)
+    except (ValueError, http_ece.ECEException, VapidException):  # het abonnement zelf is onbruikbaar (sleutels, adres)
         log.warning("Push-abonnement bij %s is onbruikbaar en is verwijderd", _host(row["endpoint"]))
         await _drop_subscription(row["subscription_id"])
         return "gone"
@@ -480,7 +480,11 @@ async def send_due(now: float | None = None) -> float:
     if claimed:
         key = await private_key()
         for row in claimed:
-            await _deliver(row, key, now)
+            try:
+                await _deliver(row, key, now)
+            except Exception:  # noqa: BLE001 - een fout bij een timer houdt de andere niet tegen
+                log.exception("Push van een kooktimer mislukt")
+                await _drop_timer(row["id"])
     async with _connect() as conn:
         upcoming = await auth.fetchone(conn, "SELECT MIN(due_at) AS due FROM cook_timers WHERE claimed_at IS NULL OR claimed_at < ?", (stale_claim,))
     if upcoming is None or upcoming["due"] is None:

@@ -280,6 +280,30 @@ class SendTest(PushCase):
         self.assertEqual(self.rows("cook_timers"), [], "na de laatste poging is de timer weg")
         self.assertEqual(len(self.rows("push_subscriptions")), 1, "het abonnement zelf mankeert niets")
 
+    async def test_a_broken_subscription_is_removed_without_a_request(self):
+        await self.subscribe(Browser(), [timer(left=1000)])
+        with closing(db(push)) as conn, conn:
+            conn.execute("UPDATE push_subscriptions SET p256dh = ?", (auth.b64url_encode(b"\x04" + b"\x01" * 64),))  # geen punt op de curve
+        with served(httpx.Response(201)) as route:
+            await push.send_due(NOW + 10)
+        self.assertEqual(route.call_count, 0)
+        self.assertEqual((self.rows("push_subscriptions"), self.rows("cook_timers")), ([], []))
+
+    async def test_an_unexpected_error_does_not_hold_up_the_other_timers(self):
+        await self.subscribe(Browser(), [timer("a", left=1000), timer("b", left=2000)])
+        outcomes = iter([RuntimeError("onverwacht"), 201])
+
+        async def send(*_args):
+            outcome = next(outcomes)
+            if isinstance(outcome, Exception):
+                raise outcome
+            return outcome
+
+        with mock.patch.object(push, "send", send), self.assertLogs("mealieshopper.push", "ERROR"):
+            await push.send_due(NOW + 10)
+        self.assertEqual(self.rows("cook_timers"), [], "de kapotte timer is weg, de andere is verstuurd")
+        self.assertEqual(len(self.rows("push_subscriptions")), 1)
+
     async def test_a_timer_long_past_gets_no_push(self):
         await self.subscribe(Browser(), [timer(left=1000)])
         with served(httpx.Response(201)) as route:
