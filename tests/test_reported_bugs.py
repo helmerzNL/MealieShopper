@@ -18,16 +18,18 @@ from datetime import date, timedelta
 from pathlib import Path
 from unittest import mock
 
-from helpers import AppTestCase, db, sent_json, served  # helpers zet ook het pad naar de app
+from helpers import AppTestCase, db, returned, run, sent_json, served  # helpers zet ook het pad naar de app
 import httpx
 
 import test_ah_orders  # als module: de opzet van het AH-mandje
 import test_history_chart_js  # als module, voor de Node-opbouw van offers_history.js
 import test_history_stores_js  # als module: anders draait pytest die tests hier nog een keer
+import test_offers  # idem: de opzet van de receptvoorstellen
 import test_offers_scan_js  # idem: de Node-opbouw van offers.js
+import test_order_views  # idem: de Node-opbouw van order_views.js en de gedeelde keuzelijst
 from test_prices import PricesCase, offer
 
-from mealieshopper import ah, ah_orders, assets, auth, image_cache, offers, offers_schedule, price_archive_tidy, price_import, prices
+from mealieshopper import ah, ah_orders, assets, auth, image_cache, offer_categories, offers, offers_schedule, price_archive_tidy, price_import, prices
 from mealieshopper.app import create_app
 
 ROOT: Path = Path(__file__).resolve().parents[1]
@@ -780,6 +782,7 @@ const categoryLabel = (id) => 'cat ' + id;
 const offerSearchText = (offer) => foldText(offer.title + ' ' + offer.brand);
 const mdiIcon = (path) => '<svg data-icon="' + path + '"></svg>'; const MDI_PLUS = 'plus'; const MDI_MINUS = 'minus';
 const $ = () => ({{ addEventListener: () => {{}} }});
+{test_order_views.FACETS}
 {facets}
 Object.assign(offersState, {{ offers: {json.dumps(self.OFFERS)}, search: '', goodOnly: false, personalOnly: false, personal: null }});
 const fresh = (extra) => {{ offersState.filters = {{ ...offersEmptyFilters(), ...extra }}; return offersState.filters; }};
@@ -883,6 +886,119 @@ console.log(JSON.stringify({{ afterOne, closedPage, farAway, end: {{ shown: offe
         self.assertIn('<ul class="offer-facet offer-facet--scroll" id="offers-filter-brands"></ul>', template)
         css = (ROOT / "static" / "styles.css").read_text(encoding="utf-8")
         self.assertIn("body:has(.panel.is-active #offers-items.is-active) .shell {\n    max-width: none;", css, "het overzicht is schermbreed")
+
+
+# 2026-11-10: "kijk over het hele systeem breed. ik wil dezelfde filters overal inzetten waar nuttig". Gekozen: een bestelling,
+# bestellingen doorzoeken, de prijsgeschiedenis en Aanbiedingen > Recepten. Overal dezelfde lijst (static/facets.js): per regel
+# een plus (alleen deze), een min (deze niet, dat wint) en het aantal, op dat aantal gesorteerd met de gekozen regels bovenaan.
+FACET_PANELS: tuple[str, ...] = ("order-facets", "purchase-facets", "offers-history-facets", "offers-course-facets")
+
+
+class FiltersEverywhereTest(unittest.TestCase):
+    def test_2026_11_10_every_page_has_the_panel_and_the_shared_list_loads_first(self):
+        html = (ROOT / "templates" / "index.html").read_text(encoding="utf-8")
+        for panel in FACET_PANELS:
+            self.assertEqual(len(re.findall(rf'<details class="facet-panel" id="{panel}" data-facet-panel="\w+"', html)), 1, panel)
+        scripts = re.findall(r"filename='([\w/]+\.js)'", html)
+        for later in ("offers_facets.js", "orders.js", "order_views.js", "offers.js", "offers_history.js"):
+            self.assertLess(scripts.index("facets.js"), scripts.index(later), later)
+
+    @unittest.skipUnless(shutil.which("node"), "Node is not installed")
+    def test_2026_11_10_an_order_filters_on_category_and_brand_and_counts_with_the_other_list(self):
+        found = test_order_views.OrderViewsNodeTest.run_js(self, """
+const lines = [line("vis", 1, 2, 0, { brand: "AH", title: "Zalm" }), line("vis", 1, 3, 0, { brand: "Fish Tales", title: "Tonijn" }),
+  line("zuivel_eieren", 1, 1, 0, { brand: "AH", title: "Melk" }), line("zuivel_eieren", 1, 1, 0, { brand: "", title: "Eieren" })];
+const sel = (shown = [], hidden = []) => ({ shown, hidden });
+const titles = (facets) => orderFilter(lines, [], facets).map((item) => item.title);
+const rows = orderFacetRows(lines, { category: sel(["vis"]), brand: sel() }, "");
+console.log(JSON.stringify({
+  plus: titles({ category: sel(["vis"]), brand: sel() }),
+  minus: titles({ category: sel(), brand: sel([], ["AH"]) }),
+  both: titles({ category: sel(["vis"]), brand: sel([], ["AH"]) }),
+  search: orderFilter(lines, ["zalm"], { category: sel([], ["vis"]), brand: sel() }).length,
+  categories: rows.category.map((row) => [row.value, row.count, row.mode]),
+  brands: rows.brand.map((row) => [row.value, row.count]),
+  found: orderFacetRows(lines, orderFacetsEmpty(), "fish").brand.map((row) => row.value),
+}));
+""")
+        self.assertEqual(found["plus"], ["Zalm", "Tonijn"])
+        self.assertEqual(found["minus"], ["Tonijn", "Eieren"], "een regel zonder merk valt niet weg met een min op een ander merk")
+        self.assertEqual((found["both"], found["search"]), (["Tonijn"], 0))
+        self.assertEqual(found["categories"], [["vis", 2, "in"], ["zuivel_eieren", 2, ""]], "de eigen keuze telt niet mee in de eigen lijst")
+        self.assertEqual(found["brands"], [["AH", 1], ["Fish Tales", 1]], "de merken tellen binnen de gekozen categorie")
+        self.assertEqual(found["found"], ["Fish Tales"], "het zoekveld boven de merken")
+
+    @unittest.skipUnless(shutil.which("node"), "Node is not installed")
+    def test_2026_11_10_the_purchase_search_narrows_to_the_found_products(self):
+        orders = test_order_views.ORDERS
+        script = f"""{test_order_views.FACETS}
+const ordersState = {{ query: "cola", products: {{ shown: [], hidden: ["Pepsi"] }}, hits: {{
+  products: [{{ product: "Coca-Cola", times: 5 }}, {{ product: "Pepsi", times: 2 }}],
+  occurrences: [{{ product: "Coca-Cola", id: "1", source: "bestelling" }}, {{ product: "Pepsi", id: "2", source: "bestelling" }},
+    {{ product: "Coca-Cola", id: "3", source: "kassabon" }}] }} }};
+{test_order_views.function_source("purchaseProductRows", orders)}
+{test_order_views.function_source("purchaseHits", orders)}
+const out = {{ rows: purchaseProductRows().map((row) => [row.value, row.count, row.mode]), minus: [...purchaseHits().keys()] }};
+ordersState.products = {{ shown: ["Pepsi"], hidden: [] }};
+out.plus = [...purchaseHits().keys()];
+console.log(JSON.stringify(out));"""
+        result = subprocess.run(["node", "-e", script], capture_output=True, text=True, timeout=30, check=False)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        found = json.loads(result.stdout)
+        self.assertEqual(found["rows"], [["Pepsi", 2, "out"], ["Coca-Cola", 5, ""]], "wat gekozen is staat bovenaan, daarna op aantal")
+        self.assertEqual((found["minus"], found["plus"]), (["order:1", "receipt:3"], ["order:2"]))
+
+
+class FiltersEverywhereHistoryTest(PricesCase):
+    PRODUCTS: tuple[tuple[str, str, str], ...] = (("1", "Unox Rookworst", "Unox"), ("2", "Unox Tomatensoep", "Unox"), ("3", "AH Halfvolle melk", "AH"))
+
+    async def filtered(self, **chosen):
+        return await prices.history("ah", "", 50, **chosen)
+
+    async def test_2026_11_10_the_price_history_filters_and_counts_brands_and_categories(self):
+        await prices.record("ah", [{"id": pid, "title": title, "price": 2.0, "unitSize": "500 g", "brand": brand} for pid, title, brand in self.PRODUCTS])
+        category = {pid: offer_categories.offer_category("ah", title) for pid, title, _ in self.PRODUCTS}
+        ids = lambda data: sorted(product["productId"] for product in data["products"])  # noqa: E731
+        plain = await self.filtered()
+        self.assertEqual((plain["total"], plain["facets"]["brands"]), (3, [{"value": "Unox", "count": 2}, {"value": "AH", "count": 1}]))
+        self.assertEqual(sum(row["count"] for row in plain["facets"]["categories"]), 3)
+        unox = await self.filtered(brands=["Unox"])
+        self.assertEqual((ids(unox), unox["total"]), (["1", "2"], 2))
+        self.assertEqual(unox["facets"]["brands"], plain["facets"]["brands"], "de eigen keuze telt niet mee in de eigen lijst")
+        self.assertEqual({row["value"] for row in unox["facets"]["categories"]}, {category["1"], category["2"]}, "de categorieen tellen binnen het merk")
+        self.assertEqual(ids(await self.filtered(brands_out=["Unox"])), ["3"])
+        self.assertEqual(ids(await self.filtered(brands=["Unox"], brands_out=["Unox"])), [], "de min wint")
+        self.assertEqual(ids(await self.filtered(categories=[category["3"]])), sorted(pid for pid in category if category[pid] == category["3"]))
+        self.assertEqual(ids(await self.filtered(categories_out=[category["3"]])), sorted(pid for pid in category if category[pid] != category["3"]))
+        pinned = await prices.history("ah", "", 50, pin="3", brands=["Unox"])
+        self.assertEqual(ids(pinned), ["1", "2", "3"], "het product uit het adres blijft staan")
+        self.assertEqual((await prices.history("ah", "", 50, product="3"))["facets"], {}, "de hover vraagt een product, zonder lijsten")
+        client = self.client_for(create_app())
+        reply = (await client.get("/api/prices/history?store=ah&brand=Unox&brand=AH&brand_out=AH")).get_json()
+        self.assertEqual(ids(reply), ["1", "2"])
+
+    def test_2026_11_10_the_brand_list_is_capped_but_keeps_what_is_chosen(self):
+        values = [f"merk{index:03d}" for index in range(prices.FACET_BRANDS + 5)]
+        chosen = prices._Choice.of([values[-1]], None)
+        rows = prices._facet_counts(values, chosen, prices.FACET_BRANDS)
+        self.assertEqual(len(rows), prices.FACET_BRANDS + 1)
+        self.assertEqual(rows[-1], {"value": values[-1], "count": 1})
+
+
+class FiltersEverywhereCoursesTest(test_offers.TempDataDirTest):
+    index = test_offers.SuggestionsTest.index
+    course_setup = test_offers.SuggestionsTest.course_setup
+
+    def test_2026_11_10_recipe_suggestions_take_courses_to_show_and_to_hide(self):
+        self.course_setup()
+        ids = lambda **chosen: sorted(recipe["id"] for recipe in run(offers.suggest("ah", **chosen))["recipes"])  # noqa: E731
+        self.assertEqual(ids(courses=["ontbijt", "overig"]), ["b", "c"])
+        self.assertEqual(ids(courses_out=["ontbijt"]), ["a", "c"])
+        self.assertEqual(ids(courses=["ontbijt"], courses_out=["ontbijt"]), [], "de min wint")
+        data = run(offers.suggest("ah", courses_out=["ontbijt"]))
+        self.assertEqual((data["total"], len(data["courses"])), (2, 3), "de aantallen per soort blijven die van alle voorstellen")
+        with self.assertRaises(ValueError):
+            run(offers.suggest("ah", courses=["pannenkoek"]))
 
 
 @unittest.skipUnless(shutil.which("node"), "Node is not installed")

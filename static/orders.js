@@ -12,7 +12,7 @@ function ordersAreJumbo() {
 
 // `open`: de bestelling of kassabon die open staat ({ kind, id }), voor het adres (router.js).
 // `imported`: de ingelezen oude bestellingen van deze winkel (zie price_import.py), die bij de afgelopen bestellingen staan.
-const ordersState = { basket: null, orders: [], imported: [], receipts: [], ordersSyncedAt: null, receiptsSyncedAt: null, query: "", loaded: false, open: null };
+const ordersState = { basket: null, orders: [], imported: [], receipts: [], ordersSyncedAt: null, receiptsSyncedAt: null, query: "", loaded: false, open: null, products: facetSelection() };
 
 function dayLabel(value) {
   const date = new Date(String(value || "").length === 10 ? `${value}T12:00:00` : value);
@@ -197,6 +197,7 @@ function purchaseHits() {
   if (!ordersState.query.trim() || !hits) return null;
   const map = new Map();
   for (const entry of hits.occurrences) {
+    if (!facetPasses(ordersState.products, entry.product)) continue; // de lijst "Gevonden producten"
     const key = `${entry.source === "kassabon" ? "receipt" : entry.imported ? "imported" : "order"}:${entry.id}`;
     if (!map.has(key)) map.set(key, []);
     map.get(key).push(entry);
@@ -246,11 +247,28 @@ function renderOrders() {
   else if (query && !hits) empty = escapeHtml(t("orders.searching"));
   else if (!visible.length) empty = query ? th("orders.search_none", { query }) : escapeHtml(t("orders.filter_none"));
   ordersState.empty = empty;
+  renderPurchaseFacets();
   renderPurchaseView(visible, hits);
   const notes = [rows.length ? t("orders.shown", { shown: I18N.formatNumber(visible.length), total: I18N.formatNumber(rows.length) }) : ""];
-  if (hits) notes.push(t("orders.search_summary", { products: I18N.formatNumber(ordersState.hits.products.length), total: I18N.formatNumber(hits.size) }));
+  if (hits) notes.push(t("orders.search_summary", { products: I18N.formatNumber(ordersState.hits.products.filter((item) => facetPasses(ordersState.products, item.product)).length), total: I18N.formatNumber(hits.size) }));
   if (hits && ordersState.hits.unsearched) notes.push(tn("orders.search_unsearched", ordersState.hits.unsearched));
   $("#ah-purchase-status").textContent = notes.filter(Boolean).join(" · ");
+}
+
+// Na een zoekopdracht: de gevonden producten als keuzelijst (facets.js), met hoe vaak je elk kocht. Zoek je "cola", dan zet een
+// plus op het ene product of een min op de andere de aankopen op precies dat product.
+function purchaseProductRows(hits = ordersState.hits, selection = ordersState.products) {
+  const counts = ((hits && hits.products) || []).map((item) => ({ value: item.product, count: item.times }));
+  return facetRows(counts, selection);
+}
+
+function renderPurchaseFacets() {
+  const panel = $("#purchase-facets");
+  const searching = Boolean(ordersState.query.trim() && ordersState.hits);
+  const rows = searching ? purchaseProductRows() : [];
+  panel.hidden = rows.length < 2; // met een product valt er niets te kiezen
+  $("#purchase-products").innerHTML = facetListHtml("product", rows);
+  facetPanelCount(panel, facetActive(ordersState.products));
 }
 
 // De tabel: een rij per aankoop, of de melding waarom er niets staat (ordersState.empty, gezet door renderOrders).
@@ -380,6 +398,7 @@ async function searchPurchases() {
 $("#ah-purchase-filter").addEventListener("input", (event) => {
   ordersState.query = event.target.value;
   ordersState.hits = null;
+  ordersState.products = facetSelection(); // een andere zoekterm vindt andere producten
   purchaseSeq++;
   clearTimeout(purchaseTimer);
   if (!ordersState.query.trim()) {
@@ -388,6 +407,15 @@ $("#ah-purchase-filter").addEventListener("input", (event) => {
   }
   $("#ah-purchase-status").textContent = t("orders.searching");
   purchaseTimer = setTimeout(searchPurchases, 250);
+});
+
+$("#purchase-facets").addEventListener("click", (event) => {
+  const click = event.target.closest("[data-facet-clear]") ? null : facetClick(event);
+  if (click) ordersState.products = facetToggled(ordersState.products, click.value, click.mode);
+  else if (event.target.closest("[data-facet-clear]")) ordersState.products = facetSelection();
+  else return;
+  renderOrders();
+  if (click) facetRefocus($("#purchase-products"), click);
 });
 
 for (const [id, key] of [["ah-filter-orders", "orders"], ["ah-filter-receipts", "receipts"]]) {

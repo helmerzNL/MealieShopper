@@ -44,6 +44,7 @@ SOURCES = {
     "audit.js": (STATIC / "audit.js").read_text(encoding="utf-8"),
     "offers.js": (STATIC / "offers.js").read_text(encoding="utf-8"),
     "offers_cart.js": (STATIC / "offers_cart.js").read_text(encoding="utf-8"),
+    "facets.js": (STATIC / "facets.js").read_text(encoding="utf-8"),
     "offers_facets.js": (STATIC / "offers_facets.js").read_text(encoding="utf-8"),
     "ai_review.js": (STATIC / "ai_review.js").read_text(encoding="utf-8"),
     "offers_history.js": (STATIC / "offers_history.js").read_text(encoding="utf-8"),

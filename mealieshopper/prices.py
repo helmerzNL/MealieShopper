@@ -35,7 +35,7 @@ from typing import Any, Callable, Iterable, NamedTuple
 
 import aiosqlite
 
-from . import ah, ah_lists, ah_orders, auth, deals, line_offers, offer_ranking, offers, packs, price_import, product_links
+from . import ah, ah_lists, ah_orders, auth, deals, line_offers, offer_categories, offer_ranking, offers, packs, price_import, product_links
 from .i18n import tr
 
 log = logging.getLogger(__name__)
@@ -783,11 +783,14 @@ def _candidates(products: dict[str, _Known], query: _Query, always: str | None =
 
 
 class _Known(NamedTuple):
-    """Wat de catalogus van een product weet om erop te zoeken: de laatste dag, de gevouwen namen en de verpakkingen."""
+    """Wat de catalogus van een product weet om erop te zoeken: de laatste dag, de gevouwen namen en de verpakkingen, en om erop
+    te filteren het merk en de categorie (leeg als geen bron ze noemt)."""
 
     last: str
     names: frozenset[str]
     sizes: frozenset[tuple[float, str]]
+    brand: str = ""
+    category: str = ""
 
 
 async def _known_products(conn: aiosqlite.Connection, store: str, today: str, receipts: list[dict[str, Any]]) -> dict[str, _Known]:
@@ -801,8 +804,10 @@ async def _known_products(conn: aiosqlite.Connection, store: str, today: str, re
             product_id = row["product_id"]
             if not product_id:
                 continue
-            entry = found.setdefault(product_id, {"last": "", "names": set(), "sizes": set()})
+            entry = found.setdefault(product_id, {"last": "", "names": set(), "sizes": set(), "title": "", "brand": ""})
             entry["last"] = max(entry["last"], str(row["last"] or "")[:10])
+            entry["title"] = entry["title"] or str(row["title"] or "").strip()
+            entry["brand"] = entry["brand"] or str(row["brand"] or "").strip()
             entry["names"].add(_fold_name(f"{row['title'] or ''} {row['brand'] or ''}"))
             size = _size_of(row["unit_size"], row["title"])
             if size:
@@ -818,7 +823,20 @@ async def _known_products(conn: aiosqlite.Connection, store: str, today: str, re
     for row in receipts:  # de naam op de bon van een gekoppelde regel blijft vindbaar ("RB PICOLIENT")
         if row.get("receipt_name") and row["product_id"] in found:
             found[row["product_id"]]["names"].add(_fold_name(row["receipt_name"]))
-    return {product_id: _Known(entry["last"], frozenset(entry["names"]), frozenset(entry["sizes"])) for product_id, entry in found.items()}
+    # De categorie: die de winkel bij een aanbieding meegaf, anders die van de naam (zoals de aanbiedingen en de aankopen doen).
+    stored: dict[str, str] = {
+        row["product_id"]: row["category"]
+        for row in await conn.execute_fetchall(
+            "SELECT product_id, MAX(category) AS category FROM offer_history WHERE store = ? AND COALESCE(category, '') != '' GROUP BY product_id", (store,)
+        )
+    }
+    return {
+        product_id: _Known(
+            entry["last"], frozenset(entry["names"]), frozenset(entry["sizes"]), entry["brand"],
+            stored.get(product_id) or (offer_categories.offer_category(store, entry["title"]) if entry["title"] else ""),
+        )
+        for product_id, entry in found.items()
+    }
 
 
 # De aanbiedingen in de lokale kopie die (nog) niet in de geschiedenis staan: die nog moeten beginnen (de bonus van volgende
@@ -1180,8 +1198,41 @@ async def _lookup_receipt_names(lookup: Callable[[list[str]], Awaitable[Any]], w
             log.warning("Namen op de bon opzoeken mislukt", exc_info=True)
 
 
+FACET_BRANDS: int = 500  # zoveel merken hooguit in de keuzelijst van de prijsgeschiedenis, de meest voorkomende eerst
+
+
+class _Choice(NamedTuple):
+    """Een keuzelijst van de prijsgeschiedenis: met iets in `shown` alleen die waarden, wat in `hidden` staat valt altijd weg."""
+
+    shown: frozenset[str]
+    hidden: frozenset[str]
+
+    @classmethod
+    def of(cls, shown: Any, hidden: Any) -> "_Choice":
+        def texts(value: Any) -> frozenset[str]:
+            return frozenset(str(item) for item in value if isinstance(item, str) and item) if isinstance(value, (list, tuple, set, frozenset)) else frozenset()
+
+        return cls(texts(shown), texts(hidden))
+
+    def passes(self, value: str) -> bool:
+        return value not in self.hidden and (not self.shown or value in self.shown)
+
+
+def _facet_counts(values: Iterable[str], chosen: _Choice, limit: int | None = None) -> list[dict[str, Any]]:
+    """[{"value", "count"}], op aantal en dan op waarde. Een lege waarde telt niet. Met `limit` de meest voorkomende, en wat
+    gekozen is staat er altijd bij: de lijst op het scherm moet het aantal van een gekozen merk kunnen noemen."""
+    counts: dict[str, int] = {}
+    for value in values:
+        if value:
+            counts[value] = counts.get(value, 0) + 1
+    ordered: list[tuple[str, int]] = sorted(counts.items(), key=lambda item: (-item[1], item[0]))
+    kept: list[tuple[str, int]] = ordered if limit is None else ordered[:limit] + [item for item in ordered[limit:] if item[0] in chosen.shown | chosen.hidden]
+    return [{"value": value, "count": count} for value, count in kept]
+
+
 async def history(store: Any = None, query: Any = "", limit: Any = 50, today: str | None = None, bought: bool = False,
-                  lookup: Callable[[list[str]], Awaitable[Any]] | None = None, product: Any = None, pin: Any = None) -> dict[str, Any]:
+                  lookup: Callable[[list[str]], Awaitable[Any]] | None = None, product: Any = None, pin: Any = None,
+                  brands: Any = None, brands_out: Any = None, categories: Any = None, categories_out: Any = None) -> dict[str, Any]:
     """De prijsgeschiedenis van producten: aanbiedingen, normale prijs en aankopen, het meest recente bovenaan.
 
     Met `product` (een product-id) alleen dat ene product, zonder zoekterm en zonder `lookup`: zo haalt de kaart van een aanbieding
@@ -1198,6 +1249,11 @@ async def history(store: Any = None, query: Any = "", limit: Any = 50, today: st
     kocht: een link van een aanbieding of een bon naar de prijsgeschiedenis noemt het product op id, en de naam erbij geeft de
     andere producten met die naam. Een product met alleen een aanbieding die nog moet beginnen (de bonus van volgende week staat
     pas in `offer_history` als hij begint) is ook te vinden, met die aanbieding in `upcoming`.
+
+    Met `brands` en `categories` blijven alleen de producten van die merken en categorieen over, en `brands_out` en
+    `categories_out` halen merken en categorieen weg (dat wint). Het product van `pin` blijft altijd staan. `facets` geeft per merk
+    en per categorie hoeveel producten er met de zoekterm en de andere lijst zijn (`{"brands", "categories"}`, elk
+    `[{"value", "count"}]`, de merken hooguit `FACET_BRANDS`). Zonder `product`: de hover heeft geen lijsten.
 
     Met `lookup` (een zoekterm en AH erbij) worden de namen op de bon die bij de zoekterm passen en nog bij geen product horen eerst
     bij AH opgezocht (`ah_orders.resolve_receipt_names`): zo staat "REDBAND" er meteen als "Red Band Winegums original".
@@ -1231,6 +1287,18 @@ async def history(store: Any = None, query: Any = "", limit: Any = 50, today: st
                 if known is not None:
                     candidates[(name, pinned)] = today
                     pinned_known[name] = known
+        by_brand: _Choice = _Choice.of(brands, brands_out)
+        by_category: _Choice = _Choice.of(categories, categories_out)
+        nothing: _Known = _Known("", frozenset(), frozenset())
+        known: dict[tuple[str, str], _Known] = {key: catalogues[key[0]].products.get(key[1], nothing) for key in candidates}
+        facets: dict[str, list[dict[str, Any]]] = {} if only is not None else {
+            "brands": _facet_counts((item.brand for item in known.values() if by_category.passes(item.category)), by_brand, FACET_BRANDS),
+            "categories": _facet_counts((item.category for item in known.values() if by_brand.passes(item.brand)), by_category),
+        }
+        candidates = {
+            key: day for key, day in candidates.items()
+            if key[1] == pinned or (by_brand.passes(known[key].brand) and by_category.passes(known[key].category))
+        }
         ranked = sorted(candidates, key=lambda key: (key[1] == pinned, candidates[key], key[0], key[1]), reverse=True)
         chosen = ranked[:limit]
         found: dict[str, tuple[dict[str, list[Any]], dict[str, list[Any]], dict[str, list[dict[str, Any]]]]] = {}
@@ -1249,7 +1317,7 @@ async def history(store: Any = None, query: Any = "", limit: Any = 50, today: st
                  lines[name].get(product_id, []))
         for name, product_id in chosen
     ]
-    return {"products": products, "total": len(ranked), "unsynced": unsynced}
+    return {"products": products, "total": len(ranked), "unsynced": unsynced, "facets": facets}
 
 
 # --- prijs per eenheid, oordeel en verpakkingen vergelijken (deel 2) ----------------------------------------------------

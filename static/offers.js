@@ -22,7 +22,7 @@ const OFFERS_SORTS = ["best", "store", "discount", "unit", "lowest"];
 const OFFERS_VIEWS = ["cards", "compact"];
 const OFFER_COMPACT_ROWS = 8; // in de compacte weergave staan er per "rij" van de knop Meer zoveel regels
 const offersState = {
-  store: "ah", supported: true, offers: [], categories: [], course: "all", recipes: [], rows: OFFER_ROWS, weekStart: "",
+  store: "ah", supported: true, offers: [], categories: [], courses: facetSelection(), recipes: [], rows: OFFER_ROWS, weekStart: "",
   personal: null, personalOnly: false, search: "", goodOnly: false, sort: "best", view: "cards", filters: null, shown: 0,
   // chosen: zelf een winkel gekozen (menu of adres); tot dan volgt de pagina de voorkeurssupermarkt (Instellingen, Voorkeuren).
   // waiting: de pagina wacht nog op de koppeling van die winkel, zodat niet eerst de aanbiedingen van AH voorbijflitsen.
@@ -448,7 +448,7 @@ function offersFollowPreferred() {
     return;
   }
   offersState.store = store;
-  offersState.course = "all";
+  offersState.courses = facetSelection();
   if (typeof offerHistoryStoreChanged === "function") offerHistoryStoreChanged();
 }
 
@@ -477,7 +477,7 @@ function renderOffersStore() {
 function offersSwitchStore(store, { chosen = true } = {}) {
   offersState.chosen = chosen;
   offersState.store = offersStores().includes(store) ? store : "ah";
-  offersState.course = "all";
+  offersState.courses = facetSelection();
   showOffers();
   if (typeof offerHistoryStoreChanged === "function") offerHistoryStoreChanged();
   if (typeof routerSync === "function") routerSync();
@@ -1357,23 +1357,13 @@ function openOfferProduct(recipe, item) {
   $("#offer-product-dialog").showModal();
 }
 
+// De soorten gerecht als keuzelijst (facets.js): per soort een plus (alleen deze), een min (deze niet) en het aantal voorstellen.
 function renderOfferCourses(courses) {
-  const total = courses.reduce((sum, course) => sum + course.count, 0);
-  const chips = [{ id: "all", label: t("offers.all"), count: total }].concat(
-    courses.map((course) => ({ id: course.id, label: t(`offers.course.${course.id}`), count: course.count }))
-  );
-  $("#offers-courses").hidden = !total;
-  $("#offers-courses").innerHTML = chips
-    .map(
-      (chip) =>
-        `<button class="offer-chip${offersState.course === chip.id ? " is-active" : ""}" type="button" data-course="${escapeHtml(chip.id)}" aria-pressed="${offersState.course === chip.id}">${escapeHtml(chip.label)}${chipCount(chip.count)}</button>`
-    )
-    .join("");
-}
-
-function offersChooseCourse(course) {
-  offersState.course = course;
-  showOfferRecipes();
+  const rows = facetRows(courses.map((course) => ({ value: course.id, count: course.count })), offersState.courses, { label: (id) => t(`offers.course.${id}`) });
+  const panel = $("#offers-course-facets");
+  panel.hidden = !rows.length;
+  $("#offers-courses").innerHTML = facetListHtml("course", rows);
+  facetPanelCount(panel, facetActive(offersState.courses));
 }
 
 function offerIndexSummary(sources) {
@@ -1397,18 +1387,14 @@ async function showOfferRecipes() {
   if (!offersState.supported) {
     status.textContent = "";
     list.innerHTML = "";
-    $("#offers-courses").hidden = true;
+    $("#offers-course-facets").hidden = true;
     return;
   }
   try {
-    const course = offersState.course === "all" ? "" : `&course=${encodeURIComponent(offersState.course)}`;
-    const week = `&week=${encodeURIComponent(offersWeek().start)}`;
-    const data = await jsonFetch(`/api/offers/recipes?store=${encodeURIComponent(offersState.store)}${course}${week}`);
-    // Staat de gekozen soort er na het opnieuw inlezen niet meer bij, dan tonen we weer alles.
-    if (offersState.course !== "all" && !(data.courses || []).some((item) => item.id === offersState.course)) {
-      offersState.course = "all";
-      return showOfferRecipes();
-    }
+    const params = new URLSearchParams({ store: offersState.store, week: offersWeek().start });
+    offersState.courses.shown.forEach((course) => params.append("course_in", course));
+    offersState.courses.hidden.forEach((course) => params.append("course_out", course));
+    const data = await jsonFetch(`/api/offers/recipes?${params}`);
     renderOfferCourses(data.courses || []);
     if (!data.indexedAt) {
       status.textContent = t("offers.recipes.never");
@@ -1493,9 +1479,13 @@ $("#offer-product-image").addEventListener("error", (event) => {
 $("#offer-product-dialog").addEventListener("click", (event) => {
   if (event.target === event.currentTarget) event.currentTarget.close();
 });
-$("#offers-courses").addEventListener("click", (event) => {
-  const chip = event.target.closest("[data-course]");
-  if (chip) offersChooseCourse(chip.dataset.course);
+$("#offers-course-facets").addEventListener("click", async (event) => {
+  const click = event.target.closest("[data-facet-clear]") ? null : facetClick(event);
+  if (click) offersState.courses = facetToggled(offersState.courses, click.value, click.mode);
+  else if (event.target.closest("[data-facet-clear]")) offersState.courses = facetSelection();
+  else return;
+  await showOfferRecipes();
+  if (click) facetRefocus($("#offers-courses"), click);
 });
 $("#offers-personal-only").addEventListener("change", (event) => offersTogglePersonal(event.target.checked));
 $("#offers-search").addEventListener("input", (event) => {

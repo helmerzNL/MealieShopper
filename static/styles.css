@@ -8281,6 +8281,64 @@ html.is-standalone body {
   list-style: none;
 }
 
+/* Het uitklapvak met keuzelijsten op een pagina zonder zijbalk (een bestelling, de aankopenlijst, de prijsgeschiedenis, de
+   recepten bij de aanbiedingen): de lijsten naast elkaar, elk met een eigen schuifbalk. */
+.facet-panel {
+  margin: 10px 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+}
+
+.facet-panel[hidden] {
+  display: none;
+}
+
+.facet-panel > summary {
+  padding: 8px 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.facet-panel__body {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 12px 28px;
+  padding: 2px 14px 12px;
+}
+
+.facet-panel__list {
+  display: flex;
+  flex: 1 1 240px;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  max-width: 340px;
+}
+
+.facet-panel__list--wide {
+  max-width: 560px;
+}
+
+.facet-panel__list h4 {
+  margin: 0;
+  color: var(--muted);
+  font-weight: 600;
+  font-size: var(--text-xs);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.facet-panel .offer-facet--scroll {
+  max-height: 230px;
+}
+
+.facet-panel__clear {
+  flex-basis: 100%;
+  text-align: left;
+}
+
 /* De merken: een winkel heeft er honderden, dus een eigen schuifbalk onder het zoekveld. */
 .offer-facet--scroll {
   max-height: 300px;

@@ -332,7 +332,7 @@ class HistoryTest(PricesCase):
 
     async def test_stores_are_kept_apart_and_an_unlinked_store_is_simply_empty(self):
         await prices.record("ah", [{"id": "1", "title": "Melk", "price": 1}])
-        self.assertEqual(await self.history(store="jumbo"), {"products": [], "total": 0, "unsynced": {"jumbo": {"orders": 0, "receipts": 0}}})  # geen tabellen
+        self.assertEqual(await self.history(store="jumbo"), {"products": [], "total": 0, "unsynced": {"jumbo": {"orders": 0, "receipts": 0}}, "facets": {"brands": [], "categories": []}})  # geen tabellen
         self.assertEqual((await prices.history(None, "melk", 10))["total"], 1)
         with self.assertRaises(ValueError):
             await prices.history("nope")

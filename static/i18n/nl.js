@@ -499,6 +499,8 @@ I18N.add("nl", {
   "orders.intro_more": "Ze worden bewaard in MealieShopper, dus je kunt ze ook zonder verbinding met AH bekijken. Synchroniseren haalt alleen nieuwe gegevens op.",
   "orders.intro_jumbo_more": "Ze worden bewaard in MealieShopper, dus je kunt ze ook zonder verbinding met Jumbo bekijken. Synchroniseren haalt de lijst en de producten van de nieuwste bestellingen op; herhaal het tot alles binnen is.",
   "orders.search": "Zoek in je aankopen",
+  "orders.page.filter_none": "Geen producten die aan de filters voldoen.",
+  "orders.facet.products": "Gevonden producten",
   "orders.search_ph": "Zoek op product, bijvoorbeeld frisdrank",
   "orders.back": "Terug",
   "orders.basket_note": "Je AH-mandje: de producten die je met de knop \"In AH-mandje\" vanuit MealieShopper of in de AH-app op je boodschappenlijst hebt gezet.",

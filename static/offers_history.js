@@ -16,9 +16,31 @@ const OFFER_HISTORY_BOUGHT_KEY = "ms-offers-history-bought";
 // `pinned`: het product is gekozen (met een klik of uit het adres) en hoort dus in het adres (router.js). `pin`: het product-id
 // uit het adres (een link van een aanbieding of bon). De server zet het altijd bovenaan de lijst, ook als de naam niet past of
 // als het alleen een aanbieding heeft die nog moet beginnen; een nieuwe zoekterm laat het los.
-const offerHistory = { query: "", bought: false, products: [], total: 0, selected: "", pinned: false, pin: "", loadId: 0, timer: 0, loadedStore: "", unsynced: null, ranges: {} };
+const offerHistory = { query: "", bought: false, products: [], total: 0, selected: "", pinned: false, pin: "", loadId: 0, timer: 0, loadedStore: "", unsynced: null, ranges: {},
+  // De keuzelijsten (facets.js): de keuze per lijst, het zoekveld boven de merken en de aantallen van de server.
+  facets: offerHistoryFacetsEmpty(), brandSearch: "", counts: { brands: [], categories: [] } };
 // De keuzes voor de periode van de grafiek, in dagen terug vanaf vandaag ("all": alles wat er is).
 const OFFER_HISTORY_RANGES = { "1y": 365, "3y": 1095 };
+
+function offerHistoryFacetsEmpty() {
+  return { brand: facetSelection(), category: facetSelection() };
+}
+
+const OFFER_HISTORY_FACET_LISTS = { brand: "#offers-history-brands", category: "#offers-history-categories" };
+
+// De keuzelijsten boven de producten: de merken en de categorieën van wat de zoekterm vindt, met de aantallen van de server
+// (prices.history telt over alle gevonden producten, niet alleen de eerste dertig).
+function renderOfferHistoryFacets() {
+  const { facets, counts } = offerHistory;
+  const brands = facetRows(counts.brands || [], facets.brand, { search: offerHistory.brandSearch });
+  const categories = facetRows(counts.categories || [], facets.category, { label: categoryLabel });
+  $(OFFER_HISTORY_FACET_LISTS.brand).innerHTML = facetListHtml("brand", brands, { empty: "offers.filters.no_brands" });
+  $(OFFER_HISTORY_FACET_LISTS.category).innerHTML = facetListHtml("category", categories, { cls: (value) => ` cat--${escapeHtml(value)}`, dot: true });
+  const panel = $("#offers-history-facets");
+  const active = facetActive(facets.brand) + facetActive(facets.category);
+  panel.hidden = !active && !(counts.brands || []).length && !(counts.categories || []).length;
+  facetPanelCount(panel, active);
+}
 
 function offerHistoryKey(product) {
   return `${product.store}:${product.productId}`;
@@ -558,6 +580,7 @@ function offerHistoryUnsyncedText() {
 }
 
 function renderOfferHistory() {
+  renderOfferHistoryFacets();
   const list = $("#offers-history-list");
   const detail = $("#offers-history-detail");
   const status = $("#offers-history-status");
@@ -619,11 +642,16 @@ async function loadOfferHistory() {
     const params = new URLSearchParams({ store, q: query, limit: String(OFFER_HISTORY_LIMIT) });
     if (bought) params.set("bought", "1");
     if (offerHistory.pin) params.set("pin", offerHistory.pin);
+    for (const [name, param] of [["brand", "brand"], ["category", "category"]]) {
+      offerHistory.facets[name].shown.forEach((value) => params.append(param, value));
+      offerHistory.facets[name].hidden.forEach((value) => params.append(`${param}_out`, value));
+    }
     const data = await jsonFetch(`/api/prices/history?${params}`);
     if (loadId !== offerHistory.loadId) return;
     offerHistory.bought = bought;
     offerHistory.products = data.products || [];
     offerHistory.total = data.total || 0;
+    offerHistory.counts = data.facets || { brands: [], categories: [] };
     offerHistory.unsynced = (data.unsynced || {})[store] || null;
     offerHistory.loadedStore = store;
     if (!offerHistory.products.some((product) => offerHistoryKey(product) === offerHistory.selected)) {
@@ -644,6 +672,8 @@ async function loadOfferHistory() {
 function offerHistoryStoreChanged() {
   offerHistory.selected = "";
   offerHistory.products = [];
+  offerHistory.facets = offerHistoryFacetsEmpty(); // merken verschillen per winkel
+  offerHistory.counts = { brands: [], categories: [] };
   priceImportShowButton();
   if (document.querySelector("#offers-history.is-active")) loadOfferHistory();
   else offerHistory.loadedStore = "";
@@ -654,6 +684,21 @@ $("#offers-history-search").addEventListener("input", () => {
   offerHistory.pin = "";
   clearTimeout(offerHistory.timer);
   offerHistory.timer = setTimeout(loadOfferHistory, 250);
+});
+// Plus of min in een keuzelijst, of "Alles wissen": de server filtert en telt opnieuw.
+$("#offers-history-facets").addEventListener("click", async (event) => {
+  const click = event.target.closest("[data-facet-clear]") ? null : facetClick(event);
+  if (click) offerHistory.facets[click.name] = facetToggled(offerHistory.facets[click.name], click.value, click.mode);
+  else if (event.target.closest("[data-facet-clear]")) offerHistory.facets = offerHistoryFacetsEmpty();
+  else return;
+  renderOfferHistoryFacets(); // de keuze staat er meteen, de aantallen volgen met het antwoord
+  clearTimeout(offerHistory.timer);
+  await loadOfferHistory();
+  if (click) facetRefocus($(OFFER_HISTORY_FACET_LISTS[click.name]), click);
+});
+$("#offers-history-brand-search").addEventListener("input", (event) => {
+  offerHistory.brandSearch = event.target.value;
+  renderOfferHistoryFacets();
 });
 $("#offers-history-form").addEventListener("submit", (event) => {
   event.preventDefault();

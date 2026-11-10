@@ -141,6 +141,7 @@ const $ = () => ({clientWidth: 640});
 const storeImage = (url) => url;
 const offerPerUnitText = () => '';
 const purchasePath = () => '';
+const facetSelection = () => ({shown: [], hidden: []});
 """
         script: str = (
             prelude

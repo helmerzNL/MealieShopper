@@ -499,6 +499,8 @@ I18N.add("en", {
   "orders.intro_more": "They are kept in MealieShopper, so you can also view them without a connection to AH. Sync only fetches new data.",
   "orders.intro_jumbo_more": "They are kept in MealieShopper, so you can also view them without a connection to Jumbo. Sync fetches the list and the products of the newest orders; repeat it until everything is in.",
   "orders.search": "Search your purchases",
+  "orders.page.filter_none": "No products match the filters.",
+  "orders.facet.products": "Products found",
   "orders.search_ph": "Search by product, for example soda",
   "orders.back": "Back",
   "orders.basket_note": "Your AH basket: the products you put on your shopping list with the \"Add to AH basket\" button in MealieShopper or in the AH app.",
