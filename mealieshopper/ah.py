@@ -1077,6 +1077,8 @@ def _promotion_products(promotion: dict[str, Any]) -> list[dict[str, Any]]:
         unit = None
         if mechanic["type"] in _SINGLE_UNIT_MECHANICS and mechanic["minQuantity"] == 1:
             unit = deals.effective_unit_price(mechanic, regular, now)
+        elif mechanic["type"] == deals.PER_MEASURE:
+            unit = deals.pack_price(mechanic, item.get("salesUnitSize"))
         on_offer = unit is not None and regular is not None and unit < regular
         images = item.get("imagePack") or []
         small = images[0].get("small") if images and isinstance(images[0], dict) else None
@@ -1152,6 +1154,14 @@ def _bonus_product(item: dict[str, Any], group: str = "") -> dict[str, Any] | No
         return None
     now = item.get("currentPrice")
     before = item.get("priceBeforeBonus")
+    label = _bonus_label(item, group)
+    # "per 100 GRAM voor 1.59": AH noemt de prijs per 100 gram als prijs van het pak. Die rekenen we om naar het pak.
+    # Zonder leesbare inhoud blijft de prijs per gewicht staan, zonder de gewone prijs van het pak ernaast: geen korting van 90%.
+    pack: float | None = deals.measure_priced(label, item.get("salesUnitSize"), now)
+    if pack is not None:
+        now = pack
+    elif deals.is_measure_price(label, now):
+        before = None
     images = item.get("images") or []
     return {
         "id": str(product_id),
@@ -1160,7 +1170,7 @@ def _bonus_product(item: dict[str, Any], group: str = "") -> dict[str, Any] | No
         "unitSize": item.get("salesUnitSize") or None,
         "price": now if isinstance(now, (int, float)) else before if isinstance(before, (int, float)) else None,
         "priceBefore": before if isinstance(before, (int, float)) and isinstance(now, (int, float)) and before > now else None,
-        "promoLabel": _bonus_label(item, group),
+        "promoLabel": label,
         "image": (images[0].get("url") if images and isinstance(images[0], dict) else None) or None,
         "url": product_web_url(product_id),
         "validFrom": item.get("bonusStartDate") or None,

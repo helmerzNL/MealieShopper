@@ -29,7 +29,7 @@ import test_offers_scan_js  # idem: de Node-opbouw van offers.js
 import test_order_views  # idem: de Node-opbouw van order_views.js en de gedeelde keuzelijst
 from test_prices import PricesCase, offer
 
-from mealieshopper import ah, ah_orders, assets, auth, image_cache, offer_categories, offers, offers_schedule, price_archive_tidy, price_import, prices
+from mealieshopper import ah, ah_orders, assets, auth, deals, image_cache, offer_categories, offers, offers_schedule, price_archive_tidy, price_import, prices
 from mealieshopper.app import create_app
 
 ROOT: Path = Path(__file__).resolve().parents[1]
@@ -999,6 +999,42 @@ class FiltersEverywhereCoursesTest(test_offers.TempDataDirTest):
         self.assertEqual((data["total"], len(data["courses"])), (2, 3), "de aantallen per soort blijven die van alle voorstellen")
         with self.assertRaises(ValueError):
             run(offers.suggest("ah", courses=["pannenkoek"]))
+
+
+class OfferPerWeightTest(PricesCase):
+    # 2026-11-10: "daar klopt niets van, het is geen 90% korting". AH Greenfields Runder riblap, ca. 755 g, "per 100 GRAM voor
+    # 1.59": AH geeft 1,59 (de prijs per 100 gram) door als prijs van het product, naast 15,49 voor het hele pak.
+    LABEL = "per 100 GRAM voor \u20ac1.59"
+
+    def item(self, size):
+        return {"webshopId": 3994, "title": "AH Greenfields Runder riblap", "salesUnitSize": size, "currentPrice": 1.59, "priceBeforeBonus": 15.49,
+                "discountLabels": [{"defaultDescription": self.LABEL}]}
+
+    def test_2026_11_10_a_price_per_100_gram_becomes_the_price_of_the_pack(self):
+        product = ah._bonus_product(self.item("ca. 755 g"))
+        self.assertEqual((product["price"], product["priceBefore"]), (12.0, 15.49), "1,59 per 100 gram op 755 gram")
+        loose = ah._bonus_product(self.item("per stuk"))
+        self.assertEqual((loose["price"], loose["priceBefore"]), (1.59, None), "zonder gewicht geen gewone prijs van het pak ernaast")
+        plain = ah._bonus_product({**self.item("ca. 755 g"), "discountLabels": [{"defaultDescription": "voor 1.59"}]})
+        self.assertEqual((plain["price"], plain["priceBefore"]), (1.59, 15.49), "een gewone prijsverlaging blijft zoals AH hem noemt")
+        self.assertEqual(deals.parse_mechanic("2 voor 5,00")["type"], deals.X_FOR_Y)
+        self.assertEqual(deals.parse_mechanic("Per 100 gram")["type"], deals.UNKNOWN, "zonder bedrag is het geen prijs per gewicht")
+        self.assertEqual(deals.measure_priced("per kilo voor 9,99", "500 g", 9.99), 5.0)
+        self.assertIsNone(deals.measure_priced(self.LABEL, "ca. 755 g", 12.0), "een prijs die al van het pak is blijft staan")
+
+    async def test_2026_11_10_rows_stored_with_the_price_per_100_gram_are_repaired(self):
+        async with offers._connect() as conn:
+            await conn.execute("INSERT INTO offers (store, product_id, position, title, unit_size, price, price_before, promo_label) VALUES ('ah', '3994', 1, 'Riblap', 'ca. 755 g', 1.59, 15.49, ?)", (self.LABEL,))
+            for product_id, size, price in (("3994", "ca. 755 g", 1.59), ("4002", "per stuk", 1.59), ("3996", "ca. 700 g", 11.13)):
+                await conn.execute(
+                    "INSERT INTO offer_history (store, product_id, title, unit_size, price, price_before, promo_label, first_seen, last_seen) "
+                    "VALUES ('ah', ?, 'Vlees', ?, ?, 15.49, ?, '2026-11-10T04:04:41+00:00', '2026-11-10T04:04:41+00:00')", (product_id, size, price, self.LABEL))
+            await conn.commit()
+            await offers._repair_measure_prices(conn)
+            current = [row["price"] for row in await conn.execute_fetchall("SELECT price FROM offers")]
+            history = {row["product_id"]: row["price"] for row in await conn.execute_fetchall("SELECT product_id, price FROM offer_history")}
+        self.assertEqual(current, [12.0])
+        self.assertEqual(history, {"3994": 12.0, "4002": 1.59, "3996": 11.13})
 
 
 @unittest.skipUnless(shutil.which("node"), "Node is not installed")

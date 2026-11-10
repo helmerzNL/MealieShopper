@@ -255,6 +255,7 @@ async def _setup(conn: aiosqlite.Connection) -> None:
     await conn.executescript(OFFERS_INDEX_SQL)
     await conn.commit()
     await _repair_open_ends(conn)
+    await _repair_measure_prices(conn)
     await _repair_picnic_recipe_images(conn)
 
 
@@ -276,6 +277,21 @@ async def _repair_open_ends(conn: aiosqlite.Connection) -> None:
     cutoff = f"{ah.OPEN_ENDED_YEAR:04d}"
     for table in ("offers", "offer_history"):
         await conn.execute(OPEN_ENDS_SQL.format(table=table), (cutoff,))
+    await conn.commit()
+
+
+MEASURE_PRICES_SQL = "SELECT rowid AS row, unit_size, price, promo_label FROM {table} WHERE LOWER(promo_label) LIKE 'per %voor%'"
+
+
+async def _repair_measure_prices(conn: aiosqlite.Connection) -> None:
+    """Tot en met 4.10.2 stond een aanbieding per gewicht ("per 100 GRAM voor 1.59") met de prijs per 100 gram als prijs van het
+    pak in de tabellen: 1,59 naast een gewone prijs van 15,49. `ah._bonus_product` rekent dat sindsdien om, deze reparatie doet het
+    voor wat er al stond, zodat de geschiedenis geen laagste prijs van 1,59 onthoudt."""
+    for table in ("offers", "offer_history"):
+        for row in await conn.execute_fetchall(MEASURE_PRICES_SQL.format(table=table)):
+            price: float | None = deals.measure_priced(row["promo_label"], row["unit_size"], row["price"])
+            if price is not None and price != row["price"]:
+                await conn.execute(f"UPDATE {table} SET price = ? WHERE rowid = ?", (price, row["row"]))
     await conn.commit()
 
 
