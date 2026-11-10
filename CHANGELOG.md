@@ -6,7 +6,7 @@ Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar
 
 ### Verbeterd in 4.12.0
 
-Pull request: volgt.
+Pull request: [#305](https://github.com/helmerzNL/MealieShopper/pull/305).
 
 *English summary: The third round of the user-experience review ([docs/onderzoek-gebruikerservaring.md](docs/onderzoek-gebruikerservaring.md), in Dutch): feedback and controls in one style. Every question now uses the app's own dialog instead of the browser's `confirm` (14 places): in the app's language, with a button that says what it does, red and with the focus on Cancel when it cannot be undone. A toast says *Saved* after a preference and stays for an error. Loading reserves room (a spinner box, skeleton day cards in the week menu), so the page no longer jumps. Fetching all offers shows how many stores are done; the AI recipe search keeps polling after a network hiccup. Seven fields get an accessible name and the password rules stand at the fields. Hover styles only apply with a mouse, small controls get a 44 px touch area, field borders reach 3:1, the price chart is one tab stop with arrow keys, the app behind the sign-in screen or the setup wizard is inert, and there is a skip link. Texts: Crisp is named with the other stores, the server's remaining English errors are translated, empty lists say what to do next.*
 
