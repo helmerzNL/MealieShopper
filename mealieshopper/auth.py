@@ -544,22 +544,24 @@ async def _session_revoked(conn: aiosqlite.Connection, sid: Any) -> bool:
     return await fetchone(conn, "SELECT 1 FROM revoked_sessions WHERE sid=?", (str(sid),)) is not None
 
 
-async def revoke_session(token: str) -> None:
+async def revoke_session(token: str) -> str:
     """Uitloggen: de sessie van `token` (en elke verlenging ervan, dezelfde `sid`) is vanaf nu ongeldig, ook al is het token nog
-    niet verlopen. De rij blijft staan tot de laatste verlenging verlopen kan zijn, oude rijen gaan er meteen uit."""
+    niet verlopen. De rij blijft staan tot de laatste verlenging verlopen kan zijn, oude rijen gaan er meteen uit. Geeft het
+    sessie-id, of "" als het token er geen heeft."""
     try:
         payload: dict[str, Any] = jwt.decode(token, await signing_secret(), algorithms=["HS256"], options={"verify_exp": False})
     except Exception:
-        return
+        return ""
     sid: Any = payload.get("sid")
     if not sid:
-        return
+        return ""
     auth_time: float = float(payload.get("auth_time") or payload.get("iat") or utcnow().timestamp())
     expires_at: datetime = datetime.fromtimestamp(auth_time, tz=timezone.utc) + timedelta(seconds=SESSION_ABSOLUTE_SECONDS + session_max_age_seconds())
     async with connect() as conn:
         await conn.execute("DELETE FROM revoked_sessions WHERE expires_at < ?", (utcnow().isoformat(),))
         await conn.execute("INSERT OR REPLACE INTO revoked_sessions (sid, expires_at) VALUES (?, ?)", (str(sid), expires_at.isoformat()))
         await conn.commit()
+    return str(sid)
 
 
 async def verify_token(token: str) -> dict[str, Any] | None:
@@ -569,14 +571,28 @@ async def verify_token(token: str) -> dict[str, Any] | None:
         return None
 
 
+def _request_token() -> tuple[str, bool]:
+    """Het sessietoken van deze aanvraag (de cookie, anders `Authorization: Bearer`) en of het uit de cookie kwam."""
+    token = str(request.cookies.get(SESSION_COOKIE_NAME) or "").strip()
+    if token:
+        return token, True
+    auth_header = request.headers.get("Authorization", "")
+    return (auth_header[7:].strip(), False) if auth_header.startswith("Bearer ") else ("", False)
+
+
+async def current_session() -> tuple[str, int]:
+    """Het sessie-id (`sid`) en de sessieteller van het token van deze aanvraag, of ("", 0) zonder. Of de sessie nog geldt,
+    zegt `current_user`: roep die eerst aan. Voor push.py, dat een push-abonnement aan de sessie koppelt."""
+    token, _ = _request_token()
+    payload = await verify_token(token) if token else None
+    if not payload or payload.get("purpose"):
+        return "", 0
+    return str(payload.get("sid") or ""), int(payload.get("ep") or 0)
+
+
 async def current_user() -> dict[str, Any] | None:
     await ensure_db()
-    token = str(request.cookies.get(SESSION_COOKIE_NAME) or "").strip()
-    from_cookie: bool = bool(token)
-    if not token:
-        auth_header = request.headers.get("Authorization", "")
-        if auth_header.startswith("Bearer "):
-            token = auth_header[7:].strip()
+    token, from_cookie = _request_token()
     payload = await verify_token(token) if token else None
     if not payload:
         return None
@@ -974,7 +990,11 @@ def register_routes(app: Quart) -> None:
     async def logout():
         token = str(request.cookies.get(SESSION_COOKIE_NAME) or "").strip()
         if token:
-            await revoke_session(token)  # de cookie wissen is niet genoeg: het token zelf blijft anders geldig tot hij verloopt
+            sid = await revoke_session(token)  # de cookie wissen is niet genoeg: het token zelf blijft anders geldig tot hij verloopt
+            if sid:
+                from . import push  # lokaal: push importeert dit module
+
+                await push.forget_session(sid)  # de meldingen van de kooktimers op dit toestel stoppen ook (issue #311)
         return await clear_cookie_response({"status": "ok"})
 
 

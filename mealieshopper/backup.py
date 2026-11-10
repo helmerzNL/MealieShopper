@@ -104,6 +104,9 @@ EXCLUDED_TABLES = frozenset({
     "mealie_recipe_nutrition", "mealie_recipe_nutrition_meta",  # calorieën van de recepten in Mealie (recipe_nutrition.py), herlaadbaar
     "price_archive_jobs",  # de import van een prijsarchief die loopt (price_archive.py): tijdelijke staat
     "catalogue_changes",  # de versie van de catalogus van de prijzen (prices._catalogue_version): bijhouden, niet bewaren
+    # De push van de kooktimers (push.py): een abonnement hoort bij een browser en bij de VAPID-sleutel van deze installatie
+    # (die zit er ook niet in), een timer duurt minuten. Na het terugzetten vraagt de app bij de volgende timer een nieuw aan.
+    "push_subscriptions", "cook_timers",
 })
 
 # Opgeslagen koppelingen (versleuteld in app_settings) en bij welke koppeling ze horen.
