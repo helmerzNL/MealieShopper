@@ -766,19 +766,19 @@ def register_routes(app: Quart) -> None:
     @app.get("/api/auth/credentials")
     async def credentials_list():
         if await auth_required() and await credentials_exist() and not await current_user():
-            return jsonify({"error": "Unauthorized"}), 401
+            return jsonify({"error": tr("Je bent niet ingelogd. Log opnieuw in.", "You are not signed in. Sign in again.")}), 401
         return jsonify({"credentials": await credential_rows(await acting_user_id())})
 
     @app.delete("/api/auth/credentials/<credential_id>")
     async def credentials_delete(credential_id: str):
         if await auth_required() and not await current_user():
-            return jsonify({"error": "Unauthorized"}), 401
+            return jsonify({"error": tr("Je bent niet ingelogd. Log opnieuw in.", "You are not signed in. Sign in again.")}), 401
         uid = await acting_user_id()  # alleen je eigen passkeys
         last_allowed = not await auth_required() or await password_configured(uid)  # buiten de verbinding hieronder
         async with connect() as conn:
             row = await fetchone(conn, "SELECT id FROM passkey_credentials WHERE id=? AND user_id=?", (credential_id, uid))
             if not row:
-                return jsonify({"error": "Not found"}), 404
+                return jsonify({"error": tr("Niet gevonden.", "Not found.")}), 404
             count = await fetchone(conn, "SELECT COUNT(*) AS count FROM passkey_credentials WHERE user_id=?", (uid,))
             if int(count["count"] if count else 0) <= 1 and not last_allowed:
                 return jsonify({"error": tr("Je kunt de laatste passkey niet verwijderen.", "You cannot delete the last passkey.")}), 400
@@ -789,7 +789,7 @@ def register_routes(app: Quart) -> None:
     @app.post("/api/auth/register/options")
     async def register_options():
         if not auth_enabled():
-            return jsonify({"error": "Passkey auth is disabled"}), 400
+            return jsonify({"error": tr("Inloggen met een passkey staat uit.", "Passkey sign-in is disabled.")}), 400
         body = await request_body.json_object()
         from . import users  # lokaal: users importeert dit module
 
@@ -799,7 +799,7 @@ def register_routes(app: Quart) -> None:
             if not invite:
                 return jsonify({"error": tr("Deze uitnodiging bestaat niet meer of is verlopen.", "This invitation no longer exists or has expired.")}), 404
         elif await credentials_exist() and await auth_required() and not await current_user():
-            return jsonify({"error": "Login required to add another passkey"}), 401
+            return jsonify({"error": tr("Log eerst in om nog een passkey toe te voegen.", "Sign in first to add another passkey.")}), 401
 
         credential_name = str(body.get("credentialName") or body.get("credential_name") or "Owner passkey").strip()
         if invite:
@@ -834,7 +834,7 @@ def register_routes(app: Quart) -> None:
     async def register_verify():
         await ensure_db()
         if not auth_enabled():
-            return jsonify({"error": "Passkey auth is disabled"}), 400
+            return jsonify({"error": tr("Inloggen met een passkey staat uit.", "Passkey sign-in is disabled.")}), 400
         body = await request_body.json_object()
         from . import users  # lokaal: users importeert dit module
 
@@ -847,7 +847,7 @@ def register_routes(app: Quart) -> None:
             username = invite["username"] if invite["kind"] == "reset" else str(body.get("username") or invite["username"]).strip()
         else:
             if await credentials_exist() and await auth_required() and not await current_user():
-                return jsonify({"error": "Login required to add another passkey"}), 401
+                return jsonify({"error": tr("Log eerst in om nog een passkey toe te voegen.", "Sign in first to add another passkey.")}), 401
             user_id = await acting_user_id()  # een passkey kun je alleen voor jezelf toevoegen
             current = await current_user()
             username = (str(body.get("username") or "admin").strip() or "admin") if user_id == OWNER_ID or not current else current["username"]
@@ -855,7 +855,7 @@ def register_routes(app: Quart) -> None:
         credential = body.get("credential") or {}
         challenge = await pop_challenge(f"register:{user_id}")
         if not challenge:
-            return jsonify({"error": "No pending challenge"}), 400
+            return jsonify({"error": tr("Deze inlogpoging is verlopen. Probeer het opnieuw.", "This sign-in attempt has expired. Try again.")}), 400
 
         try:
             credential_id, cose_key_bytes, sign_count = await check_registration(credential, challenge)
@@ -907,11 +907,11 @@ def register_routes(app: Quart) -> None:
     async def login_options():
         await ensure_db()
         if not auth_enabled():
-            return jsonify({"error": "Passkey auth is disabled"}), 400
+            return jsonify({"error": tr("Inloggen met een passkey staat uit.", "Passkey sign-in is disabled.")}), 400
         async with connect() as conn:
             rows = await conn.execute_fetchall("SELECT id FROM passkey_credentials ORDER BY created_at")
         if not rows:
-            return jsonify({"error": "No passkey registered yet"}), 400
+            return jsonify({"error": tr("Er is nog geen passkey ingesteld.", "No passkey has been set up yet.")}), 400
         challenge = make_challenge()
         await store_challenge("login", challenge)
         return jsonify(
@@ -930,7 +930,7 @@ def register_routes(app: Quart) -> None:
     @app.post("/api/auth/login/verify")
     async def login_verify():
         if not auth_enabled():
-            return jsonify({"error": "Passkey auth is disabled"}), 400
+            return jsonify({"error": tr("Inloggen met een passkey staat uit.", "Passkey sign-in is disabled.")}), 400
         body = await request_body.json_object()
         credential = body.get("credential")
         if not isinstance(credential, dict):
@@ -938,9 +938,9 @@ def register_routes(app: Quart) -> None:
         credential_id = str(credential.get("id") or "")
         challenge = await pop_challenge("login")
         if not credential_id:
-            return jsonify({"error": "Credential id is required"}), 400
+            return jsonify({"error": tr("De passkey ontbreekt in het verzoek.", "The passkey is missing from the request.")}), 400
         if not challenge:
-            return jsonify({"error": "No pending challenge"}), 400
+            return jsonify({"error": tr("Deze inlogpoging is verlopen. Probeer het opnieuw.", "This sign-in attempt has expired. Try again.")}), 400
 
         async with connect() as conn:
             stored = await fetchone(
@@ -954,7 +954,7 @@ def register_routes(app: Quart) -> None:
                 (credential_id,),
             )
         if not stored:
-            return jsonify({"error": "Unknown credential"}), 400
+            return jsonify({"error": tr("Deze passkey is hier niet bekend.", "This passkey is not known here.")}), 400
 
         try:
             new_sign_count = await check_assertion(credential, challenge, bytes(stored["public_key"]))

@@ -82,7 +82,7 @@ async function loadMealKits(week, { refresh = false } = {}) {
   const button = $("#mealkits-refresh");
   setBusy(button, true);
   message("#mealkits-message", "");
-  $("#mealkits-status").textContent = t("basket.loading");
+  $("#mealkits-status").textContent = t("common.loading");
   try {
     const params = new URLSearchParams();
     if (week) params.set("week", week);

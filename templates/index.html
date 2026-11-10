@@ -178,7 +178,8 @@
           </label>
           <label class="field">
             <span data-i18n="field.password">Wachtwoord</span>
-            <input class="input" id="invite-password" type="password" autocomplete="new-password" required>
+            <input class="input" id="invite-password" type="password" autocomplete="new-password" minlength="10" required>
+            <small class="muted field__hint" data-i18n="field.password_rule">Minstens 10 tekens. Een zin van een paar woorden is sterker dan één woord met een cijfer.</small>
           </label>
           <label class="field">
             <span data-i18n="field.repeat_password">Herhaal het wachtwoord</span>
@@ -223,6 +224,17 @@
         </div>
       </div>
     </dialog>
+
+    <dialog id="confirm-dialog" class="product-dialog confirm-dialog" role="alertdialog" aria-labelledby="confirm-dialog-text">
+      <div class="product-dialog__inner">
+        <p class="confirm-dialog__text" id="confirm-dialog-text"></p>
+        <div class="product-dialog__actions">
+          <button class="button button--secondary" type="button" id="confirm-dialog-no" data-i18n="common.cancel">Annuleren</button>
+          <button class="button" type="button" id="confirm-dialog-yes" data-i18n="common.confirm">Bevestigen</button>
+        </div>
+      </div>
+    </dialog>
+    <div class="toasts" id="toasts"></div>
 
     <dialog id="photo-dialog" class="product-dialog photo-dialog" aria-labelledby="photo-dialog-title">
       <div class="product-dialog__inner">
@@ -487,6 +499,7 @@
       </div>
     </section>
 
+    <a class="skip-link" href="#main" data-i18n="nav.skip">Naar de inhoud</a>
     <header class="topbar">
       <div class="topbar__inner">
         <a class="brand-link" id="brand-home" href="/" title="Naar het startscherm" data-i18n-attr="title:brand.home">
@@ -525,7 +538,7 @@
       <button type="button" role="menuitem" class="user-menu__item" id="auth-logout"><svg class="user-menu__icon" viewBox="0 0 24 24" aria-hidden="true" data-mdi="mdiLogout"><path d="M17 7L15.59 8.41L18.17 11H8V13H18.17L15.59 15.58L17 17L22 12M4 5H12V3H4C2.9 3 2 3.9 2 5V19C2 20.1 2.9 21 4 21H12V19H4V5Z"/></svg><span data-i18n="auth.logout">Uitloggen</span></button>
     </div>
 
-    <main class="shell">
+    <main class="shell" id="main" tabindex="-1">
       <nav class="tabs" id="main-tabs" aria-label="Hoofdscherm" data-i18n-attr="aria-label:nav.main">
         <a class="tab is-active" data-tab="recipes" aria-current="page" href="/recipes" data-nav>
           <svg class="tab-icon" viewBox="0 0 24 24" aria-hidden="true" data-mdi="mdiCalendarWeek"><path d="M6 1H8V3H16V1H18V3H19C20.11 3 21 3.9 21 5V19C21 20.11 20.11 21 19 21H5C3.89 21 3 20.1 3 19V5C3 3.89 3.89 3 5 3H6V1M5 8V19H19V8H5M7 10H17V12H7V10Z"/></svg><svg class="tab-icon tab-icon--outline" viewBox="0 0 24 24" aria-hidden="true" data-mdi="mdiCalendarWeekOutline"><path d="M5 3H6V1H8V3H16V1H18V3H19C20.11 3 21 3.89 21 5V19C21 20.1 20.11 21 19 21H5C3.9 21 3 20.11 3 19V5C3 3.89 3.9 3 5 3M5 19H19V9H5V19M5 7H19V5H5V7M17 11V13H7V11H17"/></svg>
@@ -607,7 +620,7 @@
         <div id="search-main">
           <h2 class="page-title page-title--tree" data-i18n="nav.search">Recepten zoeken</h2>
           <form class="form-row" id="search-form">
-            <input class="input" id="recipe-query" type="search" placeholder="Zoek een recept, of plak een link om het te importeren..." autocomplete="off" enterkeyhint="search" data-i18n-attr="placeholder:search.placeholder">
+            <input class="input" id="recipe-query" type="search" placeholder="Zoek een recept, of plak een link om het te importeren..." aria-label="Recepten zoeken" autocomplete="off" enterkeyhint="search" data-i18n-attr="placeholder:search.placeholder;aria-label:nav.search">
             <button class="button" type="submit" data-i18n="search.submit">Zoeken</button>
           </form>
           <div class="kcal-filter kcal-filter--search" role="group" aria-labelledby="search-kcal-label">
@@ -737,7 +750,7 @@
             <button class="icon-button" id="mealkits-previous" type="button" aria-label="Vorige week" data-i18n-attr="aria-label:mealkits.previous"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15.41,16.58L10.83,12L15.41,7.41L14,6L8,12L14,18L15.41,16.58Z"/></svg></button>
             <div class="week-label"><strong id="mealkits-week" aria-live="polite"></strong></div>
             <button class="icon-button" id="mealkits-next" type="button" aria-label="Volgende week" data-i18n-attr="aria-label:mealkits.next"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8.59,16.58L13.17,12L8.59,7.41L10,6L16,12L10,18L8.59,16.58Z"/></svg></button>
-            <button class="icon-button" id="mealkits-refresh" type="button" aria-label="Verversen" title="Verversen" data-i18n-attr="aria-label:mealkits.refresh;title:mealkits.refresh"><svg viewBox="0 0 24 24" aria-hidden="true" data-mdi="mdiSync"><path d="M12,18A6,6 0 0,1 6,12C6,11 6.25,10.03 6.7,9.2L5.24,7.74C4.46,8.97 4,10.43 4,12A8,8 0 0,0 12,20V23L16,19L12,15M12,4V1L8,5L12,9V6A6,6 0 0,1 18,12C18,13 17.75,13.97 17.3,14.8L18.76,16.26C19.54,15.03 20,13.57 20,12A8,8 0 0,0 12,4Z"/></svg></button>
+            <button class="icon-button" id="mealkits-refresh" type="button" aria-label="Vernieuwen" title="Vernieuwen" data-i18n-attr="aria-label:mealkits.refresh;title:mealkits.refresh"><svg viewBox="0 0 24 24" aria-hidden="true" data-mdi="mdiSync"><path d="M12,18A6,6 0 0,1 6,12C6,11 6.25,10.03 6.7,9.2L5.24,7.74C4.46,8.97 4,10.43 4,12A8,8 0 0,0 12,20V23L16,19L12,15M12,4V1L8,5L12,9V6A6,6 0 0,1 18,12C18,13 17.75,13.97 17.3,14.8L18.76,16.26C19.54,15.03 20,13.57 20,12A8,8 0 0,0 12,4Z"/></svg></button>
             <button class="button button--secondary week-today" id="mealkits-this-week" type="button" data-i18n="mealkits.this_week" hidden>Deze week</button>
           </div>
           <form class="form-row" id="mealkits-search-form">
@@ -802,7 +815,7 @@
             <button class="button button--secondary week-today" type="button" data-offers-week-today data-i18n="week.this" hidden>Deze week</button>
           </div>
           <p class="offers-period" id="offers-period" hidden></p>
-          <p class="muted" id="offers-status"></p>
+          <p class="muted" id="offers-status" role="status"></p>
           <p class="muted offers-note" id="offers-note" hidden></p>
           <p class="muted offers-later" id="offers-later" hidden><span id="offers-later-text"></span> <button class="link-button link-button--inline" id="offers-later-show" type="button" data-i18n="offers.later.show">Bekijk de week erna</button></p>
           <div id="offers-message"></div>
@@ -945,7 +958,7 @@
           <h2 data-i18n="import.title">Recept importeren via URL</h2>
           <p class="muted" data-i18n="import.help">Plak een Allerhande-link of een andere receptensite.</p>
           <form class="form-row" id="import-form">
-            <input class="input" id="import-url" type="url" placeholder="https://www.ah.nl/allerhande/recept/...">
+            <input class="input" id="import-url" type="url" placeholder="https://www.ah.nl/allerhande/recept/..." aria-label="Recept importeren via URL" data-i18n-attr="aria-label:import.title">
             <button class="button" type="submit" data-i18n="import.submit">Importeer</button>
           </form>
         </div>
@@ -1424,7 +1437,8 @@
               </label>
               <label class="field">
                 <span id="pw-new-label" data-i18n="field.password">Wachtwoord</span>
-                <input class="input" id="pw-new" type="password" autocomplete="new-password">
+                <input class="input" id="pw-new" type="password" autocomplete="new-password" minlength="10">
+                <small class="muted field__hint" data-i18n="field.password_rule">Minstens 10 tekens. Een zin van een paar woorden is sterker dan één woord met een cijfer.</small>
               </label>
               <label class="field">
                 <span data-i18n="field.repeat_password">Herhaal het wachtwoord</span>
@@ -1446,7 +1460,7 @@
           <p class="muted" data-i18n="sec.passkeys.intro">Voeg extra apparaten toe of verwijder oude passkeys.</p>
           <div id="credentials-list" class="credential-list"></div>
           <div class="security-actions">
-            <input class="input" id="new-passkey-name" value="Extra passkey" autocomplete="off">
+            <label class="field field--inline"><span data-i18n="sec.passkeys.name">Naam van de passkey</span><input class="input" id="new-passkey-name" value="Extra passkey" autocomplete="off"></label>
             <button class="button" id="add-passkey" data-i18n="sec.passkeys.add">Passkey toevoegen</button>
           </div>
           <div id="security-message"></div>
@@ -1677,7 +1691,7 @@
             <div class="fold__section">
               <h3 data-i18n="ahfinish.title">Koppeling afronden</h3>
               <p class="muted" data-i18n-html="ahfinish.intro">Plak de <code>appie://login-exit?code=...</code> regel uit de console (de code zelf of een refresh token mag ook).</p>
-              <textarea id="token-input" class="textarea" rows="4" placeholder="appie://login-exit?code=..."></textarea>
+              <textarea id="token-input" class="textarea" rows="4" placeholder="appie://login-exit?code=..." aria-label="De regel uit de console" data-i18n-attr="aria-label:ahfinish.field"></textarea>
               <div class="toolbar">
                 <button class="button" id="verify-token" data-i18n="common.link">Koppelen</button>
                 <button class="button button--secondary" id="check-ah" data-i18n="common.check_link">Koppeling controleren</button>
@@ -1722,7 +1736,7 @@
             <div class="fold__section">
               <h3 data-i18n="ahfinish.title">Koppeling afronden</h3>
               <p class="muted" data-i18n-html="jumbo.finish_intro">Plak de <code>jumbo://callbacks/login?code=...</code> regel uit de console (de code zelf of een refresh token mag ook).</p>
-              <textarea id="jumbo-code" class="textarea" rows="4" placeholder="jumbo://callbacks/login?code=..."></textarea>
+              <textarea id="jumbo-code" class="textarea" rows="4" placeholder="jumbo://callbacks/login?code=..." aria-label="De regel uit de console" data-i18n-attr="aria-label:ahfinish.field"></textarea>
               <div class="toolbar">
                 <button class="button" id="jumbo-link" type="button" data-i18n="common.link">Koppelen</button>
                 <button class="button button--secondary" id="jumbo-unlink" type="button" data-i18n="jumbo.unlink">Ontkoppelen</button>
@@ -1877,7 +1891,7 @@
           <h2 data-i18n="users.invite_title">Iemand uitnodigen</h2>
           <p class="muted" data-i18n="users.invite_intro">Je maakt een link die één keer werkt en na 7 dagen verloopt. Wie de link opent, kiest zelf een wachtwoord of passkey, dus jij kent het nooit.</p>
           <form class="form-row" id="invite-create-form" autocomplete="off">
-            <input class="input" id="invite-name" placeholder="Naam (optioneel)" autocomplete="off" autocapitalize="none" spellcheck="false" data-i18n-attr="placeholder:users.invite_name">
+            <input class="input" id="invite-name" placeholder="Naam (optioneel)" aria-label="Naam (optioneel)" autocomplete="off" autocapitalize="none" spellcheck="false" data-i18n-attr="placeholder:users.invite_name;aria-label:users.invite_name">
             <button class="button" type="submit" data-i18n="users.invite_create">Uitnodiging maken</button>
           </form>
           <div id="invite-result"></div>
@@ -1889,7 +1903,7 @@
         <div id="settings-audit" class="subpanel">
         <div class="box box--wide">
           <h2 data-i18n="audit.title">Auditlog</h2>
-          <p class="muted" data-i18n="audit.intro">Wat MealieShopper met Albert Heijn, Picnic en Jumbo bespreekt en wat AI-assistenten (MCP) opvragen.</p>
+          <p class="muted" data-i18n="audit.intro">Wat MealieShopper met Albert Heijn, Jumbo, Picnic en Crisp bespreekt en wat AI-assistenten (MCP) opvragen.</p>
           <details class="help">
             <summary data-i18n="common.help">Hoe werkt dit?</summary>
             <p class="muted" data-i18n="audit.intro_more">Elk verzoek staat erin met uitkomst, duur en antwoord. Een MCP-verzoek toont de winkelverzoeken die eruit volgden. Wachtwoorden, tokens en codes worden nooit bewaard.</p>
@@ -1915,8 +1929,8 @@
               <option value="" data-i18n="audit.status.all">Alles</option>
               <option value="error" data-i18n="audit.status.error">Alleen fouten</option>
             </select>
-            <input class="input" id="audit-search" type="search" placeholder="Zoek op actie, adres of fout" autocomplete="off" spellcheck="false" data-i18n-attr="placeholder:audit.search">
-            <button class="button" type="button" id="audit-refresh" data-i18n="audit.refresh">Verversen</button>
+            <input class="input" id="audit-search" type="search" placeholder="Zoek op actie, adres of fout" aria-label="Zoek op actie, adres of fout" autocomplete="off" spellcheck="false" data-i18n-attr="placeholder:audit.search;aria-label:audit.search">
+            <button class="button" type="button" id="audit-refresh" data-i18n="audit.refresh">Vernieuwen</button>
             <button class="button button--secondary" type="button" id="audit-clear" data-i18n="audit.clear">Log wissen</button>
           </div>
           <div class="audit-toolbar">
@@ -1959,19 +1973,20 @@
           <p class="muted" data-i18n="backup.intro">Neem alle gegevens van deze installatie mee in één bestand en zet ze later terug, bijvoorbeeld op een nieuwe server.</p>
           <details class="help">
             <summary data-i18n="common.help">Hoe werkt dit?</summary>
-            <p class="muted" data-i18n="backup.intro_more">Daarin staan de koppelingen met Mealie, Albert Heijn, Picnic en Jumbo, je lijstjes, bestellingen en kassabonnen en de hele historie van de aanbiedingen. Dit is jouw eigen kopie; het vervangt geen back-up van de hele data-map.</p>
+            <p class="muted" data-i18n="backup.intro_more">Daarin staan de koppelingen met Mealie, Albert Heijn, Jumbo, Picnic en Crisp, je lijstjes, bestellingen en kassabonnen en de hele historie van de aanbiedingen. Dit is jouw eigen kopie; het vervangt geen back-up van de hele data-map.</p>
             <p class="muted" data-i18n="backup.never">Wat inlogt op MealieShopper zit er nooit in: passkeys, wachtwoorden, tweestapsverificatie, herstelcodes, uitnodigingen en de toegang van AI-assistenten (MCP). Het auditlog en de bewaarde receptafbeeldingen ook niet; die bouwen zich vanzelf weer op.</p>
             <p class="muted" data-i18n="backup.parts_hint">Zonder de aanbiedingen wordt het bestand kleiner. Bij het terugzetten blijven de aanbiedingen die er dan staan zoals ze zijn. De aanbiedingen van nu haalt de app bij de volgende synchronisatie weer op, de historie niet.</p>
           </details>
           <h3 data-i18n="backup.make_title">Back-up maken</h3>
           <label class="check">
             <input type="checkbox" id="backup-links" checked>
-            <span data-i18n="backup.links_label">Neem de koppelingen mee (Mealie, Albert Heijn, Picnic, Jumbo en AI), versleuteld met een wachtwoord</span>
+            <span data-i18n="backup.links_label">Neem de koppelingen mee (Mealie, Albert Heijn, Jumbo, Picnic, Crisp en AI), versleuteld met een wachtwoord</span>
           </label>
           <div id="backup-passphrase-fields">
             <label class="field">
               <span data-i18n="backup.passphrase_label">Wachtwoord voor het bestand</span>
-              <input class="input" id="backup-passphrase" type="password" autocomplete="new-password">
+              <input class="input" id="backup-passphrase" type="password" autocomplete="new-password" minlength="8">
+              <small class="muted field__hint" data-i18n="backup.passphrase_rule">Minstens 8 tekens. Zonder dit wachtwoord is het bestand niet terug te zetten.</small>
             </label>
             <label class="field">
               <span data-i18n="backup.passphrase_repeat">Herhaal het wachtwoord</span>
@@ -2119,7 +2134,7 @@
               <strong data-i18n="system.reset_warning_title">Let op: dit kan niet ongedaan worden gemaakt.</strong>
               <ul>
                 <li data-i18n="system.reset_loses_users">Alle gebruikers, wachtwoorden, passkeys en tweestapsverificatie worden verwijderd, ook die van jou. Je bent daarna uitgelogd.</li>
-                <li data-i18n="system.reset_loses_links">De koppelingen met Mealie, Albert Heijn, Jumbo en Picnic en met AI-assistenten (MCP) worden gewist.</li>
+                <li data-i18n="system.reset_loses_links">De koppelingen met Mealie, Albert Heijn, Jumbo, Picnic en Crisp en met AI-assistenten (MCP) worden gewist.</li>
                 <li data-i18n="system.reset_loses_data">Alle opgeslagen gegevens verdwijnen: lijstjes, bestellingen, kassabonnen, aanbiedingen, het auditlog en alle instellingen. De database wordt verwijderd.</li>
                 <li data-i18n="system.reset_after">Daarna start de app opnieuw op en begin je weer bij de onboarding: alles moet opnieuw worden ingesteld.</li>
               </ul>

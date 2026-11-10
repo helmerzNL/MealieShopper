@@ -17,7 +17,7 @@ onthoudt, (2) terugkoppeling bij wachten, fouten en een verlopen sessie, en (3) 
 |---|---|---|---|
 | 1 | Vastlopers en fouten | 1.1, 1.10, 1.11, 2.1, 2.2, 2.6, 2.8, 2.9, 2.13, 2.14, 3.1, 3.3, 6.1, 6.3, 6.10, *Annuleren* met een vraag (uit 1.4) en het begin van 2.3 (meldingen worden voorgelezen) | gebouwd in 4.10.4 |
 | 2 | De app onthoudt je week | 1.2 tot en met 1.9 | gebouwd in 4.11.0 |
-| 3 | Terugkoppeling en bediening in één stijl | 2.3, 2.4, 2.5, 2.7, 2.10 tot 2.12, 2.15, 2.17, 2.18, 6.2, 6.4, 6.6 tot 6.9, 6.14 | voorstel |
+| 3 | Terugkoppeling en bediening in één stijl | 2.3, 2.4, 2.5, 2.7, 2.10 tot 2.12, 2.15, 2.17, 2.18, 6.2, 6.4, 6.6 tot 6.9, 6.14 | gebouwd in 4.12.0 (zonder stoppen van de AI-zoekronde uit 2.12 en zonder € 0 uit 6.14) |
 | 4 | Wegwijs | 2.16, 3.2, 3.5 tot 3.8, 4.1 tot 4.4, 5.1 tot 5.3, 6.5, 6.11 tot 6.13 | voorstel |
 
 Besluiten van de eigenaar (9 november 2026):

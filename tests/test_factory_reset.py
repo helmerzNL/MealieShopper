@@ -384,7 +384,7 @@ class PageTest(AppTestCase):
             self.assertIn(key, form.group(1))
 
     def test_the_script_asks_for_a_last_confirmation_and_for_authentication(self):
-        self.assertIn("window.confirm(t(\"system.reset_confirm\"))", JS)
+        self.assertIn('await confirmDialog(t("system.reset_confirm"), { danger: true })', JS)
         self.assertIn("body.password", JS)
         self.assertIn("factoryResetPasskey()", JS)
         self.assertIn("system.js", HTML)

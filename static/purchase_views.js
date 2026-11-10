@@ -122,7 +122,7 @@ function viewBarMarkup(prefix, spec) {
     .join("");
   const sortMenu = spec.sorts.length ? viewSortMenu(prefix, spec.sorts) : "";
   const optionsMenu = spec.sizes || spec.options.length ? viewOptionsMenu(prefix, spec) : "";
-  return `<p class="muted purchase-status" id="${viewStatusId(prefix)}"></p><div class="purchase-bar__tools"><div class="segmented" id="${prefix}-view-switch" role="group" aria-label="${escapeHtml(t("orders.view.label"))}">${views}</div>${sortMenu}${optionsMenu}</div>`;
+  return `<p class="muted purchase-status" id="${viewStatusId(prefix)}" role="status"></p><div class="purchase-bar__tools"><div class="segmented" id="${prefix}-view-switch" role="group" aria-label="${escapeHtml(t("orders.view.label"))}">${views}</div>${sortMenu}${optionsMenu}</div>`;
 }
 
 // De richting waarin een sorteersleutel begint, uit de spec van de balk. Zonder richting aflopend.

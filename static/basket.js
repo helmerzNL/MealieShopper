@@ -57,7 +57,7 @@ async function showBasket() {
   renderBasketStoreChoice();
   message("#basket-message", "");
   const content = $("#basket-content");
-  content.innerHTML = `<p class="muted">${escapeHtml(t("basket.loading"))}</p>`;
+  content.innerHTML = loadingHtml(t("basket.loading"));
   const stores = { ah: showAhBasket, picnic: showPicnicBasket, jumbo: showJumboBasket, crisp: showCrispBasket };
   const store = basketState.store;
   try {

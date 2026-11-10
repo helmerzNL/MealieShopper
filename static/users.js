@@ -153,7 +153,7 @@ $("#settings-users").addEventListener("click", async (event) => {
       await loadUsers();
     } else if (remove) {
       const user = usersState.users.find((entry) => entry.id === remove.dataset.userDelete);
-      if (!window.confirm(t("users.delete_confirm", { name: user?.username || "" }))) return;
+      if (!(await confirmDialog(t("users.delete_confirm", { name: user?.username || "" }), { danger: true }))) return;
       await jsonFetch(`/api/users/${encodeURIComponent(remove.dataset.userDelete)}`, { method: "DELETE" });
       await loadUsers();
     } else if (revoke) {
