@@ -1241,6 +1241,8 @@ async def recipe_detail(slug: Any) -> dict[str, Any]:
     recipe = await get_recipe(clean)
     # Een kopje in Mealie ("Voor de saus") is de `title` van het eerste ingrediënt eronder; staat het op een regel zonder
     # tekst, dan schuift het door naar de volgende regel. De kookweergave (static/recipe_view.js) toont het als sectie.
+    # De koppelingen tussen stappen en ingrediënten (issue #309): elk ingrediënt heeft in Mealie een `referenceId`, en een stap
+    # noemt in `ingredientReferences` welke erbij horen. De kookmodus toont ze bij de stap en kan ze wijzigen (`stepIds`).
     ingredients = []
     section = ""
     for item in recipe.get("recipeIngredient") or []:
@@ -1249,13 +1251,16 @@ async def recipe_detail(slug: Any) -> dict[str, Any]:
         section = " ".join(str(item.get("title") or "").split()) or section
         line = " ".join(str(item.get("display") or item.get("note") or "").split())
         if line:
-            ingredients.append({"line": line, **({"section": section} if section else {})})
+            ref = _reference(item.get("referenceId"))
+            ingredients.append({"line": line, **({"section": section} if section else {}), **({"ref": ref} if ref else {})})
             section = ""
-    steps, titles = [], []
+    steps, titles, ids, refs = [], [], [], []
     for step in recipe.get("recipeInstructions") or []:
         if isinstance(step, dict) and str(step.get("text") or "").strip():
             steps.append(str(step.get("text")).strip())
             titles.append(" ".join(str(step.get("title") or "").split()))
+            ids.append(_reference(step.get("id")))
+            refs.append(step_references(step))
     kcal = nutrition.kcal(recipe.get("nutrition"))
     detail = {
         **recipe_card(recipe),
@@ -1268,7 +1273,73 @@ async def recipe_detail(slug: Any) -> dict[str, Any]:
     }
     if any(titles):
         detail["stepTitles"] = titles  # even lang als steps; "" is een stap zonder titel
+    if any(ids):
+        detail["stepIds"] = ids  # even lang als steps; "" is een stap zonder id (die kan niet gekoppeld worden)
+        detail["stepRefs"] = refs  # per stap de referenceId's van de gekoppelde ingrediënten
     return detail
+
+
+def _reference(value: Any) -> str:
+    """Een `referenceId` of `id` van Mealie als nette UUID-tekst; "" als het er geen is."""
+    try:
+        return str(uuid.UUID(str(value).strip())) if value else ""
+    except (TypeError, ValueError, AttributeError):
+        return ""
+
+
+def step_references(step: Any) -> list[str]:
+    """De `referenceId`'s die een stap van Mealie in `ingredientReferences` noemt, zonder dubbele en zonder kapotte."""
+    found: list[str] = []
+    for item in (step.get("ingredientReferences") if isinstance(step, dict) else None) or []:
+        ref = _reference(item.get("referenceId")) if isinstance(item, dict) else ""
+        if ref and ref not in found:
+            found.append(ref)
+    return found
+
+
+MAX_STEP_REFERENCES = 200
+
+
+async def link_step_ingredients(slug: Any, step_id: Any, references: Any) -> dict[str, Any]:
+    """Koppel ingrediënten aan één stap van een recept in Mealie (issue #309): `ingredientReferences` van die stap wordt
+    `references` (referenceId's van ingrediënten uit hetzelfde recept; een lege lijst ontkoppelt alles).
+
+    Mealie vervangt bij een `PATCH` de hele lijst `recipeInstructions`, dus we halen het recept vers op en sturen alle stappen
+    terug, met alleen bij deze stap andere koppelingen. Een stap of ingrediënt dat er niet (meer) is, geeft een ValueError.
+    """
+    clean = valid_slug(slug)
+    step = _reference(step_id)
+    if not step:
+        raise ValueError(tr("Ongeldige stap.", "Invalid step."))
+    if not isinstance(references, list) or len(references) > MAX_STEP_REFERENCES:
+        raise ValueError(tr("Ongeldige ingrediënten.", "Invalid ingredients."))
+    wanted: list[str] = []
+    for value in references:
+        ref = _reference(value) if isinstance(value, str) else ""
+        if not ref:
+            raise ValueError(tr("Ongeldige ingrediënten.", "Invalid ingredients."))
+        if ref not in wanted:
+            wanted.append(ref)
+    base, token = await _configured()
+    recipe = await _fetch_recipe(clean)
+    known = {_reference(item.get("referenceId")) for item in recipe.get("recipeIngredient") or [] if isinstance(item, dict)}
+    if any(ref not in known for ref in wanted):
+        raise ValueError(tr("Een ingrediënt staat niet (meer) in dit recept; open het recept opnieuw.",
+                            "An ingredient is no longer in this recipe; open the recipe again."))
+    instructions = [item for item in recipe.get("recipeInstructions") or [] if isinstance(item, dict)]
+    if not any(_reference(item.get("id")) == step for item in instructions):
+        raise ValueError(tr("Deze stap staat niet (meer) in het recept; open het recept opnieuw.",
+                            "This step is no longer in the recipe; open the recipe again."))
+    changed = [
+        {**item, "ingredientReferences": [{"referenceId": ref} for ref in wanted]} if _reference(item.get("id")) == step else item
+        for item in instructions
+    ]
+    response = await _client().patch(
+        f"{base}/api/recipes/{clean}", headers=_headers(token), json={"recipeInstructions": changed}, timeout=30
+    )
+    if response.status_code >= 400:
+        raise _mealie_error(response, "Ingrediënten koppelen in Mealie mislukt", "Linking the ingredients in Mealie failed")
+    return {"slug": clean, "stepId": step, "refs": wanted}
 
 
 async def update_recipe_nutrition(slug: str, fields: dict[str, str]) -> None:

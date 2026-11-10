@@ -125,7 +125,8 @@ class RecipeViewJsTest(unittest.TestCase):
         self.assertEqual(model["key"], "jumbo:42")
         self.assertEqual([(i["text"], i["amount"], i["section"]) for i in model["ingredients"]],
                          [("200 g pasta", "200 g", "Pasta"), ("1 el olie", "1 el", ""), ("1 ui", "1", "Saus")])
-        self.assertEqual(model["steps"], [{"text": "Kook.", "title": "Koken"}, {"text": "Bak.\nRoer.", "title": ""}])
+        self.assertEqual([(step["text"], step["title"]) for step in model["steps"]], [("Kook.", "Koken"), ("Bak.\nRoer.", "")])
+        self.assertEqual((model["slug"], model["linkable"]), ("", False), "een recept van een winkel kan niet gekoppeld worden")
 
     def test_a_recipe_from_mealie(self):
         detail = {
@@ -144,7 +145,7 @@ class RecipeViewJsTest(unittest.TestCase):
         self.assertEqual((model["key"], model["title"]), ("mealie:pasta", "Pasta pesto"))
         self.assertEqual([(i["text"], i["amount"], i["section"]) for i in model["ingredients"]],
                          [("800 g spaghetti", "800 g", "Pasta"), ("zout naar smaak", "", ""), ("2 pond gehakt", "2 pond", "Saus")])
-        self.assertEqual(model["steps"], [{"text": "Kook de pasta.", "title": "Koken"}, {"text": "Roer.", "title": ""}])
+        self.assertEqual([(step["text"], step["title"]) for step in model["steps"]], [("Kook de pasta.", "Koken"), ("Roer.", "")])
 
     # ---- De weergave
     def test_the_view(self):
@@ -337,6 +338,129 @@ cookWakeUpdate().then(() => out([log, cookWake.lock]));
         self.assertTrue(self.run_js("out(cookEnabled());"), "zonder theme.js: aan")
         on = self.run_js("globalThis.THEME = { appearance: () => ({ cookingMode: true }) };" f"out(renderCookView({json.dumps(recipe())}));")
         self.assertNotIn(" disabled", on)
+
+PASTA = "aaaaaaaa-0000-4000-8000-000000000001"
+OIL = "aaaaaaaa-0000-4000-8000-000000000002"
+BASIL = "aaaaaaaa-0000-4000-8000-000000000003"
+STEP_1 = "bbbbbbbb-0000-4000-8000-000000000001"
+STEP_2 = "bbbbbbbb-0000-4000-8000-000000000002"
+
+
+@unittest.skipUnless(shutil.which("node"), "Node is niet geïnstalleerd")
+class StepIngredientsJsTest(RecipeViewJsTest):
+    """Issue #309: bij een kookstap de ingrediënten die erbij horen; uit Mealie (ingredientReferences) of gevonden in de tekst."""
+
+    MEALIE = {
+        "name": "Pasta pesto",
+        "recipeIngredient": [
+            {"display": "400 g spaghetti", "referenceId": PASTA},
+            {"display": "2 el olijfolie", "referenceId": OIL.upper()},
+            {"display": "1 bosje basilicum", "referenceId": BASIL, "title": "Pesto"},
+        ],
+        "recipeInstructions": [
+            {"id": STEP_1, "text": "Kook de pasta.", "ingredientReferences": [{"referenceId": PASTA}, {"referenceId": OIL}, {"referenceId": "kapot"}]},
+            {"id": STEP_2, "text": "Pureer het basilicum met de olie.", "ingredientReferences": []},
+            {"text": "Eet smakelijk."},
+        ],
+    }
+
+    def test_the_links_of_mealie_and_the_rest_found_in_the_text(self):
+        model = self.run_js(f"out(cookRecipeFromMealie({json.dumps(self.MEALIE)}, 'mealie:pasta-pesto', 'Pasta'));")
+        self.assertEqual((model["slug"], model["linkable"]), ("pasta-pesto", True))
+        self.assertEqual([item["ref"] for item in model["ingredients"]], [PASTA, OIL, BASIL])
+        first, second, third = model["steps"]
+        self.assertEqual((first["id"], first["refs"], first["uses"], first["auto"]), (STEP_1, [PASTA, OIL], [0, 1], False),
+                         "gekoppeld in Mealie: ook als de tekst ze niet noemt")
+        self.assertEqual((second["uses"], second["auto"]), ([1, 2], True), "niet gekoppeld: gevonden in de tekst (olie in olijfolie)")
+        self.assertEqual((third["id"], third["uses"], third["auto"]), ("", [], False))
+
+    def test_the_detail_screen_of_mealie_gives_the_same(self):
+        data = {
+            "id": "pasta-pesto", "slug": "pasta-pesto", "name": "Pasta",
+            "ingredients": [{"line": "400 g spaghetti", "ref": PASTA}, {"line": "2 el olijfolie", "ref": OIL}, {"line": "1 bosje basilicum", "ref": BASIL}],
+            "steps": ["Kook de pasta.", "Pureer het basilicum met de olie."],
+            "stepIds": [STEP_1, STEP_2], "stepRefs": [[PASTA, OIL], []],
+        }
+        mealie = self.run_js(f"out(cookRecipeFromStore('mealie', {json.dumps(data)}));")
+        self.assertEqual((mealie["slug"], mealie["linkable"]), ("pasta-pesto", True))
+        self.assertEqual([step["uses"] for step in mealie["steps"]], [[0, 1], [1, 2]])
+        # Dezelfde gegevens van een winkel: geen slug, dus niets te koppelen, wel gevonden in de tekst.
+        store = self.run_js(f"out(cookRecipeFromStore('ah', {json.dumps(data)}));")
+        self.assertEqual((store["slug"], store["linkable"]), ("", False))
+        self.assertEqual([step["uses"] for step in store["steps"]], [[0, 1], [1, 2]])
+
+    def test_finding_the_ingredients_in_the_text(self):
+        lines = ["1 rode ui, gesnipperd", "2 tenen knoflook, fijngehakt", "400 g kipfiletblokjes", "200 ml kookroom", "zout en peper naar smaak",
+                 "2 el olijfolie", "300 g verse spinazie", "2 tomaten", "3 eieren", "1 blik tomatenblokjes (400 g)", "250 g rundergehakt",
+                 "300 g penne", "2 cloves garlic, minced", "1 cup chopped onions"]
+        cases = {
+            "Fruit de ui en de knoflook in de olie.": [0, 1, 5],
+            "Bak de kipfiletblokjes rondom bruin.": [2],
+            "Klop de eieren los en voeg de room toe.": [3, 8],
+            "Snijd de tomaat in stukjes.": [7],
+            "Voeg de tomatenblokjes toe.": [9],
+            "Breng op smaak met zout en peper.": [4],
+            "Laat de spinazie slinken.": [6],
+            "Rul het gehakt.": [10],
+            "Bewaar wat kookvocht van de pasta en giet de penne af.": [11],
+            "Saute the garlic and the onion.": [12, 13],
+            "Verwarm de oven voor op 200 °C.": [],
+            "Dek af en laat rusten.": [],
+        }
+        script = f"""
+          const recipe = cookRecipeFromStore('ah', {{ id: 1, name: 'x', ingredients: {json.dumps(lines)}, steps: {json.dumps(list(cases))} }});
+          out(recipe.steps.map((step) => [step.text, step.uses, step.auto]));
+        """
+        for text, uses, auto in self.run_js(script):
+            with self.subTest(text):
+                self.assertEqual(uses, cases[text])
+                self.assertEqual(auto, bool(uses))
+
+    def test_stems(self):
+        cases = {"uien": "ui", "ui": "ui", "tomaten": "tomat", "tomaat": "tomat", "eieren": "ei", "kippen": "kip", "boontjes": "bon", "bonen": "bon",
+                 "paprika's": "paprika", "Onions": "onion", "olives": "oliv", "olive": "oliv", "tomatoes": "tomato", "Crème": "crem", "olie": "oli"}
+        found = self.run_js(f"out(Object.fromEntries({json.dumps(list(cases))}.map((word) => [word, cookStem(word)])));")
+        self.assertEqual(found, cases)
+
+    def test_a_saved_link_counts_for_every_view_of_the_recipe(self):
+        found = self.run_js(f"""
+          const calls = [];
+          globalThis.jsonFetch = async (url, options) => {{ calls.push([url, options.method, JSON.parse(options.body)]); return {{ refs: [{json.dumps(BASIL)}] }}; }};
+          const week = cookRecipeFromMealie({json.dumps(self.MEALIE)}, 'mealie:pasta-pesto', 'Pasta');
+          const search = cookRecipeFromMealie({json.dumps(self.MEALIE)}, 'mealie:pasta-pesto', 'Pasta');
+          const other = cookRecipeFromMealie({json.dumps(self.MEALIE)}, 'mealie:iets-anders', 'Iets');
+          cookViews.set(1, week); cookViews.set(2, search); cookViews.set(3, other);
+          (async () => {{
+            const saved = await cookSaveLinks(week, 1, [{json.dumps(BASIL)}]);
+            const later = cookRecipeFromMealie({json.dumps(self.MEALIE)}, 'mealie:pasta-pesto', 'Pasta');
+            out({{ calls, saved, week: week.steps[1], search: search.steps[1].uses, other: other.steps[1].uses, later: later.steps[1].uses }});
+          }})();
+        """)
+        self.assertEqual(found["calls"], [[f"/api/mealie/recipes/pasta-pesto/steps/{STEP_2}/ingredients", "PUT", {"refs": [BASIL]}]])
+        self.assertEqual(found["saved"], [BASIL])
+        self.assertEqual((found["week"]["uses"], found["week"]["auto"]), ([2], False))
+        self.assertEqual(found["search"], [2], "hetzelfde recept elders in de pagina")
+        self.assertEqual(found["other"], [1, 2], "een ander recept blijft zoals het was")
+        self.assertEqual(found["later"], [2], "een recept dat later opnieuw wordt opgebouwd (het weekmenu) heeft de nieuwe koppeling")
+
+    def test_the_view_shows_the_ingredients_under_a_step(self):
+        html = self.run_js(f"out(renderCookView(cookRecipeFromMealie({json.dumps(self.MEALIE)}, 'mealie:pasta-pesto', 'Pasta')));")
+        uses = re.findall(r'<p class="cook-step__uses" data-cook-uses="(\d)"( hidden)?>(.*?)</p>', html, re.S)
+        self.assertEqual([(index, bool(hidden)) for index, hidden, _ in uses], [("0", False), ("1", False), ("2", True)])
+        self.assertIn("cook.uses: </span>", uses[0][2])
+        self.assertIn("<b>400 g</b> spaghetti", uses[0][2])
+        self.assertIn("cook.uses_found: </span>", uses[1][2], "automatisch gevonden staat er voor een schermlezer bij")
+
+    def test_the_link_form_has_every_linkable_ingredient_with_the_current_ones_ticked(self):
+        html = self.run_js(f"""
+          const recipe = cookRecipeFromMealie({json.dumps(self.MEALIE)}, 'mealie:pasta-pesto', 'Pasta');
+          recipe.ingredients.push(cookIngredient('zout', '', [], ''));
+          out(cookLinkFormHtml(recipe, recipe.steps[0]));
+        """)
+        boxes = re.findall(r'<input type="checkbox" value="([^"]+)" data-cook-link-ref( checked)?>', html)
+        self.assertEqual(boxes, [(PASTA, " checked"), (OIL, " checked"), (BASIL, "")], "zonder referenceId (zout) valt een regel weg")
+        self.assertIn('<p class="cook-link__section">Pesto</p>', html)
+
 
 class RecipeViewPageTest(unittest.TestCase):
     def test_the_script_loads_after_app_and_before_the_screens_that_use_it(self):

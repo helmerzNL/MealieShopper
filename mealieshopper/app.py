@@ -314,6 +314,15 @@ def create_app() -> Quart:
     async def mealie_recipe_detail(slug: str):
         return await mealie_action(lambda: mealie.recipe_detail(slug), tr("Recept ophalen mislukt", "Could not fetch the recipe"))
 
+    # De ingrediënten bij een stap van een recept in Mealie (kookmodus, issue #309): {"refs": [referenceId, ...]}.
+    @app.put("/api/mealie/recipes/<slug>/steps/<step_id>/ingredients")
+    async def mealie_step_ingredients(slug: str, step_id: str):
+        body = await request_body.json_object()
+        return await mealie_action(
+            lambda: mealie.link_step_ingredients(slug, step_id, body.get("refs", [])),
+            tr("Ingrediënten koppelen mislukt", "Linking the ingredients failed"),
+        )
+
     # Recepten van AH en Jumbo in één keer in Mealie zetten (zie recipe_bulk.py). Een selectie mag iedereen die ook één
     # recept mag importeren; een hele groep of lijst alleen de beheerder (dat pad staat in auth.ADMIN_PATHS).
     async def bulk_action(action: Callable[[], Awaitable[Any]], status: int = 200) -> tuple[Response, int]:

@@ -2298,6 +2298,7 @@ html:has(dialog[open]) {
 
 .cook__columns {
   display: grid;
+  grid-template-columns: minmax(0, 1fr); /* issue #309: een lang woord (een link, een samenstelling) maakt de kolom niet breder dan het venster */
   gap: 24px;
   margin-top: 20px;
 }
@@ -2371,7 +2372,7 @@ html:has(dialog[open]) {
 
 .cook-ingredient__text {
   min-width: 0;
-  overflow-wrap: break-word;
+  overflow-wrap: anywhere;
   transition: color 150ms var(--ease);
 }
 
@@ -2682,7 +2683,7 @@ html.no-calories .plan-servings__kcal {
   font-size: var(--text-lg);
   line-height: 1.6;
   white-space: pre-line;
-  overflow-wrap: break-word;
+  overflow-wrap: anywhere;
   transition: color 200ms var(--ease);
 }
 
@@ -3750,13 +3751,14 @@ html:has(#cook-mode[open]) {
 .cook-mode__stage {
   display: flex;
   flex-direction: column;
-  justify-content: center;
   gap: 20px;
   width: 100%;
   max-width: 52rem;
   min-height: 0;
   margin: 0 auto;
-  padding: 24px max(20px, env(safe-area-inset-right)) 24px max(20px, env(safe-area-inset-left));
+  /* Onderaan ruimte voor de zwevende timers (cook_timers.js zet --cook-timers-room), zodat er niets van de stap achter valt. */
+  padding: 24px max(20px, env(safe-area-inset-right)) calc(24px + var(--cook-timers-room, 0px)) max(20px, env(safe-area-inset-left));
+  scroll-padding-bottom: var(--cook-timers-room, 0px);
   overflow-y: auto;
   overscroll-behavior: contain;
   touch-action: pan-y;
@@ -3791,7 +3793,7 @@ html:has(#cook-mode[open]) {
   font-size: clamp(22px, 1.2rem + 1.5vw, 34px);
   line-height: 1.45;
   white-space: pre-line;
-  overflow-wrap: break-word;
+  overflow-wrap: anywhere;
   transition: color 200ms var(--ease);
 }
 
@@ -3873,6 +3875,290 @@ html:has(#cook-mode[open]) {
   }
 }
 
+/* De stap staat midden in het vlak met marges in plaats van justify-content: center. Is de stap met zijn ingrediënten en
+   timers hoger dan het vlak, dan scrolt alles, ook de bovenkant (met center viel die buiten de scroll; issue #309). */
+.cook-mode__stage > :first-child {
+  margin-top: auto;
+}
+
+.cook-mode__stage > :last-child {
+  margin-bottom: auto;
+}
+
+/* ---- Ingrediënten bij een stap (issue #309). In de lijst met stappen kort onder de tekst, in de kookmodus met vinkjes. */
+.cook .cook-step__uses {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 0;
+  max-width: 68ch;
+  margin: 8px 0 0;
+  color: var(--muted);
+  font-size: var(--text-md);
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.cook-step__use b {
+  color: var(--text);
+  font-weight: 700;
+}
+
+.cook-mode__uses {
+  display: grid;
+  gap: 4px;
+  padding: 12px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+}
+
+.cook-mode__uses-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+}
+
+.cook-mode .cook-mode__uses-title {
+  margin: 0;
+  font-size: var(--text-base);
+}
+
+.cook-mode__auto {
+  color: var(--muted);
+  font-size: var(--text-sm);
+}
+
+.cook-mode__link {
+  min-height: 40px;
+  margin-left: auto;
+  padding: 0 12px;
+  font-size: var(--text-md);
+}
+
+.cook-mode__uses-none {
+  margin: 0;
+}
+
+.cook-mode__uses-list .cook-ingredient label {
+  padding: 8px 4px;
+  font-size: var(--text-lg);
+}
+
+.cook-link fieldset {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.cook-link legend {
+  margin-bottom: 4px;
+  font-weight: 700;
+}
+
+.cook-link__items {
+  display: grid;
+}
+
+.cook-link__section {
+  margin: 10px 0 2px;
+  color: var(--muted);
+  font-size: var(--text-sm);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.cook-link__item {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  min-height: 44px;
+  padding: 10px 4px;
+  font-size: var(--text-base);
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+
+.cook-link__item input {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  margin: 1px 0 0;
+  accent-color: var(--primary);
+}
+
+.cook-link__item + .cook-link__item {
+  border-top: 1px solid var(--border);
+}
+
+.cook-link__hint {
+  margin: 8px 0;
+  font-size: var(--text-sm);
+}
+
+.cook-link__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* ---- Timers. De knopjes onder de stap, en het formulier voor een eigen tijd. */
+.cook-mode__timer-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.cook-mode__timer {
+  min-height: 44px;
+  padding: 0 14px;
+  font-variant-numeric: tabular-nums;
+}
+
+.cook-timer-new {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.cook-timer-new input {
+  width: 5.5em;
+  min-height: 44px;
+  font-size: var(--text-base); /* iOS zoomt niet in bij 16px */
+  font-variant-numeric: tabular-nums;
+}
+
+/* De zwevende timers: rechtsonder, smal, boven de menubalk of in de kookmodus boven Vorige en Volgende. Een timer die
+   afgaat is rood en pulseert; in te klappen tot de kop met het aantal. */
+.cook-timers {
+  position: fixed;
+  z-index: 61;
+  right: max(12px, env(safe-area-inset-right));
+  bottom: max(16px, env(safe-area-inset-bottom));
+  display: grid;
+  justify-items: end;
+  gap: 6px;
+  width: min(300px, calc(100vw - 24px));
+  pointer-events: none;
+}
+
+.cook-timers.cook-timers--cook-mode {
+  position: absolute;
+  bottom: calc(88px + max(12px, env(safe-area-inset-bottom)));
+}
+
+.cook-timers > * {
+  pointer-events: auto;
+}
+
+.cook-timers__toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 36px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: var(--shadow-md);
+  font: inherit;
+  font-size: var(--text-sm);
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.cook-timers .mdi {
+  width: 18px;
+  height: 18px;
+  fill: currentColor;
+  flex: none;
+}
+
+.cook-timers__toggle[aria-expanded="true"] .cook-timers__chevron {
+  transform: rotate(180deg);
+}
+
+.cook-timers__list {
+  display: grid;
+  gap: 6px;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.cook-timer {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 2px 2px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+  box-shadow: var(--shadow-md);
+}
+
+.cook-timer__info {
+  display: grid;
+  flex: 1;
+  min-width: 0;
+}
+
+.cook-timer__name {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: var(--text-xs);
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cook-timer__clock {
+  font-size: var(--text-lg);
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.2;
+}
+
+.cook-timers .cook-timer__button {
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border-color: transparent;
+  background: transparent;
+}
+
+.cook-timers__next {
+  font-variant-numeric: tabular-nums;
+}
+
+.cook-timer.is-paused .cook-timer__clock {
+  color: var(--muted);
+}
+
+.cook-timer.is-ringing {
+  border-color: var(--danger-border);
+  background: var(--danger-bg);
+  color: var(--danger);
+  animation: cook-timer-ring 1s ease-in-out infinite;
+}
+
+.cook-timer.is-ringing .cook-timer__name {
+  color: var(--danger);
+}
+
+@keyframes cook-timer-ring {
+  50% {
+    box-shadow: 0 0 0 6px var(--danger-border);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .cook__meter i,
   .cook-step,
@@ -3881,6 +4167,10 @@ html:has(#cook-mode[open]) {
   .cook .cook-step__text,
   .cook-mode .cook-mode__text {
     transition: none;
+  }
+
+  .cook-timer.is-ringing {
+    animation: none;
   }
 }
 
@@ -5258,6 +5548,11 @@ html.is-standalone body {
 
   /* Korte meldingen (toast) boven de menubalk. */
   html.has-tabbar .toasts {
+    bottom: calc(var(--tabbar-h) + 22px + env(safe-area-inset-bottom));
+  }
+
+  /* De kooktimers buiten de kookmodus ook boven de menubalk. */
+  html.has-tabbar .cook-timers:not(.cook-timers--cook-mode) {
     bottom: calc(var(--tabbar-h) + 22px + env(safe-area-inset-bottom));
   }
 

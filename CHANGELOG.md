@@ -2,6 +2,34 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub; een stabiele release krijgt de teksten van alle versies sinds de vorige stabiele release.
 
+## v4.14.0
+
+### Nieuw in 4.14.0
+
+Pull request: PRNUM. Issue: [#309](https://github.com/helmerzNL/MealieShopper/issues/309).
+
+*English summary: Cooking mode gets the ingredients of each step and timers. **Ingredients for a step**: under each step are the ingredients that belong to it, with their amount (in cooking mode with ticks, in step with the full list). For a recipe from Mealie they come from Mealie's own links between steps and ingredients (`ingredientReferences`); without links, and for store recipes, the app finds them in the text of the step ("chop the onion" finds "1 red onion, chopped"), marked as found automatically. For a recipe from Mealie, **Link** in cooking mode lets you tick the ingredients of a step and saves them straight to Mealie. **Timers**: a step that mentions a time ("10-12 minutes", "1 hour and 15 minutes", "een kwartier") gets a button with that time, and **Timer** sets your own; up to eight run at once, float at the bottom right above Previous and Next, survive another step, closing cooking mode and a reload, and can be paused, stopped and folded away. At 0 the app beeps (Web Audio, no sound file), a phone vibrates and, when the app is not in view, a system notification appears (through a small service worker that only shows notifications). **Fixed**: one ingredient with a long word (a link, a long compound) made the cooking view wider than the window, so half of the ingredient list fell off a phone screen, also in the week menu's recipe window.*
+
+- **Ingrediënten bij een stap.** Onder elke stap staan de ingrediënten die erbij horen, met hun hoeveelheid: in de lijst met stappen kort onder de tekst, in de kookmodus in een eigen vak met vinkjes (gelijk met de lijst van alle ingrediënten, `data-cook-tick`).
+  - **Uit Mealie:** Mealie kan zelf ingrediënten aan een stap koppelen (*Link ingredients*); elk ingrediënt heeft een `referenceId` en een stap noemt de zijne in `ingredientReferences`. `mealie.recipe_detail` geeft die nu mee (`ref` bij een ingrediënt, `stepIds` en `stepRefs` naast de stappen), en het weekmenu had ze al in `recipeDetail`. Een stap met koppelingen toont precies die ingrediënten, ook als de tekst ze niet noemt.
+  - **Automatisch gevonden:** zonder koppelingen, en bij een recept van een winkel, zoekt `cookMatchStep` (static/recipe_view.js) de ingrediënten in de tekst van de stap: het laatste woord van een regel voor een komma of haakje (*2 tenen knoflook, fijngehakt* is knoflook), zonder hoeveelheid en eenheid, met meervoud en verkleinwoord gelijk (uien en ui, tomaten en tomaat, eieren en ei) en een samenstelling die op het woord eindigt (olijfolie bij olie, rundergehakt bij gehakt). Niet op het begin: *tomaat* is geen *tomatenblokjes*. Er staat dan *automatisch gevonden* bij.
+  - **Koppelen:** bij een recept uit Mealie staat in de kookmodus de knop **Koppelen**. Die opent een lijst van alle ingrediënten, met wat er nu bij staat al aangevinkt; **Opslaan** schrijft de koppelingen meteen naar Mealie (`PUT /api/mealie/recipes/<slug>/steps/<stap-id>/ingredients`, die met een `PATCH` alle stappen terugstuurt met alleen bij deze stap andere `ingredientReferences`). Een stap of ingrediënt dat er intussen niet meer is, geeft een 400 met de vraag het recept opnieuw te openen; Esc sluit eerst het formulier. Hetzelfde recept elders in de pagina (het weekmenu en Recepten zoeken) toont de nieuwe koppelingen meteen.
+- **Timers in de kookmodus.** Noemt een stap een tijd, dan staat er een knop met die tijd onder: *10-12 minuten* geeft 10 minuten (liever te vroeg kijken dan te laat), *1 uur en 15 minuten* één timer van 1 u 15 min, en ook *een kwartier*, *anderhalf uur*, *30 sec*, *2u* en Engelse tijden. Hooguit drie knoppen per stap, en **Timer** zet een eigen tijd in minuten.
+  - Tot acht timers tegelijk. Ze zweven rechtsonder (`#cook-timers`): in de kookmodus boven **Vorige** en **Volgende**, daarbuiten boven de menubalk, en in een open venster binnen dat venster. Elke timer toont de stap en de resttijd, met pauzeren en stoppen; **Timers (n)** klapt ze in tot de eerstvolgende tijd. De stap houdt onderaan ruimte vrij, zodat er niets achter de timers valt.
+  - Een timer loopt door bij een andere stap, als de kookmodus sluit en als de pagina opnieuw laadt: de eindtijd staat in localStorage (`ms-cook-timers`). Een timer die afliep terwijl de pagina dicht was, gaat bij het openen alsnog af (tot tien minuten erna).
+  - **Het alarm:** bij 0 wordt de timer rood en pulseert hij, piept de app (Web Audio, zonder geluidsbestand) en trilt een telefoon, tot je stopt; het piepen stopt na twee minuten. Staat de app niet in beeld, dan komt er een systeemmelding. Toestemming vraagt de browser bij de eerste timer. Op Android en in de geïnstalleerde app kan alleen een service worker een melding tonen: `static/cook_sw.js` doet niets anders (geen fetch-handler, geen cache) en brengt de app in beeld bij een tik op de melding. Een vergrendelde telefoon kan de app pauzeren; met **Scherm aan laten** blijft ze actief.
+
+### Opgelost in 4.14.0
+
+- **De ingrediëntenlijst viel op een telefoon half buiten beeld** (issue #309). Eén regel met een lang woord (een link, een lange samenstelling) maakte de kolom van de kookweergave breder dan het venster, en daarmee de hele lijst, ook in het receptvenster van het weekmenu. De kolom is nu `minmax(0, 1fr)` en lange woorden breken af (`overflow-wrap: anywhere`), bij de ingrediënten en de stappen. Een lange stap in de kookmodus scrolt nu ook vanaf de bovenkant: met `justify-content: center` viel die buiten de scroll.
+
+### Tests in 4.14.0
+
+- `tests/test_cook_step_links.py`: de koppelingen in het detail (`ref`, `stepIds`, `stepRefs`), dat het weekmenu ze bij het omrekenen houdt, en het opslaan (alle stappen terug, alleen één stap anders, onbekende stap of onbekend ingrediënt geeft een 400 zonder iets naar Mealie te sturen, rare invoer, een weigering van Mealie).
+- `tests/test_recipe_view.py`: de koppelingen in het model, het automatisch vinden (een tabel met Nederlandse en Engelse stappen), de stammen, opslaan voor elke weergave van hetzelfde recept, de ingrediënten onder een stap en het formulier.
+- `tests/test_cook_timers.py`: tijden uit een stap, de klok, meer timers tegelijk, pauzeren en afgaan, het maximum, bewaren en herladen (ook zonder opslag), de weergave en de knopjes, en de service worker zonder fetch-handler.
+- In `tests/test_reported_bugs.py` de melding uit issue #309 (de lijst buiten beeld op een telefoon).
+
 ## v4.13.1
 
 ### Verbeterd in 4.13.1

@@ -873,5 +873,34 @@ console.log(JSON.stringify({assigned, applied}));
         )
 
 
+
+class CookingIngredientsFitOnAPhoneTest(unittest.TestCase):
+    """2026-11-10, issue #309: "zorg dat de huidige lijst met ingredienten ook leesbaar is op mobiele schermen (hij valt nu half
+    buiten beeld)". Eén regel met een lang woord (een link, een lange samenstelling) maakte de kolom van de kookweergave breder
+    dan het venster, en daarmee de hele lijst: op een telefoon viel de rechterhelft weg, ook in het receptvenster van het weekmenu."""
+
+    CSS = (ROOT / "static" / "styles.css").read_text(encoding="utf-8")
+
+    def rule(self, selector: str) -> str:
+        found = re.search(rf"^{re.escape(selector)} \{{(.*?)\}}", self.CSS, re.S | re.M)
+        assert found, selector
+        return found.group(1)
+
+    def test_the_column_never_gets_wider_than_the_window(self) -> None:
+        self.assertIn("grid-template-columns: minmax(0, 1fr)", self.rule(".cook__columns"))
+
+    def test_long_words_wrap_anywhere(self) -> None:
+        for selector in (".cook-ingredient__text", ".cook .cook-step__text", ".cook-mode .cook-mode__text"):
+            with self.subTest(selector):
+                self.assertIn("overflow-wrap: anywhere", self.rule(selector), "break-word laat de minimale breedte van de kolom staan")
+
+    def test_a_long_step_scrolls_from_the_top(self) -> None:
+        # Met justify-content: center viel de bovenkant van een lange stap (met zijn ingrediënten en timers) buiten de scroll.
+        stage = self.rule(".cook-mode__stage")
+        self.assertNotIn("justify-content: center", stage)
+        self.assertIn("overflow-y: auto", stage)
+        self.assertIn("margin-top: auto", self.rule(".cook-mode__stage > :first-child"))
+
+
 if __name__ == "__main__":
     unittest.main()
