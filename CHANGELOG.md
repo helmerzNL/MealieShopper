@@ -2,6 +2,34 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub; een stabiele release krijgt de teksten van alle versies sinds de vorige stabiele release.
 
+## v4.13.1
+
+### Verbeterd in 4.13.1
+
+Pull request: [#308](https://github.com/helmerzNL/MealieShopper/pull/308), van wolph.
+
+*English summary: Three fixes for the Price history, all from one report about a product that was listed three times. **Imported purchases join the right product**: the names used to link a purchase without a product id now also come from an order that is still open and from the receipt links of Albert Heijn, and when two products share exactly the same name (a 2-piece pack and a 500 gram bag of the same pepper) the regular price of the purchase picks the nearest one. **The daily run also fetches your orders and receipts** from every linked store (Albert Heijn, Jumbo, Picnic and Crisp), so a delivered order no longer stays "open" until you press the sync button. **A product the app only knows from a receipt shows its size and brand**: the receipt link now stores them, and the round that fetches photos for old links fills them in.*
+
+Drie fixes voor de Prijsgeschiedenis, alle drie uit een melding over een product dat er drie keer in stond (*AH Sweet Palermo rode puntpaprika*).
+
+**Prijsgeschiedenis**
+
+- **Een ingelezen aankoop hoort bij het goede product.** Een aankoop uit een bevestigingsmail heeft alleen een naam. De namen waarmee de app zo'n aankoop koppelt, komen nu ook uit een bestelling die nog open staat en uit de bonkoppelingen van Albert Heijn. Eerst bleef de aankoop als eigen rij naast het product staan als de app het product alleen daarvan kende.
+- **Twee producten met dezelfde naam.** Verkoopt de winkel twee artikelen met precies dezelfde naam (dezelfde puntpaprika per 2 stuks en als zak van 500 gram), dan kiest de gewone prijs van de aankoop het product met de dichtstbijzijnde prijs. Ligt geen prijs in de buurt (meer dan anderhalf keer zo veel of zo weinig), of ligt het eerste product met die naam bijna even dichtbij, dan blijft de aankoop daar.
+- **De inhoud van een product van de kassabon.** Een product dat de app alleen van je kassabon kent, toonde geen inhoud en geen merk. De bonkoppeling bewaart ze nu naast de naam en de foto, en de ronde die foto's bij oude koppelingen ophaalt, haalt ze erbij, de producten van je eigen bonnen eerst. De Prijsgeschiedenis toont daardoor *2 stuks* en de prijs per stuk, de bestelpagina toont ze bij een ingelezen aankoop, en zoeken met een maat (*puntpaprika 2 stuks*) vindt het product.
+
+**Bestellingen en kassabonnen**
+
+- **Vanzelf bijgewerkt.** De dagelijkse run die de aanbiedingen ophaalt, haalt nu ook je bestellingen op bij elke gekoppelde winkel (Albert Heijn, Jumbo, Picnic en Crisp), en bij Albert Heijn je kassabonnen. Eerst kwamen ze alleen binnen met de synchroniseerknop op de bestelpagina: een bezorgde bestelling bleef zonder die knop op *open* staan en haar producten ontbraken in de Prijsgeschiedenis. Een winkel die het niet doet, houdt de rest niet tegen. De uitkomst staat onder `purchases` in de laatste run.
+
+**Database**
+
+- `ah_receipt_products` krijgt de kolommen `brand` en `unit_size`. Ze komen er bij de eerste start vanzelf bij en zitten in de back-up.
+
+**Tests**
+
+- `tests/test_reported_bugs.py`: de drie meldingen van 2026-11-10 (`SameNameTwoProductsTest`, `OrdersSyncedNightlyTest`, `ReceiptLinkedPackSizeTest`). `tests/test_purchase_sync.py`: de nachtelijke synchronisatie per winkel.
+
 ## v4.13.0
 
 ### Nieuw in 4.13.0

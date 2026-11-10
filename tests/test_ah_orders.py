@@ -428,7 +428,7 @@ class ReceiptsCacheTest(AhOrdersTestCase):
         await self.sync([[{"id": "R1", "dateTime": "2026-10-10T09:00:00", "total": 4.5}]], detail)
         with closing(db(ah_orders)) as conn, conn:
             conn.execute("DELETE FROM ah_receipt_products")
-            conn.execute("INSERT INTO ah_receipt_products (receipt_product_id, product_id, title, checked_at, image) VALUES (12, 4183, 'AH Halfvolle melk 1 l', 'x', 'https://static.ah.nl/dam/kaas')")
+            conn.execute("INSERT INTO ah_receipt_products (receipt_product_id, product_id, title, checked_at, image, unit_size) VALUES (12, 4183, 'AH Halfvolle melk 1 l', 'x', 'https://static.ah.nl/dam/kaas', '1 l')")
         listed = (await self.client.get("/api/ah/receipts")).get_json()["receipts"][0]
         self.assertEqual(listed["images"], ["https://static.ah.nl/dam/kaas"])
         self.assertEqual(listed["productNames"], ["MELK", "AH Halfvolle melk 1 l", "BROOD"])
@@ -675,7 +675,7 @@ class ReceiptsCacheTest(AhOrdersTestCase):
     def test_old_links_without_an_image_are_filled_in_batches_of_25(self):
         with closing(db(ah_orders)) as conn, conn:
             conn.executemany("INSERT INTO ah_receipt_products (receipt_product_id, product_id, title, checked_at) VALUES (?, ?, ?, 'x')", [(n, 1000 + n, f"P{n}") for n in range(30)])
-            conn.execute("INSERT INTO ah_receipt_products (receipt_product_id, product_id, title, checked_at, image) VALUES (99, 1099, 'P99', 'x', 'https://static.ah.nl/done')")
+            conn.execute("INSERT INTO ah_receipt_products (receipt_product_id, product_id, title, checked_at, image, unit_size) VALUES (99, 1099, 'P99', 'x', 'https://static.ah.nl/done', '1 l')")
             conn.execute("INSERT INTO ah_receipt_products (receipt_product_id, product_id, title, checked_at) VALUES (98, NULL, NULL, 'x')")
         with mock.patch.object(ah, "get_products_by_ids", side_effect=lambda ids: [{"id": i, "title": f"P{i - 1000}", "image": f"https://static.ah.nl/{i}"} for i in ids if i != 1005]) as lookup:
             result = run(ah_orders.backfill_receipt_images("2026-11-04T03:00:00+00:00"))
