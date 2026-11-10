@@ -6,7 +6,7 @@ Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar
 
 ### Verbeterd in 4.13.1
 
-Pull request: [#PRNUMMER](https://github.com/helmerzNL/MealieShopper/pull/PRNUMMER), van wolph.
+Pull request: [#308](https://github.com/helmerzNL/MealieShopper/pull/308), van wolph.
 
 *English summary: Three fixes for the Price history, all from one report about a product that was listed three times. **Imported purchases join the right product**: the names used to link a purchase without a product id now also come from an order that is still open and from the receipt links of Albert Heijn, and when two products share exactly the same name (a 2-piece pack and a 500 gram bag of the same pepper) the regular price of the purchase picks the nearest one. **The daily run also fetches your orders and receipts** from every linked store (Albert Heijn, Jumbo, Picnic and Crisp), so a delivered order no longer stays "open" until you press the sync button. **A product the app only knows from a receipt shows its size and brand**: the receipt link now stores them, and the round that fetches photos for old links fills them in.*
 
