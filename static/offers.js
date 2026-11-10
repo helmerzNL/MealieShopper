@@ -722,6 +722,10 @@ function offerRowHead() {
 const OFFER_POPUP_WIDTH = 640;
 const OFFER_POPUP_MIN_SCREEN = 860; // smaller: geen popup bij hover, wel het venster bij een tik (het breekpunt van het menu links)
 const OFFER_POPUP_PURCHASES = 8;
+// Hoe lang de muis op een kaart moet staan voor de popup komt, en hoe lang als er al een popup open is (dan verspringt hij). Kort:
+// de muis gaat door de popup heen, dus een popup die te vroeg komt zit niet in de weg. Met het toetsenbord blijft POPOVER_DELAY.
+const OFFER_POPUP_DELAY = 100;
+const OFFER_POPUP_SWITCH = 40;
 const offerZoomCache = new Map(); // winkel|id -> belofte van het product uit /api/prices/history
 const offerPopupProducts = new Map(); // winkel:id -> het geladen product, voor de periodeknoppen (offers_history.js)
 // `ranges`: de periodekeuze van de grafiek per product, binnen deze popup (de pagina Prijsgeschiedenis heeft haar eigen).
@@ -876,10 +880,12 @@ function scheduleOfferPopup(anchor, packId = null, { byKeyboard = false } = {}) 
   if (offerPopup.id === shownId && offerPopup.anchor === anchor) return;
   clearTimeout(offerPopup.timer);
   offerPopup.byKeyboard = byKeyboard;
+  loadOfferZoomHistory(offersState.store, shownId); // alvast ophalen: de popup staat er dan meteen met de grafiek
+  const delay = byKeyboard ? POPOVER_DELAY : $("#offer-popup").hidden ? OFFER_POPUP_DELAY : OFFER_POPUP_SWITCH;
   offerPopup.timer = setTimeout(() => {
     offerPopup.timer = 0;
     showOfferPopup(anchor, offer, packId);
-  }, POPOVER_DELAY);
+  }, delay);
 }
 
 function delayHideOfferPopup() {

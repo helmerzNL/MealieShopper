@@ -40,7 +40,7 @@ def const_source(name):
 
 
 PRELUDE = "\n".join(
-    [const_source(name) for name in ("OFFER_UNIT_ORDER", "OFFER_LABEL_ORDER", "OFFERS_OFTEN_PER_YEAR", "offersDimmedIds", "OFFER_POPUP_WIDTH", "OFFER_POPUP_PURCHASES", "offerPopup")]
+    [const_source(name) for name in ("OFFER_UNIT_ORDER", "OFFER_LABEL_ORDER", "OFFERS_OFTEN_PER_YEAR", "offersDimmedIds", "OFFER_POPUP_WIDTH", "OFFER_POPUP_PURCHASES", "OFFER_POPUP_DELAY", "OFFER_POPUP_SWITCH", "offerPopup")]
     + [
         function_source(name)
         for name in (

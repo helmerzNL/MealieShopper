@@ -493,6 +493,25 @@ console.log(JSON.stringify({{ popup: offerPopupHtml(...args, {{ preview: true }}
         self.assertIn("const link = links && product.url", source)
         self.assertIn("const buttons = withButtons && range.options.length", source)
 
+    @unittest.skipUnless(shutil.which("node"), "Node is not installed")
+    def test_2026_11_10_the_popup_comes_fast_and_its_history_is_fetched_at_once(self):
+        # "kunnen we de popup sneller maken? hij lijkt een vertraging te hebben": 400 ms wachten en dan pas de geschiedenis ophalen.
+        # Nu haalt de app de geschiedenis op zodra de muis op de kaart komt, staat de popup er na 100 ms en verspringt hij in 40 ms.
+        case = test_offers_scan_js.OffersScanNodeTest()
+        found = case.popup_js(
+            "let fetched = 0; const jsonFetch = () => { fetched += 1; return new Promise(() => {}); };"
+            f"offersState.offers = [{json.dumps(case.POPUP_OFFER)}, {{ ...{json.dumps(case.POPUP_OFFER)}, id: '777' }}];"
+            "const other = element('card2'); other.dataset.offer = '777'; const states = [];"
+            "scheduleOfferPopup(anchor); states.push({ fetched, hidden: box.hidden });"
+            "setTimeout(() => { states.push({ hidden: box.hidden, shown: offerPopup.id }); scheduleOfferPopup(other);"
+            "  setTimeout(() => { states.push({ shown: offerPopup.id, fetched }); console.log(JSON.stringify(states)); }, OFFER_POPUP_SWITCH + 30);"
+            "}, OFFER_POPUP_DELAY + 30);"
+        )
+        self.assertEqual(found, [{"fetched": 1, "hidden": True}, {"hidden": False, "shown": "514010"}, {"shown": "777", "fetched": 2}])
+        js = (ROOT / "static" / "offers.js").read_text(encoding="utf-8")
+        self.assertIn("const OFFER_POPUP_DELAY = 100;", js)
+        self.assertIn("const OFFER_POPUP_SWITCH = 40;", js)
+
     def test_2026_11_10_the_mouse_goes_through_the_popup(self):
         css = (ROOT / "static" / "styles.css").read_text(encoding="utf-8")
         self.assertIn(".offer-popup {\n  pointer-events: none;\n}", css, "de kaart onder de popup blijft aan te wijzen")
