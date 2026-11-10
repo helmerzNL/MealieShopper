@@ -2,6 +2,18 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub; een stabiele release krijgt de teksten van alle versies sinds de vorige stabiele release.
 
+## v4.10.3
+
+### Opgelost in 4.10.3
+
+Pull request #303.
+
+*English summary: You stay logged in. The session cookie expired after 24 hours no matter how often you used the app, so everyone logged in again every day. A session now lasts 90 days (`MEALIESHOPPER_SESSION_DAYS`), and every request with a session older than a day sets a fresh cookie, so whoever keeps using the app stays logged in. Logging out now revokes the session on the server (the cookie and every renewal of it), a new password and the reset still end every session at once, a renewal carries the epoch, session id and login time of the cookie that was checked, nothing is renewed a year after the login, a Bearer token (AI apps) gets no cookie, and a session from before this version keeps working until it expires.*
+
+- **Je blijft ingelogd.** Melding van 2026-11-09: "het systeem logt me regelmatig uit". De sessiecookie `ms_session` verliep na 24 uur, hoe vaak je de app ook gebruikte, dus iedereen logde elke dag opnieuw in. Een sessie duurt nu 90 dagen (`MEALIESHOPPER_SESSION_DAYS`, zie de README), en elke aanvraag met een sessie van meer dan een dag oud zet een verse cookie met opnieuw de volle duur. Wie de app blijft gebruiken blijft dus ingelogd, wie 90 dagen wegblijft logt opnieuw in. Een nieuw wachtwoord en de reset uit de README beeindigen nog steeds elke sessie meteen (de sessieteller), een Bearer-token van een AI-app krijgt geen cookie, en een sessie van voor deze versie blijft geldig tot hij verloopt.
+- **Uitloggen trekt de sessie in.** Tot nu toe wiste uitloggen alleen de cookie en bleef het token zelf geldig tot het verliep. Nu heeft elke sessie een id (`sid`, hetzelfde bij elke verlenging) en zet uitloggen dat id in een tabel `revoked_sessions` (niet in de back-up, net als de andere inloggegevens): de uitgelogde cookie en elke verlenging ervan zijn daarna een 401, andere sessies van dezelfde gebruiker niet. Een verlenging draagt de sessieteller, het id en de inlogtijd van de gecontroleerde cookie, nooit een nieuwere teller uit de database. Een jaar na de inlog (`auth_time`) wordt niet meer verlengd, dan log je hoe dan ook opnieuw in.
+- **Tests:** `tests/test_auth.py` (de duur en de omgevingsvariabele) en in `tests/test_reported_bugs.py` de melding van 2026-11-09 (90 dagen, verlenging na een dag, geen cookie bij een Bearer-token, uitloggen wist en trekt in, de verlenging houdt de gecontroleerde teller, na een jaar geen verlenging).
+
 ## v4.10.2
 
 ### Verbeterd in 4.10.2

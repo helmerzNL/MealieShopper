@@ -18,12 +18,15 @@ from datetime import date, timedelta
 from pathlib import Path
 from unittest import mock
 
+import jwt
+
 from helpers import AppTestCase, db  # helpers zet ook het pad naar de app
 import test_history_stores_js  # als module: anders draait pytest die tests hier nog een keer
 import test_offers_scan_js  # idem: de Node-opbouw van offers.js
+from test_auth_password import PASSWORD, AuthPasswordTestCase
 from test_prices import PricesCase, offer
 
-from mealieshopper import ah_orders, assets, offers, price_archive_tidy, price_import, prices
+from mealieshopper import ah_orders, assets, auth, offers, price_archive_tidy, price_import, prices
 from mealieshopper.app import create_app
 
 ROOT: Path = Path(__file__).resolve().parents[1]
@@ -306,6 +309,7 @@ class JsonBodyTest(AppTestCase):
         "/api/backup/uploads/<token>/stage": 404,
         "/api/price-archive/uploads/<token>": 404,
         "/api/price-archive/uploads/<token>/stage": 404,
+        "/api/auth/logout": 200,  # leest alleen de cookie (om de sessie in te trekken), geen body
         "/api/price-archive/export": 200,  # leest alleen queryparameters
         "/api/picnic/explore": 200,  # leest alleen queryparameters
         "/mcp": 404,  # JSON-RPC, en zonder OAuth-instelling niet beschikbaar
@@ -340,6 +344,79 @@ class JsonBodyTest(AppTestCase):
                 if response.status_code != expected:
                     wrong.append(f"{method} {rule.rule} -> {response.status_code} (verwacht {expected})")
         self.assertEqual(wrong, [], "\n".join(wrong))
+
+
+class SessionLifetimeTest(AuthPasswordTestCase):
+    """Melding van 2026-11-09: "het systeem logt me regelmatig uit, zorg ervoor dat ik langdurig ingelogd kan blijven". De sessie
+    (de cookie `ms_session`) liep na 24 uur af, ongeacht gebruik. Nu duurt hij 90 dagen (`MEALIESHOPPER_SESSION_DAYS`) en zet
+    elke aanvraag met een sessie van meer dan een dag oud een verse cookie, zodat wie de app gebruikt ingelogd blijft."""
+
+    NINETY_DAYS = 90 * 24 * 60 * 60
+
+    def session_token(self, response):
+        cookies = " ".join(response.headers.getlist("Set-Cookie"))
+        found = re.search(r"ms_session=([^;]+)", cookies)
+        return (found.group(1) if found else None), cookies
+
+    async def test_2026_11_09_a_session_lasts_ninety_days_and_is_renewed_on_use(self):
+        token, cookie = self.session_token(await self.setup_password())
+        self.assertIn(f"Max-Age={self.NINETY_DAYS}", cookie)
+        claims = jwt.decode(token, options={"verify_signature": False})
+        self.assertEqual(claims["exp"] - claims["iat"], self.NINETY_DAYS)
+        # Vandaag ingelogd: een gewone aanvraag zet geen nieuwe cookie.
+        fresh = await self.client.get("/api/auth/status")
+        self.assertTrue(fresh.get_json()["authenticated"])
+        self.assertEqual(self.session_token(fresh), (None, ""))
+        # Een sessie van twee dagen oud: de aanvraag krijgt een verse cookie met opnieuw 90 dagen, voor dezelfde gebruiker.
+        old = jwt.encode({**claims, "iat": claims["iat"] - 2 * 86400, "exp": claims["exp"] - 2 * 86400}, await auth.signing_secret(), algorithm="HS256")
+        client = self.new_client()
+        renewed = await client.get("/api/auth/status", headers={"Cookie": f"ms_session={old}"})
+        self.assertTrue(renewed.get_json()["authenticated"])
+        new_token, new_cookie = self.session_token(renewed)
+        self.assertIn(f"Max-Age={self.NINETY_DAYS}", new_cookie)
+        self.assertIn("HttpOnly", new_cookie)
+        new_claims = jwt.decode(new_token, options={"verify_signature": False})
+        self.assertEqual((new_claims["sub"], new_claims["ep"]), (claims["sub"], claims["ep"]))
+        self.assertGreaterEqual(new_claims["iat"], claims["iat"])
+        # Een Bearer-token (AI-apps) krijgt geen cookie, en uitloggen wist de cookie zonder er een nieuwe overheen te zetten.
+        bearer = await client.get("/api/auth/status", headers={"Authorization": f"Bearer {old}"})
+        self.assertEqual(self.session_token(bearer), (None, ""))
+        out = await client.post("/api/auth/logout", headers={"Cookie": f"ms_session={old}"})
+        self.assertEqual(out.status_code, 200)
+        cookies = out.headers.getlist("Set-Cookie")
+        self.assertEqual(len(cookies), 1, cookies)
+        self.assertIn("ms_session=;", cookies[0])
+
+
+    async def test_2026_11_09_logout_revokes_the_session_and_renewal_keeps_what_was_checked(self):
+        # Uit de beveiligingsreview van de fix: de verlenging neemt de sessieteller uit de gecontroleerde cookie mee (niet de
+        # nieuwste uit de database), houdt dezelfde sessie-id en inlogtijd, stopt een jaar na de inlog, en uitloggen trekt de
+        # sessie serverzijde in, ook de verlengde cookies van dezelfde sessie.
+        token, _ = self.session_token(await self.setup_password())
+        claims = jwt.decode(token, options={"verify_signature": False})
+        self.assertEqual(claims["auth_time"], claims["iat"])
+        self.assertEqual(len(claims["sid"]), 32)
+        secret = await auth.signing_secret()
+        old = jwt.encode({**claims, "iat": claims["iat"] - 2 * 86400, "exp": claims["exp"] - 2 * 86400}, secret, algorithm="HS256")
+        client = self.new_client()
+        with mock.patch.object(auth, "session_epoch", mock.AsyncMock(return_value=99)):
+            renewed = await client.get("/api/auth/status", headers={"Cookie": f"ms_session={old}"})
+        new_token, _ = self.session_token(renewed)
+        new_claims = jwt.decode(new_token, options={"verify_signature": False})
+        self.assertEqual((new_claims["ep"], new_claims["sid"], new_claims["auth_time"]), (claims["ep"], claims["sid"], claims["auth_time"]))
+        # Een jaar na de inlog: de sessie geldt nog tot hij verloopt, maar wordt niet meer verlengd.
+        aged_token = jwt.encode({**claims, "iat": claims["iat"] - 2 * 86400, "exp": claims["exp"] - 2 * 86400, "auth_time": claims["iat"] - 400 * 86400}, secret, algorithm="HS256")
+        aged = await client.get("/api/auth/status", headers={"Cookie": f"ms_session={aged_token}"})
+        self.assertTrue(aged.get_json()["authenticated"])
+        self.assertEqual(self.session_token(aged), (None, ""))
+        # Uitloggen met de oude cookie: daarna zijn de oude en de verlengde cookie allebei ongeldig, een andere sessie niet.
+        other_token, _ = self.session_token(await self.post("/api/auth/password/login", {"username": "admin", "password": PASSWORD}, self.new_client()))
+        self.assertEqual((await client.post("/api/auth/logout", headers={"Cookie": f"ms_session={old}"})).status_code, 200)
+        for name, cookie in (("oud", old), ("verlengd", new_token)):
+            with self.subTest(name):
+                self.assertEqual((await client.get("/api/mealplan?start=a&end=b", headers={"Cookie": f"ms_session={cookie}"})).status_code, 401)
+                self.assertFalse((await client.get("/api/auth/status", headers={"Cookie": f"ms_session={cookie}"})).get_json()["authenticated"])
+        self.assertTrue((await client.get("/api/auth/status", headers={"Cookie": f"ms_session={other_token}"})).get_json()["authenticated"])
 
 
 class RecipeImportUrlTest(AppTestCase):

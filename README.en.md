@@ -175,6 +175,7 @@ Everything is optional. Set `MEALIESHOPPER_TAG` in `.env` next to `docker-compos
 | `MEALIESHOPPER_AUDIT_BODY_CHARS` | ❌ | `4000` | How many characters of each request and answer the audit log stores; longer texts are cut. |
 | `MEALIESHOPPER_AUDIT_RETENTION_DAYS` | ❌ | `30` | After how many days the audit log deletes entries; `0` never deletes on its own. |
 | `PASSKEY_AUTH_ENABLED` | ❌ | on | With `false` login is turned off completely (emergency only). |
+| `MEALIESHOPPER_SESSION_DAYS` | ❌ | `90` | How many days you stay logged in. Every use after a day extends the session by this much, so whoever keeps using the app does not log in again. |
 | `MEALIE_URL`, `MEALIE_API_TOKEN` | ❌ | - | Mealie through the environment; a link made in the app takes precedence. |
 | `AH_REFRESH_TOKEN` | ❌ | - | Starting value for the AH link; you normally link in the app. |
 | `PICNIC_COUNTRY_CODE` | ❌ | `NL` | Country of your Picnic account: `NL`, `DE` or `FR`. You make the link itself in the app. |
