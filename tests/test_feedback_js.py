@@ -16,6 +16,7 @@ ROOT = Path(__file__).resolve().parents[1]
 APP_JS = (ROOT / "static" / "app.js").read_text(encoding="utf-8")
 OFFERS_JS = (ROOT / "static" / "offers.js").read_text(encoding="utf-8")
 SEARCH_JS = (ROOT / "static" / "recipe_search.js").read_text(encoding="utf-8")
+SHOPPING_JS = (ROOT / "static" / "shopping.js").read_text(encoding="utf-8")  # de controlelijst staat sinds 4.11.0 in een eigen script
 ROUTER_JS = (ROOT / "static" / "router.js").read_text(encoding="utf-8")
 CSS = (ROOT / "static" / "styles.css").read_text(encoding="utf-8")
 INDEX_HTML = (ROOT / "templates" / "index.html").read_text(encoding="utf-8")
@@ -167,6 +168,9 @@ async function jsonFetch(url, options) {
 }
 const shown = [];
 function showCartResult(data, notFound, store) { shown.push(store); }
+const shopping = { review: { rows: [] } };
+let saved = 0;
+function reviewSave() { saved += 1; }
 """
 
 
@@ -175,7 +179,8 @@ class CartReviewStoreTest(unittest.TestCase):
     def run_js(self, scenario):
         parts = [
             REVIEW_PAGE,
-            *(function_source(APP_JS, name) for name in ("currentStore", "cartReviewStore", "cartReviewApi", "submitCart")),
+            function_source(APP_JS, "currentStore"),
+            *(function_source(SHOPPING_JS, name) for name in ("cartReviewStore", "cartReviewApi", "submitCart")),
             "(async () => {",
             scenario,
             "})();",
@@ -188,12 +193,13 @@ class CartReviewStoreTest(unittest.TestCase):
             review = { dataset: { store: "ah" } };   // gezocht bij Albert Heijn
             state.store = "picnic";                   // de winkelkeuze erboven zegt intussen Picnic
             await submitCart([{ productId: "wi123", quantity: 1 }], []);
-            console.log(JSON.stringify({ posts, shown, api: cartReviewApi() }));
+            console.log(JSON.stringify({ posts, shown, api: cartReviewApi(), review: shopping.review, saved }));
             """
         )
         self.assertEqual(out["posts"][0]["url"], "/api/ah/cart", "AH-producten gaan nooit naar Picnic")
         self.assertEqual(out["shown"], ["ah"])
         self.assertEqual(out["api"], "ah")
+        self.assertEqual((out["review"], out["saved"]), (None, 1), "het staat in het mandje: de bewaarde controlelijst is weg")
 
     def test_without_an_open_list_the_chosen_store_counts(self):
         out = self.run_js(
@@ -212,23 +218,23 @@ class CartReviewStoreTest(unittest.TestCase):
         asked = handler.index('t("cart.switch_confirm"')
         self.assertLess(handler.index("cartReviewStore()"), asked)
         self.assertLess(asked, handler.index("state.store = item.dataset.store"), "eerst vragen, dan pas wisselen")
-        self.assertIn('data-store="${escapeHtml(state.store)}"', function_source(APP_JS, "renderCartReview"))
+        self.assertLess(asked, handler.index("discardCartReview()"), "de lijst gaat pas weg na ja")
+        self.assertIn('data-store="${escapeHtml(review.store)}"', function_source(SHOPPING_JS, "renderCartReview"))
 
     def test_cancel_asks_and_every_store_gets_the_basket_button(self):
-        review = function_source(APP_JS, "renderCartReview")
-        self.assertLess(review.index('t("cart.cancel_confirm")'), review.index('$("#cart-result").innerHTML = "";'))
-        result = function_source(APP_JS, "showCartResult")
+        self.assertIn('if (window.confirm(t("cart.cancel_confirm"))) discardCartReview();', SHOPPING_JS)
+        result = function_source(SHOPPING_JS, "showCartResult")
         self.assertIn('id="view-basket"', result)
         self.assertNotIn('["picnic", "jumbo", "crisp"].includes', result, "ook bij Albert Heijn")
 
     def test_an_unlinked_albert_heijn_is_said_before_the_search(self):
-        add = function_source(APP_JS, "addToCart")
+        add = function_source(SHOPPING_JS, "addToCart")
         self.assertLess(add.index("cartStoreUnlinkedHtml()"), add.index("/cart/preview"), "voor het zoeken, niet na het nalopen")
         parts = [
             "const t = (key) => key; const escapeHtml = (value) => String(value);",
             "let regular = false; const isRegularUser = () => regular;",
             "const state = { store: 'ah', ahConnected: undefined };",
-            function_source(APP_JS, "cartStoreUnlinkedHtml"),
+            function_source(SHOPPING_JS, "cartStoreUnlinkedHtml"),
             """
             const unknown = cartStoreUnlinkedHtml();          // de status is nog niet binnen: niets tegenhouden
             state.ahConnected = true; const linked = cartStoreUnlinkedHtml();

@@ -921,34 +921,10 @@ function renderMealPlan(entries) {
     )
     .join("");
 
-  const ingredients = aggregateIngredients(entries);
-  if (!entries.length) {
-    $("#ingredients-panel").innerHTML = "";
-    message("#planner-message", t("plan.none_planned"), "success");
-    return;
-  }
-  message("#planner-message", "");
-  $("#ingredients-panel").innerHTML = ingredients.length
-    ? `
-      <div class="box ingredients">
-        <h2>${escapeHtml(t("plan.all_ingredients", { count: I18N.formatNumber(ingredients.length) }))}</h2>
-        <ul>
-          ${ingredients.map((item) => `<li>${escapeHtml(item.display || item.food?.name || "-")}</li>`).join("")}
-        </ul>
-        <div class="toolbar ingredients__actions">
-          <span id="cart-store-slot"></span>
-          <label class="switch-row cart-organic" title="${escapeHtml(t("cart.organic_toggle_title"))}">
-            <input type="checkbox" id="cart-organic"${state.auth?.preferOrganic ? " checked" : ""}>
-            <span>${escapeHtml(t("cart.organic_toggle"))}</span>
-          </label>
-          <button class="button" id="add-cart">${escapeHtml(cartButtonLabel())}</button>
-        </div>
-      </div>
-    `
-    : "";
-  $("#add-cart")?.addEventListener("click", addToCart);
-  $("#cart-organic")?.addEventListener("change", (event) => savePreferOrganic(event.target));
-  renderStoreChoice();
+  // De boodschappenlijst (vinkjes, al in huis, de dagen) en de controlelijst van deze week: shopping.js.
+  renderShoppingList();
+  message("#planner-message", entries.length ? "" : t("plan.none_planned"), "info");
+  restoreCartReview();
 }
 
 // *Liever biologisch* (#218): per gebruiker bewaard in het profiel, zodat de schakelaar de volgende keer nog zo staat.
@@ -1398,13 +1374,18 @@ function dealText(deal) {
   return [deal.label || t("list.bonus"), day].filter(Boolean).join(" ");
 }
 
-function cartCandidateLabel(candidate) {
+// Wat de controlelijst van een product laat zien, naast zijn naam: de inhoud, de prijs, de prijs per kilo, liter of stuk, de
+// aanbieding, biologisch (#218) en waarom een vergelijkingsoptie erbij staat (#178): zelfde product of goedkoper per eenheid.
+function cartCandidateFacts(candidate) {
   const deal = candidate.deal ? dealText(candidate.deal) : "";
-  // De prijs per kilo, liter of stuk en waarom een vergelijkingsoptie erbij staat (#178): zelfde product of goedkoper per eenheid.
   const perUnit = candidate.unitPrice ? offerPerUnitText(candidate.unitPrice) : "";
   const why = [candidate.same ? t("offers.compare.same") : "", candidate.cheaper ? t("offers.compare.cheaper") : ""].filter(Boolean).join(", ");
-  const organic = candidate.organic ? t("cart.organic") : ""; // #218
-  return [candidate.title, candidate.unitSize, formatPrice(candidate.price), perUnit, deal, organic, why].filter(Boolean).join(" \u2013 ");
+  const organic = candidate.organic ? t("cart.organic") : "";
+  return [candidate.unitSize, formatPrice(candidate.price), perUnit, deal, organic, why].filter(Boolean);
+}
+
+function cartCandidateLabel(candidate) {
+  return [candidate.title, ...cartCandidateFacts(candidate)].filter(Boolean).join(" \u2013 ");
 }
 
 // De goedkoopste optie per eenheid van een regel, als die duidelijk (2%) goedkoper is dan de gekozen; anders -1.
@@ -1449,18 +1430,6 @@ function openProductPopup(url) {
   }
 }
 
-function cartSelection(row, candidate, quantity) {
-  return {
-    query: row.query,
-    productId: candidate.productId,
-    quantity,
-    title: candidate.title,
-    price: candidate.price,
-    unitSize: candidate.unitSize,
-    image: candidate.image,
-  };
-}
-
 const STORES = {
   ah: { name: "Albert Heijn", api: "ah", linked: "ah", button: "plan.add_cart", ready: "cart.ready" },
   picnic: { name: "Picnic", api: "picnic", linked: "picnic", button: "plan.add_cart_picnic", ready: "cart.ready_picnic" },
@@ -1491,17 +1460,6 @@ function storeWithoutLink(key) {
 
 function currentStore() {
   return STORES[state.store] || STORES.ah;
-}
-
-// De winkel waarvoor de open controlelijst is gezocht ("" als er geen open staat). Zoeken en toevoegen vanuit de lijst gaan
-// altijd naar die winkel, ook als de winkelkeuze erboven intussen iets anders zegt (een koppeling die wegvalt, een andere tab).
-function cartReviewStore() {
-  const store = document.querySelector("#cart-result .cart-review")?.dataset.store || "";
-  return STORES[store] ? store : "";
-}
-
-function cartReviewApi() {
-  return (STORES[cartReviewStore()] || currentStore()).api;
 }
 
 // De voorkeurssupermarkt van deze gebruiker (Instellingen, Voorkeuren; standaard Albert Heijn). Aanbiedingen en Winkels openen
@@ -1565,7 +1523,7 @@ function renderStoreChoice() {
         const reviewed = cartReviewStore();
         if (reviewed && reviewed !== item.dataset.store) {
           if (!window.confirm(t("cart.switch_confirm", { from: STORES[reviewed].name, to: STORES[item.dataset.store].name }))) return;
-          $("#cart-result").innerHTML = "";
+          discardCartReview();
         }
         state.store = item.dataset.store;
         state.preferredStore = state.store;
@@ -1726,336 +1684,6 @@ try {
   if (remembered && STORES[remembered]) state.preferredStore = remembered;
 } catch {
   // Geen opslag beschikbaar: AH blijft de standaard.
-}
-
-function showCartResult(data, notFound, store = state.store) {
-  const lines = (data.items || [])
-    .map((item) => {
-      const size = item.product.unitSize ? ` (${escapeHtml(item.product.unitSize)})` : "";
-      return `<li>${escapeHtml(item.quantity)}x ${escapeHtml(item.product.title)}${size}</li>`;
-    })
-    .join("");
-  // Picnic, Jumbo en Crisp melden zelf ook welke producten ze niet in het mandje kregen (of al op het lijstje stonden).
-  const names = store === "ah" ? notFound : [...notFound, ...(data.skippedItems || [])];
-  const missing = names.length
-    ? th("cart.missing", { count: names.length, names: names.join(", ") })
-    : "";
-  const ready = STORES[store].ready;
-  $("#cart-result").innerHTML = `
-    <div class="message success" role="status">${th(ready, { added: data.added }).replace("{missing}", missing)}</div>
-    ${lines ? `<ul class="cart-lines">${lines}</ul>` : ""}
-    <p><button class="button button--secondary" id="view-basket" type="button">${escapeHtml(t("basket.view"))}</button></p>
-  `;
-  // Bij elke winkel: waar je het mandje kunt bekijken (bij Picnic en Crisp ook aanpassen). Tot 4.10.3 ontbrak de knop bij AH.
-  $("#view-basket").addEventListener("click", () => openBasket(store));
-}
-
-async function submitCart(selection, notFound) {
-  const store = cartReviewStore() || state.store;
-  const data = await jsonFetch(`/api/${STORES[store].api}/cart`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ items: selection }),
-  });
-  showCartResult(data, notFound, store);
-}
-
-function reviewSearchHtml(row, extra) {
-  // Zoekveld bij een regel. Bij een niet gevonden regel staat het er direct; bij een gevonden regel klapt het uit
-  // onder "Zoek een ander product", voor als het voorgestelde product niet is wat je zoekt.
-  return `
-    <form class="review-search${extra ? " review-search--extra" : ""}"${extra ? " hidden" : ""}>
-      <input type="search" class="review-search-input" value="${escapeHtml(row.query)}" aria-label="${escapeHtml(t("cart.search_label"))}">
-      <button class="button button--secondary" type="submit">${escapeHtml(t("cart.search_button"))}</button>
-      <small class="review-search-status" role="status"></small>
-    </form>`;
-}
-
-function reviewThumbHtml(candidate) {
-  // De foto van het gekozen product, zodat je ziet wat er in het mandje komt; Picnic heeft geen productpagina, dus daar
-  // is dit de enige manier om het product te zien. Tikken opent hem in het groot (openReviewPhoto). De knop blijft
-  // altijd staan, zodat de kolommen gelijk blijven als er geen foto is of hij niet laadt; dan is hij uitgeschakeld.
-  // De productnaam staat al in de keuzelijst, dus alt is leeg en de knop zegt wat hij doet.
-  const label = escapeHtml(t("cart.photo_open", { title: candidate.title }));
-  const src = candidate.image ? ` src="${escapeHtml(storeImage(candidate.image))}"` : " hidden";
-  return `<button class="review-thumb" type="button" aria-label="${label}" title="${label}"${candidate.image ? "" : " disabled"}><img${src} alt="" width="56" height="56" loading="lazy"></button>`;
-}
-
-function showReviewThumb(button, candidate) {
-  const img = button.querySelector("img");
-  const label = t("cart.photo_open", { title: candidate.title });
-  button.disabled = !candidate.image;
-  button.setAttribute("aria-label", label);
-  button.title = label;
-  img.hidden = !candidate.image;
-  if (candidate.image) img.src = storeImage(candidate.image);
-  else img.removeAttribute("src");
-}
-
-function openReviewPhoto(candidate) {
-  // De foto in het groot. Het grote formaat (imageLarge) geven AH en Picnic mee; laadt dat niet, of is er geen, dan
-  // valt het venster terug op de gewone foto.
-  const image = $("#photo-dialog-image");
-  const large = candidate.imageLarge || candidate.image;
-  if (!large) return;
-  image.dataset.fallback = large !== candidate.image ? storeImage(candidate.image) : "";
-  image.hidden = false;
-  image.src = storeImage(large);
-  $("#photo-dialog-title").textContent = candidate.title;
-  $("#photo-dialog-meta").textContent = [candidate.unitSize, formatPrice(candidate.price)].filter(Boolean).join(" · ");
-  $("#photo-dialog").showModal();
-}
-
-function reviewRowHtml(row, index) {
-  if (!row.candidates.length) {
-    // Niet gevonden: de gebruiker zoekt zelf verder, bijvoorbeeld onder een andere naam (paksoi heet bij AH pak choi).
-    return `
-      <div class="review-row is-missing" data-row="${index}">
-        <input type="checkbox" disabled>
-        <div class="review-ingredient">
-          <strong>${escapeHtml(row.display)}</strong>
-          <small class="review-note">${escapeHtml(row.error || t("cart.not_found"))}</small>
-        </div>
-        ${reviewSearchHtml(row, false)}
-      </div>`;
-  }
-  const first = row.candidates[0];
-  return `
-    <div class="review-row${first.doubt ? " is-doubt" : ""}" data-row="${index}">
-      <input type="checkbox" class="review-include" checked aria-label="${escapeHtml(t("cart.include"))}">
-      <div class="review-ingredient">
-        <strong>${escapeHtml(row.display)}</strong>
-        <small class="review-note">${escapeHtml(first.doubt || "")}</small>
-        ${row.organicMissing ? `<small class="review-organic-missing">${escapeHtml(t("cart.organic_missing"))}</small>` : ""}
-        <small class="review-cheaper" role="status">${reviewCheaperHtml(row, 0)}</small>
-        <button class="link-button review-search-toggle" type="button" aria-expanded="false">${escapeHtml(t("cart.search_other"))}</button>
-      </div>
-      ${reviewThumbHtml(first)}
-      <select class="review-product" aria-label="${escapeHtml(t("cart.product"))}">
-        ${row.candidates
-          .map((candidate, at) => `<option value="${at}">${escapeHtml(cartCandidateLabel(candidate))}</option>`)
-          .join("")}
-      </select>
-      ${
-        first.url
-          ? `<a class="review-link" href="${escapeHtml(first.url)}" target="_blank" rel="noopener noreferrer" title="${escapeHtml(t("cart.view_title"))}">${escapeHtml(t("cart.view"))} ${ICON_EXTERNAL}</a>`
-          : '<span class="review-link"></span>'
-      }
-      <input class="review-qty" type="number" min="1" max="99" value="${first.packs}" aria-label="${escapeHtml(t("cart.packs"))}">
-      ${reviewSearchHtml(row, true)}
-    </div>`;
-}
-
-function renderCartReview(rows) {
-  const missingCount = rows.filter((row) => !row.candidates.length).length;
-  const doubts = rows.filter((row) => row.candidates.length && row.candidates[0].doubt).length;
-  $("#cart-result").innerHTML = `
-    <div class="box cart-review" data-store="${escapeHtml(state.store)}">
-      <h2>${escapeHtml(t("cart.review_title"))}</h2>
-      <p class="muted">${escapeHtml(doubts ? tn("cart.doubts", doubts) : t("cart.review_intro"))}</p>
-      ${missingCount ? `<p class="muted" id="review-missing-hint">${escapeHtml(tn("cart.missing_hint", missingCount))}</p>` : ""}
-      <div class="review-list">${rows.map((row, index) => reviewRowHtml(row, index)).join("")}</div>
-      <div class="cart-review__actions">
-        <button class="button" id="confirm-cart"></button>
-        <button class="button button--secondary" id="cancel-cart">${escapeHtml(t("common.cancel"))}</button>
-      </div>
-    </div>
-  `;
-
-  // De regels kunnen veranderen: een niet gevonden regel wordt na zoeken een gewone regel. Daarom steeds opnieuw zoeken.
-  const includable = () => [...document.querySelectorAll(".review-row[data-row]")].filter((el) => el.querySelector(".review-include"));
-  const updateConfirm = () => {
-    const count = includable().filter((el) => el.querySelector(".review-include").checked).length;
-    const button = $("#confirm-cart");
-    button.disabled = count === 0;
-    button.textContent = tn("cart.confirm", count);
-  };
-  const updateMissingHint = () => {
-    const left = rows.filter((row) => !row.candidates.length).length;
-    const hint = $("#review-missing-hint");
-    if (!hint) return;
-    hint.hidden = left === 0;
-    if (left) hint.textContent = tn("cart.missing_hint", left);
-  };
-
-  const bindRow = (el) => {
-    const row = rows[Number(el.dataset.row)];
-    el.querySelector(".review-search").addEventListener("submit", (event) => {
-      event.preventDefault();
-      searchRow(el, row);
-    });
-    if (!row.candidates.length) return;
-    const form = el.querySelector(".review-search");
-    const toggle = el.querySelector(".review-search-toggle");
-    toggle.addEventListener("click", () => {
-      form.hidden = !form.hidden;
-      toggle.setAttribute("aria-expanded", String(!form.hidden));
-      if (!form.hidden) el.querySelector(".review-search-input").focus();
-    });
-    const thumb = el.querySelector(".review-thumb");
-    const product = el.querySelector(".review-product");
-    // Laadt de foto niet, dan verbergen we hem (en halen we hem niet weg): een ander product kiezen gebruikt hem opnieuw.
-    thumb.querySelector("img").addEventListener("error", (event) => {
-      event.target.hidden = true;
-      thumb.disabled = true;
-    });
-    thumb.addEventListener("click", () => openReviewPhoto(row.candidates[Number(product.value)]));
-    product.addEventListener("change", (event) => {
-      const candidate = row.candidates[Number(event.target.value)];
-      showReviewThumb(thumb, candidate);
-      el.querySelector(".review-qty").value = candidate.packs;
-      const link = el.querySelector("a.review-link");
-      if (link && candidate.url) link.href = candidate.url;
-      el.querySelector(".review-note").textContent = candidate.doubt || "";
-      el.classList.toggle("is-doubt", Boolean(candidate.doubt));
-      el.querySelector(".review-cheaper").innerHTML = reviewCheaperHtml(row, Number(event.target.value));
-    });
-    // "Kies": de goedkoopste optie per eenheid kiezen, alsof je hem in de keuzelijst kiest (ook het aantal verpakkingen rekent mee).
-    el.querySelector(".review-cheaper").addEventListener("click", (event) => {
-      const pick = event.target.closest("[data-pick]");
-      if (!pick) return;
-      product.value = pick.dataset.pick;
-      product.dispatchEvent(new Event("change"));
-      product.focus();
-    });
-    el.querySelector(".review-include").addEventListener("change", updateConfirm);
-    el.querySelector("a.review-link")?.addEventListener("click", (event) => {
-      event.preventDefault();
-      openProductPopup(event.currentTarget.href);
-    });
-  };
-
-  // Zoekt één regel opnieuw met de zoekterm uit het veld, voor een niet gevonden regel en voor een gevonden regel
-  // waar je een ander product wilt. Alleen deze regel wordt vervangen, zodat wat je bij de andere regels hebt
-  // gekozen blijft staan. Vindt de zoekopdracht niets, dan houdt de regel zijn huidige producten.
-  async function searchRow(el, row) {
-    const input = el.querySelector(".review-search-input");
-    const button = el.querySelector(".review-search button");
-    const status = el.querySelector(".review-search-status");
-    const term = input.value.trim();
-    if (!term) return;
-    input.disabled = true;
-    button.disabled = true;
-    status.textContent = t("cart.searching");
-    try {
-      const preview = await jsonFetch(`/api/${cartReviewApi()}/cart/preview`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ items: [{ query: term, display: row.display, quantity: row.quantity ?? null, unit: row.unit ?? null }] }),
-      });
-      const found = (preview.items || [])[0];
-      if (found?.candidates?.length) {
-        row.query = term;
-        row.candidates = found.candidates;
-        delete row.error;
-        el.outerHTML = reviewRowHtml(row, Number(el.dataset.row));
-        bindRow(document.querySelector(`.review-row[data-row="${el.dataset.row}"]`));
-        updateMissingHint();
-        updateConfirm();
-        return;
-      }
-      status.textContent = found?.error || t("cart.search_none", { term });
-    } catch (error) {
-      status.textContent = error.message;
-    }
-    input.disabled = false;
-    button.disabled = false;
-    input.focus();
-  }
-
-  document.querySelectorAll(".review-row[data-row]").forEach(bindRow);
-  updateConfirm();
-
-  $("#cancel-cart").addEventListener("click", () => {
-    // Twintig regels nalopen en dan per ongeluk Annuleren: eerst vragen (sinds 4.10.3).
-    if (!window.confirm(t("cart.cancel_confirm"))) return;
-    $("#cart-result").innerHTML = "";
-  });
-  $("#confirm-cart").addEventListener("click", async (event) => {
-    const button = event.currentTarget;
-    const selection = includable()
-      .filter((el) => el.querySelector(".review-include").checked)
-      .map((el) => {
-        const row = rows[Number(el.dataset.row)];
-        const candidate = row.candidates[Number(el.querySelector(".review-product").value)];
-        const quantity = Math.min(99, Math.max(1, parseInt(el.querySelector(".review-qty").value, 10) || 1));
-        return cartSelection(row, candidate, quantity);
-      });
-    if (!selection.length) return;
-    button.disabled = true;
-    button.textContent = t("cart.adding");
-    try {
-      await submitCart(
-        selection,
-        rows.filter((row) => !row.candidates.length).map((row) => row.display)
-      );
-    } catch (error) {
-      $("#cart-result > .message.error")?.remove(); // een tweede poging stapelt geen foutvakken
-      $("#cart-result").insertAdjacentHTML(
-        "afterbegin",
-        `<div class="message error" role="alert">${escapeHtml(error.message)}</div>`
-      );
-      // De knop staat in de balk onderaan; de melding staat boven de lijst en moet dus in beeld komen.
-      $("#cart-result .message.error").scrollIntoView({ block: "center" });
-      updateConfirm();
-    }
-  });
-}
-
-// Albert Heijn staat altijd in de winkelkeuze, ook zonder koppeling: zoeken kan dan wel, toevoegen niet. Tot 4.10.3 liep je
-// daar pas tegenaan na het nalopen van de hele controlelijst. Nu zegt het weekmenu het vooraf, met de weg naar Koppelen.
-function cartStoreUnlinkedHtml() {
-  if (state.store !== "ah" || state.ahConnected !== false) return "";
-  const action = isRegularUser()
-    ? `<span>${escapeHtml(t("cart.ah_ask_admin"))}</span>`
-    : `<button class="button inline-button" type="button" id="cart-link-store">${escapeHtml(t("cart.ah_link"))}</button>`;
-  return `<div class="message warning message--action" role="alert"><span>${escapeHtml(t("cart.ah_unlinked"))}</span>${action}</div>`;
-}
-
-async function addToCart() {
-  const ingredients = aggregateIngredients(state.entries);
-  if (!ingredients.length) return;
-  const unlinked = cartStoreUnlinkedHtml();
-  if (unlinked) {
-    $("#cart-result").innerHTML = unlinked;
-    $("#cart-link-store")?.addEventListener("click", () => openLinkBlock("ah"));
-    return;
-  }
-  const button = $("#add-cart");
-  button.disabled = true;
-  button.textContent = t("cart.searching");
-  $("#cart-result").innerHTML = "";
-  try {
-    const preview = await jsonFetch(`/api/${currentStore().api}/cart/preview`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        // Vergelijk de verpakkingen: na het voorgestelde product alleen hetzelfde product of wat per eenheid goedkoper is.
-        compare: true,
-        // Liever biologisch (#218): eerst een biologisch product van dezelfde soort, als de winkel het heeft.
-        organic: Boolean(state.auth?.preferOrganic),
-        items: ingredients.map((ingredient) => ({
-          query: ingredient.food?.name || ingredient.display,
-          display: ingredient.display || ingredient.food?.name || "",
-          // Het aantal verpakkingen rekent de server uit met de verpakkingsgrootte van AH.
-          quantity: ingredient.quantity ?? null,
-          unit: ingredient.unit?.name || ingredient.unit?.abbreviation || null,
-        })),
-      }),
-    });
-    const rows = preview.items || [];
-    // Het mandje gaat nooit zonder controle vol: ook zonder twijfel toont de lijst eerst wat erin komt.
-    if (!rows.some((row) => row.candidates.length)) {
-      $("#cart-result").innerHTML = `<div class="message error">${escapeHtml(t("cart.none_found"))}</div>`;
-    } else {
-      renderCartReview(rows);
-    }
-  } catch (error) {
-    $("#cart-result").innerHTML = `<div class="message error">${escapeHtml(error.message)}</div>`;
-  } finally {
-    button.disabled = false;
-    button.textContent = cartButtonLabel();
-  }
 }
 
 // De titel van een receptkaart, overal gelijk (sinds 4.8.0). Met een recept om te openen (`open` is `winkel:id`) is de titel een

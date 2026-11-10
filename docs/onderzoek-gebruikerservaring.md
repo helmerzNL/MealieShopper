@@ -16,7 +16,7 @@ onthoudt, (2) terugkoppeling bij wachten, fouten en een verlopen sessie, en (3) 
 | Ronde | Naam | Bevindingen | Stand |
 |---|---|---|---|
 | 1 | Vastlopers en fouten | 1.1, 1.10, 1.11, 2.1, 2.2, 2.6, 2.8, 2.9, 2.13, 2.14, 3.1, 3.3, 6.1, 6.3, 6.10, *Annuleren* met een vraag (uit 1.4) en het begin van 2.3 (meldingen worden voorgelezen) | gebouwd in 4.10.3 |
-| 2 | De app onthoudt je week | 1.2 tot en met 1.9 | voorstel |
+| 2 | De app onthoudt je week | 1.2 tot en met 1.9 | gebouwd in 4.11.0 |
 | 3 | Terugkoppeling en bediening in één stijl | 2.3, 2.4, 2.5, 2.7, 2.10 tot 2.12, 2.15, 2.17, 2.18, 6.2, 6.4, 6.6 tot 6.9, 6.14 | voorstel |
 | 4 | Wegwijs | 2.16, 3.2, 3.5 tot 3.8, 4.1 tot 4.4, 5.1 tot 5.3, 6.5, 6.11 tot 6.13 | voorstel |
 
@@ -24,6 +24,7 @@ Besluiten van de eigenaar (9 november 2026):
 
 - **Sessie: 30 dagen, verlengt bij gebruik** (bij 2.1; daarvoor altijd 24 uur na het inloggen).
 - **Mandje op de telefoon: niets veranderen** (3.4 vervalt; het blijft in het menu *Meer*, zoals `docs/huisstijl.md` beschrijft).
+- **Dagen die voorbij zijn tellen in de lopende week standaard niet mee** (bij 1.5, gebouwd in 4.11.0). Dat is nieuw gedrag; het stond in het plan en is niet apart bevestigd. Een tik op de dag neemt hem toch mee.
 - **Importeren via URL blijft uit het menu** (een besluit van eerder, bewaakt door `tests/test_tabbar.py`). Bevinding 3.3 is
   daarom anders opgelost: een link die je in het zoekveld van *Recepten zoeken* plakt, wordt geïmporteerd.
 

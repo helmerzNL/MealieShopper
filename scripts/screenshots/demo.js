@@ -52,6 +52,7 @@ function base(lang) {
     ["/api/crisp/auth/status*", { connected: true, verified: true, codePending: false, country: "nl" }],
     ["/api/mealie/status*", { configured: true, url: mealieUrl, source: "app", connected: true, verified: true, version: "v2.8.0", username: "anna" }],
     ["/api/update", { available: false, current: VERSION, latest: VERSION }],
+    ["/api/pantry", { items: [] }], // wat je altijd in huis hebt (de boodschappenlijst onder het weekmenu); een scenario kan het vullen
   ];
 }
 

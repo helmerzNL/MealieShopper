@@ -42,9 +42,13 @@ class StoreImageTest(unittest.TestCase):
             "recipe_search.js": ['src="${escapeHtml(storeImage(recipe.image))}"'],
             "app.js": [
                 'src="${escapeHtml(storeImage(product.image))}"',
-                'src="${escapeHtml(storeImage(candidate.image))}"',
-                "img.src = storeImage(candidate.image)",
                 'src="${escapeHtml(storeImage(image))}"',
+            ],
+            # De controlelijst van het weekmenu (sinds 4.11.0 een eigen script): de foto van het gekozen product, de foto's bij de
+            # opties en de foto in het groot.
+            "shopping.js": [
+                'src="${escapeHtml(storeImage(candidate.image))}"',
+                "image.src = storeImage(large)",
             ],
         }
         for script, needles in wanted.items():

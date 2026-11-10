@@ -100,7 +100,10 @@ class WeekMenuTextTest(unittest.TestCase):
         self.assertIn('t("plan.scale"', servings)
 
     def test_the_basket_uses_the_added_up_list(self):
-        self.assertIn("const ingredients = aggregateIngredients(state.entries);", function_source("addToCart"))
+        # Sinds 4.11.0 staat de boodschappenlijst in shopping.js: opgeteld over de dagen waarvoor je boodschappen doet.
+        shopping = (ROOT / "static" / "shopping.js").read_text(encoding="utf-8")
+        self.assertIn("items: shopItems(aggregateIngredients(chosen), shopping.pantry, shopping.picks)", shopping)
+        self.assertIn("const items = shopNow().items.filter((item) => item.checked);", shopping)
 
     def test_both_languages_have_the_texts(self):
         for source in (NL, EN):
