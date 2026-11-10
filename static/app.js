@@ -137,8 +137,41 @@ function escapeHtml(value) {
     .replaceAll("'", "&#039;");
 }
 
+// De sessie verliep terwijl de app open stond (een 401 op een gewone route): de inlogpoort komt over de pagina, met de reden
+// erbij. De pagina eronder blijft staan, dus na het inloggen ga je verder waar je was. Een keer tegelijk: tien verzoeken die
+// samen een 401 krijgen vragen de status maar een keer op.
+let sessionExpiredCheck = null;
+
+function sessionExpired() {
+  if (sessionExpiredCheck) return sessionExpiredCheck;
+  sessionExpiredCheck = (async () => {
+    try {
+      await refreshAuthStatus();
+      if (state.auth?.enabled && !state.auth?.authenticated) message("#auth-message", t("err.session_expired"), "info");
+    } catch {
+      // Geen verbinding of een serverfout: de melding van het verzoek zelf volstaat.
+    } finally {
+      sessionExpiredCheck = null;
+    }
+  })();
+  return sessionExpiredCheck;
+}
+
 async function jsonFetch(url, options = {}) {
-  const response = await fetch(url, { credentials: "same-origin", ...options });
+  let response;
+  try {
+    response = await fetch(url, { credentials: "same-origin", ...options });
+  } catch (error) {
+    // Een afgebroken verzoek (AbortController) is geen storing: wie het afbrak, handelt het zelf af.
+    if (error?.name === "AbortError") throw error;
+    // Geen netwerk of de server is weg: de browser geeft dan zijn eigen Engelse tekst ("Failed to fetch", "Load failed").
+    throw new Error(t("err.offline"));
+  }
+  // De routes onder /api/auth/ geven zelf een 401 bij een verkeerd wachtwoord of een verlopen kaartje: dat is geen verlopen sessie.
+  if (response.status === 401 && state.auth?.authenticated && state.auth?.enabled && !String(url).startsWith("/api/auth/")) {
+    sessionExpired();
+    throw new Error(t("err.session_expired"));
+  }
   let data;
   try {
     data = await response.json();
@@ -159,8 +192,12 @@ async function jsonFetch(url, options = {}) {
   return data;
 }
 
+// Een melding in het vak `target`. Soorten: "error" (de standaard), "warning", "success" en "info" (neutraal: bezig, wachten,
+// een mededeling zonder oordeel). Een fout of waarschuwing is een `alert`, de rest een `status`: zo leest een schermlezer de
+// melding voor zonder dat elk van de vakken in de pagina zelf een rol hoeft te hebben.
 function message(target, text, type = "error") {
-  $(target).innerHTML = text ? `<div class="message ${type}">${escapeHtml(text)}</div>` : "";
+  const role = type === "error" || type === "warning" ? "alert" : "status";
+  $(target).innerHTML = text ? `<div class="message ${type}" role="${role}">${escapeHtml(text)}</div>` : "";
 }
 
 function bufferToBase64url(buffer) {
@@ -332,7 +369,7 @@ async function refreshAuthStatus() {
 }
 
 async function registerPasskey({ username, credentialName, messageTarget, invite }) {
-  message(messageTarget, t("passkey.waiting"), "success");
+  message(messageTarget, t("passkey.waiting"), "info");
   const payload = await jsonFetch("/api/auth/register/options", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -387,7 +424,7 @@ async function deletePasskey(credentialId) {
 }
 
 async function loginWithPasskey() {
-  message("#auth-message", t("passkey.waiting"), "success");
+  message("#auth-message", t("passkey.waiting"), "info");
   const payload = await jsonFetch("/api/auth/login/options", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -405,7 +442,7 @@ async function loginWithPasskey() {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ credential: publicKeyCredentialToJSON(credential) }),
   });
-  message("#auth-message", "Ingelogd.", "success");
+  message("#auth-message", t("auth.logged_in"), "success");
   await refreshAuthStatus();
 }
 
@@ -884,34 +921,10 @@ function renderMealPlan(entries) {
     )
     .join("");
 
-  const ingredients = aggregateIngredients(entries);
-  if (!entries.length) {
-    $("#ingredients-panel").innerHTML = "";
-    message("#planner-message", t("plan.none_planned"), "success");
-    return;
-  }
-  message("#planner-message", "");
-  $("#ingredients-panel").innerHTML = ingredients.length
-    ? `
-      <div class="box ingredients">
-        <h2>${escapeHtml(t("plan.all_ingredients", { count: I18N.formatNumber(ingredients.length) }))}</h2>
-        <ul>
-          ${ingredients.map((item) => `<li>${escapeHtml(item.display || item.food?.name || "-")}</li>`).join("")}
-        </ul>
-        <div class="toolbar ingredients__actions">
-          <span id="cart-store-slot"></span>
-          <label class="switch-row cart-organic" title="${escapeHtml(t("cart.organic_toggle_title"))}">
-            <input type="checkbox" id="cart-organic"${state.auth?.preferOrganic ? " checked" : ""}>
-            <span>${escapeHtml(t("cart.organic_toggle"))}</span>
-          </label>
-          <button class="button" id="add-cart">${escapeHtml(cartButtonLabel())}</button>
-        </div>
-      </div>
-    `
-    : "";
-  $("#add-cart")?.addEventListener("click", addToCart);
-  $("#cart-organic")?.addEventListener("change", (event) => savePreferOrganic(event.target));
-  renderStoreChoice();
+  // De boodschappenlijst (vinkjes, al in huis, de dagen) en de controlelijst van deze week: shopping.js.
+  renderShoppingList();
+  message("#planner-message", entries.length ? "" : t("plan.none_planned"), "info");
+  restoreCartReview();
 }
 
 // *Liever biologisch* (#218): per gebruiker bewaard in het profiel, zodat de schakelaar de volgende keer nog zo staat.
@@ -1017,7 +1030,7 @@ async function loadMealPlan({ force = false } = {}) {
   state.entries = null;
   $("#meal-days").innerHTML = "";
   $("#ingredients-panel").innerHTML = "";
-  message("#planner-message", t("plan.loading"), "success");
+  message("#planner-message", t("plan.loading"), "info");
   setBusy(button, true);
   try {
     const entries = await fetchMealPlan(week);
@@ -1361,13 +1374,18 @@ function dealText(deal) {
   return [deal.label || t("list.bonus"), day].filter(Boolean).join(" ");
 }
 
-function cartCandidateLabel(candidate) {
+// Wat de controlelijst van een product laat zien, naast zijn naam: de inhoud, de prijs, de prijs per kilo, liter of stuk, de
+// aanbieding, biologisch (#218) en waarom een vergelijkingsoptie erbij staat (#178): zelfde product of goedkoper per eenheid.
+function cartCandidateFacts(candidate) {
   const deal = candidate.deal ? dealText(candidate.deal) : "";
-  // De prijs per kilo, liter of stuk en waarom een vergelijkingsoptie erbij staat (#178): zelfde product of goedkoper per eenheid.
   const perUnit = candidate.unitPrice ? offerPerUnitText(candidate.unitPrice) : "";
   const why = [candidate.same ? t("offers.compare.same") : "", candidate.cheaper ? t("offers.compare.cheaper") : ""].filter(Boolean).join(", ");
-  const organic = candidate.organic ? t("cart.organic") : ""; // #218
-  return [candidate.title, candidate.unitSize, formatPrice(candidate.price), perUnit, deal, organic, why].filter(Boolean).join(" \u2013 ");
+  const organic = candidate.organic ? t("cart.organic") : "";
+  return [candidate.unitSize, formatPrice(candidate.price), perUnit, deal, organic, why].filter(Boolean);
+}
+
+function cartCandidateLabel(candidate) {
+  return [candidate.title, ...cartCandidateFacts(candidate)].filter(Boolean).join(" \u2013 ");
 }
 
 // De goedkoopste optie per eenheid van een regel, als die duidelijk (2%) goedkoper is dan de gekozen; anders -1.
@@ -1410,18 +1428,6 @@ function openProductPopup(url) {
   } else {
     window.open(url, "_blank", "noopener,noreferrer");
   }
-}
-
-function cartSelection(row, candidate, quantity) {
-  return {
-    query: row.query,
-    productId: candidate.productId,
-    quantity,
-    title: candidate.title,
-    price: candidate.price,
-    unitSize: candidate.unitSize,
-    image: candidate.image,
-  };
 }
 
 const STORES = {
@@ -1512,6 +1518,13 @@ function renderStoreChoice() {
       $("#cart-store-list").addEventListener("click", (event) => {
         const item = event.target.closest("[data-store]");
         if (!item) return;
+        // Een open controlelijst hoort bij de winkel waar hij voor gezocht is: zijn product-id's zeggen een andere winkel niets.
+        // Wisselen kan dus alleen door de lijst weg te doen, en dat vragen we eerst (cartReviewStore, sinds 4.10.4).
+        const reviewed = cartReviewStore();
+        if (reviewed && reviewed !== item.dataset.store) {
+          if (!window.confirm(t("cart.switch_confirm", { from: STORES[reviewed].name, to: STORES[item.dataset.store].name }))) return;
+          discardCartReview();
+        }
         state.store = item.dataset.store;
         state.preferredStore = state.store;
         try {
@@ -1673,321 +1686,6 @@ try {
   // Geen opslag beschikbaar: AH blijft de standaard.
 }
 
-function showCartResult(data, notFound) {
-  const lines = (data.items || [])
-    .map((item) => {
-      const size = item.product.unitSize ? ` (${escapeHtml(item.product.unitSize)})` : "";
-      return `<li>${escapeHtml(item.quantity)}x ${escapeHtml(item.product.title)}${size}</li>`;
-    })
-    .join("");
-  // Picnic, Jumbo en Crisp melden zelf ook welke producten ze niet in het mandje kregen (of al op het lijstje stonden).
-  const names = state.store === "ah" ? notFound : [...notFound, ...(data.skippedItems || [])];
-  const missing = names.length
-    ? th("cart.missing", { count: names.length, names: names.join(", ") })
-    : "";
-  const ready = currentStore().ready;
-  $("#cart-result").innerHTML = `
-    <div class="message success">${th(ready, { added: data.added }).replace("{missing}", missing)}</div>
-    ${lines ? `<ul class="cart-lines">${lines}</ul>` : ""}
-  `;
-  // Picnic, Jumbo en Crisp vullen het echte mandje: laat zien waar je het kunt bekijken en aanpassen.
-  if (["picnic", "jumbo", "crisp"].includes(state.store)) {
-    $("#cart-result").insertAdjacentHTML(
-      "beforeend",
-      `<p><button class="button button--secondary" id="view-basket" type="button">${escapeHtml(t("basket.view"))}</button></p>`
-    );
-    $("#view-basket").addEventListener("click", () => openBasket(state.store));
-  }
-}
-
-async function submitCart(selection, notFound) {
-  const data = await jsonFetch(`/api/${currentStore().api}/cart`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ items: selection }),
-  });
-  showCartResult(data, notFound);
-}
-
-function reviewSearchHtml(row, extra) {
-  // Zoekveld bij een regel. Bij een niet gevonden regel staat het er direct; bij een gevonden regel klapt het uit
-  // onder "Zoek een ander product", voor als het voorgestelde product niet is wat je zoekt.
-  return `
-    <form class="review-search${extra ? " review-search--extra" : ""}"${extra ? " hidden" : ""}>
-      <input type="search" class="review-search-input" value="${escapeHtml(row.query)}" aria-label="${escapeHtml(t("cart.search_label"))}">
-      <button class="button button--secondary" type="submit">${escapeHtml(t("cart.search_button"))}</button>
-      <small class="review-search-status" role="status"></small>
-    </form>`;
-}
-
-function reviewThumbHtml(candidate) {
-  // De foto van het gekozen product, zodat je ziet wat er in het mandje komt; Picnic heeft geen productpagina, dus daar
-  // is dit de enige manier om het product te zien. Tikken opent hem in het groot (openReviewPhoto). De knop blijft
-  // altijd staan, zodat de kolommen gelijk blijven als er geen foto is of hij niet laadt; dan is hij uitgeschakeld.
-  // De productnaam staat al in de keuzelijst, dus alt is leeg en de knop zegt wat hij doet.
-  const label = escapeHtml(t("cart.photo_open", { title: candidate.title }));
-  const src = candidate.image ? ` src="${escapeHtml(storeImage(candidate.image))}"` : " hidden";
-  return `<button class="review-thumb" type="button" aria-label="${label}" title="${label}"${candidate.image ? "" : " disabled"}><img${src} alt="" width="56" height="56" loading="lazy"></button>`;
-}
-
-function showReviewThumb(button, candidate) {
-  const img = button.querySelector("img");
-  const label = t("cart.photo_open", { title: candidate.title });
-  button.disabled = !candidate.image;
-  button.setAttribute("aria-label", label);
-  button.title = label;
-  img.hidden = !candidate.image;
-  if (candidate.image) img.src = storeImage(candidate.image);
-  else img.removeAttribute("src");
-}
-
-function openReviewPhoto(candidate) {
-  // De foto in het groot. Het grote formaat (imageLarge) geven AH en Picnic mee; laadt dat niet, of is er geen, dan
-  // valt het venster terug op de gewone foto.
-  const image = $("#photo-dialog-image");
-  const large = candidate.imageLarge || candidate.image;
-  if (!large) return;
-  image.dataset.fallback = large !== candidate.image ? storeImage(candidate.image) : "";
-  image.hidden = false;
-  image.src = storeImage(large);
-  $("#photo-dialog-title").textContent = candidate.title;
-  $("#photo-dialog-meta").textContent = [candidate.unitSize, formatPrice(candidate.price)].filter(Boolean).join(" · ");
-  $("#photo-dialog").showModal();
-}
-
-function reviewRowHtml(row, index) {
-  if (!row.candidates.length) {
-    // Niet gevonden: de gebruiker zoekt zelf verder, bijvoorbeeld onder een andere naam (paksoi heet bij AH pak choi).
-    return `
-      <div class="review-row is-missing" data-row="${index}">
-        <input type="checkbox" disabled>
-        <div class="review-ingredient">
-          <strong>${escapeHtml(row.display)}</strong>
-          <small class="review-note">${escapeHtml(row.error || t("cart.not_found"))}</small>
-        </div>
-        ${reviewSearchHtml(row, false)}
-      </div>`;
-  }
-  const first = row.candidates[0];
-  return `
-    <div class="review-row${first.doubt ? " is-doubt" : ""}" data-row="${index}">
-      <input type="checkbox" class="review-include" checked aria-label="${escapeHtml(t("cart.include"))}">
-      <div class="review-ingredient">
-        <strong>${escapeHtml(row.display)}</strong>
-        <small class="review-note">${escapeHtml(first.doubt || "")}</small>
-        ${row.organicMissing ? `<small class="review-organic-missing">${escapeHtml(t("cart.organic_missing"))}</small>` : ""}
-        <small class="review-cheaper" role="status">${reviewCheaperHtml(row, 0)}</small>
-        <button class="link-button review-search-toggle" type="button" aria-expanded="false">${escapeHtml(t("cart.search_other"))}</button>
-      </div>
-      ${reviewThumbHtml(first)}
-      <select class="review-product" aria-label="${escapeHtml(t("cart.product"))}">
-        ${row.candidates
-          .map((candidate, at) => `<option value="${at}">${escapeHtml(cartCandidateLabel(candidate))}</option>`)
-          .join("")}
-      </select>
-      ${
-        first.url
-          ? `<a class="review-link" href="${escapeHtml(first.url)}" target="_blank" rel="noopener noreferrer" title="${escapeHtml(t("cart.view_title"))}">${escapeHtml(t("cart.view"))} ${ICON_EXTERNAL}</a>`
-          : '<span class="review-link"></span>'
-      }
-      <input class="review-qty" type="number" min="1" max="99" value="${first.packs}" aria-label="${escapeHtml(t("cart.packs"))}">
-      ${reviewSearchHtml(row, true)}
-    </div>`;
-}
-
-function renderCartReview(rows) {
-  const missingCount = rows.filter((row) => !row.candidates.length).length;
-  const doubts = rows.filter((row) => row.candidates.length && row.candidates[0].doubt).length;
-  $("#cart-result").innerHTML = `
-    <div class="box cart-review">
-      <h2>${escapeHtml(t("cart.review_title"))}</h2>
-      <p class="muted">${escapeHtml(doubts ? tn("cart.doubts", doubts) : t("cart.review_intro"))}</p>
-      ${missingCount ? `<p class="muted" id="review-missing-hint">${escapeHtml(tn("cart.missing_hint", missingCount))}</p>` : ""}
-      <div class="review-list">${rows.map((row, index) => reviewRowHtml(row, index)).join("")}</div>
-      <div class="cart-review__actions">
-        <button class="button" id="confirm-cart"></button>
-        <button class="button button--secondary" id="cancel-cart">${escapeHtml(t("common.cancel"))}</button>
-      </div>
-    </div>
-  `;
-
-  // De regels kunnen veranderen: een niet gevonden regel wordt na zoeken een gewone regel. Daarom steeds opnieuw zoeken.
-  const includable = () => [...document.querySelectorAll(".review-row[data-row]")].filter((el) => el.querySelector(".review-include"));
-  const updateConfirm = () => {
-    const count = includable().filter((el) => el.querySelector(".review-include").checked).length;
-    const button = $("#confirm-cart");
-    button.disabled = count === 0;
-    button.textContent = tn("cart.confirm", count);
-  };
-  const updateMissingHint = () => {
-    const left = rows.filter((row) => !row.candidates.length).length;
-    const hint = $("#review-missing-hint");
-    if (!hint) return;
-    hint.hidden = left === 0;
-    if (left) hint.textContent = tn("cart.missing_hint", left);
-  };
-
-  const bindRow = (el) => {
-    const row = rows[Number(el.dataset.row)];
-    el.querySelector(".review-search").addEventListener("submit", (event) => {
-      event.preventDefault();
-      searchRow(el, row);
-    });
-    if (!row.candidates.length) return;
-    const form = el.querySelector(".review-search");
-    const toggle = el.querySelector(".review-search-toggle");
-    toggle.addEventListener("click", () => {
-      form.hidden = !form.hidden;
-      toggle.setAttribute("aria-expanded", String(!form.hidden));
-      if (!form.hidden) el.querySelector(".review-search-input").focus();
-    });
-    const thumb = el.querySelector(".review-thumb");
-    const product = el.querySelector(".review-product");
-    // Laadt de foto niet, dan verbergen we hem (en halen we hem niet weg): een ander product kiezen gebruikt hem opnieuw.
-    thumb.querySelector("img").addEventListener("error", (event) => {
-      event.target.hidden = true;
-      thumb.disabled = true;
-    });
-    thumb.addEventListener("click", () => openReviewPhoto(row.candidates[Number(product.value)]));
-    product.addEventListener("change", (event) => {
-      const candidate = row.candidates[Number(event.target.value)];
-      showReviewThumb(thumb, candidate);
-      el.querySelector(".review-qty").value = candidate.packs;
-      const link = el.querySelector("a.review-link");
-      if (link && candidate.url) link.href = candidate.url;
-      el.querySelector(".review-note").textContent = candidate.doubt || "";
-      el.classList.toggle("is-doubt", Boolean(candidate.doubt));
-      el.querySelector(".review-cheaper").innerHTML = reviewCheaperHtml(row, Number(event.target.value));
-    });
-    // "Kies": de goedkoopste optie per eenheid kiezen, alsof je hem in de keuzelijst kiest (ook het aantal verpakkingen rekent mee).
-    el.querySelector(".review-cheaper").addEventListener("click", (event) => {
-      const pick = event.target.closest("[data-pick]");
-      if (!pick) return;
-      product.value = pick.dataset.pick;
-      product.dispatchEvent(new Event("change"));
-      product.focus();
-    });
-    el.querySelector(".review-include").addEventListener("change", updateConfirm);
-    el.querySelector("a.review-link")?.addEventListener("click", (event) => {
-      event.preventDefault();
-      openProductPopup(event.currentTarget.href);
-    });
-  };
-
-  // Zoekt één regel opnieuw met de zoekterm uit het veld, voor een niet gevonden regel en voor een gevonden regel
-  // waar je een ander product wilt. Alleen deze regel wordt vervangen, zodat wat je bij de andere regels hebt
-  // gekozen blijft staan. Vindt de zoekopdracht niets, dan houdt de regel zijn huidige producten.
-  async function searchRow(el, row) {
-    const input = el.querySelector(".review-search-input");
-    const button = el.querySelector(".review-search button");
-    const status = el.querySelector(".review-search-status");
-    const term = input.value.trim();
-    if (!term) return;
-    input.disabled = true;
-    button.disabled = true;
-    status.textContent = t("cart.searching");
-    try {
-      const preview = await jsonFetch(`/api/${currentStore().api}/cart/preview`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ items: [{ query: term, display: row.display, quantity: row.quantity ?? null, unit: row.unit ?? null }] }),
-      });
-      const found = (preview.items || [])[0];
-      if (found?.candidates?.length) {
-        row.query = term;
-        row.candidates = found.candidates;
-        delete row.error;
-        el.outerHTML = reviewRowHtml(row, Number(el.dataset.row));
-        bindRow(document.querySelector(`.review-row[data-row="${el.dataset.row}"]`));
-        updateMissingHint();
-        updateConfirm();
-        return;
-      }
-      status.textContent = found?.error || t("cart.search_none", { term });
-    } catch (error) {
-      status.textContent = error.message;
-    }
-    input.disabled = false;
-    button.disabled = false;
-    input.focus();
-  }
-
-  document.querySelectorAll(".review-row[data-row]").forEach(bindRow);
-  updateConfirm();
-
-  $("#cancel-cart").addEventListener("click", () => {
-    $("#cart-result").innerHTML = "";
-  });
-  $("#confirm-cart").addEventListener("click", async (event) => {
-    const button = event.currentTarget;
-    const selection = includable()
-      .filter((el) => el.querySelector(".review-include").checked)
-      .map((el) => {
-        const row = rows[Number(el.dataset.row)];
-        const candidate = row.candidates[Number(el.querySelector(".review-product").value)];
-        const quantity = Math.min(99, Math.max(1, parseInt(el.querySelector(".review-qty").value, 10) || 1));
-        return cartSelection(row, candidate, quantity);
-      });
-    if (!selection.length) return;
-    button.disabled = true;
-    button.textContent = t("cart.adding");
-    try {
-      await submitCart(
-        selection,
-        rows.filter((row) => !row.candidates.length).map((row) => row.display)
-      );
-    } catch (error) {
-      $("#cart-result").insertAdjacentHTML(
-        "afterbegin",
-        `<div class="message error">${escapeHtml(error.message)}</div>`
-      );
-      // De knop staat in de balk onderaan; de melding staat boven de lijst en moet dus in beeld komen.
-      $("#cart-result .message.error").scrollIntoView({ block: "center" });
-      updateConfirm();
-    }
-  });
-}
-
-async function addToCart() {
-  const ingredients = aggregateIngredients(state.entries);
-  if (!ingredients.length) return;
-  const button = $("#add-cart");
-  button.disabled = true;
-  button.textContent = t("cart.searching");
-  $("#cart-result").innerHTML = "";
-  try {
-    const preview = await jsonFetch(`/api/${currentStore().api}/cart/preview`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        // Vergelijk de verpakkingen: na het voorgestelde product alleen hetzelfde product of wat per eenheid goedkoper is.
-        compare: true,
-        // Liever biologisch (#218): eerst een biologisch product van dezelfde soort, als de winkel het heeft.
-        organic: Boolean(state.auth?.preferOrganic),
-        items: ingredients.map((ingredient) => ({
-          query: ingredient.food?.name || ingredient.display,
-          display: ingredient.display || ingredient.food?.name || "",
-          // Het aantal verpakkingen rekent de server uit met de verpakkingsgrootte van AH.
-          quantity: ingredient.quantity ?? null,
-          unit: ingredient.unit?.name || ingredient.unit?.abbreviation || null,
-        })),
-      }),
-    });
-    const rows = preview.items || [];
-    // Het mandje gaat nooit zonder controle vol: ook zonder twijfel toont de lijst eerst wat erin komt.
-    if (!rows.some((row) => row.candidates.length)) {
-      $("#cart-result").innerHTML = `<div class="message error">${escapeHtml(t("cart.none_found"))}</div>`;
-    } else {
-      renderCartReview(rows);
-    }
-  } catch (error) {
-    $("#cart-result").innerHTML = `<div class="message error">${escapeHtml(error.message)}</div>`;
-  } finally {
-    button.disabled = false;
-    button.textContent = cartButtonLabel();
-  }
-}
-
 // De titel van een receptkaart, overal gelijk (sinds 4.8.0). Met een recept om te openen (`open` is `winkel:id`) is de titel een
 // knop die met zijn ::after de hele kaart beslaat: een tik op de kaart opent het recept in MealieShopper (openStoreRecipe, via
 // data-store-open zoals eerst de knop Bekijken). Zonder recept-id een gewone titel.
@@ -2070,7 +1768,7 @@ async function importUrl(url, button = null) {
     });
     return { ok: true, html: importedMessage(data) };
   } catch (error) {
-    return { ok: false, html: error.message };
+    return { ok: false, html: escapeHtml(error.message) }; // de tekst komt van de server of van Mealie: nooit als HTML
   } finally {
     if (button) {
       button.disabled = false;
@@ -2109,10 +1807,25 @@ for (const store of Object.keys(LINK_FOLDS)) {
   });
 }
 
+// Naar het koppelblok van Mealie of een winkel onder Instellingen, Koppelen: uitgeklapt, in beeld en met de focus op de kop.
+// Tot 4.10.4 opende de knop Instellingen bovenaan, met het blok ergens verderop onder de hulpmiddelen.
+function openLinkBlock(store) {
+  openSettings();
+  state.storeFold[store] = true;
+  applyStoreFold(store, false);
+  const toggle = $(`#${LINK_FOLDS[store]}-toggle`);
+  if (!toggle || isRegularUser()) return;
+  requestAnimationFrame(() => {
+    toggle.scrollIntoView({ block: "center" });
+    toggle.focus({ preventScroll: true });
+  });
+}
+
 async function refreshAhStatus() {
   if (!$("#ah-status")) return;
   try {
     const data = await jsonFetch("/api/ah/auth/status");
+    state.ahConnected = Boolean(data.connected); // het weekmenu vraagt het na voordat het een controlelijst maakt (addToCart)
     renderLinkStatus("#ah-status", STORES.ah.name, data.connected ? "linked" : "unlinked");
     applyStoreFold("ah", Boolean(data.connected));
   } catch (error) {
@@ -2286,7 +1999,7 @@ function weekStartSettled() {
 }
 
 async function checkMealieConnection() {
-  message("#mealie-status", t("mealie.checking"), "success");
+  message("#mealie-status", t("mealie.checking"), "info");
   try {
     renderMealieStatus(await jsonFetch("/api/mealie/status?verify=1"), { verified: true });
   } catch (error) {
@@ -2322,6 +2035,18 @@ async function linkMealie(event) {
   }
 }
 
+// Ontkoppelen vraagt eerst (sinds 4.10.4): het was één klik, terwijl opnieuw koppelen bij Mealie een nieuw token vraagt en bij
+// Jumbo een computer met een console. De knop is bezig tot het antwoord er is, dus twee keer klikken doet niets.
+async function unlinkWithConfirm(button, name, unlink) {
+  if (!window.confirm(t("links.unlink_confirm", { name }))) return;
+  setBusy(button, true);
+  try {
+    await unlink();
+  } finally {
+    setBusy(button, false);
+  }
+}
+
 async function unlinkMealie() {
   try {
     const data = await jsonFetch("/api/mealie/auth/logout", { method: "POST", body: "{}" });
@@ -2334,7 +2059,7 @@ async function unlinkMealie() {
 }
 
 async function checkAhConnection() {
-  message("#ah-status", t("ah.checking"), "success");
+  message("#ah-status", t("ah.checking"), "info");
   try {
     const data = await jsonFetch("/api/ah/auth/status?verify=1");
     if (data.connected) {
@@ -3247,7 +2972,7 @@ $("#plan-recipe-chosen").addEventListener("change", (event) => {
 $("#import-form").addEventListener("submit", async (event) => {
   event.preventDefault();
   const result = await importUrl($("#import-url").value.trim());
-  $("#import-message").innerHTML = `<div class="message ${result.ok ? "success" : "error"}">${result.html}</div>`;
+  $("#import-message").innerHTML = `<div class="message ${result.ok ? "success" : "error"}" role="${result.ok ? "status" : "alert"}">${result.html}</div>`;
 });
 $("#verify-token").addEventListener("click", async () => {
   const token = $("#token-input").value.trim();
@@ -3268,15 +2993,11 @@ $("#verify-token").addEventListener("click", async () => {
 $("#check-ah").addEventListener("click", checkAhConnection);
 $("#mealie-form").addEventListener("submit", linkMealie);
 $("#check-mealie").addEventListener("click", checkMealieConnection);
-$("#mealie-unlink").addEventListener("click", unlinkMealie);
+$("#mealie-unlink").addEventListener("click", (event) => unlinkWithConfirm(event.currentTarget, "Mealie", unlinkMealie));
 $("#mealie-week-start").addEventListener("change", saveWeekStart);
 $("#mealie-nutrition-start").addEventListener("click", startNutritionBackfill);
 $("#mealie-nutrition-stop").addEventListener("click", stopNutritionBackfill);
-$("#open-mealie-setup").addEventListener("click", () => {
-  openSettings();
-  state.storeFold.mealie = true;
-  applyStoreFold("mealie", false);
-});
+$("#open-mealie-setup").addEventListener("click", () => openLinkBlock("mealie"));
 $("#load-ah-lists").addEventListener("click", loadAhFavoriteLists);
 $("#sync-all-ah-lists").addEventListener("click", syncAllAhLists);
 $("#load-ah-recipes").addEventListener("click", () => loadSavedRecipes({ refresh: true }));
@@ -3333,9 +3054,18 @@ $("#mfa-cancel").addEventListener("click", cancelMfa);
 $("#mfa-recovery-toggle").addEventListener("click", toggleRecoveryInput);
 $("#login-passkey").addEventListener("click", handlePasskeyLogin);
 $("#add-passkey").addEventListener("click", addPasskey);
-$("#auth-logout").addEventListener("click", async () => {
-  await jsonFetch("/api/auth/logout", { method: "POST", body: "{}" });
-  await refreshAuthStatus();
+$("#auth-logout").addEventListener("click", async (event) => {
+  // Mislukt het uitloggen (geen verbinding), dan zeggen we dat: op een gedeeld toestel mag je niet denken dat je weg bent.
+  const button = event.currentTarget;
+  button.disabled = true;
+  try {
+    await jsonFetch("/api/auth/logout", { method: "POST", body: "{}" });
+    await refreshAuthStatus();
+  } catch (error) {
+    window.alert(t("auth.logout_failed", { error: error.message }));
+  } finally {
+    button.disabled = false;
+  }
 });
 
 const params = new URLSearchParams(window.location.search);

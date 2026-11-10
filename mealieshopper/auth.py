@@ -1034,5 +1034,5 @@ async def require_auth_for_request() -> tuple[dict[str, Any], int] | None:
             return {"error": tr("Dit kan alleen de beheerder.", "Only the administrator can do this.")}, 403
         return None
     if not await credentials_exist():
-        return {"error": "Setup required"}, 401
-    return {"error": "Unauthorized"}, 401
+        return {"error": tr("Stel eerst de beveiliging in.", "Set up security first.")}, 401
+    return {"error": tr("Je bent niet ingelogd. Log opnieuw in.", "You are not signed in. Sign in again.")}, 401

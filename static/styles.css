@@ -1043,6 +1043,13 @@ a.subtab-menu__item[hidden] {
   box-shadow: inset 4px 0 0 var(--warning-border);
 }
 
+/* Neutraal: bezig, wachten, of een mededeling zonder oordeel (sinds 4.10.4). Geen groen: "Laden..." is geen succes. */
+.message.info {
+  background: var(--surface-muted);
+  color: var(--text);
+  box-shadow: inset 4px 0 0 var(--muted);
+}
+
 .message.warning code {
   background: var(--code-on-message);
 }
@@ -1208,6 +1215,125 @@ a.subtab-menu__item[hidden] {
   gap: 6px 16px;
   margin: 14px 0 0;
   padding-left: 18px;
+}
+
+/* De boodschappenlijst onder het weekmenu (shopping.js, 4.11.0): een aanvinklijst met per regel een huisje voor "altijd in huis",
+   de dagen waarvoor je boodschappen doet als chips erboven, en wat in huis is ingeklapt eronder. Regels van 44 px. */
+/* De knop Boodschappen en het zoeken springen naar deze koppen: onder de balk die bovenaan blijft staan, niet erachter. */
+#shop-title,
+#cart-review-title {
+  scroll-margin-top: 96px;
+}
+
+.shop-days {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.shop-days__label {
+  margin-right: 4px;
+  color: var(--muted);
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+
+.shop-days__note,
+.shop-hint {
+  margin: 8px 0 0;
+  font-size: var(--text-sm);
+}
+
+.ingredients .shop-list {
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 0 16px;
+  margin-top: 10px;
+  padding: 0;
+  list-style: none;
+}
+
+.shop-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.shop-item__label {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  min-height: 44px;
+  cursor: pointer;
+}
+
+.shop-item__label input {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  margin: 0;
+  accent-color: var(--primary);
+}
+
+.shop-item__label span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* Niet mee deze week: doorgestreept en gedempt, dus niet alleen aan het vinkje te zien. */
+.shop-item.is-off .shop-item__label span {
+  color: var(--muted);
+  text-decoration: line-through;
+}
+
+.shop-item__pantry {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.shop-item__pantry svg {
+  width: 22px;
+  height: 22px;
+  fill: currentColor;
+}
+
+/* In huis: het gevulde huisje in de accentkleur (het icoon wisselt mee, dus niet alleen de kleur). */
+.shop-item__pantry[aria-pressed="true"] {
+  color: var(--primary);
+}
+
+@media (hover: hover) {
+  .shop-item__pantry:hover {
+    background: var(--selection);
+    color: var(--primary-strong);
+  }
+}
+
+.shop-pantry {
+  margin-top: 10px;
+  border-top: 1px solid var(--border);
+}
+
+/* display: list-item houdt het driehoekje van de browser, zodat je ziet dat het blok open en dicht kan. */
+.shop-pantry > summary {
+  display: list-item;
+  padding: 11px 0;
+  font-weight: 600;
+  cursor: pointer;
 }
 
 .recipe-card {
@@ -1591,6 +1717,7 @@ html:has(dialog[open]) {
 .product-dialog {
   width: min(480px, calc(100vw - 32px));
   max-height: calc(100vh - 32px);
+  max-height: calc(100dvh - 32px); /* iOS: de zichtbare hoogte, zonder de werkbalk van Safari */
   overflow: auto;
   overscroll-behavior: contain;
   border: 1px solid var(--border);
@@ -1687,6 +1814,7 @@ html:has(dialog[open]) {
   width: 100%;
   aspect-ratio: 1;
   max-height: max(160px, calc(100vh - 220px));
+  max-height: max(160px, calc(100dvh - 220px)); /* iOS: de zichtbare hoogte, zonder de werkbalk van Safari */
   border-radius: var(--radius-control);
   object-fit: contain;
   background: #fff;
@@ -2368,6 +2496,7 @@ html.no-calories .plan-servings__kcal {
     position: sticky;
     top: var(--cook-sticky-top);
     max-height: calc(100vh - var(--cook-sticky-top) - var(--cook-sticky-room));
+    max-height: calc(100dvh - var(--cook-sticky-top) - var(--cook-sticky-room)); /* iOS: de zichtbare hoogte, zonder de werkbalk van Safari */
     overflow-y: auto;
     overscroll-behavior: contain;
   }
@@ -2536,7 +2665,7 @@ details.help > p {
    breed (vanaf 900 px): alles op één regel, van ingrediënt naar product. */
 .review-row {
   display: grid;
-  grid-template-columns: auto 56px minmax(0, 1fr) 72px;
+  grid-template-columns: auto 56px minmax(0, 1fr) auto;
   grid-template-areas:
     "include thumb ingredient ingredient"
     "product product product product"
@@ -2576,16 +2705,16 @@ details.help > p {
 
 .review-row .review-qty {
   grid-area: qty;
-  width: 72px;
 }
 
-.review-row .review-search--extra {
+/* De opties van een regel (Wijzig): onder de regel, over de volle breedte. */
+.review-row .review-options {
   grid-column: 1 / -1;
 }
 
 @container (min-width: 520px) {
   .review-row {
-    grid-template-columns: auto 56px minmax(0, 1fr) 72px;
+    grid-template-columns: auto 56px minmax(0, 1fr) auto;
     grid-template-areas:
       "include thumb ingredient link"
       "include thumb product qty";
@@ -2596,14 +2725,14 @@ details.help > p {
     justify-self: end;
   }
 
-  .review-row .review-search--extra {
+  .review-row .review-options {
     grid-column: 3 / -1;
   }
 }
 
 @container (min-width: 900px) {
   .review-row {
-    grid-template-columns: auto 56px minmax(0, 1fr) minmax(0, 1.4fr) auto 72px;
+    grid-template-columns: auto 56px minmax(0, 1fr) minmax(0, 1.4fr) auto auto;
     grid-template-areas: "include thumb ingredient product link qty";
   }
 
@@ -2671,16 +2800,35 @@ details.help > p {
   box-shadow: var(--shadow-md);
 }
 
+/* Het geschatte totaal links in de balk met Toevoegen en Annuleren (sinds 4.11.0). Voor de regel van de telefoon hieronder, die het op een eigen regel zet. */
+.cart-review__total {
+  flex: 1 1 0;
+  min-width: 7em;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.cart-review__total:empty {
+  display: none;
+}
+
 /* Op een telefoon naast elkaar: de toevoegknop neemt de ruimte, zodat de balk laag blijft. */
 @media (max-width: 640px) {
   .cart-review__actions {
-    flex-wrap: nowrap;
     margin-inline: -12px;
     padding: 8px;
   }
 
+  /* Het totaal op een eigen regel boven de knoppen: naast elkaar brak de tekst van de toevoegknop in vier regels. */
+  .cart-review__total {
+    flex: 1 0 100%;
+    margin: 0 4px;
+    font-size: var(--text-md);
+  }
+
   .cart-review__actions #confirm-cart {
-    flex: 1 1 auto;
+    flex: 1 1 0;
+    min-width: 0;
   }
 }
 
@@ -2699,10 +2847,6 @@ details.help > p {
   display: none;
 }
 
-.review-search--extra {
-  grid-column: 1 / -1;
-}
-
 .review-search-status {
   flex-basis: 100%;
   color: var(--muted);
@@ -2711,17 +2855,6 @@ details.help > p {
 
 .review-search-status:empty {
   display: none;
-}
-
-/* .review-row erbij: .link-button (44 px hoog) staat verderop en zou anders winnen. Een losse tekstlink van 24 px met ruimte
-   eromheen (WCAG 2.5.8); "Kies" staat in de zin en mag zo hoog zijn als de regel. */
-.review-row .review-search-toggle {
-  display: block;
-  min-height: 24px;
-  margin-top: 4px;
-  padding: 0;
-  font-size: var(--text-sm);
-  text-align: left;
 }
 
 .review-search-input {
@@ -2776,20 +2909,200 @@ details.help > p {
   accent-color: var(--primary);
 }
 
-.review-row .review-product,
-.review-row .review-qty {
+/* Het gekozen product (sinds 4.11.0 een knop in plaats van een keuzelijst van het systeem, die op een telefoon de lange regel
+   afkapte): de naam en daaronder inhoud, prijs en prijs per eenheid. Tikken klapt de opties uit. */
+.review-row .review-product {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-width: 0;
   min-height: var(--control-height);
   border: 1px solid var(--border);
   border-radius: var(--radius-control);
   background: var(--surface);
   color: var(--text);
   font: inherit;
-  font-size: var(--text-base);
-  padding: 0 8px;
+  font-size: var(--text-ui);
+  padding: 6px 10px;
+  text-align: left;
+  cursor: pointer;
+  box-shadow: var(--shadow-xs);
 }
 
-.review-row .review-product {
-  width: 100%;
+.review-row .review-product[aria-expanded="true"] {
+  border-color: var(--primary);
+}
+
+.review-chosen__text {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.review-chosen__text strong,
+.review-chosen__text small,
+.review-option__text strong,
+.review-option__text small {
+  display: block;
+  overflow-wrap: anywhere;
+}
+
+.review-chosen__text small,
+.review-option__text small {
+  margin-top: 1px;
+  color: var(--muted);
+  font-size: var(--text-sm);
+  font-weight: 400;
+}
+
+.review-chosen__change {
+  flex: none;
+  color: var(--primary);
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+
+/* Het aantal verpakkingen: de -/+-knop van de lijstjes, hier 44 px omdat je de lijst ook staand in de keuken naloopt. */
+.review-qty .qty__step,
+.review-qty .qty__input {
+  width: 44px;
+  height: 44px;
+}
+
+.review-options {
+  display: grid;
+  gap: 10px;
+  padding-top: 4px;
+}
+
+.review-options__list {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.review-option {
+  display: grid;
+  grid-template-columns: auto 40px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  min-height: 52px;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--surface);
+  cursor: pointer;
+}
+
+.review-option.is-chosen {
+  border-color: var(--primary);
+  background: var(--selection);
+}
+
+.review-option input {
+  width: 20px;
+  height: 20px;
+  margin: 0;
+  accent-color: var(--primary);
+}
+
+.review-option__image {
+  display: block;
+  width: 40px;
+  height: 40px;
+  border-radius: var(--radius-sm);
+  object-fit: contain;
+  background: #fff;
+}
+
+span.review-option__image {
+  background: var(--surface-muted);
+}
+
+/* Eerder gekozen (cart_memory): een label met de knop om het te vergeten. */
+.review-remembered {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  margin-top: 3px;
+  font-size: var(--text-sm);
+}
+
+.review-remembered__tag {
+  padding: 1px 8px;
+  border: 1px solid var(--selection-border);
+  border-radius: var(--radius-pill);
+  background: var(--selection);
+  color: var(--primary-strong);
+  font-weight: 600;
+}
+
+.review-row .review-remembered .link-button {
+  min-height: 24px;
+  padding: 0;
+  font-size: var(--text-sm);
+}
+
+/* Een regel die nog gezocht wordt. */
+.review-row.is-pending {
+  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-areas: "include ingredient";
+  border-style: dashed;
+  color: var(--muted);
+}
+
+.review-pending__icon {
+  grid-area: include;
+  width: 20px;
+  height: 20px;
+  fill: currentColor;
+  animation: spin 1s linear infinite;
+}
+
+.review-row.is-pending .review-note {
+  color: var(--muted);
+}
+
+/* De groepen van de controlelijst: wat je moet nakijken, wat in orde is en wat nog gezocht wordt. */
+.review-group {
+  margin-top: 18px;
+}
+
+.review-group[hidden] {
+  display: none;
+}
+
+.review-group h3 {
+  margin: 0;
+  font-size: var(--text-base);
+}
+
+.review-group .review-list {
+  margin-top: 8px;
+}
+
+.review-progress {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  margin-top: 12px;
+  padding: 8px 12px;
+  border-radius: var(--radius-control);
+  background: var(--surface-muted);
+  font-weight: 600;
+}
+
+.review-progress[hidden] {
+  display: none;
+}
+
+.review-progress .button {
+  margin-left: auto;
 }
 
 /* De foto van het gekozen product; zelfde tegel als bij .product-card. Een knop: tikken toont hem groot (#photo-dialog). */
@@ -3935,6 +4248,13 @@ button.plan-recipe:focus-visible {
   }
 }
 
+/* Hetzelfde voor het icoon bij een regel van de controlelijst die nog gezocht wordt. */
+@media (prefers-reduced-motion: reduce) {
+  .review-pending__icon {
+    animation: none;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   #offers-ai-run .ai-run__icon {
     animation: none;
@@ -4765,8 +5085,18 @@ html.is-standalone body {
     display: block;
   }
 
+  /* Het lange label is in de balk niet te zien, maar blijft de naam van de tab voor een schermlezer: het korte label eronder
+     heeft aria-hidden. Tot 4.10.4 stond hier display: none en had een tab in de balk geen naam (zoals .visually-hidden). */
   html.has-tabbar .tab-text {
-    display: none;
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+    border: 0;
   }
 
   html.has-tabbar .tab-short {
@@ -7901,6 +8231,7 @@ html.is-standalone body {
   width: 640px;
   max-width: calc(100vw - 32px);
   max-height: calc(100vh - 32px);
+  max-height: calc(100dvh - 32px); /* iOS: de zichtbare hoogte, zonder de werkbalk van Safari */
   overflow: auto;
   overscroll-behavior: contain;
   padding: 16px;
@@ -7965,6 +8296,7 @@ html.is-standalone body {
   z-index: 60;
   max-width: calc(100vw - 32px);
   max-height: calc(100vh - 32px);
+  max-height: calc(100dvh - 32px); /* iOS: de zichtbare hoogte, zonder de werkbalk van Safari */
   overflow: auto;
   overscroll-behavior: contain;
   background: var(--surface);

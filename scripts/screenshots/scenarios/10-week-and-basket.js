@@ -315,8 +315,12 @@ module.exports = [
     routes: { "/api/mealplan*": mealPlan, "/api/ah/cart/preview": cartPreview },
     run: async (page) => {
       await page.waitForSelector("#add-cart");
+      // De dagen die voorbij zijn tellen standaard niet mee (sinds 4.11.0); hier de hele week, met de twijfelregel van maandag.
+      while (await page.locator('[data-shop-day][aria-pressed="false"]').count()) await page.locator('[data-shop-day][aria-pressed="false"]').first().click();
       await page.click("#add-cart");
       await page.waitForSelector(".cart-review");
+      // De lijst zoekt in groepen (sinds 4.11.0): wachten tot de stand erboven weg is.
+      await page.waitForSelector("#review-progress", { state: "hidden" });
       await scrollTo(page, ".cart-review");
     },
   },

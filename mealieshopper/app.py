@@ -12,7 +12,7 @@ import sqlite3
 import httpx
 from quart import Quart, Response, jsonify, redirect, render_template, request, send_file, send_from_directory
 
-from . import about, ah, ah_explore, ah_lists, ah_orders, ah_planner, ah_recipes, ai_match, ai_review, audit, auth_password, backup, crisp, crisp_orders, factory_reset, hellofresh, image_cache, jumbo, jumbo_explore, jumbo_lists, jumbo_orders, jumbo_recipes, marleyspoon, mcp_http, mealie, mealie_images, offers, offers_schedule, onboarding, picnic, picnic_explore, picnic_orders, picnic_recipes, price_archive, price_import, prices, product_images, product_links, profile, recipe_bulk, recipe_nutrition, request_body, server_settings, updates, users
+from . import about, ah, ah_explore, ah_lists, ah_orders, ah_planner, ah_recipes, ai_match, ai_review, audit, auth_password, backup, cart_memory, crisp, crisp_orders, factory_reset, hellofresh, image_cache, jumbo, jumbo_explore, jumbo_lists, jumbo_orders, jumbo_recipes, marleyspoon, mcp_http, mealie, mealie_images, offers, offers_schedule, onboarding, picnic, picnic_explore, picnic_orders, picnic_recipes, price_archive, price_import, prices, product_images, product_links, profile, recipe_bulk, recipe_nutrition, request_body, server_settings, updates, users
 from . import auth, deals, http_client, tasks, urls
 from . import assets
 from .body_limits import DEFAULT_MAX_BODY, SizedRequest
@@ -1044,12 +1044,30 @@ def create_app() -> Quart:
             "doubt": doubt,
         }
 
-    async def cart_preview(search: Any, make_candidate: Any) -> Any:
+    async def remember_choices(store: str, items: list[Any], skip: Any = ()) -> None:
+        """Bewaar wat de gebruiker in de controlelijst zelf koos (`remember`), nadat het in het mandje staat (4.11.0).
+
+        Mislukt het bewaren, dan staat het mandje er nog: het is een geheugensteun, geen deel van het toevoegen. `skip` zijn de
+        producten die de winkel weigerde; die onthouden we niet."""
+        refused = {str(product_id) for product_id in skip}
+        chosen = [item for item in items if isinstance(item, dict) and item.get("remember") is True and item.get("productId") and str(item["productId"]) not in refused]
+        if not chosen:
+            return
+        try:
+            await cart_memory.remember(await auth.acting_user_id(), store, chosen)
+        except Exception:  # noqa: BLE001 - het mandje is gevuld; een keuze die niet bewaard is, kies je de volgende keer opnieuw
+            app.logger.exception("cart choices not saved")
+
+    async def cart_preview(store: str, search: Any, make_candidate: Any) -> Any:
         """Zoek per ingredient de beste producten en reken het aantal verpakkingen uit.
 
         Een regel met `doubt` is er niet zeker van; de gebruiker kiest dan zelf. Gedeeld door
         alle supermarkten: `search(query, limit)` en `make_candidate(product, quantity, unit)`
         zijn de enige winkelspecifieke delen.
+
+        Koos de gebruiker bij dit ingrediënt eerder zelf een product (`cart_memory`, 4.11.0), dan staat dat vooraan met
+        `remembered`; het gewone voorstel blijft als keuze staan. Bestaat het product niet meer, dan blijft het gewone voorstel
+        met `rememberedMissing` (de titel van wat er niet meer is).
         """
         body = await request_body.json_object()
         items = body.get("items") or []
@@ -1060,6 +1078,23 @@ def create_app() -> Quart:
         compare = bool(body.get("compare"))
         # *Liever biologisch* (#218): bij het weekmenu eerst een biologisch product van dezelfde soort, als de winkel het heeft.
         organic = compare and body.get("organic") is True
+        try:
+            choices = await cart_memory.chosen(await auth.acting_user_id(), store)
+        except Exception:  # noqa: BLE001 - zonder geheugen is het de controlelijst van voorheen
+            app.logger.exception("cart choices not read")
+            choices = {}
+
+        async def remembered_candidate(choice: dict[str, Any], candidates: list[dict[str, Any]], candidates_of: Any) -> dict[str, Any] | None:
+            """Het onthouden product als kandidaat: uit de zoekresultaten, en anders met één zoekopdracht op zijn titel."""
+            wanted = str(choice["productId"])
+            found = next((candidate for candidate in candidates if str(candidate.get("productId")) == wanted), None)
+            if not found:
+                try:
+                    extra = candidates_of(await search(choice["title"], prices.CHECK_LIST_SIZE))
+                except Exception:  # noqa: BLE001 - lukt de extra zoekopdracht niet, dan blijft het gewone voorstel staan
+                    extra = []
+                found = next((candidate for candidate in extra if str(candidate.get("productId")) == wanted), None)
+            return found
 
         async def resolve(item: dict[str, Any]) -> dict[str, Any]:
             query = str(item.get("query") or "")
@@ -1098,7 +1133,18 @@ def create_app() -> Quart:
                 candidates, found = await prices.organic_first(candidates, search_organic, query)
                 result["organic"] = True
                 result["organicMissing"] = not found
-            result["candidates"] = prices.check_list_candidates(candidates, compare, query, regular)
+            choice = choices.get(cart_memory.key(query))
+            kept = await remembered_candidate(choice, candidates, candidates_of) if choice else None
+            listed = prices.check_list_candidates(candidates, compare, query, regular)
+            if kept:
+                # Je eigen keuze vooraan, ook voor Liever biologisch; het gewone voorstel en de vergelijking blijven eronder staan.
+                kept = {**kept, "remembered": True, "unitPrice": prices.unit_price(prices.per_item_price(kept), kept.get("unitSize"))}
+                for flag in ("suggested", "same", "cheaper"):
+                    kept.pop(flag, None)
+                listed = [kept, *(candidate for candidate in listed if str(candidate.get("productId")) != str(kept.get("productId")))]
+            elif choice:
+                result["rememberedMissing"] = choice["title"]
+            result["candidates"] = listed
             return result
 
         # Hooguit zes regels tegelijk, zoals de zes threads van voorheen, in de volgorde van `items` en elk met een kopie van
@@ -1107,9 +1153,34 @@ def create_app() -> Quart:
         resolved: list[dict[str, Any]] = await tasks.map_bounded(CART_PREVIEW_WORKERS, resolve, items)
         return jsonify({"items": resolved})
 
+    # Wat het weekmenu per gebruiker onthoudt (cart_memory.py, 4.11.0): wat je altijd in huis hebt, en het product dat je bij
+    # een ingrediënt koos. Voor elke ingelogde gebruiker, over zijn eigen gegevens.
+
+    @app.get("/api/pantry")
+    async def pantry_list():
+        return jsonify({"items": await cart_memory.pantry(await auth.acting_user_id())})
+
+    @app.post("/api/pantry")
+    async def pantry_set():
+        body = await request_body.json_object()
+        try:
+            items = await cart_memory.set_pantry(await auth.acting_user_id(), body.get("name"), body.get("present") is not False)
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+        return jsonify({"items": items})
+
+    @app.post("/api/cart/choices/forget")
+    async def cart_choice_forget():
+        body = await request_body.json_object()
+        try:
+            removed = await cart_memory.forget(await auth.acting_user_id(), body.get("store"), body.get("query"))
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+        return jsonify({"removed": removed})
+
     @app.post("/api/ah/cart/preview")
     async def ah_cart_preview():
-        return await cart_preview(prices.recorded("ah", ah.search_products), cart_candidate)
+        return await cart_preview("ah", prices.recorded("ah", ah.search_products), cart_candidate)
 
     @app.post("/api/ah/cart")
     async def ah_cart():
@@ -1179,6 +1250,7 @@ def create_app() -> Quart:
         except Exception as exc:
             app.logger.exception("AH cart error")
             return jsonify({"error": str(exc)}), 424
+        await remember_choices("ah", items)
 
         skipped = [item for item in diagnostics if item["status"] != "gevonden"]
         return jsonify(
@@ -1254,6 +1326,7 @@ def create_app() -> Quart:
             return error(exc)
         failed_ids = {entry["productId"] for entry in result["failed"]}
         skipped += [entry["query"] for entry in matched if entry["productId"] in failed_ids]
+        await remember_choices(store.__name__.rsplit(".", 1)[-1], items, failed_ids)
         return jsonify(
             {
                 "added": len(result["added"]),
@@ -1317,7 +1390,7 @@ def create_app() -> Quart:
 
     @app.post("/api/picnic/cart/preview")
     async def picnic_cart_preview():
-        return await cart_preview(prices.recorded("picnic", picnic.search_products), picnic.candidate)
+        return await cart_preview("picnic", prices.recorded("picnic", picnic.search_products), picnic.candidate)
 
     @app.get("/api/picnic/cart")
     async def picnic_cart_get():
@@ -1501,7 +1574,7 @@ def create_app() -> Quart:
 
     @app.post("/api/crisp/cart/preview")
     async def crisp_cart_preview():
-        return await cart_preview(prices.recorded("crisp", crisp.search_products), crisp.candidate)
+        return await cart_preview("crisp", prices.recorded("crisp", crisp.search_products), crisp.candidate)
 
     @app.get("/api/crisp/cart")
     async def crisp_cart_get():
@@ -1763,7 +1836,7 @@ def create_app() -> Quart:
 
     @app.post("/api/jumbo/cart/preview")
     async def jumbo_cart_preview():
-        return await cart_preview(prices.recorded("jumbo", jumbo.search_products), jumbo.candidate)
+        return await cart_preview("jumbo", prices.recorded("jumbo", jumbo.search_products), jumbo.candidate)
 
     @app.get("/api/jumbo/cart")
     async def jumbo_cart_get():

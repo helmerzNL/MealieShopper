@@ -80,8 +80,22 @@ function routerSync({ replace = false } = {}) {
   routerRefreshLinks();
 }
 
+// De titel van het tabblad volgt het scherm (sinds 4.10.4): "Weekmenu \u00b7 Recepten \u00b7 MealieShopper". Daarvoor heette elk
+// scherm MealieShopper, in de tabbladen, in de geschiedenis van de browser en voor een schermlezer. Eerst het open subtabblad,
+// dan het onderdeel: de actieve tab van het hoofdmenu, of de kop van een scherm uit het menu Meer (Instellingen, Profiel, Over).
+function routerTitle() {
+  const text = (node) => String(node?.textContent || "").trim();
+  const panel = document.querySelector(".panel.is-active");
+  const sub = text(panel?.querySelector?.(".subtabs .subtab.is-active:not(.subtab-menu__toggle)"));
+  const section = text(document.querySelector(".tabs .tab.is-active[data-tab] .tab-text")) || text(panel?.querySelector?.("h2"));
+  const parts = [sub, section].filter((part, at, all) => part && all.indexOf(part) === at);
+  if (parts.some((part) => part.includes("MealieShopper"))) return parts.find((part) => part.includes("MealieShopper")); // Over MealieShopper
+  return [...parts, "MealieShopper"].join(" \u00b7 ");
+}
+
 // De links in de subtabbalken hangen af van de gekozen winkel; dit houdt ze gelijk met wat een klik zou openen.
 function routerRefreshLinks() {
+  document.title = routerTitle();
   const itemsStore = state.itemsStore || "ah";
   document.querySelectorAll("#ah-items .subtab[data-subtab]").forEach((link) => {
     const section = routerSlug(STORE_SECTIONS[itemsStore], link.dataset.subtab);
@@ -293,3 +307,8 @@ document.addEventListener("visibilitychange", () => {
 });
 window.addEventListener("focus", routerCheckAssets);
 setInterval(routerCheckAssets, ROUTER_ASSET_INTERVAL);
+
+// Een andere taal: de titel van het tabblad volgt de vertaalde naam van het scherm.
+window.addEventListener("ms:languagechange", () => {
+  if (router.started) document.title = routerTitle();
+});

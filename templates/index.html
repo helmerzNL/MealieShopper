@@ -594,6 +594,7 @@
             <button class="icon-button" id="next-week" type="button" aria-label="Volgende week" data-i18n-attr="aria-label:plan.next_week"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8.59,16.58L13.17,12L8.59,7.41L10,6L16,12L10,18L8.59,16.58Z"/></svg></button>
             <button class="icon-button" id="load-plan" type="button" aria-label="Weekmenu synchroniseren" title="Weekmenu synchroniseren" data-i18n-attr="aria-label:plan.sync;title:plan.sync"><svg viewBox="0 0 24 24" aria-hidden="true" data-mdi="mdiSync"><path d="M12,18A6,6 0 0,1 6,12C6,11 6.25,10.03 6.7,9.2L5.24,7.74C4.46,8.97 4,10.43 4,12A8,8 0 0,0 12,20V23L16,19L12,15M12,4V1L8,5L12,9V6A6,6 0 0,1 18,12C18,13 17.75,13.97 17.3,14.8L18.76,16.26C19.54,15.03 20,13.57 20,12A8,8 0 0,0 12,4Z"/></svg></button>
             <button class="button button--secondary week-today" id="this-week" type="button" data-i18n="week.this" hidden>Deze week</button>
+            <button class="button button--secondary shop-jump" id="shop-jump" type="button" hidden></button>
           </div>
         </div>
         <div id="planner-message"></div>
@@ -606,7 +607,7 @@
         <div id="search-main">
           <h2 class="page-title page-title--tree" data-i18n="nav.search">Recepten zoeken</h2>
           <form class="form-row" id="search-form">
-            <input class="input" id="recipe-query" type="search" placeholder="Zoek een recept in Mealie of bij AH, Jumbo, Picnic, HelloFresh en Marley Spoon..." autocomplete="off" enterkeyhint="search" data-i18n-attr="placeholder:search.placeholder">
+            <input class="input" id="recipe-query" type="search" placeholder="Zoek een recept, of plak een link om het te importeren..." autocomplete="off" enterkeyhint="search" data-i18n-attr="placeholder:search.placeholder">
             <button class="button" type="submit" data-i18n="search.submit">Zoeken</button>
           </form>
           <div class="kcal-filter kcal-filter--search" role="group" aria-labelledby="search-kcal-label">
@@ -660,7 +661,7 @@
           <p class="muted" data-i18n="search.intro">Zoekt in één keer in Mealie, bij je winkels en in de weekmenu's van HelloFresh en Marley Spoon.</p>
           <details class="help">
             <summary data-i18n="common.help">Hoe werkt dit?</summary>
-            <p class="muted" data-i18n="search.intro_more">Albert Heijn doet altijd mee, Jumbo, Picnic en Crisp zodra ze gekoppeld zijn; voor de menu's van HelloFresh en Marley Spoon (deze week en de komende weken) is geen koppeling nodig. Bekijk een recept voor de ingrediënten en de bereiding, of plan het in je weekmenu; een recept van een winkel komt dan ook in Mealie.</p>
+            <p class="muted" data-i18n="search.intro_more">Albert Heijn doet altijd mee, Jumbo, Picnic en Crisp zodra ze gekoppeld zijn; voor de menu's van HelloFresh en Marley Spoon (deze week en de komende weken) is geen koppeling nodig. Bekijk een recept voor de ingrediënten en de bereiding, of plan het in je weekmenu; een recept van een winkel komt dan ook in Mealie. Plak je een link naar een recept op een andere site (https://...) in het zoekveld, dan importeert Zoeken dat recept in Mealie.</p>
           </details>
           <div id="search-message"></div>
           <div id="search-sections">
@@ -869,6 +870,10 @@
           <div id="offers-active-filters" class="offer-cats offer-cats--active-filters" role="group" aria-label="Actieve filters" data-i18n-attr="aria-label:offers.filters.active" hidden></div>
           <div id="offers-loading" class="offers-loading" role="status" aria-live="polite" hidden></div>
           <div id="offers-products" class="product-grid product-grid--offers"></div>
+          <div class="message info message--action" id="offers-empty" role="status" hidden>
+            <span data-i18n="offers.empty_filtered">Geen aanbiedingen met deze filters en zoekterm.</span>
+            <button class="button button--secondary inline-button" id="offers-empty-clear" type="button" data-i18n="offers.empty_clear">Alles tonen</button>
+          </div>
           <div id="offer-popup" class="offer-popup" tabindex="-1" hidden></div>
           <p><button class="button button--secondary" id="offers-more" type="button" hidden data-i18n="offers.more">Meer</button></p>
           </div>
@@ -2298,6 +2303,7 @@
     <script src="{{ url_for('static', filename='i18n/en.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='theme.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='app.js', v=config.ASSET_VERSION) }}"></script>
+    <script src="{{ url_for('static', filename='shopping.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='recipe_view.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='categories.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='users.js', v=config.ASSET_VERSION) }}"></script>
