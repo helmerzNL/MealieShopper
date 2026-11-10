@@ -55,6 +55,7 @@ const renderOffers = () => {};
 const renderOffersLoading = () => {};
 const endOffersLoading = () => {};
 const showOfferRecipes = () => {};
+const loadOfferCart = () => {};
 const message = () => {};
 const renderOfferHistory = () => {};
 const offerHistoryKey = product => `${product.store}:${product.productId}`;

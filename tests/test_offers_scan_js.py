@@ -94,6 +94,7 @@ PRELUDE = "\n".join(
         "const offerHistoryStats = () => '<dl class=\"ohc-stats\"></dl>';",
         "const offerHistoryChartBlock = (product, options) => '<div class=\"ohc-block\" data-buttons=\"' + (!options || options.buttons !== false) + '\" data-ranges=\"' + (options && options.ranges && options.ranges === offerPopup.ranges ? 'popup' : '') + '\"></div>';",
         "const offerHistoryLegend = () => '<ul class=\"ohc-legend\"></ul>';",
+        "const offerCartControl = (offer) => '<div class=\"offer-cart\" data-cart=\"' + offer.id + '\"></div>';",
         "const offerHistoryPurchasesTable = (product) => (product.purchases || []).length ? '<table class=\"ohc-table\"></table>' : '';",
         "const priceHistoryPath = (store, title, id) => '/offers/history?product=' + id;",
         "const offerDateText = (day) => String(day);",

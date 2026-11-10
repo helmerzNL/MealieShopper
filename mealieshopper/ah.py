@@ -1988,6 +1988,11 @@ async def add_to_shopping_list(items: list[dict[str, Any]]) -> None:
         json=payload,
         timeout=30,
     )
+    _check_shopping_list_write(response)
+
+
+def _check_shopping_list_write(response: httpx.Response) -> None:
+    """Een geweigerde schrijfactie op de boodschappenlijst als fout, met gewone woorden als er een bestelling open staat."""
     if response.status_code == 412 and "order mode" in response.text.lower():
         # Er staat een bestelling open: dan weigert AH de boodschappenlijst. Zeg dat in gewone woorden.
         raise RuntimeError(
@@ -2063,7 +2068,12 @@ async def get_shopping_list() -> dict[str, Any]:
     geen product maar een `description`. Afgevinkte regels (`strikedthrough`) laten we weg. De lezing is ruim: ook een kale
     lijst, `product` direct in de regel en de schrijfwijze `strikeThrough` worden begrepen.
     """
-    data = await _get_json("/mobile-services/shoppinglist/v2/items") or {}
+    return _shopping_list_from(await _get_json("/mobile-services/shoppinglist/v2/items"))
+
+
+def _shopping_list_from(data: Any) -> dict[str, Any]:
+    """De boodschappenlijst uit een antwoord van AH: van het lezen en van een PATCH, die de hele lijst teruggeeft."""
+    data = data or {}
     entries = data if isinstance(data, list) else data.get("items") or data.get("products") or []
     items = []
     for entry in entries:
@@ -2079,6 +2089,39 @@ async def get_shopping_list() -> dict[str, Any]:
         item = _order_item({"quantity": quantity, "product": {**product, "webshopId": product.get("webshopId") or entry.get("productId"), "title": title}})
         items.append({**item, "quantity": quantity})
     return {"id": None, "state": "", "shoppingType": "", "total": None, "discount": None, "deliveryDate": "", "slotStart": "", "slotEnd": "", "items": items}
+
+
+async def set_shopping_list_quantity(product_id: Any, quantity: Any, title: Any = "") -> dict[str, Any]:
+    """Zet een product in het AH-mandje (de boodschappenlijst) op een exact aantal; 0 haalt het weg. Geeft de lijst daarna.
+
+    Gemeten bij AH op 2026-11-10: het aantal in de PATCH vervangt wat er stond (1, dan 3 geeft 3, niet 4), aantal 0 haalt de
+    regel weg, en het antwoord is de hele lijst. De actieve bestelling van AH kan dit ook, maar alleen als er een bestelling open
+    staat (`Appie-Current-Order-Id`), dus daar schrijft de app niet in.
+    """
+    whole: str = tr("Het aantal moet een heel getal zijn", "The quantity must be a whole number")
+    try:
+        product: int = int(product_id)
+    except (TypeError, ValueError):
+        raise ValueError(tr("Onbekend product", "Unknown product")) from None
+    if isinstance(quantity, bool) or (isinstance(quantity, float) and not quantity.is_integer()):
+        raise ValueError(whole)
+    try:
+        target: int = int(quantity)
+    except (TypeError, ValueError):
+        raise ValueError(whole) from None
+    if not 0 <= target <= MAX_CART_QUANTITY:
+        raise ValueError(tr(f"Het aantal moet tussen 0 en {MAX_CART_QUANTITY} liggen", f"The quantity must be between 0 and {MAX_CART_QUANTITY}"))
+    description: str = _text(title)
+    line: dict[str, Any] = {"description": description, "productId": product, "quantity": target, "type": "SHOPPABLE", "originCode": "PRD",
+                            "searchTerm": description, "strikeThrough": False}
+    response: httpx.Response = await _client().patch(
+        f"{AH_API_BASE}/mobile-services/shoppinglist/v2/items", headers=_auth_headers(await get_user_token()), json={"items": [line]}, timeout=30,
+    )
+    _check_shopping_list_write(response)
+    try:
+        return _shopping_list_from(response.json())
+    except ValueError:  # geen JSON terug: dan lezen we de lijst zelf
+        return await get_shopping_list()
 
 
 async def get_active_order() -> dict[str, Any]:

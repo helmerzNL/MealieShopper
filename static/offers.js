@@ -624,7 +624,7 @@ function offerCardFoot(offer) {
     ? `<button class="icon-button offer-card__compare" type="button" data-compare="${escapeHtml(offer.id)}" title="${compareLabel}" aria-label="${compareLabel}">${mdiIcon(MDI_COMPARE_HORIZONTAL)}</button>`
     : "";
   const history = `<a class="icon-button offer-card__history" href="${escapeHtml(priceHistoryPath(offersState.store, offer.title, offer.id))}" data-route title="${historyLabel}" aria-label="${historyLabel}">${mdiIcon(MDI_CHART_LINE)}</a>`;
-  return `<div class="offer-card__foot">${compare}${history}${offerStoreLink(offer)}</div>`;
+  return `<div class="offer-card__foot">${offerCartControl(offer)}${compare}${history}${offerStoreLink(offer)}</div>`;
 }
 
 // Het plaatje van een aanbieding met de badge en het prijslabel erop (of kaal, in de compacte rij). Zonder plaatje een leeg vlak
@@ -704,7 +704,7 @@ function offerProductRow(offer) {
       <span class="offer-row__price">${offerPriceHtml(offer)}</span>
       <small class="offer-row__unit">${escapeHtml(perUnit)}</small>
       <span class="offer-row__history">${history}</span>
-      <div class="offer-row__links">${compare}${chart}${offerStoreLink(offer)}</div>
+      <div class="offer-row__links">${offerCartControl(offer)}${compare}${chart}${offerStoreLink(offer)}</div>
     </article>`;
 }
 
@@ -1256,6 +1256,7 @@ async function showOffers() {
   const week = offersWeek().start;
   const key = `${store}|${week}`;
   offersState.weekStart = week;
+  loadOfferCart(store); // de aantallen in het mandje van deze winkel (offers_cart.js), naast de aanbiedingen zelf
   const cached = offersCache[key];
   if (cached) renderOffers(cached);
   else renderOffersLoading();

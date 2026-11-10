@@ -103,6 +103,8 @@ I18N.add("nl", {
   "offers.row.history": "Geschiedenis",
   "offers.compare.open": "Vergelijk verpakkingen",
   "offers.card.history": "Prijsgeschiedenis",
+  "offers.cart.add": "In je mandje: {title}",
+  "offers.cart.quantity": "Aantal in je mandje: {title}",
   "offers.compare.title": "Verpakkingen vergelijken",
   "offers.compare.loading": "Andere verpakkingen zoeken…",
   "offers.compare.searched": "gezocht op “{query}”",

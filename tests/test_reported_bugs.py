@@ -18,13 +18,16 @@ from datetime import date, timedelta
 from pathlib import Path
 from unittest import mock
 
-from helpers import AppTestCase, db  # helpers zet ook het pad naar de app
+from helpers import AppTestCase, db, sent_json, served  # helpers zet ook het pad naar de app
+import httpx
+
+import test_ah_orders  # als module: de opzet van het AH-mandje
 import test_history_chart_js  # als module, voor de Node-opbouw van offers_history.js
 import test_history_stores_js  # als module: anders draait pytest die tests hier nog een keer
 import test_offers_scan_js  # idem: de Node-opbouw van offers.js
 from test_prices import PricesCase, offer
 
-from mealieshopper import ah_orders, assets, offers, price_archive_tidy, price_import, prices
+from mealieshopper import ah, ah_orders, assets, offers, price_archive_tidy, price_import, prices
 from mealieshopper.app import create_app
 
 ROOT: Path = Path(__file__).resolve().parents[1]
@@ -517,6 +520,126 @@ console.log(JSON.stringify({{ popup: offerPopupHtml(...args, {{ preview: true }}
         self.assertIn(".offer-popup {\n  pointer-events: none;\n}", css, "de kaart onder de popup blijft aan te wijzen")
         self.assertNotIn(".offer-popup:focus-within", css, "er valt in de popup niets meer te klikken")
         self.assertNotIn("pointer-events", css[css.index(".offer-popup__dialog") :].split("}")[0], "het venster op een aanraakscherm blijft gewoon klikbaar")
+
+
+class OfferCartQuantityTest(test_ah_orders.AhOrdersTestCase):
+    """Verzoek van 2026-11-10: "is er ook een mogelijkheid om het product direct aan het winkelwagentje toe te voegen en/of direct te
+    zien wat er al in de winkelwagen zit? (i.e. aantallen invulveld met +/- erbij)". Het AH-mandje is de boodschappenlijst: het
+    aantal in de PATCH vervangt wat er stond en 0 haalt de regel weg (gemeten bij AH op 2026-11-10)."""
+
+    LIST: dict = {"id": "x", "items": [test_ah_orders.shopping_entry("Halfvolle melk", 2), {"type": "FREE_TEXT", "description": "Bloemen", "quantity": 1}]}
+
+    async def test_2026_11_10_the_cart_gives_the_quantity_per_product(self):
+        with mock.patch.object(ah, "_get_json", return_value=self.LIST):
+            cart = (await self.client.get("/api/ah/cart")).get_json()
+        self.assertEqual([(item["id"], item["quantity"], item["title"]) for item in cart["items"]], [("111", 2, "Halfvolle melk")])
+        self.assertEqual(cart["totalCount"], 3, "de vrije tekstregel telt mee in het totaal")
+        self.assertEqual((await self.client.get("/api/ah/basket")).get_json()["itemCount"], 2, "het tabblad Mandje loopt mee")
+
+    async def test_2026_11_10_a_quantity_is_set_exactly_and_zero_removes(self):
+        for quantity, answer, expected in ((3, {"items": [test_ah_orders.shopping_entry("Halfvolle melk", 3)]}, [("111", 3)]), (0, {"items": []}, [])):
+            with mock.patch.object(ah, "get_user_token", return_value="tok"), served(httpx.Response(200, json=answer)) as patch:
+                response = await self.client.put("/api/ah/cart/items/111", json={"quantity": quantity, "title": "Halfvolle melk"})
+            self.assertEqual(response.status_code, 200, response.get_json())
+            self.assertEqual(patch.calls.last.request.method, "PATCH")
+            sent = sent_json(patch.calls.last)["items"]
+            self.assertEqual([(line["productId"], line["quantity"], line["description"]) for line in sent], [(111, quantity, "Halfvolle melk")], "0 blijft 0")
+            self.assertEqual([(item["id"], item["quantity"]) for item in response.get_json()["items"]], expected)
+            self.assertEqual((await self.client.get("/api/ah/basket")).get_json()["itemCount"], len(expected))
+
+    async def test_2026_11_10_a_wrong_quantity_never_reaches_ah(self):
+        with mock.patch.object(ah, "get_user_token", return_value="tok"), served(httpx.Response(200, json={})) as patch:
+            for quantity in (-1, 100, "veel", 1.5, True, None):
+                response = await self.client.put("/api/ah/cart/items/111", json={"quantity": quantity})
+                self.assertEqual(response.status_code, 400, quantity)
+            self.assertEqual((await self.client.put("/api/ah/cart/items/geen-getal", json={"quantity": 1})).status_code, 400)
+        self.assertEqual(patch.calls.call_count, 0)
+
+    async def test_2026_11_10_an_open_order_at_ah_gives_a_readable_error(self):
+        refused = httpx.Response(412, text='{"status":412,"message":"Server in order mode"}')
+        with mock.patch.object(ah, "get_user_token", return_value="tok"), served(refused):
+            response = await self.client.put("/api/ah/cart/items/111", json={"quantity": 1})
+        self.assertEqual(response.status_code, 424)
+        self.assertIn("order", response.get_json()["error"].lower())
+
+
+@unittest.skipUnless(shutil.which("node"), "Node is not installed")
+class OfferCartStepperTest(unittest.TestCase):
+    """Hetzelfde verzoek van 2026-11-10, het scherm: op de kaart het aantal dat al in het mandje zit, met min, een veld en plus."""
+
+    HARNESS: str = """
+const escapeHtml = (value) => String(value);
+const t = (key, params) => key + (params ? ' ' + JSON.stringify(params) : '');
+const mdiIcon = (path) => '<svg data-icon="' + path + '"></svg>'; const MDI_MINUS = 'minus'; const MDI_PLUS = 'plus';
+const state = { linkedStores: { picnic: false, crisp: true } };
+const document = { activeElement: null };
+const makeBox = (id) => { const input = { value: '', classList: { contains: () => true } }; const classes = new Set();
+  return { dataset: { cart: id }, hidden: true, input, classes, classList: { toggle: (name, on) => (on ? classes.add(name) : classes.delete(name)) }, querySelector: () => input }; };
+const boxes = [makeBox('111'), makeBox('222')];
+const messages = [];
+const message = (target, text) => messages.push(text);
+const $ = () => ({ querySelectorAll: () => boxes, addEventListener: () => {} });
+const offerById = (id) => ({ id, title: 'Product ' + id });
+const calls = []; let answers = [];
+const jsonFetch = (url, options) => { calls.push({ url, method: (options && options.method) || 'GET', body: options && options.body ? JSON.parse(options.body) : null });
+  const answer = answers.shift(); return answer instanceof Error ? Promise.reject(answer) : Promise.resolve(answer); };
+const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const shown = () => boxes.map((box) => [box.dataset.cart, box.hidden, box.input.value, box.classes.has('offer-cart--empty')]);
+"""
+
+    def run_js(self, body: str) -> dict:
+        source = (ROOT / "static" / "offers_cart.js").read_text(encoding="utf-8")
+        script = f"{self.HARNESS}\n{source}\n(async () => {{ {body} }})();"
+        result = subprocess.run(["node", "-e", script], capture_output=True, text=True, timeout=30, check=False)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        return json.loads(result.stdout)
+
+    def test_2026_11_10_the_card_shows_what_is_in_the_basket_and_three_clicks_are_one_request(self):
+        found = self.run_js("""
+const before = offerCartControl({ id: '111', title: 'Melk' });
+answers = [{ items: [{ id: 111, quantity: 2 }] }, { items: [{ id: '111', quantity: 2 }, { id: '222', quantity: 3 }] }];
+await loadOfferCart('ah');
+const loaded = shown();
+const html = offerCartControl({ id: '111', title: 'Melk' });
+setOfferCartQuantity('222', 1); setOfferCartQuantity('222', 2); setOfferCartQuantity('222', 3);
+const optimistic = shown();
+await wait(OFFER_CART_PAUSE + 80);
+console.log(JSON.stringify({ before, loaded, html, optimistic, calls, after: shown(), folder: offerCartControl({ id: 'folder:9', title: 'Alle Mutti' }) }));
+""")
+        self.assertIn(" hidden", found["before"], "geen knoppen tot het mandje gelezen is")
+        self.assertEqual(found["loaded"], [["111", False, "2", False], ["222", False, "0", True]])
+        self.assertIn('value="2"', found["html"])
+        self.assertNotIn(" hidden", found["html"])
+        for marker in ('data-cart="111"', 'data-cart-step="-1"', 'data-cart-step="1"', 'min="0"', "offers.cart.quantity", "list.qty_minus", "offers.cart.add"):
+            self.assertIn(marker, found["html"], marker)
+        self.assertEqual(found["optimistic"][1], ["222", False, "3", False], "het aantal staat er meteen")
+        self.assertEqual(found["calls"], [
+            {"url": "/api/ah/cart", "method": "GET", "body": None},
+            {"url": "/api/ah/cart/items/222", "method": "PUT", "body": {"quantity": 3, "title": "Product 222"}},
+        ], "drie keer plus is een verzoek met het exacte aantal")
+        self.assertEqual(found["after"], [["111", False, "2", False], ["222", False, "3", False]])
+        self.assertEqual(found["folder"], "", "een folderactie voor een hele lijn is geen product")
+
+    def test_2026_11_10_zero_removes_a_refusal_shows_the_error_and_an_unlinked_store_has_no_buttons(self):
+        found = self.run_js("""
+answers = [{ items: [{ id: '111', quantity: 2 }] }, new Error('Er staat een bestelling open'), { items: [{ id: '111', quantity: 2 }] }];
+await loadOfferCart('ah');
+setOfferCartQuantity('111', 0);
+const emptied = shown()[0];
+await wait(OFFER_CART_PAUSE + 80);
+const reverted = shown()[0];
+const sent = calls.map((call) => [call.method, call.url, call.body && call.body.quantity]);
+setOfferCartQuantity('111', 250); const clamped = offerCartQuantity('111');
+await loadOfferCart('picnic');
+console.log(JSON.stringify({ emptied, reverted, sent, messages, clamped, picnic: shown(), available: ['ah', 'picnic', 'crisp', 'jumbo', 'lidl'].map(offerCartAvailable) }));
+""")
+        self.assertEqual(found["emptied"], ["111", False, "0", True], "op nul staat alleen de plus er nog")
+        self.assertEqual(found["sent"], [["GET", "/api/ah/cart", None], ["PUT", "/api/ah/cart/items/111", 0], ["GET", "/api/ah/cart", None]])
+        self.assertEqual(found["reverted"], ["111", False, "2", False], "na een weigering staat het aantal van de winkel er weer")
+        self.assertEqual(found["messages"], ["Er staat een bestelling open"])
+        self.assertEqual(found["clamped"], 99)
+        self.assertEqual([box[1] for box in found["picnic"]], [True, True], "een winkel zonder koppeling: geen knoppen")
+        self.assertEqual(found["available"], [True, False, True, False, False])
 
 
 class PackFamiliesTest(PricesCase):

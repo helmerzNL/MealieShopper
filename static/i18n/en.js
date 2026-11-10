@@ -103,6 +103,8 @@ I18N.add("en", {
   "offers.row.history": "History",
   "offers.compare.open": "Compare pack sizes",
   "offers.card.history": "Price history",
+  "offers.cart.add": "Add to your basket: {title}",
+  "offers.cart.quantity": "Quantity in your basket: {title}",
   "offers.compare.title": "Compare pack sizes",
   "offers.compare.loading": "Searching other pack sizes…",
   "offers.compare.searched": "searched for “{query}”",

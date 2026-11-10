@@ -8140,6 +8140,36 @@ html.is-standalone body {
   padding-top: 2px;
 }
 
+/* Het mandje bij een aanbieding (offers_cart.js): links onderaan de kaart, of voor de iconen van de compacte rij. Zit het product
+   nog niet in het mandje, dan staat er alleen de plus. */
+.offer-cart {
+  gap: 2px;
+  margin: 0 auto 0 6px;
+}
+
+.offer-cart[hidden] {
+  display: none;
+}
+
+.offer-cart .qty__step {
+  width: 32px;
+  height: 32px;
+}
+
+.offer-cart .qty__input {
+  width: 40px;
+  height: 32px;
+}
+
+.offer-cart--empty .qty__input,
+.offer-cart--empty [data-cart-step="-1"] {
+  display: none;
+}
+
+.offer-row__links .offer-cart {
+  margin: 0 6px 0 0;
+}
+
 .offer-card__foot .icon-button {
   border-color: transparent;
   background: none;
@@ -8149,6 +8179,23 @@ html.is-standalone body {
 
 .offer-card__foot .icon-button:hover {
   color: var(--primary-strong);
+}
+
+/* Telefoon, twee kaarten naast elkaar (~135 px): het mandje op een eigen regel boven de iconen, die samen de breedte delen. */
+@media (max-width: 640px) {
+  .offer-card__foot {
+    flex-wrap: wrap;
+  }
+
+  .offer-card__foot .offer-cart {
+    flex: 0 0 100%;
+    margin: 0 0 0 6px;
+  }
+
+  .offer-card__foot .icon-button {
+    flex: 1 1 0;
+    min-width: 0;
+  }
 }
 
 /* Een persoonlijke aanbieding (AH: de Bonus Box): groen als je haar in de AH-app hebt geactiveerd, geel als dat nog moet. */
@@ -8408,7 +8455,7 @@ html.is-standalone body {
 
 .offer-row {
   display: grid;
-  grid-template-columns: 48px 60px minmax(0, 1fr) 110px 100px 150px 106px;
+  grid-template-columns: 48px 60px minmax(0, 1fr) 110px 100px 150px 216px;
   align-items: center;
   gap: 10px;
   min-height: 56px;
@@ -8532,7 +8579,7 @@ html.is-standalone body {
    alleen (bij 1280 px met beide open is de lijst ~690 px breed). */
 @container (max-width: 799px) {
   .offer-row {
-    grid-template-columns: 48px 60px minmax(0, 1fr) 100px 90px 106px;
+    grid-template-columns: 48px 60px minmax(0, 1fr) 100px 90px minmax(142px, max-content); /* alleen de plus, tot er iets in het mandje zit */
     row-gap: 2px;
   }
 
