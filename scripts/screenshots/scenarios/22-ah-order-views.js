@@ -1,6 +1,7 @@
 // Winkels > Albert Heijn, versie 3.8.0: een bestelling per categorie, het hovervenster van een bestelling op de lijst en de
 // melding als AH het koppelen even stillegt. De gegevens zijn nagebootst zoals de detail- en lijstroutes ze sinds 3.8.0 geven
-// (categorie, gewone prijs van 30 dagen, korting, eerder gekocht, bespaard en status).
+// (categorie, gewone prijs van 30 dagen, korting, eerder gekocht, bespaard en status). Ook de lijst als kaarten en als overzicht
+// (purchases-cards en purchases-overview); die waren eerder één keer met de hand gemaakt, bij 3.4.0.
 const { product } = require("../demo");
 
 async function lang(request) {
@@ -71,14 +72,17 @@ async function orderDetail(route, request) {
   });
 }
 
+// Twee bonnen: de nieuwste is gekoppeld (de foto's en namen van de webwinkelproducten), de oudere nog niet (het pictogram van de
+// bon en de afgekorte namen op de bon). De kaarten en het overzicht tonen zo allebei; de tabel toont geen foto's of namen.
+const LINKED = [8, 2, 3, 4, 9, 0].map((index) => ITEMS[index]);
 const receipts = {
   syncedAt: "2026-10-28T09:41:00",
   receipts: [
-    ["2026-10-27T17:42:00", 41.36, 14],
-    ["2026-10-20T18:31:00", 56.2, 22],
-  ].map(([dateTime, total, itemCount], index) => ({
-    id: `kb-${index + 1}`, dateTime, total, detailsSynced: true, itemCount, payment: "PIN", images: [], productNames: ["AH HALFVOLLE MELK", "AVOCADO 2 STUKS"],
-    savings: 1.0, statusKind: "receipt", statusText: null,
+    ["2026-10-27T17:42:00", 41.36, 14, LINKED.map((item) => item.image), LINKED.slice(0, 4).map((item) => item.title), 2.15],
+    ["2026-10-20T18:31:00", 56.2, 22, [], ["AH HALFVOLLE MELK", "AVOCADO 2 STUKS"], 1.0],
+  ].map(([dateTime, total, itemCount, images, productNames, savings], index) => ({
+    id: `kb-${index + 1}`, dateTime, total, detailsSynced: true, itemCount, payment: "PIN", images, productNames,
+    savings, statusKind: "receipt", statusText: null,
   })),
 };
 
@@ -101,6 +105,18 @@ const routes = {
   "/api/ah/linking": LINKING,
 };
 
+// Het koppelen loopt gewoon: geen pauze, budget over en niets te doen, dus geen melding boven de lijst (linkingNotice in
+// static/linking.js). Voor de screenshots van de weergaven, waar de melding alleen ruimte zou kosten.
+const QUIET = {
+  ...LINKING,
+  pausedUntil: null,
+  pausedSince: null,
+  pausedStatus: null,
+  budget: { used: 12, limit: 120, resetAt: null },
+  todo: { lines: 0, receipts: 0, images: 0 },
+};
+const listRoutes = { ...routes, "/api/ah/linking": QUIET };
+
 // Scrollt een blok onder de vaste balk bovenaan, `gap` pixels van de bovenrand.
 const scrollTo = (page, selector, gap = 84) =>
   page.evaluate(([target, offset]) => {
@@ -111,6 +127,30 @@ const scrollTo = (page, selector, gap = 84) =>
 const pickView = async (page, prefix, view) => {
   await page.click(`#${prefix}-view-switch [data-view="${view}"]`);
   await page.waitForTimeout(400);
+};
+
+// De lijst in de weergave Kaarten of Overzicht (bindViewBar in static/purchase_views.js), met de balk (telling, weergaven,
+// Sorteren en Opties) bovenaan, zodat de kaarten er heel onder passen. Op een telefoon staat Kaarten al aan (de standaard sinds
+// 4.13.0); de klik zet daar Overzicht.
+// In het venster gaat het menu links dicht (Menu inklappen): op 930 px breed krijgen de kaarten en de rijen van het overzicht,
+// met hun strook van 356 px, anders te weinig ruimte. Op een telefoon is er geen menu links.
+const listView = (view) => async (page) => {
+  await page.waitForSelector('[data-popover="purchase"]');
+  const toggle = page.locator("#nav-toggle");
+  if (await toggle.isVisible()) await toggle.click();
+  await pickView(page, "purchase", view);
+  await page.waitForSelector(view === "cards" ? "#ah-purchase-cards .purchase-card" : "#ah-purchase-overview .purchase-overview__row");
+  // De muis weg van de balk: na het scrollen zou hij op een kaart of foto staan en het hovervenster openen (popover.js).
+  await page.mouse.move(2, 2);
+  await page.evaluate(() => document.activeElement && document.activeElement.blur());
+  await page.waitForTimeout(400);
+  // De filters net achter de vaste balk bovenaan (.topbar), zodat er geen rand van de bedragvelden onder uitsteekt; de balk van de
+  // lijst staat dan met zijn eigen marge eronder. Gemeten in de pagina: de balk is in het venster en op de telefoon niet even hoog.
+  await page.evaluate(() => {
+    const top = document.querySelector(".topbar").getBoundingClientRect().bottom;
+    const filters = document.querySelector("#ah-orders-view .purchase-filters").getBoundingClientRect().bottom + window.scrollY;
+    window.scrollTo(0, filters - top);
+  });
 };
 
 module.exports = [
@@ -160,5 +200,21 @@ module.exports = [
       await page.waitForSelector("#ah-linking-notice .message");
       await scrollTo(page, "#ah-orders-view");
     },
+  },
+  {
+    // De lijst als kaarten: per aankoop een collage van vier foto's, de datum, de statusbadge en de streep van de soort, het
+    // bezorgmoment of de betaalwijze, producten en bedrag, het bespaarde bedrag en de eerste productnamen.
+    name: "purchases-cards",
+    path: "/stores/ah/orders",
+    routes: listRoutes,
+    run: listView("cards"),
+  },
+  {
+    // De lijst als overzicht: per rij de datum en het bedrag, de details op een regel, de productnamen en rechts een strook van
+    // zes foto's (of het pictogram van een bon zonder gekoppelde producten).
+    name: "purchases-overview",
+    path: "/stores/ah/orders",
+    routes: listRoutes,
+    run: listView("overview"),
   },
 ];
