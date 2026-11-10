@@ -60,12 +60,31 @@ const mealieRecipes = (route, request) => {
 };
 
 // De notitie in de taal van de pagina; de recepten zijn die van een Nederlandse Mealie en blijven Nederlands.
-const mealPlan = (route, request) => {
+const planFrom = (list) => (route, request) => {
   const lang = (request.headers()["accept-language"] || "").startsWith("nl") ? "nl" : "en";
   const local = (value) => (value && typeof value === "object" ? value[lang] : value);
-  const body = entries.map((item) => ({ ...item, title: local(item.title), text: local(item.text) }));
+  const body = list.map((item) => ({ ...item, title: local(item.title), text: local(item.text) }));
   return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(body) });
 };
+const mealPlan = planFrom(entries);
+
+// De pasta pesto zoals Mealie hem geeft met de koppelingen tussen stappen en ingrediënten (sinds 4.14.0, issue #309): elk
+// ingrediënt een referenceId, elke stap een id en zijn ingredientReferences. Met de slug kan de kookmodus koppelen.
+// Stap 3 (de tomaatjes) heeft in Mealie alleen de kerstomaten; de olijfolie vinkt het scenario erbij.
+const uuid = (n) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
+const PESTO_LINKS = [[0], [3], [1], [2], [3, 4]]; // per stap de ingrediënten (index in de lijst hieronder)
+const linkedPesto = (() => {
+  const pesto = entries[0];
+  const recipeIngredient = pesto.recipeDetail.recipeIngredient.map((item, at) => ({ ...item, referenceId: uuid(at + 1) }));
+  const recipeInstructions = PESTO.recipeInstructions.map((step, at) => ({
+    ...step,
+    id: uuid(101 + at),
+    ingredientReferences: PESTO_LINKS[at].map((index) => ({ referenceId: uuid(index + 1) })),
+  }));
+  const slug = slugOf(pesto.title);
+  return { ...pesto, recipe: { ...pesto.recipe, slug }, recipeDetail: { ...pesto.recipeDetail, slug, recipeIngredient, recipeInstructions } };
+})();
+const linkedPlan = planFrom([linkedPesto, ...entries.slice(1)]);
 
 const planRoutes = {
   "/api/mealplan*": mealPlan,
@@ -111,6 +130,34 @@ module.exports = [
         });
       }
       await page.waitForTimeout(400);
+    },
+  },
+  {
+    // Koppelen in de kookmodus (sinds 4.14.0): bij een recept uit Mealie vink je aan welke ingrediënten bij een stap horen, en
+    // Opslaan schrijft dat meteen naar Mealie. De eerste twee stappen zijn klaar, dus de kookmodus opent op stap 3 (de
+    // tomaatjes, met de knop voor een timer van 3 minuten). Koppelen opent de lijst van alle ingrediënten: de kerstomaten staan
+    // al aangevinkt (zo staat het in Mealie), de olijfolie vinkt het scenario erbij. Er wordt niets opgeslagen.
+    name: "cook-link",
+    routes: { ...planRoutes, "/api/mealplan*": linkedPlan },
+    run: async (page, { device }) => {
+      await page.waitForSelector("[data-plan-view]");
+      await page.click("[data-plan-view]");
+      await page.waitForSelector("#meal-recipe-dialog[open] [data-cook-start]");
+      await page.click('#meal-recipe-dialog [data-cook-done="0"]');
+      await page.click('#meal-recipe-dialog [data-cook-done="1"]');
+      await page.click("#meal-recipe-dialog [data-cook-start]");
+      await page.waitForSelector("#cook-mode[open]");
+      await page.click("#cook-mode-link");
+      await page.waitForSelector("#cook-mode-link-form:not([hidden])");
+      await page.check(`#cook-mode-link-items [data-cook-link-ref][value="${uuid(6)}"]`);
+      // Het vinkje scrolde de stap. Op de telefoon terug naar boven (de stap, de vraag en de lijst passen); op het bureaublad
+      // past de grote tekst van de stap er niet bij, dus daar staat het blok Bij deze stap bovenaan, met Opslaan in beeld.
+      await page.evaluate((desktop) => {
+        document.activeElement && document.activeElement.blur();
+        const stage = document.getElementById("cook-mode-stage");
+        const uses = document.getElementById("cook-mode-uses");
+        stage.scrollTop = desktop ? uses.getBoundingClientRect().top - stage.getBoundingClientRect().top + stage.scrollTop - 12 : 0;
+      }, device === "desktop");
     },
   },
 ];
