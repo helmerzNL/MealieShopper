@@ -6,7 +6,7 @@ Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar
 
 ### Nieuw in 4.11.0
 
-Pull request: nog geen; het werk staat op de branch `claude/beautiful-albattani-y2ajil`.
+Pull request: [#304](https://github.com/helmerzNL/MealieShopper/pull/304).
 
 *English summary: The second round of the user-experience review ([docs/onderzoek-gebruikerservaring.md](docs/onderzoek-gebruikerservaring.md), in Dutch): the app remembers your week. The ingredient list under the week menu is now a **shopping list** you tick: choose which days you shop for (in the current week the days that are over no longer count by default: **new behaviour**), untick what you do not need, and use the house to put what you always have at home under **Already at home**, per user; that is no longer searched at the store. The **check list** searches in groups of six with a progress line and Stop, puts what you have to check at the top, shows an **estimated total**, and survives a reload or paging to another week. The product is no longer a system drop-down with one long line: the chosen product is a button, **Change** unfolds the options with photos, and the number of packs has `−` and `+`. A product you chose yourself instead of the first one (or searched for) is **remembered** per user, store and ingredient once it is in your basket, and comes first next time as **Chosen before**; **Stop remembering** forgets it. A **Shopping** button next to the week jumps to the list. New tables `cart_choices` and `pantry_items`, both in the backup. Not tested against a real store.*
 
@@ -32,7 +32,7 @@ De tweede ronde van de doorlichting van de gebruikerservaring: **de app onthoudt
 
 ### Verbeterd in 4.10.4
 
-Pull request: nog geen; het werk staat op de branch `claude/beautiful-albattani-y2ajil`.
+Pull request: [#304](https://github.com/helmerzNL/MealieShopper/pull/304).
 
 *English summary: The first round of a user-experience review of the whole app ([docs/onderzoek-gebruikerservaring.md](docs/onderzoek-gebruikerservaring.md), in Dutch): dead ends and errors. When a session expires while the app is open (4.10.3 made it last 90 days and renew with use), the sign-in screen now comes over the page instead of the word "Unauthorized" in every box; after signing in you continue where you were. Without a connection you get a translated message instead of the browser's "Failed to fetch". Fixed: switching store while the check list is open sent the product ids of the old store to the new one; the list now belongs to its store and switching asks first, as does Cancel. An unlinked Albert Heijn is said before the search, not after walking through the list; every store gets View basket after adding. Unlinking Mealie, Jumbo, Picnic or Crisp asks first; signing out can no longer fail silently. Messages are read out by a screen reader and "Loading..." is no longer a green success message. The tabs of the bottom bar have a name for a screen reader again. Every screen has its own page title. A link pasted into the Find recipes field is imported into Mealie. Offers filtered down to nothing say so, with Show all; typing in the offers search redraws after 250 ms instead of on every key. Dialogs use the visible height on iOS.*
 
