@@ -6,7 +6,8 @@
 // in localStorage onder ms-cook-timers. Bij 0 klinkt een alarm (Web Audio, zonder geluidsbestand), trilt een telefoon en,
 // als de app niet in beeld is, komt er een systeemmelding (Notification, via de service worker van cook_sw.js als die er is).
 // Het alarm herhaalt tot je op Stop tikt (het geluid stopt na COOK_ALARM_MAX). Een browser kan een web-app op de achtergrond
-// pauzeren (een vergrendelde telefoon); "Scherm aan laten" houdt de app actief. Laadt na recipe_view.js.
+// pauzeren (een vergrendelde telefoon): dan stuurt de server de melding met Web Push (issue #311, zie "Push van de server"
+// onderaan en mealieshopper/push.py). Laadt na recipe_view.js.
 
 // Material Design Icons (zie static/icons/LICENSE-mdi.txt)
 const MDI_TIMER_OUTLINE = "M12,20A7,7 0 0,1 5,13A7,7 0 0,1 12,6A7,7 0 0,1 19,13A7,7 0 0,1 12,20M19.03,7.39L20.45,5.97C20,5.46 19.55,5 19.04,4.56L17.62,6C16.07,4.74 14.12,4 12,4A9,9 0 0,0 3,13A9,9 0 0,0 12,22C17,22 21,17.97 21,13C21,10.88 20.26,8.93 19.03,7.39M11,14H13V8H11M15,1H9V3H15V1Z";
@@ -21,6 +22,8 @@ const COOK_TIMERS_MAX = 8;
 const COOK_TIMER_LIMIT = 24 * 60 * 60; // seconden; langer is geen kooktimer
 const COOK_TIMER_KEEP = 10 * 60 * 1000; // een afgelopen timer blijft na herladen nog zo lang staan (en gaat dan weer af)
 const COOK_ALARM_MAX = 2 * 60 * 1000; // zo lang klinkt het alarm hooguit; de timer blijft rood tot je stopt
+const COOK_PUSH_KEY = "ms-cook-push"; // "1" zolang de server lopende timers van deze browser kan hebben
+const COOK_PUSH_WAIT = 5000; // zo lang wachten we hooguit op de service worker, en het uitloggen op het afmelden voor push
 
 // Getallen in woorden, voor "een kwartier", "twee uur", "ten minutes".
 const COOK_NUMBER_WORDS = { een: 1, "één": 1, a: 1, an: 1, one: 1, twee: 2, two: 2, drie: 3, three: 3, vier: 4, four: 4, vijf: 5, five: 5, zes: 6, six: 6, zeven: 7, seven: 7, acht: 8, eight: 8, negen: 9, nine: 9, tien: 10, ten: 10, twintig: 20, twenty: 20, dertig: 30, thirty: 30, half: 0.5, anderhalf: 1.5, "½": 0.5, "¼": 0.25, "¾": 0.75 };
@@ -30,6 +33,7 @@ const COOK_TIME_RE = new RegExp(`(?<![\\p{L}\\d])${COOK_TIME_NUMBER}(?:\\s*(?:-|
 const COOK_TIME_UNITS = { sec: 1, min: 60, uur: 3600, kwartier: 900 };
 
 const cookTimers = { list: [], ticker: 0, endings: new Map(), audio: null, ringing: 0, ringStarted: 0, collapsed: false, seq: 0, custom: false };
+const cookPush = { key: "", busy: null, again: false };
 
 function cookTimeUnit(word) {
   const unit = String(word).toLowerCase();
@@ -332,7 +336,7 @@ function cookNotifyAsk() {
   try {
     if (Notification.permission === "default") {
       Promise.resolve(Notification.requestPermission()).then((answer) => {
-        if (answer === "granted") cookNotifyRegister();
+        if (answer === "granted") cookNotifyRegister().then(() => cookPushSync()); // de timer die net startte, ook bij de server
       }).catch(() => {});
     } else if (Notification.permission === "granted") {
       cookNotifyRegister();
@@ -342,22 +346,170 @@ function cookNotifyAsk() {
   }
 }
 
+// De tekst van de melding, in de app en in de push van de server dezelfde: welke timer, welk recept, welke stap.
+function cookNotifyTitle(timer) {
+  return t("cook.timer_notify_title", { name: cookDurationLabel(timer.total) });
+}
+
+function cookNotifyBody(timer) {
+  return [timer.title, timer.step ? t("cook.timer_step", { n: cookFormat(timer.step) }) : ""].filter(Boolean).join(" · ");
+}
+
 async function cookNotify(timer) {
   if (!cookNotifySupported() || Notification.permission !== "granted") return;
   if (document.visibilityState === "visible" && document.hasFocus?.()) return; // in beeld: het alarm in de pagina is genoeg
-  const title = t("cook.timer_notify_title", { name: cookDurationLabel(timer.total) });
-  const body = [timer.title, timer.step ? t("cook.timer_step", { n: cookFormat(timer.step) }) : ""].filter(Boolean).join(" · ");
-  const options = { body, tag: `cook-timer-${timer.id}`, renotify: true, requireInteraction: true, vibrate: [300, 150, 300, 150, 300], data: { url: location.href } };
+  const tag = `cook-timer-${timer.id}`;
+  const options = { body: cookNotifyBody(timer), tag, renotify: true, requireInteraction: true, vibrate: [300, 150, 300, 150, 300], data: { url: location.href } };
   try {
     const registration = "serviceWorker" in navigator ? await navigator.serviceWorker.getRegistration($("#cook-timers")?.dataset.worker || undefined) : null;
     if (registration?.showNotification) {
-      await registration.showNotification(title, options);
+      // Kwam de push van de server al (de app was gepauzeerd), dan staat de melding er al: geen tweede.
+      if ((await registration.getNotifications?.({ tag }))?.length) return;
+      await registration.showNotification(cookNotifyTitle(timer), options);
       return;
     }
-    new Notification(title, options);
+    new Notification(cookNotifyTitle(timer), options);
   } catch {
     // Android zonder service worker kent `new Notification` niet: dan alleen het alarm in de pagina.
   }
+}
+
+// ---- Push van de server (issue #311). Een vergrendelde telefoon pauzeert de app, en dan komt er geen alarm en geen melding.
+// Daarom stuurt de app bij elke wijziging haar lopende timers met hun resttijd naar de server (PUT /api/cook/timers), samen
+// met het push-abonnement van deze browser; de server stuurt bij de eindtijd een melding met Web Push (mealieshopper/push.py).
+// Gaat een timer af terwijl de app draait, dan haalt ze hem meteen bij de server weg: er komt geen tweede melding. Zonder
+// HTTPS, zonder push in de browser (een iPhone buiten de geïnstalleerde app) of zonder toestemming blijft alles zoals het was.
+function cookPushSupported() {
+  try {
+    return typeof window !== "undefined" && window.isSecureContext === true && "serviceWorker" in navigator && "PushManager" in window && cookNotifySupported() && Notification.permission === "granted";
+  } catch {
+    return false;
+  }
+}
+
+// Of de server lopende timers van deze browser kan hebben: dan moet hij ook horen dat ze gestopt zijn. Met true of false zet je het.
+function cookPushPending(value) {
+  try {
+    if (value === true) localStorage.setItem(COOK_PUSH_KEY, "1");
+    else if (value === false) localStorage.removeItem(COOK_PUSH_KEY);
+    return localStorage.getItem(COOK_PUSH_KEY) === "1";
+  } catch {
+    return value ?? true; // zonder opslag liever een keer te veel melden dan een gestopte timer laten afgaan
+  }
+}
+
+// De timers zoals de server ze nodig heeft: alleen de lopende, met hun resttijd (de klok van de server kan anders lopen dan
+// die van de telefoon) en de tekst van de melding. Een gepauzeerde timer, of een die afgaat, krijgt geen push.
+function cookPushTimers(now = Date.now()) {
+  return cookTimers.list
+    .filter((timer) => timer.state === "run" && timer.end > now)
+    .map((timer) => ({ id: timer.id, left: Math.max(1, Math.ceil(timer.end - now)), title: cookNotifyTitle(timer), body: cookNotifyBody(timer) }));
+}
+
+// De publieke sleutel van de server (base64url) als bytes, voor PushManager.subscribe.
+function cookPushKeyBytes(key) {
+  try {
+    const text = String(key || "").replaceAll("-", "+").replaceAll("_", "/");
+    return Uint8Array.from(atob(text + "=".repeat((4 - (text.length % 4)) % 4)), (char) => char.charCodeAt(0));
+  } catch {
+    return new Uint8Array(0);
+  }
+}
+
+// Of een abonnement met deze sleutel gemaakt is. Na de fabrieksinstellingen heeft de server een nieuwe: dan opnieuw aanvragen.
+function cookPushSameKey(subscription, key) {
+  const current = subscription?.options?.applicationServerKey;
+  if (!current) return true; // de browser zegt het niet: dan houden we het
+  const bytes = new Uint8Array(current);
+  return bytes.length === key.length && bytes.every((value, index) => value === key[index]);
+}
+
+// Een abonnement kan pas met een actieve service worker: wacht daarop, hooguit COOK_PUSH_WAIT.
+function cookWorkerActive(registration) {
+  const worker = registration?.installing || registration?.waiting;
+  if (!registration || registration.active || !worker) return Promise.resolve(registration);
+  return new Promise((resolve) => {
+    const done = () => {
+      if (worker.state !== "activated" && worker.state !== "redundant") return;
+      worker.removeEventListener("statechange", done);
+      resolve(registration);
+    };
+    worker.addEventListener("statechange", done);
+    setTimeout(() => resolve(registration), COOK_PUSH_WAIT);
+  });
+}
+
+// Het push-abonnement van deze browser met de sleutel van de server, of null zonder service worker of push.
+async function cookPushSubscription() {
+  const registration = await cookWorkerActive(await cookNotifyRegister());
+  if (!registration?.pushManager || !registration.active) return null;
+  if (!cookPush.key) cookPush.key = String((await jsonFetch("/api/push/key")).publicKey || "");
+  const key = cookPushKeyBytes(cookPush.key);
+  if (key.length !== 65) return null;
+  let subscription = await registration.pushManager.getSubscription();
+  if (subscription && !cookPushSameKey(subscription, key)) {
+    await subscription.unsubscribe().catch(() => false); // gemaakt met een oude sleutel van de server
+    subscription = null;
+  }
+  return subscription || registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: key });
+}
+
+async function cookPushSend() {
+  if (!cookPushTimers().length && !cookPushPending()) return; // de server heeft niets van deze browser
+  const subscription = await cookPushSubscription();
+  if (!subscription) return;
+  const timers = cookPushTimers(); // pas nu: een abonnement aanvragen kan even duren, en de resttijd moet kloppen
+  const data = await jsonFetch("/api/cook/timers", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ subscription: subscription.toJSON(), timers, url: `${location.pathname}${location.search}` }),
+  });
+  cookPushPending(timers.length > 0);
+  if (data?.publicKey && data.publicKey !== cookPush.key) {
+    cookPush.key = data.publicKey; // de server heeft intussen een andere sleutel: nog een keer, met een nieuw abonnement
+    cookPush.again = true;
+  }
+}
+
+// Meld de timers bij de server. Een wijziging terwijl er al een melding onderweg is, gaat daarna. Een fout (geen verbinding,
+// de push-dienst weigert) laat de timers in de app gewoon werken.
+function cookPushSync() {
+  if (!cookPushSupported()) return Promise.resolve(false);
+  cookPush.again = true;
+  if (cookPush.busy) return cookPush.busy;
+  cookPush.busy = (async () => {
+    try {
+      while (cookPush.again) {
+        cookPush.again = false;
+        await cookPushSend();
+      }
+      return true;
+    } catch {
+      return false;
+    } finally {
+      cookPush.busy = null;
+    }
+  })();
+  return cookPush.busy;
+}
+
+// Uitloggen (app.js): het abonnement van deze browser weg, bij de server en bij de push-dienst. De server haalt het bij het
+// uitloggen ook zelf weg. Het uitloggen wacht hooguit COOK_PUSH_WAIT.
+async function cookPushForget() {
+  cookPushPending(false);
+  const forget = (async () => {
+    try {
+      const url = $("#cook-timers")?.dataset.worker;
+      const registration = url && "serviceWorker" in navigator ? await navigator.serviceWorker.getRegistration(url) : null;
+      const subscription = await registration?.pushManager?.getSubscription();
+      if (!subscription) return;
+      await jsonFetch("/api/push/subscription", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ endpoint: subscription.endpoint }) }).catch(() => null);
+      await subscription.unsubscribe();
+    } catch {
+      // Geen push in deze browser.
+    }
+  })();
+  await Promise.race([forget, new Promise((resolve) => setTimeout(resolve, COOK_PUSH_WAIT))]);
 }
 
 // ---- Zweven: de timers staan in het bovenste open venster (een modaal venster ligt boven de rest van de pagina), anders
@@ -400,11 +552,13 @@ function cookTimersRender(now = Date.now()) {
 
 function cookTimersTick() {
   const now = Date.now();
-  for (const timer of cookTimersDue(now)) {
+  const due = cookTimersDue(now);
+  for (const timer of due) {
     cookTimersSave();
     cookNotify(timer);
     cookTimers.ringing = 0; // meteen piepen
   }
+  if (due.length) cookPushSync(); // de app draait en meldt het zelf: de server hoeft geen push meer te sturen
   cookAlarmTick(now);
   cookTimersRender(now);
   cookTimersSchedule();
@@ -438,6 +592,7 @@ function cookTimersSchedule() {
 
 function cookTimersChanged() {
   cookTimersSave();
+  cookPushSync(); // starten, pauzeren, verder laten lopen en stoppen gaan ook naar de server
   cookTimersTick();
   if ($("#cook-mode")?.open) cookTimerRowRender();
 }
@@ -538,3 +693,4 @@ document.addEventListener("visibilitychange", () => {
 cookTimers.list = cookTimersLoad();
 cookTimersSave();
 cookTimersTick();
+cookPushSync(); // na herladen: wat de server heeft, klopt weer met wat hier loopt

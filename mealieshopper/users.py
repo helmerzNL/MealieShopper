@@ -19,7 +19,7 @@ from typing import Any, Awaitable, Callable
 
 from quart import Quart, jsonify, request
 
-from . import auth, cart_memory, oauth, profile, request_body
+from . import auth, cart_memory, oauth, profile, push, request_body
 from .i18n import tr
 
 INVITE_TTL = timedelta(days=7)
@@ -100,6 +100,7 @@ async def delete_user(user_id: str) -> bool:
     await profile.delete(user_id)
     await cart_memory.remove_user(user_id)  # het product per ingrediënt en de voorraadkast van deze gebruiker
     await oauth.forget_user(user_id)  # ook de AI-apps van deze gebruiker
+    await push.forget_user(user_id)  # en de push-abonnementen van de kooktimers
     return True
 
 

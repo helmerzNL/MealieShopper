@@ -2,6 +2,42 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub; een stabiele release krijgt de teksten van alle versies sinds de vorige stabiele release.
 
+## v4.15.0
+
+### Nieuw in 4.15.0
+
+Issue: [#311](https://github.com/helmerzNL/MealieShopper/issues/311).
+
+*English summary: A cooking timer now also rings when the phone is locked or the app has been in the background for a long time. Until now the alarm and the notification came from the page itself, and a locked phone pauses the web app. Now the app tells the server its running timers with their remaining time whenever you start, pause, resume or stop one, and at 0 the server sends the notification with **Web Push**, through the browser's push service, also when the app is paused or closed. If the app is still running when a timer ends, it reports it itself and no second notification follows. The message is encrypted for the browser (RFC 8291) and signed (VAPID, RFC 8292) with `http-ece` and `py-vapid`, the two libraries pywebpush is built on; the server only sends to the push services of Google, Apple, Mozilla and Microsoft. There is nothing to configure: it works over HTTPS once notifications are allowed, on an iPhone only in the installed app (iOS 16.4 or newer). The server now needs outbound HTTPS to those push services. Logging out, deleting a user and the factory reset remove the push subscriptions; they and the server's key are not in the backup. Checked against Google's real push service: our signed message is accepted (201), one with another key refused (403).*
+
+- **Een kooktimer gaat ook af met een vergrendelde telefoon.** Sinds 4.14.0 piept een timer bij 0 en komt er een systeemmelding, maar alleen zolang de app draait: een vergrendelde telefoon, of een app die lang op de achtergrond staat, pauzeert haar. Nu stuurt de server de melding, met Web Push, ook als de app gepauzeerd of gesloten is. Een tik op de melding opent de app.
+  - **Timers op de server.** Starten, pauzeren, verder laten lopen en stoppen gaan naast localStorage ook naar de server: de app stuurt al haar lopende timers met hun resttijd (`PUT /api/cook/timers`), en de server rekent de eindtijd uit met zijn eigen klok (die van de telefoon kan anders lopen). Een gepauzeerde of gestopte timer staat er dan niet meer in en krijgt geen push. Een achtergrondtaak slaapt tot de eerstvolgende eindtijd en verstuurt dan; meer workers sturen samen één push (wie de timer eerst pakt).
+  - **Geen dubbele melding.** De server wacht twee seconden na de eindtijd. Draait de app nog, dan gaat de timer in de app af en haalt de app hem meteen bij de server weg. Is de app in beeld, dan toont de service worker geen melding (de app piept zelf); staat de melding er al, dan vervangt de push hem zonder opnieuw te trillen. Omgekeerd toont de app geen tweede melding als de push er al was.
+  - **Abonnement per toestel.** De app vraagt een push-abonnement aan via de service worker die er al was (`static/cook_sw.js`, die nu ook een `push`-handler heeft, nog steeds zonder fetch-handler of cache) en stuurt het mee met de timers. Het hoort bij de gebruiker en bij de sessie waarmee het binnenkwam. In de melding staan alleen de timer, het recept en de stap, en het pad van de pagina.
+  - **Alleen push-diensten.** De server stuurt alleen naar `fcm.googleapis.com` en `android.googleapis.com` (en `jmt17.google.com`, dat Chromium zonder de sleutels van Google gebruikt), `push.services.mozilla.com`, `push.apple.com` en `notify.windows.com` (met hun subdomeinen), over https op poort 443, zonder doorverwijzingen te volgen. Een ander adres weigert hij (400): de app kan zo niet worden gebruikt om iets op je eigen netwerk aan te spreken.
+  - **De VAPID-sleutel.** De server maakt hem één keer aan en bewaart hem versleuteld in `app_settings` (`PUSH_VAPID_PRIVATE_KEY`), zoals de koppelingen. Na de fabrieksinstellingen is er een nieuwe; de app ziet dat aan de sleutel en vraagt dan een nieuw abonnement aan.
+  - **Opruimen.** Een abonnement dat de push-dienst weigert (404, 410, of 403: gemaakt met een andere sleutel), haalt de server weg. Uitloggen haalt de abonnementen van die sessie weg (en de app meldt zich af bij de push-dienst), net als een gebruiker verwijderen en de fabrieksinstellingen. Een sessie die niet meer geldt (overal uitgelogd, een nieuw wachtwoord), krijgt geen push meer. Een tijdelijke fout (geen verbinding, 429, 5xx) probeert de server nog twee keer, na 5 en 10 seconden; een timer die al meer dan tien minuten voorbij is (de server stond uit), krijgt geen push meer.
+  - **Zonder push** (geen HTTPS, geen toestemming, een incognito- of privévenster, een iPhone buiten de geïnstalleerde app) werkt alles zoals in 4.14.0.
+- **Over** en de README's noemen Web Push, `py-vapid` en `http-ece`.
+
+### Netwerk in 4.15.0
+
+- De server heeft nu uitgaand HTTPS-verkeer (poort 443) nodig naar de push-dienst van de browsers die je gebruikt: `fcm.googleapis.com` (Chrome, Edge op Android, Samsung Internet, Opera, Brave), `web.push.apple.com` (Safari en iPhone), `updates.push.services.mozilla.com` (Firefox) en `*.notify.windows.com` (Edge op Windows). Zonder dat werkt alles zoals in 4.14.0. Een proxy voor uitgaand verkeer (`HTTPS_PROXY`) telt mee. Er komt geen instelling bij; de Compose- en `.env`-bestanden blijven gelijk.
+
+### Database en back-up in 4.15.0
+
+- Twee nieuwe tabellen: `push_subscriptions` (een abonnement per browser) en `cook_timers` (de lopende timers per abonnement). Ze staan bewust in `backup.EXCLUDED_TABLES`: een abonnement hoort bij één browser en bij de VAPID-sleutel van deze installatie, die ook niet in de back-up zit. Na het terugzetten op een andere installatie vraagt de app bij de volgende timer vanzelf een nieuw abonnement aan.
+
+### Afhankelijkheden in 4.15.0
+
+- `py-vapid` 1.9.6 (MPL-2.0) en `http-ece` 1.2.1 (MIT), van web-push-libs: het ondertekenen en het versleutelen, de standaard (RFC 8292 en RFC 8291) uit een bestaande open-sourcebibliotheek. pywebpush draait op dezelfde twee, maar brengt requests en aiohttp mee; de app verstuurt met haar eigen HTTPX-client.
+
+### Tests in 4.15.0
+
+- `tests/test_cook_push.py`: welke adressen de server aanneemt (alleen push-diensten), de sleutels van een abonnement, de timers (resttijd, marge, rare invoer), de VAPID-sleutel (één per installatie, versleuteld, ook als twee aanvragen tegelijk komen), het versleutelen en ondertekenen (echt ontsleuteld met `http_ece` en gecontroleerd met `py_vapid`), versturen, opnieuw proberen en opruimen, twee workers, de achtergrondtaak, de routes, en dat uitloggen, een verlopen sessie en een verwijderde gebruiker de abonnementen meenemen.
+- `tests/test_cook_timers.py`: welke timers de app naar de server stuurt, het abonnement met de sleutel van de server (en een nieuw na de fabrieksinstellingen), wijzigingen tijdens een verzoek, het afmelden bij uitloggen, en de `push`-handler van de service worker (in beeld geen melding, nooit een tweede, alleen een pad op de app).
+- `tests/test_backup.py`: de nieuwe tabellen en de VAPID-sleutel zitten niet in de back-up.
+
 ## v4.14.0
 
 ### Nieuw in 4.14.0
