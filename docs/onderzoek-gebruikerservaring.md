@@ -17,8 +17,8 @@ onthoudt, (2) terugkoppeling bij wachten, fouten en een verlopen sessie, en (3) 
 |---|---|---|---|
 | 1 | Vastlopers en fouten | 1.1, 1.10, 1.11, 2.1, 2.2, 2.6, 2.8, 2.9, 2.13, 2.14, 3.1, 3.3, 6.1, 6.3, 6.10, *Annuleren* met een vraag (uit 1.4) en het begin van 2.3 (meldingen worden voorgelezen) | gebouwd in 4.10.4 |
 | 2 | De app onthoudt je week | 1.2 tot en met 1.9 | gebouwd in 4.11.0 |
-| 3 | Terugkoppeling en bediening in één stijl | 2.3, 2.4, 2.5, 2.7, 2.10 tot 2.12, 2.15, 2.17, 2.18, 6.2, 6.4, 6.6 tot 6.9, 6.14 | gebouwd in 4.12.0 (zonder stoppen van de AI-zoekronde uit 2.12 en zonder € 0 uit 6.14) |
-| 4 | Wegwijs | 2.16, 3.2, 3.5 tot 3.8, 4.1 tot 4.4, 5.1 tot 5.3, 6.5, 6.11 tot 6.13 | gebouwd in 4.13.0 (zonder de naam van de tab Recepten uit 3.5, zonder service worker uit 6.13 en zonder zoomen in de app uit 6.5; zie hieronder) |
+| 3 | Terugkoppeling en bediening in één stijl | 2.3, 2.4, 2.5, 2.7, 2.10 tot 2.12, 2.15, 2.17, 2.18, 6.2, 6.4, 6.6 tot 6.9, 6.14 | gebouwd in 4.12.0 (zonder stoppen van de AI-zoekronde uit 2.12 en zonder € 0 uit 6.14; zie de besluiten van 10 november) |
+| 4 | Wegwijs | 2.16, 3.2, 3.5 tot 3.8, 4.1 tot 4.4, 5.1 tot 5.3, 6.5, 6.11 tot 6.13 | gebouwd in 4.13.0 (zonder de naam van de tab Recepten uit 3.5, zonder service worker uit 6.13 en zonder zoomen in de app uit 6.5; zie de besluiten van 10 november) |
 
 Besluiten van de eigenaar (9 november 2026):
 
@@ -27,6 +27,21 @@ Besluiten van de eigenaar (9 november 2026):
 - **Dagen die voorbij zijn tellen in de lopende week standaard niet mee** (bij 1.5, gebouwd in 4.11.0). Dat is nieuw gedrag; de eigenaar bevestigde het op 10 november. Een tik op de dag neemt hem toch mee.
 - **Importeren via URL blijft uit het menu** (een besluit van eerder, bewaakt door `tests/test_tabbar.py`). Bevinding 3.3 is
   daarom anders opgelost: een link die je in het zoekveld van *Recepten zoeken* plakt, wordt geïmporteerd.
+
+Besluiten van de eigenaar (10 november 2026), over wat de vier rondes bewust lieten liggen:
+
+- **De tab *Recepten* houdt zijn naam** (3.5 vervalt). *Recepten* is één begrip: de hoofdtab zijn je eigen recepten in
+  Mealie, en per winkel staan je favoriete recepten van die winkel, die je naar Mealie importeert. De bevinding noemde dat
+  vier betekenissen; het is dezelfde betekenis op vier plekken.
+- **Zoomen in de geïnstalleerde app blijft uit** (uit 6.5). Een bewuste keuze, zoals `docs/huisstijl.md` beschrijft.
+- **De AI-zoekronde krijgt geen stopknop** (uit 2.12). De knop *Recepten zoeken met AI* staat op één plek (Aanbiedingen,
+  Recepten), alleen voor de beheerder met een AI-sleutel, en start alleen na een vraag met de geschatte tokens. Een ronde is
+  standaard hooguit 120 recepten in drie aanvragen (`DEFAULT_MAX_RECIPES` en `GROUP_SIZE` in `mealieshopper/ai_match.py`), en
+  er draait niets automatisch. Stoppen zou hooguit twee aanvragen besparen; dat is een extra route op de server niet waard.
+- **Een prijs van € 0 blijft leeg, voor nu** (uit 6.14). Een lege prijs betekent op veel plekken "onbekend"; `formatPrice`
+  blijft zoals hij is.
+- **Een service worker staat nog open** (uit 6.13). De app zonder verbinding kunnen gebruiken is handig; de eigenaar denkt
+  erover na. Tot dat besluit geldt `docs/huisstijl.md`: er is geen offlinefunctie.
 
 Prioriteit in de tabellen: **H** raakt elke week of is een fout, **M** merkbaar, **L** afwerking. De regelnummers zijn die van 4.10.2.
 
@@ -92,7 +107,7 @@ die worden genegeerd (`mealPlanRequest`, `offersLoadId`).
 | 3.2 | M | Terug springt altijd naar boven: je plek in een lange lijst is weg. Na een schermwissel blijft de focus op de aangeklikte link. | `history.scrollRestoration = "manual"` (`static/app.js:3317`), `showPanel` (`:2920-2942`) |
 | 3.3 | M | *Recept importeren via URL* bestaat, maar nergens is een ingang: alleen via `/import` in de adresbalk (het is in een eerdere versie bewust uit het menu gehaald). | Paneel `#url` (`templates/index.html:938`), route in `static/router.js:11`, geen link ernaartoe |
 | 3.4 | M | Op een telefoon staat het Mandje achter *Meer*, Maaltijdboxen niet. Bewuste keuze uit de huisstijl, maar het is de laatste stap van de hoofdflow, en er is geen teller. | `static/styles.css:6638-6641`, `docs/huisstijl.md:153` |
-| 3.5 | M | *Recepten* betekent vier dingen (hoofdtab, bij Aanbiedingen, per winkel), en het weekmenu, het hart van de app, heet in het menu niet zo. | `templates/index.html:530`, `:577`, `:788`, `:956` |
+| 3.5 | M | *Recepten* betekent vier dingen (hoofdtab, bij Aanbiedingen, per winkel), en het weekmenu, het hart van de app, heet in het menu niet zo. **Besluit 10 november: blijft zo;** het is één begrip op meer plekken (zie de besluiten bovenaan). | `templates/index.html:530`, `:577`, `:788`, `:956` |
 | 3.6 | M | De winkelkeuze wordt op vijf plekken apart bewaard; Jumbo kiezen in het weekmenu opent daarna niet het Jumbo-mandje. Ook drie verschillende bedieningen (uitklapmenu, `<select>`, knoppen). | `static/app.js:1515`, `static/basket.js:31`, `static/app.js:1460` |
 | 3.7 | L | De bekeken week staat niet in het adres: herladen op volgende week geeft deze week. | `static/router.js:23`, `state.weekOffset` |
 | 3.8 | L | Subtabs scrollen op een telefoon horizontaal zonder aanwijzing dat er meer is. | `static/styles.css:480-491` |
@@ -144,15 +159,17 @@ wachtwoordregels, en de teksten uit 2.18. Ronde 4 gaat over wegwijs worden: de i
 en Crisp, de volgorde van Koppelen, *Liever biologisch* bij Voorkeuren, terug naar je plek in een lijst, de week in het adres,
 één winkelkeuze, een aanbieding direct in je mandje, en een ontkoppelknop voor Albert Heijn.
 
-### Wat ronde 4 bewust niet deed
+### Wat bewust niet is gedaan
 
-- **3.5, de naam van de tab Recepten.** Een andere naam in het hoofdmenu raakt de huisstijl, alle schermafbeeldingen en
-  `tests/test_tabbar.py`. Dat is een keuze van de eigenaar, geen reparatie.
-- **6.13, een service worker.** `docs/huisstijl.md` zegt dat er bewust geen offlinefunctie is; een service worker brengt een
-  eigen cache mee, naast de versiecontrole die er al is. Wel gedaan uit 6.13: de snelkoppelingen in het manifest.
-- **6.5, zoomen in de geïnstalleerde app.** Blijft uit, zoals de huisstijl beschrijft. Wel gedaan uit 6.5: *Vernieuwen* in
-  het menu *Meer*, nu omlaag slepen in de app niet ververst.
+De eigenaar besliste op 10 november 2026 over deze vijf punten; de redenen staan bij de besluiten bovenaan.
 
-Uit ronde 3 staan nog open: de AI-zoekronde stoppen (2.12, vraagt een route op de server) en `formatPrice` bij € 0 (6.14).
+| Bevinding | Wat er niet is gedaan | Besluit |
+|---|---|---|
+| 3.5 | De tab *Recepten* een andere naam geven. Dat raakt de huisstijl, alle schermafbeeldingen en `tests/test_tabbar.py`. | Blijft zo: *Recepten* is één begrip. |
+| 6.5 | Zoomen in de geïnstalleerde app. Wel gedaan uit 6.5: *Vernieuwen* in het menu *Meer*, nu omlaag slepen in de app niet ververst. | Blijft uit, een bewuste keuze. |
+| 2.12 | De AI-zoekronde stoppen; dat vraagt een route op de server. Wel gedaan uit 2.12: de pagina blijft de ronde volgen na een netwerkhapering. | Niet bouwen: een ronde is klein en start alleen na een vraag. |
+| 6.14 | `formatPrice` bij € 0 een prijs laten tonen. | Blijft zo, voor nu. |
+| 6.13 | Een service worker. `docs/huisstijl.md` zegt dat er geen offlinefunctie is, en een service worker brengt een eigen cache mee, naast de versiecontrole die er al is. Wel gedaan uit 6.13: de snelkoppelingen in het manifest. | Open: de eigenaar denkt erover na. |
+
 Albert Heijn ontkoppelen (2.16) en een aanbieding in het mandje (5.1) zijn getest met nagebootste antwoorden, niet tegen de
 echte routes van de winkels.
