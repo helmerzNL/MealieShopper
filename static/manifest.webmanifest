@@ -13,6 +13,11 @@
   "theme_color": "#176B45",
   "categories": ["food", "lifestyle", "shopping"],
   "prefer_related_applications": false,
+  "shortcuts": [
+    { "name": "Weekmenu", "url": "/recipes", "icons": [{ "src": "brand/icon-192.png", "sizes": "192x192", "type": "image/png" }] },
+    { "name": "Aanbiedingen", "url": "/offers", "icons": [{ "src": "brand/icon-192.png", "sizes": "192x192", "type": "image/png" }] },
+    { "name": "Mandje", "url": "/cart", "icons": [{ "src": "brand/icon-192.png", "sizes": "192x192", "type": "image/png" }] }
+  ],
   "icons": [
     { "src": "brand/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
     { "src": "brand/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },

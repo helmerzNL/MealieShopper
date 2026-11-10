@@ -479,6 +479,11 @@ def create_app() -> Quart:
             app.logger.exception("AH auth status error")
             return jsonify({"connected": False, "error": str(exc)}), 424
 
+    @app.post("/api/ah/auth/logout")
+    async def ah_auth_logout():
+        # Alleen de beheerder (auth.ADMIN_PREFIXES), zoals het ontkoppelen van de andere winkels.
+        return jsonify(await ah.unlink())
+
     @app.get("/api/ah/favorite-lists")
     async def ah_favorite_lists():
         try:

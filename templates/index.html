@@ -534,6 +534,7 @@
       <div class="user-menu__separator" role="separator"></div>
       <button type="button" role="menuitem" class="user-menu__item" data-user-action="theme"><svg class="user-menu__icon" viewBox="0 0 24 24" aria-hidden="true" data-mdi="mdiThemeLightDark"><path d="M7.5,2C5.71,3.15 4.5,5.18 4.5,7.5C4.5,9.82 5.71,11.85 7.53,13C4.46,13 2,10.54 2,7.5A5.5,5.5 0 0,1 7.5,2M19.07,3.5L20.5,4.93L4.93,20.5L3.5,19.07L19.07,3.5M12.89,5.93L11.41,5L9.97,6L10.39,4.3L9,3.24L10.75,3.12L11.33,1.47L12,3.1L13.73,3.13L12.38,4.26L12.89,5.93M9.59,9.54L8.43,8.81L7.31,9.59L7.65,8.27L6.56,7.44L7.92,7.35L8.37,6.06L8.88,7.33L10.24,7.36L9.19,8.23L9.59,9.54M19,13.5A5.5,5.5 0 0,1 13.5,19C12.28,19 11.15,18.6 10.24,17.93L17.93,10.24C18.6,11.15 19,12.28 19,13.5M14.6,20.08L17.37,18.93L17.13,22.28L14.6,20.08M18.93,17.38L20.08,14.61L22.28,17.15L18.93,17.38M20.08,12.42L18.94,9.64L22.28,9.88L20.08,12.42M9.63,18.93L12.4,20.08L9.87,22.27L9.63,18.93Z"/></svg><span id="user-menu-theme">Donkere modus</span></button>
       <button type="button" role="menuitem" class="user-menu__item" data-user-action="lang"><svg class="user-menu__icon" viewBox="0 0 24 24" aria-hidden="true" data-mdi="mdiTranslate"><path d="M12.87,15.07L10.33,12.56L10.36,12.53C12.1,10.59 13.34,8.36 14.07,6H17V4H10V2H8V4H1V6H12.17C11.5,7.92 10.44,9.75 9,11.35C8.07,10.32 7.3,9.19 6.69,8H4.69C5.42,9.63 6.42,11.17 7.67,12.56L2.58,17.58L4,19L9,14L12.11,17.11L12.87,15.07M18.5,10H16.5L12,22H14L15.12,19H19.87L21,22H23L18.5,10M15.88,17L17.5,12.67L19.12,17H15.88Z"/></svg><span id="user-menu-lang" lang="en">English</span></button>
+      <button type="button" role="menuitem" class="user-menu__item user-menu__item--standalone" data-user-action="reload"><svg class="user-menu__icon" viewBox="0 0 24 24" aria-hidden="true" data-mdi="mdiSync"><path d="M12,18A6,6 0 0,1 6,12C6,11 6.25,10.03 6.7,9.2L5.24,7.74C4.46,8.97 4,10.43 4,12A8,8 0 0,0 12,20V23L16,19L12,15M12,4V1L8,5L12,9V6A6,6 0 0,1 18,12C18,13 17.75,13.97 17.3,14.8L18.76,16.26C19.54,15.03 20,13.57 20,12A8,8 0 0,0 12,4Z"/></svg><span data-i18n="user.reload">Vernieuwen</span></button>
       <div class="user-menu__separator" id="auth-logout-separator" role="separator"></div>
       <button type="button" role="menuitem" class="user-menu__item" id="auth-logout"><svg class="user-menu__icon" viewBox="0 0 24 24" aria-hidden="true" data-mdi="mdiLogout"><path d="M17 7L15.59 8.41L18.17 11H8V13H18.17L15.59 15.58L17 17L22 12M4 5H12V3H4C2.9 3 2 3.9 2 5V19C2 20.1 2.9 21 4 21H12V19H4V5Z"/></svg><span data-i18n="auth.logout">Uitloggen</span></button>
     </div>
@@ -1133,6 +1134,7 @@
           </div>
           <div class="purchase-cards" id="ah-purchase-cards" hidden></div>
           <div class="purchase-overview" id="ah-purchase-overview" hidden></div>
+          <p class="purchase-more"><button class="button button--secondary" id="ah-purchase-more" type="button" hidden data-i18n="orders.more_rows">Meer aankopen</button></p>
         </div>
         <div class="box box--wide" id="ah-order-detail" hidden>
           <div class="list-header">
@@ -1538,85 +1540,6 @@
           <div id="picnic-status"></div>
           <div id="crisp-status"></div>
         </div>
-        <div class="box" id="linking-box" data-linking-message="#linking-box-message">
-          <h2 data-i18n="settings.linking.title">Producten koppelen en foto's ophalen bij AH</h2>
-          <div id="linking-box-body"></div>
-          <div id="linking-box-message"></div>
-        </div>
-        <div class="box fold fold--compact" id="offers-sync-box">
-          <h2 class="fold__title"><button type="button" class="fold__toggle" id="offers-sync-toggle" aria-expanded="true" aria-controls="offers-sync-body"><span data-i18n="offers.sync.title">Aanbiedingen</span><svg class="fold__chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="M7.41,8.58L12,13.17L16.59,8.58L18,10L12,16L6,10L7.41,8.58Z"/></svg></button></h2>
-          <div class="fold__body" id="offers-sync-body">
-            <p class="muted" data-i18n="offers.sync.intro">MealieShopper haalt de aanbiedingen elke dag op; met de knop haal je ze meteen op.</p>
-            <details class="help">
-              <summary data-i18n="common.help">Hoe werkt dit?</summary>
-              <p class="muted" data-i18n="offers.sync.intro_more">Het gaat om Albert Heijn, Picnic, Jumbo, Crisp, Lidl en Aldi: Picnic, Jumbo en Crisp zodra ze gekoppeld zijn, Lidl en Aldi zonder koppeling.</p>
-            </details>
-            <div class="toolbar">
-              <button class="button" id="offers-sync-all" type="button" data-i18n="offers.sync.button">Aanbiedingen synchroniseren</button>
-            </div>
-            <div id="offers-sync-message"></div>
-            <ul class="offers-sync-list" id="offers-sync-stores"></ul>
-            <p class="muted" id="offers-sync-schedule"></p>
-          </div>
-        </div>
-        <div class="box fold fold--compact" id="ai-login-box">
-          <h2 class="fold__title"><button type="button" class="fold__toggle" id="ai-login-toggle" aria-expanded="false" aria-controls="ai-login-body"><span data-i18n="aireview.title">AI-beoordeling van koppelingen</span><svg class="fold__chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="M7.41,8.58L12,13.17L16.59,8.58L18,10L12,16L6,10L7.41,8.58Z"/></svg></button></h2>
-          <div class="fold__body" id="ai-login-body" hidden>
-            <p class="muted" data-i18n="aireview.intro">Met een API-sleutel van Claude (Anthropic) of ChatGPT (OpenAI) zoekt een AI recepten bij de aanbiedingen van een winkel. Helemaal optioneel.</p>
-            <p class="muted" data-i18n="aireview.privacy">Er gaat alleen tekst van producten en ingrediënten naar de aanbieder, alleen als je zelf op de knop drukt, en een ronde kost geld.</p>
-            <details class="help">
-              <summary data-i18n="common.help">Hoe werkt dit?</summary>
-              <p class="muted" data-i18n="aireview.intro_more">Je start het zelf met de knop Recepten zoeken met AI bij de receptvoorstellen: de AI koppelt de ingrediënten van je recepten (Mealie, Albert Heijn, Jumbo, Picnic en Crisp) aan producten uit de aanbieding. Die koppelingen vervangen de koppelingen van MealieShopper voor de recepten die de AI doorzocht heeft. Zonder sleutel werkt alles zoals eerst.</p>
-              <p class="muted" data-i18n="aireview.privacy_more">Er gaan geen recepttitels, namen of adressen mee. Een ronde doorzoekt maximaal 120 recepten; je ziet vooraf een schatting en na afloop het aantal gebruikte tokens. De sleutel wordt versleuteld opgeslagen en nooit meer getoond.</p>
-            </details>
-            <form class="auth-form" id="ai-review-form" autocomplete="off">
-              <label class="field">
-                <span data-i18n="aireview.provider">Gebruik</span>
-                <select class="input" id="ai-provider">
-                  <option value="" data-i18n="aireview.provider_auto">Automatisch (de eerste met een sleutel)</option>
-                  <option value="anthropic">Claude (Anthropic)</option>
-                  <option value="openai">ChatGPT (OpenAI)</option>
-                </select>
-              </label>
-              <div class="ai-provider">
-                <h3>Claude (Anthropic)</h3>
-                <p class="muted ai-review__status" id="ai-status-anthropic"></p>
-                <label class="field">
-                  <span data-i18n="aireview.key">API-sleutel</span>
-                  <input class="input" id="ai-key-anthropic" type="password" placeholder="Plak hier de sleutel" autocomplete="off" spellcheck="false" data-i18n-attr="placeholder:aireview.key_ph">
-                </label>
-                <label class="field">
-                  <span data-i18n="aireview.model">Model</span>
-                  <input class="input" id="ai-model-anthropic" type="text" autocomplete="off" spellcheck="false">
-                </label>
-                <div class="toolbar">
-                  <button class="button button--secondary" id="ai-test-anthropic" type="button" data-i18n="aireview.test">Testen</button>
-                  <button class="button button--secondary" id="ai-clear-anthropic" type="button" hidden data-i18n="aireview.clear">Sleutel verwijderen</button>
-                </div>
-              </div>
-              <div class="ai-provider">
-                <h3>ChatGPT (OpenAI)</h3>
-                <p class="muted ai-review__status" id="ai-status-openai"></p>
-                <label class="field">
-                  <span data-i18n="aireview.key">API-sleutel</span>
-                  <input class="input" id="ai-key-openai" type="password" placeholder="Plak hier de sleutel" autocomplete="off" spellcheck="false" data-i18n-attr="placeholder:aireview.key_ph">
-                </label>
-                <label class="field">
-                  <span data-i18n="aireview.model">Model</span>
-                  <input class="input" id="ai-model-openai" type="text" autocomplete="off" spellcheck="false">
-                </label>
-                <div class="toolbar">
-                  <button class="button button--secondary" id="ai-test-openai" type="button" data-i18n="aireview.test">Testen</button>
-                  <button class="button button--secondary" id="ai-clear-openai" type="button" hidden data-i18n="aireview.clear">Sleutel verwijderen</button>
-                </div>
-              </div>
-              <div class="toolbar">
-                <button class="button" id="ai-save" type="submit" data-i18n="aireview.save">Opslaan</button>
-              </div>
-            </form>
-          </div>
-          <div id="ai-review-message"></div>
-        </div>
         <div class="box fold fold--compact" id="mealie-login-box">
           <h2 class="fold__title"><button type="button" class="fold__toggle" id="mealie-login-toggle" aria-expanded="true" aria-controls="mealie-login-body"><span data-i18n="link.mealie">Mealie</span><svg class="fold__chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="M7.41,8.58L12,13.17L16.59,8.58L18,10L12,16L6,10L7.41,8.58Z"/></svg></button></h2>
           <div class="fold__body" id="mealie-login-body">
@@ -1695,6 +1618,7 @@
               <div class="toolbar">
                 <button class="button" id="verify-token" data-i18n="common.link">Koppelen</button>
                 <button class="button button--secondary" id="check-ah" data-i18n="common.check_link">Koppeling controleren</button>
+                <button class="button button--secondary" id="ah-unlink" type="button" data-i18n="links.unlink" hidden>Ontkoppelen</button>
               </div>
               <div id="token-message"></div>
             </div>
@@ -1873,6 +1797,86 @@
               </div>
             </div>
           </div>
+        </div>
+        <!-- Eerst waar het om gaat (Mealie en de winkels), daarna de hulpmiddelen. Tot 4.13.0 stonden de hulpmiddelen bovenaan. -->
+        <div class="box" id="linking-box" data-linking-message="#linking-box-message">
+          <h2 data-i18n="settings.linking.title">Producten koppelen en foto's ophalen bij AH</h2>
+          <div id="linking-box-body"></div>
+          <div id="linking-box-message"></div>
+        </div>
+        <div class="box fold fold--compact" id="offers-sync-box">
+          <h2 class="fold__title"><button type="button" class="fold__toggle" id="offers-sync-toggle" aria-expanded="true" aria-controls="offers-sync-body"><span data-i18n="offers.sync.title">Aanbiedingen</span><svg class="fold__chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="M7.41,8.58L12,13.17L16.59,8.58L18,10L12,16L6,10L7.41,8.58Z"/></svg></button></h2>
+          <div class="fold__body" id="offers-sync-body">
+            <p class="muted" data-i18n="offers.sync.intro">MealieShopper haalt de aanbiedingen elke dag op; met de knop haal je ze meteen op.</p>
+            <details class="help">
+              <summary data-i18n="common.help">Hoe werkt dit?</summary>
+              <p class="muted" data-i18n="offers.sync.intro_more">Het gaat om Albert Heijn, Picnic, Jumbo, Crisp, Lidl en Aldi: Picnic, Jumbo en Crisp zodra ze gekoppeld zijn, Lidl en Aldi zonder koppeling.</p>
+            </details>
+            <div class="toolbar">
+              <button class="button" id="offers-sync-all" type="button" data-i18n="offers.sync.button">Aanbiedingen synchroniseren</button>
+            </div>
+            <div id="offers-sync-message"></div>
+            <ul class="offers-sync-list" id="offers-sync-stores"></ul>
+            <p class="muted" id="offers-sync-schedule"></p>
+          </div>
+        </div>
+        <div class="box fold fold--compact" id="ai-login-box">
+          <h2 class="fold__title"><button type="button" class="fold__toggle" id="ai-login-toggle" aria-expanded="false" aria-controls="ai-login-body"><span data-i18n="aireview.title">AI-beoordeling van koppelingen</span><svg class="fold__chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="M7.41,8.58L12,13.17L16.59,8.58L18,10L12,16L6,10L7.41,8.58Z"/></svg></button></h2>
+          <div class="fold__body" id="ai-login-body" hidden>
+            <p class="muted" data-i18n="aireview.intro">Met een API-sleutel van Claude (Anthropic) of ChatGPT (OpenAI) zoekt een AI recepten bij de aanbiedingen van een winkel. Helemaal optioneel.</p>
+            <p class="muted" data-i18n="aireview.privacy">Er gaat alleen tekst van producten en ingrediënten naar de aanbieder, alleen als je zelf op de knop drukt, en een ronde kost geld.</p>
+            <details class="help">
+              <summary data-i18n="common.help">Hoe werkt dit?</summary>
+              <p class="muted" data-i18n="aireview.intro_more">Je start het zelf met de knop Recepten zoeken met AI bij de receptvoorstellen: de AI koppelt de ingrediënten van je recepten (Mealie, Albert Heijn, Jumbo, Picnic en Crisp) aan producten uit de aanbieding. Die koppelingen vervangen de koppelingen van MealieShopper voor de recepten die de AI doorzocht heeft. Zonder sleutel werkt alles zoals eerst.</p>
+              <p class="muted" data-i18n="aireview.privacy_more">Er gaan geen recepttitels, namen of adressen mee. Een ronde doorzoekt maximaal 120 recepten; je ziet vooraf een schatting en na afloop het aantal gebruikte tokens. De sleutel wordt versleuteld opgeslagen en nooit meer getoond.</p>
+            </details>
+            <form class="auth-form" id="ai-review-form" autocomplete="off">
+              <label class="field">
+                <span data-i18n="aireview.provider">Gebruik</span>
+                <select class="input" id="ai-provider">
+                  <option value="" data-i18n="aireview.provider_auto">Automatisch (de eerste met een sleutel)</option>
+                  <option value="anthropic">Claude (Anthropic)</option>
+                  <option value="openai">ChatGPT (OpenAI)</option>
+                </select>
+              </label>
+              <div class="ai-provider">
+                <h3>Claude (Anthropic)</h3>
+                <p class="muted ai-review__status" id="ai-status-anthropic"></p>
+                <label class="field">
+                  <span data-i18n="aireview.key">API-sleutel</span>
+                  <input class="input" id="ai-key-anthropic" type="password" placeholder="Plak hier de sleutel" autocomplete="off" spellcheck="false" data-i18n-attr="placeholder:aireview.key_ph">
+                </label>
+                <label class="field">
+                  <span data-i18n="aireview.model">Model</span>
+                  <input class="input" id="ai-model-anthropic" type="text" autocomplete="off" spellcheck="false">
+                </label>
+                <div class="toolbar">
+                  <button class="button button--secondary" id="ai-test-anthropic" type="button" data-i18n="aireview.test">Testen</button>
+                  <button class="button button--secondary" id="ai-clear-anthropic" type="button" hidden data-i18n="aireview.clear">Sleutel verwijderen</button>
+                </div>
+              </div>
+              <div class="ai-provider">
+                <h3>ChatGPT (OpenAI)</h3>
+                <p class="muted ai-review__status" id="ai-status-openai"></p>
+                <label class="field">
+                  <span data-i18n="aireview.key">API-sleutel</span>
+                  <input class="input" id="ai-key-openai" type="password" placeholder="Plak hier de sleutel" autocomplete="off" spellcheck="false" data-i18n-attr="placeholder:aireview.key_ph">
+                </label>
+                <label class="field">
+                  <span data-i18n="aireview.model">Model</span>
+                  <input class="input" id="ai-model-openai" type="text" autocomplete="off" spellcheck="false">
+                </label>
+                <div class="toolbar">
+                  <button class="button button--secondary" id="ai-test-openai" type="button" data-i18n="aireview.test">Testen</button>
+                  <button class="button button--secondary" id="ai-clear-openai" type="button" hidden data-i18n="aireview.clear">Sleutel verwijderen</button>
+                </div>
+              </div>
+              <div class="toolbar">
+                <button class="button" id="ai-save" type="submit" data-i18n="aireview.save">Opslaan</button>
+              </div>
+            </form>
+          </div>
+          <div id="ai-review-message"></div>
         </div>
         </div>
 
@@ -2179,6 +2183,14 @@
               </fieldset>
               <p class="appearance-current" id="appearance-store-current" aria-live="polite"></p>
               <div id="appearance-store-message"></div>
+              <div class="appearance-setting">
+                <div class="appearance-setting__text">
+                  <h4 id="appearance-organic-label" data-i18n="cart.organic_toggle">Liever biologisch</h4>
+                  <p class="muted" id="appearance-organic-help" data-i18n="appearance.organic_help">De controlelijst van het weekmenu stelt per ingrediënt eerst een biologisch product voor, als de winkel het heeft. Dezelfde schakelaar staat bij de boodschappenlijst.</p>
+                </div>
+                <input type="checkbox" role="switch" class="switch" id="appearance-organic" aria-labelledby="appearance-organic-label" aria-describedby="appearance-organic-help">
+              </div>
+              <div id="appearance-organic-message"></div>
             </section>
             <section class="appearance-section fold__section" aria-labelledby="appearance-planner-title">
               <h3 id="appearance-planner-title" data-i18n="appearance.planner.title">Weekplanner van de AH-app</h3>

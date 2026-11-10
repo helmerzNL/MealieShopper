@@ -97,7 +97,7 @@ class PurchaseViewsMarkupTest(unittest.TestCase):
     def test_the_rows_are_sorted_in_the_script_with_nulls_last(self):
         self.assertIn("function purchaseSortRows(rows, sort = purchaseView.sort)", VIEWS)
         self.assertIn("const visible = purchaseSortRows(rows.filter((row) => purchaseVisible(row, hits)));", ORDERS)
-        self.assertIn("renderPurchaseView(visible, hits)", ORDERS)
+        self.assertIn("renderPurchaseView(page.shown, hits)", ORDERS)  # de eerste honderd, daarna Meer aankopen (sinds 4.13.0)
         self.assertIn("function renderPurchaseTable(visible, hits)", ORDERS)
         self.assertIn("if (va === null || va === undefined) return vb === null || vb === undefined ? String(b.date).localeCompare(String(a.date)) : 1;", VIEWS)
         self.assertIn("if (vb === null || vb === undefined) return -1;", VIEWS, "nulls onderaan, in beide richtingen")

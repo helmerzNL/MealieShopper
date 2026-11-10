@@ -287,6 +287,7 @@ class OffersFeedbackTest(unittest.TestCase):
             "const OFFERS_GOOD_KEY = 'good';",
             "const offersState = { search: 'kaas', category: 'vlees', filters: { bought: true }, goodOnly: true, personalOnly: true };",
             "const offersEmptyFilters = () => ({ bought: false }); const calls = [];",
+            "const offersSaveFind = () => calls.push('find');",
             "const offersSaveFilters = () => calls.push('save'); const offersRemember = (key, value) => calls.push(`${key}=${value}`);",
             "const offersTogglePersonal = (on) => { offersState.personalOnly = on; calls.push(`personal=${on}`); };",
             "const offersRedraw = () => calls.push('redraw');",
@@ -296,7 +297,7 @@ class OffersFeedbackTest(unittest.TestCase):
         ]
         out = run_node(self, "\n".join(parts))
         self.assertEqual(out["offersState"], {"search": "", "category": "all", "filters": {"bought": False}, "goodOnly": False, "personalOnly": False})
-        self.assertEqual(out["calls"], ["save", "good=0", "personal=false", "redraw", "focus"])
+        self.assertEqual(out["calls"], ["find", "save", "good=0", "personal=false", "redraw", "focus"])
         self.assertFalse(out["checked"])
 
 

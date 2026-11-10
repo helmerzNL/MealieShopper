@@ -38,6 +38,7 @@ const MDI_MINUS = "M19,13H5V11H19V13Z";
 const MDI_LOADING = "M12,4V2A10,10 0 0,0 2,12H4A8,8 0 0,1 12,4Z";
 const MDI_CHECK_CIRCLE_OUTLINE = "M12 2C6.5 2 2 6.5 2 12S6.5 22 12 22 22 17.5 22 12 17.5 2 12 2M12 20C7.59 20 4 16.41 4 12S7.59 4 12 4 20 7.59 20 12 16.41 20 12 20M16.59 7.58L10 14.17L7.41 11.59L6 13L10 17L18 9L16.59 7.58Z";
 const MDI_IMAGE_OUTLINE = "M19,19H5V5H19M19,3H5A2,2 0 0,0 3,5V19A2,2 0 0,0 5,21H19A2,2 0 0,0 21,19V5A2,2 0 0,0 19,3M13.96,12.29L11.21,15.83L9.25,13.47L6.5,17H17.5L13.96,12.29Z";
+const MDI_CART_PLUS = "M11,9H13V6H16V4H13V1H11V4H8V6H11M7,18A2,2 0 0,0 5,20A2,2 0 0,0 7,22A2,2 0 0,0 9,20A2,2 0 0,0 7,18M17,18A2,2 0 0,0 15,20A2,2 0 0,0 17,22A2,2 0 0,0 19,20A2,2 0 0,0 17,18M7.17,14.75L7.2,14.63L8.1,13H15.55C16.3,13 16.96,12.59 17.3,11.97L21.16,4.96L19.42,4H19.41L18.31,6L15.55,11H8.53L8.4,10.73L6.16,6L5.21,4L4.27,2H1V4H3L6.6,11.59L5.25,14.04C5.09,14.32 5,14.65 5,15A2,2 0 0,0 7,17H19V15H7.42C7.29,15 7.17,14.89 7.17,14.75Z";
 const MDI_COMPARE_HORIZONTAL = "M9 14H2V16H9V19L13 15L9 11V14M15 13V10H22V8H15V5L11 9L15 13Z";
 const MDI_CHART_LINE = "M16,11.78L20.24,4.45L21.97,5.45L16.74,14.5L10.23,10.75L5.46,19H22V21H2V3H4V17.54L9.5,8L16,11.78Z";
 const MDI_FLAG_OUTLINE = "M12.36,6L12.76,8H18V14H14.64L14.24,12H7V6H12.36M14,4H5V21H7V14H12.6L13,16H20V6H14.4";
@@ -667,6 +668,21 @@ function setPlanWeek(offset) {
   if (state.planAutoLoaded) loadMealPlan();
 }
 
+// De week in het adres (sinds 4.13.0): ?week=<eerste dag> zolang je een andere week dan de huidige bekijkt, zodat herladen, een
+// bladwijzer en Terug bij dezelfde week uitkomen. Deze week heeft geen parameter.
+function weekParam() {
+  return state.weekOffset ? getWeekBounds(state.weekOffset).start : "";
+}
+
+// Hoeveel weken een dag uit het adres van de huidige week af ligt. Geen geldige dag: 0, deze week. Hooguit twee jaar ver.
+function weekOffsetOf(day, today = new Date()) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(day || ""))) return 0;
+  const date = new Date(`${day}T12:00:00`);
+  if (Number.isNaN(date.getTime())) return 0;
+  const weeks = Math.round((weekStartOf(date) - weekStartOf(today)) / (7 * 24 * 60 * 60 * 1000));
+  return Math.max(-104, Math.min(104, weeks));
+}
+
 function formatDate(dateStr) {
   const date = new Date(`${dateStr}T00:00:00`);
   return `${weekdayShort(date)} ${date.getDate()} ${monthShort(date)}`;
@@ -1018,9 +1034,13 @@ function renderMealPlan(entries) {
 }
 
 // *Liever biologisch* (#218): per gebruiker bewaard in het profiel, zodat de schakelaar de volgende keer nog zo staat.
-async function savePreferOrganic(input) {
+async function savePreferOrganic(input, target = "#planner-message") {
   const wanted = input.checked;
   state.auth = { ...state.auth, preferOrganic: wanted };
+  // De schakelaar staat bij de boodschappenlijst en onder Voorkeuren (sinds 4.13.0): ze volgen elkaar.
+  for (const selector of ["#cart-organic", "#appearance-organic"]) {
+    if ($(selector)) $(selector).checked = wanted;
+  }
   try {
     const data = await jsonFetch("/api/profile/preferences", {
       method: "PUT",
@@ -1031,7 +1051,7 @@ async function savePreferOrganic(input) {
     toast(t("common.saved"));
   } catch (error) {
     // Niet bewaard: de schakelaar geldt dan alleen nu, en de gebruiker ziet waarom.
-    message("#planner-message", t("cart.organic_save_failed", { error: error.message }), "error");
+    message(target, t("cart.organic_save_failed", { error: error.message }), "error");
   }
 }
 
@@ -1618,7 +1638,10 @@ function renderStoreChoice() {
         }
         state.store = item.dataset.store;
         state.preferredStore = state.store;
+        // Het mandje volgt de winkel van het weekmenu (sinds 4.13.0): koos je hier Jumbo, dan opent Mandje ook Jumbo.
+        if (typeof basketState !== "undefined") basketState.store = state.store;
         try {
+          localStorage.setItem("ms-basket-store", state.store);
           localStorage.setItem("ms-store", state.store);
         } catch {
           // Zonder opslag onthoudt de pagina de keuze alleen tot je hem herlaadt.
@@ -1917,6 +1940,7 @@ async function refreshAhStatus() {
   try {
     const data = await jsonFetch("/api/ah/auth/status");
     state.ahConnected = Boolean(data.connected); // het weekmenu vraagt het na voordat het een controlelijst maakt (addToCart)
+    if ($("#ah-unlink")) $("#ah-unlink").hidden = !data.connected;
     renderLinkStatus("#ah-status", STORES.ah.name, data.connected ? "linked" : "unlinked");
     applyStoreFold("ah", Boolean(data.connected));
   } catch (error) {
@@ -1951,6 +1975,9 @@ function applyWeekStart(weekStart) {
   const day = Number.isInteger(weekStart.day) && weekStart.day >= 0 && weekStart.day <= 6 ? weekStart.day : 1;
   if (day === state.firstDayOfWeek) return false;
   state.firstDayOfWeek = day;
+  // De week uit het adres is geteld met de oude eerste dag: opnieuw tellen, anders schuift een week die op zondag begint er een op.
+  const params = new URLSearchParams(window.location.search);
+  if (params.get("week") && typeof routerApplyWeek === "function") state.weekOffset = weekOffsetOf(params.get("week"));
   updateWeekLabel();
   if (typeof offersWeekStartChanged === "function") offersWeekStartChanged();
   return true;
@@ -2135,6 +2162,18 @@ async function unlinkWithConfirm(button, name, unlink) {
     await unlink();
   } finally {
     setBusy(button, false);
+  }
+}
+
+// Albert Heijn ontkoppelen (sinds 4.13.0; de andere winkels konden het al). Staat het token ook in de omgevingsvariabele
+// AH_REFRESH_TOKEN, dan blijft de app daarmee gekoppeld en zegt de melding wat de beheerder moet doen.
+async function unlinkAh() {
+  try {
+    const data = await jsonFetch("/api/ah/auth/logout", { method: "POST", body: "{}" });
+    await refreshAhStatus();
+    message("#token-message", data.fromEnvironment ? t("ah.unlink_environment") : t("ah.unlinked"), data.fromEnvironment ? "warning" : "success");
+  } catch (error) {
+    message("#token-message", error.message);
   }
 }
 
@@ -2744,6 +2783,9 @@ function showPanel(panelId, tab = null) {
   $(`#${panelId}`).classList.add("is-active");
   // Zoals een native tabbalk: een andere tab begint bovenaan.
   window.scrollTo({ top: 0 });
+  // De focus gaat mee naar het nieuwe scherm (sinds 4.13.0), zodat Tab daar verdergaat en een schermlezer het scherm aankondigt.
+  // Niet bij het openen van de app of bij Terug: daar zet de router de focus en de plek zelf (router.js).
+  if (typeof router !== "undefined" && router.started && !router.applying) document.querySelector("#main")?.focus({ preventScroll: true });
   if (panelId === "ah-items") itemsFollowPreferred();
   if (panelId === "ah-items" && !state.ahRecipesLoaded) loadSavedRecipes({ cachedOnly: true });
   if (panelId === "about" && !state.aboutLoaded) loadAbout();
@@ -2827,6 +2869,21 @@ $("#items-store-list").addEventListener("click", (event) => {
   switchItemsStore(item.dataset.store);
 });
 
+// Een subtabbalk die op een telefoon horizontaal scrolt, laat zien dat er meer staat (sinds 4.13.0): de rand vervaagt aan de
+// kant waar nog tabbladen buiten beeld staan (has-more-start, has-more-end in styles.css). Zonder die aanwijzing zag je bij
+// Instellingen en Winkels niet dat de balk doorliep.
+function subtabsEdges(bar) {
+  const room = bar.scrollWidth - bar.clientWidth;
+  bar.classList.toggle("has-more-start", room > 2 && bar.scrollLeft > 2);
+  bar.classList.toggle("has-more-end", room > 2 && bar.scrollLeft < room - 2);
+}
+
+document.querySelectorAll(".subtabs").forEach((bar) => {
+  bar.addEventListener("scroll", () => subtabsEdges(bar), { passive: true });
+  // Ook als de balk in beeld komt (een ander scherm) of van breedte verandert (draaien, een andere taal).
+  if (typeof ResizeObserver === "function") new ResizeObserver(() => subtabsEdges(bar)).observe(bar);
+});
+
 // Het tabblad dat bij het laden open staat (is-active in de markup) krijgt ook aria-current; daarna zet de klik hieronder het.
 document.querySelectorAll(".subtab.is-active[data-subtab]").forEach((subtab) => subtab.setAttribute("aria-current", "page"));
 document.querySelectorAll(".subtab[data-subtab], .subtab-menu__item[data-subtab]").forEach((subtab) => {
@@ -2845,6 +2902,7 @@ document.querySelectorAll(".subtab[data-subtab], .subtab-menu__item[data-subtab]
     // Op een telefoon is de balk één regel die horizontaal scrolt: het gekozen tabblad in beeld (App-Guidance, web-app-design.md).
     const bar = subtab.closest(".subtabs");
     if (bar && bar.scrollWidth > bar.clientWidth) subtab.scrollIntoView({ block: "nearest", inline: "center" });
+    if (bar) subtabsEdges(bar);
     const menu = subtab.closest(".subtab-menu");
     if (menu) {
       menu.querySelector(".subtab-menu__toggle").classList.add("is-active");
@@ -2942,21 +3000,17 @@ function openSettings(subtab = "settings-link") {
   openSubtab("settings", isRegularUser() ? "settings-appearance" : subtab);
 }
 
-$("#this-week").addEventListener("click", () => {
-  state.weekOffset = 0;
+// Een andere week in het weekmenu: de week staat daarna in het adres, zonder een stap in de geschiedenis per week.
+function changePlanWeek(offset) {
+  state.weekOffset = offset;
   updateWeekLabel();
   loadMealPlan();
-});
-$("#prev-week").addEventListener("click", () => {
-  state.weekOffset -= 1;
-  updateWeekLabel();
-  loadMealPlan();
-});
-$("#next-week").addEventListener("click", () => {
-  state.weekOffset += 1;
-  updateWeekLabel();
-  loadMealPlan();
-});
+  if (typeof routerSync === "function") routerSync({ replace: true });
+}
+
+$("#this-week").addEventListener("click", () => changePlanWeek(0));
+$("#prev-week").addEventListener("click", () => changePlanWeek(state.weekOffset - 1));
+$("#next-week").addEventListener("click", () => changePlanWeek(state.weekOffset + 1));
 $("#load-plan").addEventListener("click", () => loadMealPlan({ force: true }));
 $("#meal-days").addEventListener("click", (event) => {
   const add = event.target.closest("[data-plan-add]");
@@ -3085,6 +3139,7 @@ $("#check-ah").addEventListener("click", checkAhConnection);
 $("#mealie-form").addEventListener("submit", linkMealie);
 $("#check-mealie").addEventListener("click", checkMealieConnection);
 $("#mealie-unlink").addEventListener("click", (event) => unlinkWithConfirm(event.currentTarget, "Mealie", unlinkMealie));
+$("#ah-unlink").addEventListener("click", (event) => unlinkWithConfirm(event.currentTarget, STORES.ah.name, unlinkAh));
 $("#mealie-week-start").addEventListener("change", saveWeekStart);
 $("#mealie-nutrition-start").addEventListener("click", startNutritionBackfill);
 $("#mealie-nutrition-stop").addEventListener("click", stopNutritionBackfill);

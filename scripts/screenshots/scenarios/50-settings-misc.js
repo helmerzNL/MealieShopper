@@ -59,8 +59,9 @@ const settingsScenarios = [
     routes: LINK_ROUTES,
     run: async (page) => {
       await openSettings("settings-link")(page);
-      // Het blok Aanbiedingen (open) en daaronder de ingeklapte, compacte blokken, zonder de kop van de pagina.
-      await page.evaluate(() => window.scrollTo({ top: document.getElementById("offers-sync-box").getBoundingClientRect().top + window.scrollY - 84 }));
+      // Sinds 4.13.0 bovenaan: de meldingen per koppeling, de ingeklapte blokken van Mealie en de winkels en daaronder de
+      // hulpmiddelen.
+      await page.evaluate(() => window.scrollTo({ top: 0 }));
     },
   },
   {

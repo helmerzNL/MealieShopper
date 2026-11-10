@@ -11,8 +11,9 @@ CSS = (ROOT / "static" / "styles.css").read_text(encoding="utf-8")
 
 PAGE = HTML[HTML.index('<div id="settings-link" class="subpanel'):HTML.index('<div id="settings-users" class="subpanel')]
 STORES = ("mealie", "ah", "jumbo", "picnic", "crisp")
-# De inklapbare blokken onder Koppelen, in volgorde, met het begin van hun id's (<prefix>-box, -toggle en -body).
-FOLDS = (("offers", "offers-sync"), ("ai", "ai-login")) + tuple((store, f"{store}-login") for store in STORES)
+# De inklapbare blokken onder Koppelen, in volgorde, met het begin van hun id's (<prefix>-box, -toggle en -body). Sinds 4.13.0
+# eerst waar het om gaat (Mealie en de winkels), daarna de hulpmiddelen (aanbiedingen ophalen, AI).
+FOLDS = tuple((store, f"{store}-login") for store in STORES) + (("offers", "offers-sync"), ("ai", "ai-login"))
 
 
 def block(name):
@@ -116,7 +117,7 @@ class LinkPageTest(unittest.TestCase):
         self.assertIn('applyStoreFold("jumbo", jumboState.connected)', (ROOT / "static" / "jumbo.js").read_text(encoding="utf-8"))
 
     def test_the_ai_review_block_folds_like_the_others_and_is_closed_by_default(self):
-        box = PAGE[PAGE.index('id="ai-login-box"'):PAGE.index('id="mealie-login-box"')]
+        box = PAGE[PAGE.index('id="ai-login-box"'):]  # het laatste blok onder Koppelen
         self.assertIn('<div class="box fold fold--compact" id="ai-login-box">', PAGE)
         self.assertIn('id="ai-login-toggle" aria-expanded="false" aria-controls="ai-login-body"', box)
         self.assertIn('<div class="fold__body" id="ai-login-body" hidden>', box, "dicht tot je hem opent, ook zonder sleutel")

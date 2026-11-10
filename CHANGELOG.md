@@ -2,6 +2,50 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub; een stabiele release krijgt de teksten van alle versies sinds de vorige stabiele release.
 
+## v4.13.0
+
+### Nieuw in 4.13.0
+
+*English summary: The fourth and last round of the user-experience review ([docs/onderzoek-gebruikerservaring.md](docs/onderzoek-gebruikerservaring.md), in Dutch): finding your way. The **week is in the address** (`/recipes?week=2026-11-16`, and the same for Offers), so a reload, a bookmark and Back open the same week. **Back returns you to your place** in a list, and after a screen change the focus is on the content. An offer has an **Add to basket** button (linked stores with a basket, real webshop products only; the quantity the deal asks for). The **setup guide asks which stores you use** and only shows a step for those, names Crisp, and ends with *Plan your first meal*. **Albert Heijn can be unlinked** (`POST /api/ah/auth/logout`), like the other stores. *Prefer organic* is also under Preferences, the blocks under Settings, Link are in the order you need them, the store you choose in the week menu is also the store of the Basket tab, the search text and filters of Offers and purchases survive a reload, the purchase list shows the first hundred with *More purchases* and defaults to cards on a phone, a sub-tab bar that scrolls on a phone fades where there is more, the installed app has *Refresh* in the More menu and shortcuts to Week menu, Offers and Basket. Unlinking Albert Heijn and adding an offer to a basket were tested against simulated stores only, not against the real store APIs. Not done, on purpose: renaming the Recipes tab, a service worker, and zooming in the installed app.*
+
+De vierde en laatste ronde van de doorlichting van de gebruikerservaring: **wegwijs**.
+
+**Navigatie**
+
+- **De week in het adres.** Bekijk je een andere week dan de huidige, dan staat de eerste dag van die week in het adres: `/recipes?week=2026-11-16`, en bij Aanbiedingen `/offers?week=2026-11-16`. Herladen, een bladwijzer en Terug openen dezelfde week; eerst begon je na herladen altijd bij deze week. Bladeren door de weken vervangt het adres en maakt geen stap in de geschiedenis per week. Onzin in het adres is deze week; verder dan twee jaar gaat het niet.
+- **Terug naar je plek.** Ga je van een lange lijst naar een ander scherm en met Terug weer terug, dan sta je op de plek waar je was. De app bewaart die plek in de stap van de geschiedenis en zet haar terug zodra de lijst er staat; scrol je zelf, dan stopt dat.
+- **De focus gaat mee.** Na een schermwissel en na Terug staat de focus op de inhoud van het scherm, zodat de Tab-toets daar verdergaat en een schermlezer het scherm aankondigt. Eerst bleef de focus op het menu staan.
+- **Eén winkelkeuze.** Kies je in het weekmenu een winkel voor je boodschappen, dan opent **Mandje** daarna ook met die winkel.
+- **Een subtabbalk laat zien dat er meer is.** Op een telefoon is zo'n balk één regel die je opzij veegt; de rand vervaagt nu aan de kant waar nog tabbladen buiten beeld staan (Instellingen, Winkels).
+- **Vernieuwen in de geïnstalleerde app.** In het menu **Meer** staat *Vernieuwen*, alleen in de geïnstalleerde app: die heeft geen knop van de browser, en omlaag slepen ververst er niet.
+- **Snelkoppelingen.** Houd het icoon van de geïnstalleerde app ingedrukt voor Weekmenu, Aanbiedingen en Mandje (`shortcuts` in het manifest).
+
+**Eerste start**
+
+- **Welke winkels gebruik je?** De installatiehulp liet iedereen langs Albert Heijn, Jumbo en Picnic lopen, en noemde Crisp niet. Na Mealie vraagt hij nu welke winkels je gebruikt (Albert Heijn, Jumbo, Picnic, Crisp); alleen die krijgen een stap. Bij elke winkel staat hoe het koppelen gaat: Albert Heijn en Jumbo vragen een computer, Picnic kan ook op een telefoon. De keuze blijft staan als je de pagina herlaadt.
+- **Crisp in de hulp.** Vinkte je Crisp aan, dan biedt de laatste stap **Crisp koppelen** aan: die rondt de hulp af en opent het blok Crisp onder Instellingen, Koppelen.
+- **Een eerste taak.** De laatste stap toont alleen de winkels die je koos. Is Mealie gekoppeld, dan heet de knop **Plan je eerste maaltijd** en opent hij het weekmenu.
+
+**Instellingen en koppelen**
+
+- **Albert Heijn ontkoppelen.** Bij Jumbo, Picnic en Crisp kon dat al, bij Albert Heijn niet. De knop **Ontkoppelen** in het blok Albert Heijn (alleen de beheerder, na een vraag) wist de bewaarde token (`POST /api/ah/auth/logout`). Staat de token ook in de omgevingsvariabele `AH_REFRESH_TOKEN`, dan koppelt die de app bij de volgende start opnieuw; de melding zegt dat.
+- **Liever biologisch bij Voorkeuren.** Dezelfde schakelaar als bij de boodschappenlijst staat nu ook onder Instellingen, Voorkeuren, Supermarkt; de twee lopen gelijk.
+- **De volgorde van Koppelen.** Eerst Mealie en de winkels (Albert Heijn, Jumbo, Picnic, Crisp), daarna de hulpmiddelen: producten koppelen, aanbiedingen ophalen en de AI-beoordeling. Eerst stonden de hulpmiddelen boven de koppelingen die ze nodig hebben.
+
+**Aanbiedingen en aankopen**
+
+- **Een aanbieding in je mandje.** Op elke aanbieding staat een winkelwagentje met een plus (*In mandje bij Albert Heijn*), in de kaarten en in de compacte lijst. Een tik zet het product in het mandje van die winkel, nooit in een bestelling, en een toast zegt wat er is toegevoegd. Vraagt de actie een aantal (*2 voor 3*), dan gaat dat aantal erin. Alleen bij een gekoppelde winkel met een mandje en bij een echt product van de webwinkel: niet bij Lidl en Aldi, niet bij de Bonus Box als geheel.
+- **Zoeken en filters blijven staan.** De zoektekst en de categorie van Aanbiedingen, en de soorten, het bedrag en de zoektekst van de aankopen blijven staan als je de pagina herlaadt of terugkomt uit een detailscherm (`sessionStorage`, dus per tabblad van de browser).
+- **Aankopen in delen.** De lijst toont de eerste honderd aankopen, met **Meer aankopen** voor de volgende honderd; een paar jaar aan bonnen in één keer tekenen kostte op een telefoon merkbaar tijd. De filters, het zoeken en de telling gaan over alle aankopen.
+- **Kaarten op een telefoon.** Bij de aankopen is Kaarten daar de standaard, zolang je zelf geen weergave koos; de tabel met zes kolommen past er niet.
+
+**Verder**
+
+- **Niet getest tegen een echte winkel:** Albert Heijn ontkoppelen en een aanbieding in het mandje zijn getest met nagebootste antwoorden, niet tegen de echte routes van de winkels. De knop *In mandje* gebruikt dezelfde route als de controlelijst van het weekmenu.
+- **Bewust niet gedaan:** de tab *Recepten* een andere naam geven (dat raakt de huisstijl, alle schermafbeeldingen en het menu, en is een keuze van de eigenaar), een service worker voor gebruik zonder verbinding (`docs/huisstijl.md` zegt dat er bewust geen offlinefunctie is) en zoomen in de geïnstalleerde app (blijft uit, zoals de huisstijl beschrijft).
+- **Handleiding en README** (NL en EN): de installatiehulp met de winkelkeuze, het adres met de week en terug naar je plek, *In mandje*, de filters, aankopen in delen, de volgorde van Koppelen, Albert Heijn ontkoppelen, *Vernieuwen* en de snelkoppelingen. Nieuwe schermafbeelding `ob-stores`; `ob-done`, `settings-stores`, `offers` en `offers-compact` zijn opnieuw gemaakt.
+- **Tests:** `tests/test_wayfinding.py` (de route voor Albert Heijn ontkoppelen, ook met de token in de omgeving; in Node: de week uit het adres met een week die op zondag begint en de wisseling van de klok, de plek bewaren en terugzetten, de regels en het verzoek van *In mandje*, de filters in `sessionStorage`, de aankopen in delen, de vervagende subtabbalk; en verder het manifest en het menu), en `tests/test_onboarding_ui.py` en `tests/test_link_menu.py` voor de installatiehulp en de volgorde van Koppelen.
+
 ## v4.12.0
 
 ### Verbeterd in 4.12.0
