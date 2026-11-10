@@ -231,7 +231,7 @@ class OffersScanNodeTest(unittest.TestCase):
 
     FILTER_OFFER = {"id": "1", "brand": "Dr. Oetker", "title": "Pizza", "bought": True, "badge": {"percent": 25}, "unitPricePer": {"value": 9.36, "unit": "kg"},
                     "yearLow": {"status": "lowest"}, "verdict": {"timesThisYear": 3}, "personal": False, "family": {"key": "f1", "packs": []}}
-    EMPTY_FILTERS = {"brands": [], "bought": False, "minDiscount": 0, "maxUnitPrice": {"value": None, "unit": "kg"}, "yearLow": False, "rare": False}
+    EMPTY_FILTERS = {"brands": [], "brandsOut": [], "categories": [], "categoriesOut": [], "bought": False, "minDiscount": 0, "maxUnitPrice": {"value": None, "unit": "kg"}, "yearLow": False, "rare": False}
 
     def match(self, offer, filters):
         return self.run_js(f"console.log(JSON.stringify(offersFilterMatch({json.dumps(offer)}, {json.dumps(filters)})));")

@@ -382,7 +382,7 @@ class OffersFiltersTest(unittest.TestCase):
             {"id": "3", "brand": "Unox", "title": "Rookworst", "badge": {"percent": 50}, "family": {"key": "c", "packs": []}},
             {"id": "4", "brand": "Dr. Oetker", "title": "Brownies", "badge": {"percent": 10}, "family": {"key": "d", "packs": []}},
         ]
-        filters = {"brands": ["Dr. Oetker"], "bought": False, "minDiscount": 15, "maxUnitPrice": {"value": None, "unit": "kg"}, "yearLow": False, "rare": False}
+        filters = {"brands": ["Dr. Oetker"], "brandsOut": [], "categories": [], "categoriesOut": [], "bought": False, "minDiscount": 15, "maxUnitPrice": {"value": None, "unit": "kg"}, "yearLow": False, "rare": False}
         script = f"""{test_offers_scan_js.PRELUDE}
 offersState.filters = {json.dumps(filters)};
 const shown = offersFilteredWithFamilies({json.dumps(offers)});
@@ -587,6 +587,139 @@ console.log(JSON.stringify([offerPriceLabel(offer), offerYearLowLine(offer)].map
             self.assertEqual(self.labels({"priceLabel": {"kind": kind}, "yearLow": {"status": "unknown"}}), [f"offers.label.{kind}", None])
         self.assertEqual(self.labels({"priceLabel": {"kind": "lowest_ever"}, "yearLow": lowest}), ["offers.label.lowest_ever", None])
         self.assertIsNone(self.labels({"priceLabel": {"kind": "lowest_ever"}, "yearLow": above})[0])
+
+
+@unittest.skipUnless(shutil.which("node"), "Node is not installed")
+class OfferFilterListsTest(unittest.TestCase):
+    """Verzoek van 2026-11-10: "de filters moeten veel beter dan ze nu zijn. voor merken wil ik een lijst met alle merken en een
+    zoekveld erboven. merk filters moeten +/- hebben voor include/exclude. daarnaast wil ik een infinite scroll", met erbij: "ik wil
+    de categorieen net als de merken ook links in het filtermenu" en "ik wil het aantal matchende producten er ook direct bij hebben
+    in die lijst. daarop gesorteerd"."""
+
+    OFFERS: list = [
+        {"id": "1", "brand": "Mutti", "category": "sauzen_conserven", "title": "Pizzasaus"},
+        {"id": "2", "brand": "Mutti", "category": "sauzen_conserven", "title": "Passata"},
+        {"id": "3", "brand": "Lenor", "category": "huishouden", "title": "Geurbooster"},
+        {"id": "4", "brand": "AH", "category": "vlees", "title": "Gehakt"},
+        {"id": "5", "brand": "AH", "category": "vlees", "title": "Kipfilet"},
+        {"id": "6", "brand": "AH", "category": "huishouden", "title": "Vaatwastabletten"},
+    ]
+
+    def run_js(self, body: str) -> dict:
+        names = ("offersPersonalOnly", "offersBase", "offersCategoryCounts")
+        facets = (ROOT / "static" / "offers_facets.js").read_text(encoding="utf-8")
+        script = f"""{test_offers_scan_js.PRELUDE}
+{chr(10).join(test_offers_scan_js.function_source(name) for name in names)}
+const OFFERS_FILTERS_KEY = 'ms-offers-filters';
+const saved = {{}};
+const localStorage = {{ getItem: (key) => saved[key] || null, setItem: (key, value) => {{ saved[key] = value; }} }};
+const categoryLabel = (id) => 'cat ' + id;
+const offerSearchText = (offer) => foldText(offer.title + ' ' + offer.brand);
+const mdiIcon = (path) => '<svg data-icon="' + path + '"></svg>'; const MDI_PLUS = 'plus'; const MDI_MINUS = 'minus';
+const $ = () => ({{ addEventListener: () => {{}} }});
+{facets}
+Object.assign(offersState, {{ offers: {json.dumps(self.OFFERS)}, search: '', goodOnly: false, personalOnly: false, personal: null }});
+const fresh = (extra) => {{ offersState.filters = {{ ...offersEmptyFilters(), ...extra }}; return offersState.filters; }};
+const ids = () => offersFilteredWithFamilies(offersBase()).map((offer) => offer.id);
+{body}"""
+        result = subprocess.run(["node", "-e", script], capture_output=True, text=True, timeout=30, check=False)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        return json.loads(result.stdout)
+
+    def test_2026_11_10_plus_shows_only_those_and_minus_always_hides(self):
+        found = self.run_js("""
+const out = {};
+fresh({ brands: ['Mutti', 'Lenor'] }); out.plus = ids();
+fresh({ brandsOut: ['AH'] }); out.minus = ids();
+fresh({ brands: ['AH'], categoriesOut: ['huishouden'] }); out.both = ids();
+fresh({ categories: ['vlees', 'huishouden'], brandsOut: ['Lenor'] }); out.categories = ids();
+fresh({ brands: ['Lenor'], brandsOut: ['Lenor'] }); out.minusWins = ids();
+out.chips = (fresh({ brands: ['Mutti'], brandsOut: ['Lenor'], categories: ['vlees'], categoriesOut: ['huishouden'] }), offersActiveFilterChips().map((chip) => [chip.key, chip.label]));
+console.log(JSON.stringify(out));
+""")
+        self.assertEqual(found["plus"], ["1", "2", "3"], "meerdere plussen: een van deze")
+        self.assertEqual(found["minus"], ["1", "2", "3"])
+        self.assertEqual(found["both"], ["4", "5"])
+        self.assertEqual(found["categories"], ["4", "5", "6"])
+        self.assertEqual(found["minusWins"], [])
+        self.assertEqual(found["chips"], [
+            ["cat:vlees", "cat vlees"], ["catOut:huishouden", 'offers.filters.excluded {"name":"cat huishouden"}'],
+            ["brand:Mutti", "Mutti"], ["brandOut:Lenor", 'offers.filters.excluded {"name":"Lenor"}'],
+        ])
+
+    def test_2026_11_10_the_lists_show_the_count_sorted_by_it_with_the_chosen_ones_on_top(self):
+        found = self.run_js("""
+const rows = (facet, search) => offerFacetRows(facet, facet === 'brand' ? offersBrandCounts(offersBase()) : offersCategoryCounts(offersBase()), offersFilters(), search).map((row) => [row.value, row.count, row.mode]);
+const out = {};
+fresh({}); out.brands = rows('brand'); out.categories = rows('category');
+fresh({ brandsOut: ['Lenor'], brands: ['Verdwenen'] }); out.active = rows('brand');
+fresh({ categories: ['vlees'] }); out.withCategory = rows('brand'); out.categoryKeepsItsOwnCounts = rows('category');
+fresh({}); out.search = rows('brand', 'mut'); out.none = rows('brand', 'zzz');
+offersState.search = 'gehakt'; out.pageSearch = rows('brand'); offersState.search = '';
+out.html = offerFacetRowHtml('category', { value: 'vlees', label: 'Vlees', count: 2, mode: 'out' });
+console.log(JSON.stringify(out));
+""")
+        self.assertEqual(found["brands"], [["AH", 3, ""], ["Mutti", 2, ""], ["Lenor", 1, ""]], "op aantal, meeste eerst")
+        self.assertEqual(found["categories"], [["huishouden", 2, ""], ["sauzen_conserven", 2, ""], ["vlees", 2, ""]])
+        self.assertEqual(found["active"], [["Lenor", 1, "out"], ["Verdwenen", 0, "in"], ["AH", 3, ""], ["Mutti", 2, ""]], "gekozen bovenaan, ook met 0")
+        self.assertEqual(found["withCategory"], [["AH", 2, ""]], "het aantal is wat er met de andere filters over is")
+        self.assertEqual(found["categoryKeepsItsOwnCounts"], [["vlees", 2, "in"], ["huishouden", 2, ""], ["sauzen_conserven", 2, ""]])
+        self.assertEqual(found["search"], [["Mutti", 2, ""]], "het zoekveld boven de merken")
+        self.assertEqual(found["none"], [])
+        self.assertEqual(found["pageSearch"], [["AH", 1, ""]], "het zoekveld van de pagina telt mee")
+        for marker in ('data-facet="category"', 'data-value="vlees"', 'data-mode="in" aria-pressed="false"', 'data-mode="out" aria-pressed="true"', "is-out", "offers.filters.include", "offers.filters.exclude", ">2</span>"):
+            self.assertIn(marker, found["html"], marker)
+
+    def test_2026_11_10_a_second_click_clears_and_saved_brand_filters_become_plus(self):
+        found = self.run_js("""
+const filters = fresh({});
+const steps = [];
+const state = () => [filters.brands.slice(), filters.brandsOut.slice()];
+offerFacetToggle(filters, 'brand', 'Mutti', 'in'); steps.push(state());
+offerFacetToggle(filters, 'brand', 'Mutti', 'out'); steps.push(state());
+offerFacetToggle(filters, 'brand', 'Mutti', 'out'); steps.push(state());
+saved['ms-offers-filters:ah'] = JSON.stringify({ brands: ['Unox'], minDiscount: 20 });
+const old = offersLoadFilters('ah');
+console.log(JSON.stringify({ steps, old: [old.brands, old.brandsOut, old.categories, old.categoriesOut, old.minDiscount] }));
+""")
+        self.assertEqual(found["steps"], [[["Mutti"], []], [[], ["Mutti"]], [[], []]])
+        self.assertEqual(found["old"], [["Unox"], [], [], [], 20])
+
+    def test_2026_11_10_the_list_loads_further_by_itself_and_only_adds_the_new_rows(self):
+        names = ("renderOfferGrid", "offersShowMore", "offersAutoMore")
+        script = f"""{test_offers_scan_js.PRELUDE}
+{chr(10).join(test_offers_scan_js.function_source(name) for name in names)}
+const OFFER_ROWS = 3; const OFFER_COMPACT_ROWS = 8; const OFFERS_MORE_AHEAD = 800;
+const all = Array.from({{ length: 60 }}, (_, index) => ({{ id: String(index) }}));
+const offersFiltered = () => all;
+const offerProductRow = (offer) => '<r' + offer.id + '>'; const offerRowHead = () => '<head>'; const offerColumns = () => 4;
+const writes = [];
+const grid = {{ classList: {{ toggle: () => {{}} }}, set innerHTML(html) {{ writes.push(['all', (html.match(/<r/g) || []).length]); }}, insertAdjacentHTML: (where, html) => writes.push(['add', (html.match(/<r/g) || []).length]) }};
+let top = 100; let visible = true;
+const button = {{ hidden: false, get offsetParent() {{ return visible ? {{}} : null; }}, getBoundingClientRect: () => ({{ top }}) }};
+const $ = (selector) => (selector === '#offers-more' ? button : grid);
+const window = {{ innerHeight: 900 }};
+let watched = 0; const offersWatchMore = () => {{ watched += 1; }};
+Object.assign(offersState, {{ view: 'compact', rows: OFFER_ROWS, shown: 0 }});
+renderOfferGrid();
+offersShowMore();
+const afterOne = {{ writes: writes.slice(), shown: offersState.shown, hidden: button.hidden, watched }};
+visible = false; offersAutoMore(); const closedPage = offersState.shown;
+visible = true; top = 5000; offersAutoMore(); const farAway = offersState.shown;
+top = 100; offersAutoMore();
+console.log(JSON.stringify({{ afterOne, closedPage, farAway, end: {{ shown: offersState.shown, hidden: button.hidden, writes: writes.length }} }}));"""
+        result = subprocess.run(["node", "-e", script], capture_output=True, text=True, timeout=30, check=False)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        found = json.loads(result.stdout)
+        self.assertEqual(found["afterOne"], {"writes": [["all", 24], ["add", 24]], "shown": 48, "hidden": False, "watched": 1}, "de tweede lading komt erbij, de eerste blijft staan")
+        self.assertEqual(found["closedPage"], 48, "een pagina die niet open staat laadt niets")
+        self.assertEqual(found["farAway"], 48, "het einde is nog ver: niets")
+        self.assertEqual(found["end"], {"shown": 60, "hidden": True, "writes": 3}, "bij het einde in de buurt tot de lijst op is")
+        template = (ROOT / "templates" / "index.html").read_text(encoding="utf-8")
+        self.assertIn('id="offers-filter-brand-search"', template)
+        self.assertIn('<ul class="offer-facet offer-facet--scroll" id="offers-filter-brands"></ul>', template)
+        css = (ROOT / "static" / "styles.css").read_text(encoding="utf-8")
+        self.assertIn("body:has(.panel.is-active #offers-items.is-active) .shell {\n    max-width: none;", css, "het overzicht is schermbreed")
 
 
 @unittest.skipUnless(shutil.which("node"), "Node is not installed")

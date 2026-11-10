@@ -151,11 +151,11 @@ class PreferredStoreTest(unittest.TestCase):
             active = false;
             state.auth = { preferredStore: "crisp" }; link("crisp");
             offersFollowPreferred();
-            console.log(JSON.stringify({ ...result(), category: offersState.category, course: offersState.course }));
+            console.log(JSON.stringify({ ...result(), course: offersState.course }));
             """
         )
         self.assertEqual((out["store"], out["loads"]), ("crisp", []), "laden doet showOffers bij het openen")
-        self.assertEqual((out["category"], out["course"], out["historyChanged"]), ("all", "all", 1))
+        self.assertEqual((out["course"], out["historyChanged"]), ("all", 1))  # de categorieen zijn filters per winkel (offersFilters)
 
     def test_an_address_waiting_for_a_link_decides_first(self):
         out = self.run_js(

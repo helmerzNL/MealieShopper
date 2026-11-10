@@ -6668,6 +6668,12 @@ html.is-standalone body {
     max-width: 1360px;
   }
 
+  /* Het overzicht van de aanbiedingen gebruikt het hele scherm: meer kaarten naast elkaar naast de filterzijbalk. */
+  body:has(.panel.is-active #offers-items.is-active) .topbar__inner,
+  body:has(.panel.is-active #offers-items.is-active) .shell {
+    max-width: none;
+  }
+
   .shell {
     display: grid;
     grid-template-columns: auto minmax(0, 1fr);
@@ -7440,27 +7446,6 @@ html.is-standalone body {
   opacity: 0.8;
 }
 
-/* Op een telefoon is de rij categorieën één regel die opzij scrolt: eerst stonden er tien regels chips voor het eerste product. */
-@media (max-width: 640px) {
-  .offer-cats--scroll {
-    flex-wrap: nowrap;
-    margin-inline: -16px;
-    padding: 2px 16px 6px;
-    overflow-x: auto;
-    overscroll-behavior-x: contain;
-    scrollbar-width: none;
-  }
-
-  .offer-cats--scroll::-webkit-scrollbar {
-    display: none;
-  }
-
-  .offer-cats--scroll > .offer-chip {
-    flex: none;
-    white-space: nowrap;
-  }
-}
-
 .offer-chip__dot {
   flex: none;
   width: 8px;
@@ -8229,7 +8214,7 @@ html.is-standalone body {
    uitschuifpaneel achter de knop Filters. */
 .offers-layout {
   display: grid;
-  grid-template-columns: 240px minmax(0, 1fr);
+  grid-template-columns: 280px minmax(0, 1fr);
   gap: 24px;
   align-items: start;
 }
@@ -8238,9 +8223,14 @@ html.is-standalone body {
   min-width: 0;
 }
 
+/* De zijbalk loopt mee met de lijst, die vanzelf doorloopt: onder de bovenbalk, hooguit zo hoog als het scherm, met een eigen
+   schuifbalk als de filters er niet in passen. */
 .offers-filters {
   position: sticky;
-  top: 16px;
+  top: 88px;
+  max-height: calc(100vh - 104px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
   display: flex;
   flex-direction: column;
   gap: 16px;
@@ -8279,6 +8269,115 @@ html.is-standalone body {
 
 .offers-filters .ohc-filter {
   margin: 0;
+}
+
+/* Een keuzelijst in de zijbalk (offers_facets.js): per regel een plus (alleen deze), een min (verbergen), de naam en het aantal. */
+.offer-facet {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* De merken: een winkel heeft er honderden, dus een eigen schuifbalk onder het zoekveld. */
+.offer-facet--scroll {
+  max-height: 300px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.offer-facet__search {
+  min-height: 36px;
+  padding: 0 10px;
+}
+
+.offer-facet__row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 30px;
+  padding: 1px 4px 1px 1px;
+  border-radius: var(--radius-sm);
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+
+.offer-facet__row:hover {
+  background: var(--surface-muted);
+}
+
+.offer-facet__step {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.offer-facet__step svg {
+  width: 16px;
+  height: 16px;
+  fill: currentColor;
+}
+
+.offer-facet__step:hover {
+  border-color: var(--primary);
+  color: var(--primary-strong);
+}
+
+.offer-facet__step--in[aria-pressed="true"] {
+  border-color: var(--primary);
+  background: var(--primary);
+  color: var(--on-primary);
+}
+
+.offer-facet__step--out[aria-pressed="true"] {
+  border-color: var(--danger);
+  background: var(--danger);
+  color: var(--surface);
+}
+
+.offer-facet__name .offer-chip__dot {
+  display: inline-block;
+  margin-right: 6px;
+}
+
+.offer-facet__name {
+  flex: 1;
+  min-width: 0;
+  margin-left: 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.offer-facet__row.is-in .offer-facet__name {
+  font-weight: 700;
+}
+
+.offer-facet__row.is-out .offer-facet__name {
+  color: var(--muted);
+  text-decoration: line-through;
+}
+
+.offer-facet__count,
+.offer-facet__empty {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.offer-facet__empty {
+  padding: 4px;
+  font-size: var(--text-sm);
 }
 
 .offers-filters .offer-cats {
@@ -8361,6 +8460,7 @@ html.is-standalone body {
     inset: 0 auto 0 0;
     z-index: 60;
     width: min(320px, 86vw);
+    max-height: none;
     overflow: auto;
     border-radius: 0 var(--radius-card) var(--radius-card) 0;
     transform: translateX(-100%);

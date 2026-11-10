@@ -76,12 +76,10 @@ class OffersToolsTest(unittest.TestCase):
         self.assertIn('$("#offers-sort").value = offersState.sort;', OFFERS)
 
     def test_categories_scroll_in_one_row_on_a_phone(self):
-        self.assertIn('id="offers-categories" class="offer-cats offer-cats--scroll"', HTML)
-        start = CSS.index("@media (max-width: 640px) {\n  .offer-cats--scroll {")
-        block = CSS[start:CSS.index("\n}\n", start)]
-        self.assertIn("flex-wrap: nowrap;", block)
-        self.assertIn("overflow-x: auto;", block)
-        self.assertIn(".offer-cats--scroll > .offer-chip {\n    flex: none;\n    white-space: nowrap;", block)
+        # Sinds 2026-11-10 geen rij chips meer boven de producten: de categorieen staan als lijst in de filterzijbalk, op een
+        # telefoon dus in de lade achter de knop Filters.
+        self.assertIn('<ul class="offer-facet" id="offers-categories"></ul>', HTML)
+        self.assertNotIn("offer-cats--scroll", HTML + CSS)
 
     def test_the_card_foot_has_two_icon_buttons_with_their_names(self):
         foot = function_source(OFFERS, "offerCardFoot")

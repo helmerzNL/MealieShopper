@@ -55,6 +55,7 @@ class CategoryChipsTest(unittest.TestCase):
         self.assertIn('<span class="offer-chip cat--vis"><i class="offer-chip__dot" aria-hidden="true"></i>Vis</span>', html)
 
     def test_offers_render_their_chips_through_the_shared_function(self):
-        self.assertIn("categoryChips(", OFFERS_JS)
+        # Sinds 2026-11-10 staan de categorieen van de aanbiedingen als lijst in de zijbalk (offers_facets.js), niet meer als chips.
+        self.assertIn('renderOfferFacet("category");', OFFERS_JS)
         # De chips per gang (data-course) zijn geen categorieen en houden hun eigen opbouw.
         self.assertNotIn("data-cat=", OFFERS_JS)

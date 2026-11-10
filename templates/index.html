@@ -812,9 +812,13 @@
               <button class="icon-button offers-filters__close" id="offers-filters-close" type="button" aria-label="Sluiten" data-i18n-attr="aria-label:common.close">&times;</button>
             </div>
             <section class="offers-filters__section">
+              <h4 data-i18n="offers.categories">Categorieën</h4>
+              <ul class="offer-facet" id="offers-categories"></ul>
+            </section>
+            <section class="offers-filters__section">
               <h4 data-i18n="offers.filters.brand">Merk</h4>
-              <div class="offer-cats offer-cats--filters" id="offers-filter-brands"></div>
-              <button class="link-button" id="offers-filter-brands-more" type="button" hidden></button>
+              <input class="input offer-facet__search" id="offers-filter-brand-search" type="search" autocomplete="off" placeholder="Zoek een merk" aria-label="Zoek een merk" data-i18n-attr="placeholder:offers.filters.brand_search;aria-label:offers.filters.brand_search">
+              <ul class="offer-facet offer-facet--scroll" id="offers-filter-brands"></ul>
             </section>
             <section class="offers-filters__section">
               <label class="ohc-filter"><input type="checkbox" id="offers-filter-bought" role="switch"><span data-i18n="offers.filters.bought">Eerder gekocht</span></label>
@@ -865,7 +869,6 @@
               <button class="segmented__item segmented__item--icon" type="button" data-view="compact" aria-pressed="false" title="Compact" aria-label="Compact" data-i18n-attr="title:offers.view.compact;aria-label:offers.view.compact"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 5V19H20V5H3M7 7V9H5V7H7M5 13V11H7V13H5M5 15H7V17H5V15M18 17H9V15H18V17M18 13H9V11H18V13M18 9H9V7H18V9Z"/></svg></button>
             </div>
           </div>
-          <div id="offers-categories" class="offer-cats offer-cats--scroll" role="group" aria-label="Categorieën" data-i18n-attr="aria-label:offers.categories"></div>
           <div id="offers-active-filters" class="offer-cats offer-cats--active-filters" role="group" aria-label="Actieve filters" data-i18n-attr="aria-label:offers.filters.active" hidden></div>
           <div id="offers-loading" class="offers-loading" role="status" aria-live="polite" hidden></div>
           <div id="offers-products" class="product-grid product-grid--offers"></div>
@@ -2318,6 +2321,7 @@
     <script src="{{ url_for('static', filename='basket.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='offers.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='offers_cart.js', v=config.ASSET_VERSION) }}"></script>
+    <script src="{{ url_for('static', filename='offers_facets.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='ai_review.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='offers_history.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='profile.js', v=config.ASSET_VERSION) }}"></script>
