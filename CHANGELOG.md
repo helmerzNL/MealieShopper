@@ -187,7 +187,7 @@ De eerste ronde van een doorlichting van de gebruikerservaring van de hele app: 
 
 ### Opgelost in 4.10.3
 
-Pull request #303.
+Pull request: [#303](https://github.com/helmerzNL/MealieShopper/pull/303), van wolph.
 
 *English summary: You stay logged in. The session cookie expired after 24 hours no matter how often you used the app, so everyone logged in again every day. A session now lasts 90 days (`MEALIESHOPPER_SESSION_DAYS`), and every request with a session older than a day sets a fresh cookie, so whoever keeps using the app stays logged in. Logging out now revokes the session on the server (the cookie and every renewal of it), a new password and the reset still end every session at once, a renewal carries the epoch, session id and login time of the cookie that was checked, nothing is renewed a year after the login, a Bearer token (AI apps) gets no cookie, and a session from before this version keeps working until it expires.*
 
@@ -221,6 +221,12 @@ Pull request: [#300](https://github.com/helmerzNL/MealieShopper/pull/300).
 - **Database: indexen op wat de app telkens opzoekt, en het schema een keer per proces.** Een doorlichting van alle 1083 verschillende queries die de testsuite stuurt (`EXPLAIN QUERY PLAN` op een kopie van een productiedatabase) gaf tabellen zonder enige index op de kolommen waarop de nachtelijke rondes en het dashboard zoeken. Nu staan er indexen op `ah_receipt_products.product_id` (ook een deelindex op de producten zonder foto), `ah_receipt_items.product_id`, `ah_order_items.product_id` en `jumbo_order_items.product_id`, deelindexen op de bonnen en bestellingen die nog details missen (`details_synced = 0`, `items_synced = 0`), `audit_log.ts` (het opruimen), `offers (store, product_id)` (de prijsgeschiedenis per product), `price_observations (store, day)` (de prijzen per periode) en de user- en client-kolommen van `oauth_tokens`, `oauth_codes`, `passkey_credentials` en `mfa_recovery_codes`. De index `image_cache_todo` op `fetched_at` gebruikte geen enkele query en is vervangen door een deelindex op de afbeeldingen die nog opgehaald moeten worden (`path IS NULL`, 1700 van de 2106 rijen in productie). `prices._pinned` en `purchase_lines.times_before` vergelijken `product_id` zonder `CAST`, zodat de index werkt. Elke module maakte haar tabellen en migraties bij elke verbinding opnieuw (`CREATE TABLE IF NOT EXISTS`, `PRAGMA table_info`, ongeveer 0,7 milliseconde per verzoek). `auth.ensure_schema` doet dat nu een keer per proces en database, en een fabrieksreset vergeet het weer. De `INSERT OR REPLACE` en `INSERT OR IGNORE` van SQLite zijn `INSERT ... ON CONFLICT DO UPDATE` en `DO NOTHING`, dezelfde vorm als Postgres kent, met het oog op een database-server als alternatief.
 - **Tests:** `tests/test_db_schema.py` (de 24 indexen, de plannen van 15 hete queries, het schema een keer per proces en opnieuw na een fabrieksreset).
 
+## v4.10.0
+
+### Nieuw in 4.10.0
+
+Pull request: [#297](https://github.com/helmerzNL/MealieShopper/pull/297).
+
 *English summary: recipes and menus that **To week menu** (Stores, Albert Heijn, Week planner) makes from loose AH products now get servings and nutrition values. A new setting **Servings per recipe** under Settings, Preferences, Supermarket (2 by default, 1 to 8) sets the servings; the nutrition values are per person: the AH nutrition table of each product (per 100 g or ml, read with the anonymous token from the AH app's GraphQL, `product.tradeItem.nutritions`) times its whole pack, added up and divided by the servings. Only when that is known for all products in the recipe: a product without a nutrition table or with a pack in pieces leaves the recipe without nutrition values, so there are never too low totals in Mealie. Recipes that were already in Mealie do not change. The AH explorer gets a check that shows the shape of a product's nutrition table. Not tested against the live AH API.*
 
 - **Voedingswaarden in recepten en menu's van producten.** Een recept dat *Naar weekmenu* van een los product maakt (zoals soep of pizza), en een menu van meer producten (vlees, groente, aardappelen), krijgen nu voedingswaarden per persoon.
@@ -252,12 +258,6 @@ Pull request: [#300](https://github.com/helmerzNL/MealieShopper/pull/300).
   - `plannerServings` in het profiel
   - het getalveld in Voorkeuren
   - de controle in de verkenner
-
-## v4.10.0
-
-### Nieuw in 4.10.0
-
-Pull request: [#297](https://github.com/helmerzNL/MealieShopper/pull/297).
 
 ## v4.9.0
 
