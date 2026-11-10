@@ -56,7 +56,7 @@ class GreyBackgroundTest(unittest.TestCase):
     def test_grey_only_swaps_the_neutral_surfaces_text_and_borders(self):
         self.assertEqual(
             sorted(self.grey),
-            sorted(["--bg", "--surface", "--surface-muted", "--text", "--muted", "--border", "--border-strong", "--placeholder",
+            sorted(["--bg", "--surface", "--surface-muted", "--text", "--muted", "--border", "--border-strong", "--control-border", "--placeholder",
                     "--tabbar-rgb", "--tabbar-ink", "--tabbar-solid", "--topbar-bg", "--gate-bg", "--topbar-glass"]),
         )
         for name in self.grey:

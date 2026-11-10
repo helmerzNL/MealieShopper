@@ -284,7 +284,8 @@ window.addEventListener("resize", () => {
 });
 
 async function loadOrders() {
-  message("#ah-orders-message", "");
+  // De eerste keer staat er nog geen lijst: dan zegt de pagina dat ze laadt, in plaats van leeg te blijven (sinds 4.12.0).
+  message("#ah-orders-message", ordersState.loaded ? "" : t("common.loading"), "info");
   purchaseDetailCache.clear(); // de hovervensters (popover.js) halen de details opnieuw op
   const store = state.itemsStore;
   try {
@@ -294,6 +295,7 @@ async function loadOrders() {
       const importedOrders = await imported;
       if (store !== state.itemsStore) return; // de winkel is intussen gewisseld
       Object.assign(ordersState, { orders: orders.orders, imported: importedOrders, ordersSyncedAt: orders.syncedAt, loaded: true });
+      message("#ah-orders-message", "");
       renderOrders();
       linkingNoticeRefresh(); // bij Jumbo blijft de melding van AH leeg (linkingRender)
       return;
@@ -304,6 +306,7 @@ async function loadOrders() {
     const importedOrders = await imported;
     if (store !== state.itemsStore) return;
     Object.assign(ordersState, { orders: orders.orders, imported: importedOrders, ordersSyncedAt: orders.syncedAt });
+    message("#ah-orders-message", "");
     renderOrders();
     linkingNoticeRefresh(); // de pauze van AH, het uurbudget en wat er nog te koppelen is (linking.js), boven de lijst
   } catch (error) {
@@ -723,7 +726,7 @@ function importedOrdersChanged(store) {
 
 // De hele ingelezen bestelling weg, na een bevestiging. De melding komt pas na het opnieuw laden: dat wist eerst de oude melding.
 async function deleteImportedOrder(store, ref, button) {
-  if (!window.confirm(t("orders.imported.delete_confirm", { date: button.dataset.title || ref }))) return;
+  if (!(await confirmDialog(t("orders.imported.delete_confirm", { date: button.dataset.title || ref }), { danger: true }))) return;
   const box = store === "picnic" || store === "crisp" ? `#${store}-orders-message` : "#ah-orders-message";
   button.disabled = true;
   try {

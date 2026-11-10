@@ -176,8 +176,9 @@ async function jsonFetch(url, options = {}) {
   try {
     data = await response.json();
   } catch (error) {
+    // De tip over de reverse proxy en de container-logs is voor de beheerder; een gewone gebruiker kan er niets mee (sinds 4.12.0).
     const proxyHint =
-      response.status === 502 || response.status === 504
+      (response.status === 502 || response.status === 504) && !document.documentElement.classList.contains("is-regular-user")
         ? t("err.proxy_hint")
         : "";
     throw new Error(
@@ -195,6 +196,81 @@ async function jsonFetch(url, options = {}) {
 // Een melding in het vak `target`. Soorten: "error" (de standaard), "warning", "success" en "info" (neutraal: bezig, wachten,
 // een mededeling zonder oordeel). Een fout of waarschuwing is een `alert`, de rest een `status`: zo leest een schermlezer de
 // melding voor zonder dat elk van de vakken in de pagina zelf een rol hoeft te hebben.
+// Een vraag in een eigen venster (sinds 4.12.0), in plaats van window.confirm: in de huisstijl, in de taal van de app (de knoppen
+// van de browser volgden de taal van het toestel), en niet te onderdrukken in een geinstalleerde app. Geeft een belofte: waar bij
+// de bevestigknop, onwaar bij Annuleren, Escape of een tik naast het venster. `danger` kleurt de knop rood en zet de focus op
+// Annuleren: bij iets dat niet terug kan is de veilige keuze de standaard.
+function confirmDialog(text, { confirm = t("common.confirm"), cancel = t("common.cancel"), danger = false } = {}) {
+  const dialog = $("#confirm-dialog");
+  const yes = $("#confirm-dialog-yes");
+  const no = $("#confirm-dialog-no");
+  $("#confirm-dialog-text").textContent = text;
+  yes.textContent = confirm;
+  no.textContent = cancel;
+  yes.classList.toggle("button--danger", danger);
+  return new Promise((resolve) => {
+    let answer = false;
+    const onYes = () => {
+      answer = true;
+      dialog.close();
+    };
+    const onNo = () => dialog.close();
+    const onBackdrop = (event) => {
+      if (event.target === dialog) dialog.close();
+    };
+    const onClose = () => {
+      yes.removeEventListener("click", onYes);
+      no.removeEventListener("click", onNo);
+      dialog.removeEventListener("click", onBackdrop);
+      resolve(answer);
+    };
+    yes.addEventListener("click", onYes);
+    no.addEventListener("click", onNo);
+    dialog.addEventListener("click", onBackdrop);
+    dialog.addEventListener("close", onClose, { once: true });
+    dialog.showModal();
+    (danger ? no : yes).focus();
+  });
+}
+
+// Een laadtoestand met vaste ruimte (sinds 4.12.0): een draaiend icoon met tekst in een vak van 160 px, zodat de pagina niet
+// verspringt als de inhoud komt. Daarvoor stond er een regel grijze tekst, of niets.
+function loadingHtml(text = t("common.loading")) {
+  return `<div class="loading-box" role="status">${mdiIcon(MDI_LOADING, "loading-box__icon")}<span>${escapeHtml(text)}</span></div>`;
+}
+
+// Het weekmenu terwijl het laadt: zeven lege dagkaarten op de plek van de echte, zodat de boodschappenlijst eronder niet springt.
+function mealPlanSkeletonHtml(days) {
+  return days.map(() => '<article class="day-card day-card--skeleton" aria-hidden="true"><span></span><span></span><span></span></article>').join("");
+}
+
+// Een korte melding onderaan het scherm (sinds 4.12.0), voor wat geen eigen vak heeft: "Opgeslagen" na een schakelaar, of een
+// fout bij een knop in een menu. Een succes verdwijnt na vier seconden; een fout blijft staan tot je hem sluit.
+function toast(text, type = "success") {
+  const box = $("#toasts");
+  if (!box || !text) return;
+  const item = document.createElement("div");
+  item.className = `toast toast--${type}`;
+  item.setAttribute("role", type === "error" ? "alert" : "status");
+  const label = document.createElement("span");
+  label.textContent = text;
+  item.append(label);
+  if (type === "error") {
+    const close = document.createElement("button");
+    close.type = "button";
+    close.className = "toast__close";
+    close.textContent = t("common.close");
+    close.addEventListener("click", () => item.remove());
+    item.append(close);
+  } else {
+    setTimeout(() => item.remove(), 4000);
+  }
+  box.querySelectorAll(`.toast--${type}`).forEach((old) => {
+    if (old.textContent === item.textContent) old.remove(); // dezelfde melding stapelt niet
+  });
+  box.append(item);
+}
+
 function message(target, text, type = "error") {
   const role = type === "error" || type === "warning" ? "alert" : "status";
   $(target).innerHTML = text ? `<div class="message ${type}" role="${role}">${escapeHtml(text)}</div>` : "";
@@ -288,6 +364,20 @@ function renderAuthState() {
   if (typeof renderInviteGate === "function") renderInviteGate();
   if (typeof applyRole === "function") applyRole();
   if (typeof renderUpdate === "function") renderUpdate();
+  syncAppInert();
+}
+
+// Staat het inlogscherm, een uitnodiging of de installatiehulp over de pagina, dan is de app erachter buiten bereik van Tab en
+// van een schermlezer (sinds 4.12.0). De installatiehulp noemde zich al een modaal venster, maar Tab liep de app erachter in.
+function syncAppInert() {
+  const covered = ["#auth-gate", "#invite-gate", "#onboarding"].some((selector) => {
+    const layer = document.querySelector(selector);
+    return Boolean(layer && !layer.hidden);
+  });
+  for (const selector of [".topbar", "main.shell"]) {
+    const part = document.querySelector(selector);
+    if (part) part.inert = covered;
+  }
 }
 
 function formatCredentialDate(value) {
@@ -413,7 +503,7 @@ async function addPasskey() {
 }
 
 async function deletePasskey(credentialId) {
-  if (!window.confirm(t("passkey.confirm_delete"))) return;
+  if (!(await confirmDialog(t("passkey.confirm_delete"), { danger: true, confirm: t("passkey.delete") }))) return;
   try {
     await jsonFetch(`/api/auth/credentials/${encodeURIComponent(credentialId)}`, { method: "DELETE" });
     message("#security-message", t("passkey.deleted"), "success");
@@ -938,6 +1028,7 @@ async function savePreferOrganic(input) {
       body: JSON.stringify({ preferOrganic: wanted }),
     });
     state.auth = { ...state.auth, preferOrganic: Boolean(data.preferOrganic) };
+    toast(t("common.saved"));
   } catch (error) {
     // Niet bewaard: de schakelaar geldt dan alleen nu, en de gebruiker ziet waarom.
     message("#planner-message", t("cart.organic_save_failed", { error: error.message }), "error");
@@ -1028,7 +1119,7 @@ async function loadMealPlan({ force = false } = {}) {
     return;
   }
   state.entries = null;
-  $("#meal-days").innerHTML = "";
+  $("#meal-days").innerHTML = mealPlanSkeletonHtml(week.days);
   $("#ingredients-panel").innerHTML = "";
   message("#planner-message", t("plan.loading"), "info");
   setBusy(button, true);
@@ -1320,7 +1411,7 @@ async function savePlanEntry(event) {
 
 async function deletePlanEntry() {
   const entry = planDialog.entry;
-  if (!entry || !window.confirm(t("plan.delete_confirm", { name: mealName(entry) }))) return;
+  if (!entry || !(await confirmDialog(t("plan.delete_confirm", { name: mealName(entry) }), { danger: true, confirm: t("plan.delete") }))) return;
   const button = $("#plan-delete");
   setBusy(button, true);
   try {
@@ -1515,14 +1606,14 @@ function renderStoreChoice() {
     const menu = $("#cart-store-menu");
     if (menu) {
       bindSubtabMenu(menu);
-      $("#cart-store-list").addEventListener("click", (event) => {
+      $("#cart-store-list").addEventListener("click", async (event) => {
         const item = event.target.closest("[data-store]");
         if (!item) return;
         // Een open controlelijst hoort bij de winkel waar hij voor gezocht is: zijn product-id's zeggen een andere winkel niets.
         // Wisselen kan dus alleen door de lijst weg te doen, en dat vragen we eerst (cartReviewStore, sinds 4.10.4).
         const reviewed = cartReviewStore();
         if (reviewed && reviewed !== item.dataset.store) {
-          if (!window.confirm(t("cart.switch_confirm", { from: STORES[reviewed].name, to: STORES[item.dataset.store].name }))) return;
+          if (!(await confirmDialog(t("cart.switch_confirm", { from: STORES[reviewed].name, to: STORES[item.dataset.store].name })))) return;
           discardCartReview();
         }
         state.store = item.dataset.store;
@@ -2038,7 +2129,7 @@ async function linkMealie(event) {
 // Ontkoppelen vraagt eerst (sinds 4.10.4): het was één klik, terwijl opnieuw koppelen bij Mealie een nieuw token vraagt en bij
 // Jumbo een computer met een console. De knop is bezig tot het antwoord er is, dus twee keer klikken doet niets.
 async function unlinkWithConfirm(button, name, unlink) {
-  if (!window.confirm(t("links.unlink_confirm", { name }))) return;
+  if (!(await confirmDialog(t("links.unlink_confirm", { name }), { danger: true, confirm: t("links.unlink") }))) return;
   setBusy(button, true);
   try {
     await unlink();
@@ -2482,7 +2573,7 @@ async function resetOpenAhList() {
   const button = $("#reset-ah-list");
   const edited = (state.ahOpenList?.items || []).filter((item) => item.edited).length;
   // Terugzetten gooit je aanpassingen weg; eerst bevestigen.
-  if (!window.confirm(tn("list.reset_confirm", edited))) return;
+  if (!(await confirmDialog(tn("list.reset_confirm", edited), { danger: true }))) return;
   setBusy(button, true);
   message("#ah-list-items-message", "");
   try {
@@ -3062,7 +3153,7 @@ $("#auth-logout").addEventListener("click", async (event) => {
     await jsonFetch("/api/auth/logout", { method: "POST", body: "{}" });
     await refreshAuthStatus();
   } catch (error) {
-    window.alert(t("auth.logout_failed", { error: error.message }));
+    toast(t("auth.logout_failed", { error: error.message }), "error");
   } finally {
     button.disabled = false;
   }

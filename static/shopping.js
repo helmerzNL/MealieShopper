@@ -728,7 +728,9 @@ $("#cart-result").addEventListener("click", (event) => {
   }
   if (event.target.closest("#cancel-cart")) {
     // Twintig regels nalopen en dan per ongeluk Annuleren: eerst vragen (sinds 4.10.4).
-    if (window.confirm(t("cart.cancel_confirm"))) discardCartReview();
+    confirmDialog(t("cart.cancel_confirm"), { danger: true, confirm: t("cart.cancel_yes") }).then((sure) => {
+      if (sure && shopping.review === review) discardCartReview();
+    });
     return;
   }
   const confirm = event.target.closest("#confirm-cart");

@@ -124,7 +124,7 @@ async function submitFactoryReset(event) {
       return;
     }
   }
-  if (!window.confirm(t("system.reset_confirm"))) return;
+  if (!(await confirmDialog(t("system.reset_confirm"), { danger: true }))) return;
 
   factoryResetState.busy = true;
   $("#reset-submit").disabled = true;

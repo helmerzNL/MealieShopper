@@ -246,7 +246,7 @@ async function openStoreRecipe(store, id, host = SEARCH_HOST) {
   $(host.detail).hidden = false;
   const known = host.known(store).find((recipe) => String(recipe.id ?? recipe.key) === String(id));
   $(`#${host.prefix}-title`).textContent = known?.name || known?.title || "";
-  $(`#${host.prefix}-body`).innerHTML = `<p class="muted">${escapeHtml(t("basket.loading"))}</p>`;
+  $(`#${host.prefix}-body`).innerHTML = loadingHtml();
   message(`#${host.prefix}-message`, "");
   $(`#${host.prefix}-title`).focus();
   try {

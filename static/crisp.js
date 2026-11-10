@@ -497,7 +497,7 @@ async function setCrispQuantity(productId, quantity) {
 
 async function clearCrispBasket(items) {
   const count = items.reduce((sum, item) => sum + Number(item.quantity || 0), 0);
-  if (!window.confirm(t("crisp.basket_clear_confirm", { count }))) return;
+  if (!(await confirmDialog(t("crisp.basket_clear_confirm", { count }), { danger: true }))) return;
   setCrispBasketBusy(true);
   message("#basket-message", "");
   try {

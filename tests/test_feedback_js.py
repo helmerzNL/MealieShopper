@@ -222,7 +222,7 @@ class CartReviewStoreTest(unittest.TestCase):
         self.assertIn('data-store="${escapeHtml(review.store)}"', function_source(SHOPPING_JS, "renderCartReview"))
 
     def test_cancel_asks_and_every_store_gets_the_basket_button(self):
-        self.assertIn('if (window.confirm(t("cart.cancel_confirm"))) discardCartReview();', SHOPPING_JS)
+        self.assertIn('confirmDialog(t("cart.cancel_confirm"), { danger: true, confirm: t("cart.cancel_yes") })', SHOPPING_JS)
         result = function_source(SHOPPING_JS, "showCartResult")
         self.assertIn('id="view-basket"', result)
         self.assertNotIn('["picnic", "jumbo", "crisp"].includes', result, "ook bij Albert Heijn")

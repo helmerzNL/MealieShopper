@@ -134,7 +134,7 @@ $("#ai-apps").addEventListener("click", async (event) => {
   const button = event.target.closest("[data-ai-revoke]");
   if (!button) return;
   const app = aiState.status?.apps.find((entry) => entry.clientId === button.dataset.aiRevoke);
-  if (!window.confirm(t("ai.apps_revoke_confirm", { name: app?.name || "" }))) return;
+  if (!(await confirmDialog(t("ai.apps_revoke_confirm", { name: app?.name || "" }), { danger: true }))) return;
   try {
     await jsonFetch(`/api/mcp/apps/${encodeURIComponent(button.dataset.aiRevoke)}`, { method: "DELETE" });
     await loadAi();

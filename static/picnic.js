@@ -616,7 +616,7 @@ async function setPicnicQuantity(productId, quantity) {
 
 async function clearPicnicBasket(items) {
   const count = items.reduce((sum, item) => sum + Number(item.quantity || 0), 0);
-  if (!window.confirm(t("picnic.basket_clear_confirm", { count }))) return;
+  if (!(await confirmDialog(t("picnic.basket_clear_confirm", { count }), { danger: true }))) return;
   setPicnicBasketBusy(true);
   try {
     const data = await postJson("/api/picnic/cart/clear", { confirm: true });

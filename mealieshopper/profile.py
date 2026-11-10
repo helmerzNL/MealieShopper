@@ -418,7 +418,7 @@ def register_routes(app: Quart) -> None:
     async def profile_avatar_get(user_id: str):
         found = await avatar(user_id)
         if not found:
-            return jsonify({"error": "Not found"}), 404
+            return jsonify({"error": tr("Niet gevonden.", "Not found.")}), 404
         data, content_type = found
         return Response(
             data,

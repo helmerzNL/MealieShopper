@@ -41,12 +41,14 @@ function renderOnboarding() {
   if (!onboardingVisible()) {
     root.hidden = true;
     document.body.classList.remove("has-onboarding");
+    if (typeof syncAppInert === "function") syncAppInert();
     return;
   }
   const status = state.onboarding;
   if (root.hidden) {
     root.hidden = false;
     document.body.classList.add("has-onboarding");
+    if (typeof syncAppInert === "function") syncAppInert();
     if (!ob.started) {
       ob.started = true;
       postJson("/api/onboarding/start").catch(() => {});

@@ -782,6 +782,7 @@ function offerPopupHtml(offer, product, packs, activeId = null) {
     : `<p class="muted offer-popup__loading">${escapeHtml(t(product === false ? "offers.popup.none" : "offers.popup.loading"))}</p>`;
   return `<div class="offer-popup__inner">
       ${offerHistoryHead(shown, { compact: true, offer })}
+      ${offer.badge ? `<p class="muted offer-popup__verdict">${escapeHtml(offerBadgeTitle(offer))}</p>` : ""}
       ${buttons}
       ${body}
       <p class="offer-popup__foot"><a href="${escapeHtml(priceHistoryPath(store, shown.title, shown.productId))}" data-route>${escapeHtml(t("offers.popup.full_history"))}</a></p>
@@ -1755,10 +1756,26 @@ async function loadOffersSyncStatus() {
   }
 }
 
+const OFFERS_SYNC_POLL_MS = 3000;
+
 async function offersSyncAll() {
   const button = $("#offers-sync-all");
   message("#offers-sync-message", "");
   setBusy(button, true, t("offers.sync.running"));
+  // Het ophalen is één lang verzoek voor alle winkels. Intussen vraagt de pagina de stand op (sinds 4.12.0): de regel per winkel
+  // springt bij zodra die winkel klaar is, en de melding telt mee. Een statusvraag die mislukt is geen fout van het ophalen.
+  const before = Object.fromEntries(OFFERS_STORES.map((store) => [store, offersSync.status?.stores?.[store]?.syncedAt || ""]));
+  const progress = setInterval(async () => {
+    try {
+      offersSync.status = await jsonFetch("/api/offers/status");
+    } catch {
+      return;
+    }
+    if (!button.classList.contains("is-busy")) return; // intussen klaar: de eindmelding staat er al
+    renderOffersSync();
+    const done = OFFERS_STORES.filter((store) => (offersSync.status.stores?.[store]?.syncedAt || "") !== before[store]).length;
+    message("#offers-sync-message", t("offers.sync.progress", { done: I18N.formatNumber(done), total: I18N.formatNumber(OFFERS_STORES.length) }), "info");
+  }, OFFERS_SYNC_POLL_MS);
   try {
     offersSync.result = await jsonFetch("/api/offers/sync-all", { method: "POST" });
     await loadOffersSyncStatus();
@@ -1768,6 +1785,7 @@ async function offersSyncAll() {
   } catch (error) {
     message("#offers-sync-message", error.message);
   } finally {
+    clearInterval(progress);
     setBusy(button, false, t("offers.sync.running"));
   }
 }

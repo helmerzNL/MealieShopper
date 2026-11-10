@@ -56,6 +56,7 @@ async function appearanceSave(change, { previous = null, target = "#appearance-m
       showCalories: data.showCalories,
       preferredStore: data.preferredStore,
     };
+    toast(t("common.saved")); // de keuze was al te zien; nu weet je ook dat hij bewaard is (sinds 4.12.0)
   } catch (error) {
     if (previous) {
       THEME.apply(previous);
