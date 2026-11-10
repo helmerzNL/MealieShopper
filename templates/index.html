@@ -235,6 +235,8 @@
       </div>
     </dialog>
     <div class="toasts" id="toasts"></div>
+    <!-- De kooktimers (cook_timers.js): zweven rechtsonder, en verhuizen mee naar het bovenste open venster. -->
+    <section class="cook-timers" id="cook-timers" aria-label="Kooktimers" data-i18n-attr="aria-label:cook.timers" data-worker="{{ url_for('static', filename='cook_sw.js', v=config.ASSET_VERSION) }}" hidden></section>
 
     <dialog id="photo-dialog" class="product-dialog photo-dialog" aria-labelledby="photo-dialog-title">
       <div class="product-dialog__inner">
@@ -385,6 +387,28 @@
               <h3 class="cook-mode__step-title" id="cook-mode-step-title" hidden></h3>
               <p class="cook-mode__text" id="cook-mode-text"></p>
             </div>
+            <section class="cook-mode__uses" id="cook-mode-uses" aria-labelledby="cook-mode-uses-title" hidden>
+              <div class="cook-mode__uses-head">
+                <h3 class="cook-mode__uses-title" id="cook-mode-uses-title" data-i18n="cook.uses">Bij deze stap</h3>
+                <span class="cook-mode__auto" id="cook-mode-uses-auto" data-i18n="cook.uses_auto" hidden>automatisch gevonden</span>
+                <button class="button button--secondary cook-mode__link" type="button" id="cook-mode-link" aria-expanded="false" aria-controls="cook-mode-link-form" hidden><svg class="mdi" viewBox="0 0 24 24" aria-hidden="true" data-mdi="mdiLinkVariant"><path d="M10.59,13.41C11,13.8 11,14.44 10.59,14.83C10.2,15.22 9.56,15.22 9.17,14.83C7.22,12.88 7.22,9.71 9.17,7.76V7.76L12.71,4.22C14.66,2.27 17.83,2.27 19.78,4.22C21.73,6.17 21.73,9.34 19.78,11.29L18.29,12.78C18.3,11.96 18.17,11.14 17.89,10.36L18.36,9.88C19.54,8.71 19.54,6.81 18.36,5.64C17.19,4.46 15.29,4.46 14.12,5.64L10.59,9.17C9.41,10.34 9.41,12.24 10.59,13.41M13.41,9.17C13.8,8.78 14.44,8.78 14.83,9.17C16.78,11.12 16.78,14.29 14.83,16.24V16.24L11.29,19.78C9.34,21.73 6.17,21.73 4.22,19.78C2.27,17.83 2.27,14.66 4.22,12.71L5.71,11.22C5.7,12.04 5.83,12.86 6.11,13.65L5.64,14.12C4.46,15.29 4.46,17.19 5.64,18.36C6.81,19.54 8.71,19.54 9.88,18.36L13.41,14.83C14.59,13.66 14.59,11.76 13.41,10.59C13,10.2 13,9.56 13.41,9.17Z"/></svg><span data-i18n="cook.link">Koppelen</span></button>
+              </div>
+              <p class="muted cook-mode__uses-none" id="cook-mode-uses-none" data-i18n="cook.uses_none" hidden>Nog geen ingrediënten bij deze stap.</p>
+              <ul class="cook-ingredients cook-mode__uses-list" id="cook-mode-uses-list" role="list" hidden></ul>
+              <form class="cook-link" id="cook-mode-link-form" hidden>
+                <fieldset>
+                  <legend data-i18n="cook.link_legend">Welke ingrediënten horen bij deze stap?</legend>
+                  <div class="cook-link__items" id="cook-mode-link-items"></div>
+                </fieldset>
+                <p class="muted cook-link__hint" data-i18n="cook.link_hint">Je keuze gaat naar Mealie en staat er de volgende keer weer.</p>
+                <div id="cook-mode-link-message"></div>
+                <div class="cook-link__actions">
+                  <button class="button" type="submit" id="cook-mode-link-save" data-i18n="cook.link_save">Opslaan</button>
+                  <button class="button button--secondary" type="button" id="cook-mode-link-cancel" data-i18n="cook.link_cancel">Annuleren</button>
+                </div>
+              </form>
+            </section>
+            <div class="cook-mode__timer-row" id="cook-mode-timer-row" role="group" aria-label="Timer starten" data-i18n-attr="aria-label:cook.timer_row"></div>
             <button class="button button--secondary cook-mode__done" type="button" id="cook-mode-done" aria-pressed="false"><svg class="mdi" viewBox="0 0 24 24" aria-hidden="true" data-mdi="mdiCheck"><path d="M21,7L9,19L3.5,13.5L4.91,12.09L9,16.17L19.59,5.59L21,7Z"/></svg><span data-i18n="cook.step_done">Stap klaar</span></button>
           </section>
           <aside class="cook-mode__panel" id="cook-mode-panel" aria-labelledby="cook-mode-panel-title" hidden>
@@ -2332,6 +2356,7 @@
     <script src="{{ url_for('static', filename='app.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='shopping.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='recipe_view.js', v=config.ASSET_VERSION) }}"></script>
+    <script src="{{ url_for('static', filename='cook_timers.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='categories.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='users.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='ai.js', v=config.ASSET_VERSION) }}"></script>
