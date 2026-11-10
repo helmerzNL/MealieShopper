@@ -186,9 +186,6 @@ def create_app() -> Quart:
             payload, status = blocked
             return jsonify(payload), status
 
-    # De sessie schuift mee met het gebruik (auth.renew_session): 30 dagen na het laatste verzoek, niet 24 uur na het inloggen.
-    app.after_request(auth.renew_session)
-
     @app.get("/")
     async def index(**_route):
         return await render_template("index.html", public_base_url=await public_base_url(), build_channel=about.build_channel())

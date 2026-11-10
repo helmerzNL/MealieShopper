@@ -80,7 +80,7 @@ function routerSync({ replace = false } = {}) {
   routerRefreshLinks();
 }
 
-// De titel van het tabblad volgt het scherm (sinds 4.10.3): "Weekmenu \u00b7 Recepten \u00b7 MealieShopper". Daarvoor heette elk
+// De titel van het tabblad volgt het scherm (sinds 4.10.4): "Weekmenu \u00b7 Recepten \u00b7 MealieShopper". Daarvoor heette elk
 // scherm MealieShopper, in de tabbladen, in de geschiedenis van de browser en voor een schermlezer. Eerst het open subtabblad,
 // dan het onderdeel: de actieve tab van het hoofdmenu, of de kop van een scherm uit het menu Meer (Instellingen, Profiel, Over).
 function routerTitle() {

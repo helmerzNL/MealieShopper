@@ -1043,7 +1043,7 @@ a.subtab-menu__item[hidden] {
   box-shadow: inset 4px 0 0 var(--warning-border);
 }
 
-/* Neutraal: bezig, wachten, of een mededeling zonder oordeel (sinds 4.10.3). Geen groen: "Laden..." is geen succes. */
+/* Neutraal: bezig, wachten, of een mededeling zonder oordeel (sinds 4.10.4). Geen groen: "Laden..." is geen succes. */
 .message.info {
   background: var(--surface-muted);
   color: var(--text);
@@ -5086,7 +5086,7 @@ html.is-standalone body {
   }
 
   /* Het lange label is in de balk niet te zien, maar blijft de naam van de tab voor een schermlezer: het korte label eronder
-     heeft aria-hidden. Tot 4.10.3 stond hier display: none en had een tab in de balk geen naam (zoals .visually-hidden). */
+     heeft aria-hidden. Tot 4.10.4 stond hier display: none en had een tab in de balk geen naam (zoals .visually-hidden). */
   html.has-tabbar .tab-text {
     position: absolute;
     width: 1px;

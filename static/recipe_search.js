@@ -159,7 +159,7 @@ async function fetchSearchStore(store, append) {
   renderSearchStore(store);
 }
 
-// Een link in het zoekveld (sinds 4.10.3): die zoek je niet, die importeer je. Zo heeft *Recept importeren via URL* weer een
+// Een link in het zoekveld (sinds 4.10.4): die zoek je niet, die importeer je. Zo heeft *Recept importeren via URL* weer een
 // ingang zonder een extra item in het menu; de pagina op /import blijft bestaan.
 function recipeQueryIsUrl(query) {
   return /^https?:\/\/\S+$/i.test(query);

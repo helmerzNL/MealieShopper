@@ -175,6 +175,7 @@ Alles is optioneel. `MEALIESHOPPER_TAG` zet je in `.env` naast `docker-compose.y
 | `MEALIESHOPPER_AUDIT_BODY_CHARS` | ❌ | `4000` | Hoeveel tekens van elk verzoek en antwoord de auditlog bewaart; langere teksten worden ingekort. |
 | `MEALIESHOPPER_AUDIT_RETENTION_DAYS` | ❌ | `30` | Na hoeveel dagen de auditlog regels wist; `0` wist nooit vanzelf. |
 | `PASSKEY_AUTH_ENABLED` | ❌ | aan | Met `false` staat inloggen helemaal uit (alleen als noodgreep). |
+| `MEALIESHOPPER_SESSION_DAYS` | ❌ | `90` | Hoeveel dagen je ingelogd blijft. Elk gebruik na een dag verlengt de sessie met deze duur, dus wie de app blijft gebruiken logt niet opnieuw in. |
 | `MEALIE_URL`, `MEALIE_API_TOKEN` | ❌ | - | Mealie via de omgeving; een koppeling uit de app gaat voor. |
 | `AH_REFRESH_TOKEN` | ❌ | - | Startwaarde voor de AH-koppeling; normaal koppel je in de app. |
 | `PICNIC_COUNTRY_CODE` | ❌ | `NL` | Land van je Picnic-account: `NL`, `DE` of `FR`. De koppeling zelf maak je in de app. |

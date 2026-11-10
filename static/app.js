@@ -1519,7 +1519,7 @@ function renderStoreChoice() {
         const item = event.target.closest("[data-store]");
         if (!item) return;
         // Een open controlelijst hoort bij de winkel waar hij voor gezocht is: zijn product-id's zeggen een andere winkel niets.
-        // Wisselen kan dus alleen door de lijst weg te doen, en dat vragen we eerst (cartReviewStore, sinds 4.10.3).
+        // Wisselen kan dus alleen door de lijst weg te doen, en dat vragen we eerst (cartReviewStore, sinds 4.10.4).
         const reviewed = cartReviewStore();
         if (reviewed && reviewed !== item.dataset.store) {
           if (!window.confirm(t("cart.switch_confirm", { from: STORES[reviewed].name, to: STORES[item.dataset.store].name }))) return;
@@ -1808,7 +1808,7 @@ for (const store of Object.keys(LINK_FOLDS)) {
 }
 
 // Naar het koppelblok van Mealie of een winkel onder Instellingen, Koppelen: uitgeklapt, in beeld en met de focus op de kop.
-// Tot 4.10.3 opende de knop Instellingen bovenaan, met het blok ergens verderop onder de hulpmiddelen.
+// Tot 4.10.4 opende de knop Instellingen bovenaan, met het blok ergens verderop onder de hulpmiddelen.
 function openLinkBlock(store) {
   openSettings();
   state.storeFold[store] = true;
@@ -2035,7 +2035,7 @@ async function linkMealie(event) {
   }
 }
 
-// Ontkoppelen vraagt eerst (sinds 4.10.3): het was één klik, terwijl opnieuw koppelen bij Mealie een nieuw token vraagt en bij
+// Ontkoppelen vraagt eerst (sinds 4.10.4): het was één klik, terwijl opnieuw koppelen bij Mealie een nieuw token vraagt en bij
 // Jumbo een computer met een console. De knop is bezig tot het antwoord er is, dus twee keer klikken doet niets.
 async function unlinkWithConfirm(button, name, unlink) {
   if (!window.confirm(t("links.unlink_confirm", { name }))) return;

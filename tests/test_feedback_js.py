@@ -1,4 +1,4 @@
-"""Terugkoppeling in de frontend (4.10.3): een verlopen sessie, geen verbinding, de soort van een melding, de controlelijst die bij
+"""Terugkoppeling in de frontend (4.10.4): een verlopen sessie, geen verbinding, de soort van een melding, de controlelijst die bij
 zijn winkel hoort, een lege aanbiedingenlijst en de vertraging van het zoekveld.
 
 De functies uit static/app.js, static/offers.js en static/recipe_search.js draaien hier echt, in Node, met een kleine

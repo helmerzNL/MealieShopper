@@ -972,7 +972,7 @@ function renderOfferGrid() {
   const cards = units.slice(0, limit).map(compact ? offerProductRow : offerProductCard).join("");
   grid.innerHTML = compact && units.length ? offerRowHead() + cards : cards;
   $("#offers-more").hidden = units.length <= limit;
-  // Weggefilterd tot nul (sinds 4.10.3): een leeg raster zegt niets, dus staat het er, met de weg terug. Niet als de winkel
+  // Weggefilterd tot nul (sinds 4.10.4): een leeg raster zegt niets, dus staat het er, met de weg terug. Niet als de winkel
   // deze week geen aanbiedingen heeft: dat zegt de statusregel erboven al.
   const empty = $("#offers-empty");
   if (empty) empty.hidden = Boolean(units.length) || !offersState.offers.length;
@@ -1478,7 +1478,7 @@ $("#offers-categories").addEventListener("click", (event) => {
   if (chip) offersChooseCategory(chip.dataset.cat);
 });
 $("#offers-personal-only").addEventListener("change", (event) => offersTogglePersonal(event.target.checked));
-// Typen tekent de lijst niet bij elke toets opnieuw (sinds 4.10.3): elke keer rekende de pagina vier keer over alle
+// Typen tekent de lijst niet bij elke toets opnieuw (sinds 4.10.4): elke keer rekende de pagina vier keer over alle
 // aanbiedingen van de week. Na 250 ms stilte, zoals het zoekveld van de Prijsgeschiedenis en van de aankopen.
 const OFFERS_INPUT_WAIT = 250;
 let offersInputTimer = 0;

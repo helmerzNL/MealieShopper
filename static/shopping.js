@@ -624,7 +624,7 @@ function showCartResult(data, notFound, store = state.store) {
     ${lines ? `<ul class="cart-lines">${lines}</ul>` : ""}
     <p><button class="button button--secondary" id="view-basket" type="button">${escapeHtml(t("basket.view"))}</button></p>
   `;
-  // Bij elke winkel: waar je het mandje kunt bekijken (bij Picnic en Crisp ook aanpassen). Tot 4.10.3 ontbrak de knop bij AH.
+  // Bij elke winkel: waar je het mandje kunt bekijken (bij Picnic en Crisp ook aanpassen). Tot 4.10.4 ontbrak de knop bij AH.
   $("#view-basket").addEventListener("click", () => openBasket(store));
 }
 
@@ -727,7 +727,7 @@ $("#cart-result").addEventListener("click", (event) => {
     return;
   }
   if (event.target.closest("#cancel-cart")) {
-    // Twintig regels nalopen en dan per ongeluk Annuleren: eerst vragen (sinds 4.10.3).
+    // Twintig regels nalopen en dan per ongeluk Annuleren: eerst vragen (sinds 4.10.4).
     if (window.confirm(t("cart.cancel_confirm"))) discardCartReview();
     return;
   }
@@ -818,7 +818,7 @@ $("#cart-result").addEventListener(
   true
 );
 
-// Albert Heijn staat altijd in de winkelkeuze, ook zonder koppeling: zoeken kan dan wel, toevoegen niet. Tot 4.10.3 liep je
+// Albert Heijn staat altijd in de winkelkeuze, ook zonder koppeling: zoeken kan dan wel, toevoegen niet. Tot 4.10.4 liep je
 // daar pas tegenaan na het nalopen van de hele controlelijst. Nu zegt het weekmenu het vooraf, met de weg naar Koppelen.
 function cartStoreUnlinkedHtml() {
   if (state.store !== "ah" || state.ahConnected !== false) return "";

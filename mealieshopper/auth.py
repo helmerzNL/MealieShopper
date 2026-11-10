@@ -15,7 +15,7 @@ from typing import Any
 import aiosqlite
 import jwt
 from cryptography.fernet import Fernet, InvalidToken
-from quart import Quart, jsonify, make_response, request
+from quart import Quart, g, jsonify, make_response, request
 from webauthn import verify_authentication_response, verify_registration_response
 from webauthn.helpers.cose import COSEAlgorithmIdentifier
 
@@ -24,10 +24,12 @@ from . import request_body
 
 OWNER_ID = "owner"  # de eerste gebruiker is de beheerder; alle anderen zijn gewone gebruikers
 SESSION_COOKIE_NAME = "ms_session"
-# Een sessie loopt 30 dagen na het laatste gebruik af (sinds 4.10.3; daarvoor altijd 24 uur na het inloggen, ook midden in het
-# gebruik). Ze schuift mee: een sessie ouder dan een dag krijgt bij het volgende verzoek een nieuw token (`renew_session`).
-SESSION_MAX_AGE_SECONDS = 30 * 24 * 60 * 60
+SESSION_DAYS_DEFAULT = 90
+# Een sessie (cookie) die ouder is dan dit krijgt bij de eerstvolgende aanvraag een verse cookie: wie de app gebruikt blijft
+# ingelogd, wie `MEALIESHOPPER_SESSION_DAYS` dagen wegblijft logt opnieuw in.
 SESSION_RENEW_AFTER_SECONDS = 24 * 60 * 60
+# Hoe lang een sessie hooguit verlengd wordt, gerekend vanaf de inlog (`auth_time`): daarna log je hoe dan ook opnieuw in.
+SESSION_ABSOLUTE_SECONDS = 365 * 24 * 60 * 60
 _INITIALIZED = False
 
 # De schema's die dit proces al aanmaakte, per database-pad: elke module maakt haar tabellen, indexen en migraties een keer per
@@ -48,6 +50,14 @@ def auth_enabled() -> bool:
 
 def data_dir() -> Path:
     return Path(os.environ.get("MEALIESHOPPER_DATA_DIR", "data")).resolve()
+
+
+def session_max_age_seconds() -> int:
+    """Hoe lang een sessie duurt: `MEALIESHOPPER_SESSION_DAYS` dagen, standaard 90. Tot 4.10.2 was dat een vaste dag,
+    zonder verlenging: wie de app elke dag gebruikte, logde elke dag opnieuw in."""
+    raw: str = os.environ.get("MEALIESHOPPER_SESSION_DAYS", "").strip()
+    days: int = int(raw) if raw.isdigit() else 0
+    return (days or SESSION_DAYS_DEFAULT) * 24 * 60 * 60
 
 
 def db_path() -> Path:
@@ -224,6 +234,11 @@ CREATE TABLE IF NOT EXISTS passkey_credentials (
 CREATE TABLE IF NOT EXISTS auth_challenges (
   key TEXT PRIMARY KEY,
   challenge BLOB NOT NULL,
+  expires_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS revoked_sessions (
+  sid TEXT PRIMARY KEY,
   expires_at TEXT NOT NULL
 );
 
@@ -503,18 +518,48 @@ async def get_secret(key: str) -> str:
         return "" if value.startswith("gAAAA") else value
 
 
-async def create_token(user_id: str, username: str) -> str:
+async def create_token(user_id: str, username: str, *, epoch: int | None = None, sid: str | None = None, auth_time: int | None = None) -> str:
+    """Een sessietoken. `sid` (de sessie, blijft gelijk bij een verlenging, uitloggen trekt hem in) en `auth_time` (de inlog)
+    komen bij een verlenging uit de gecontroleerde cookie, net als `epoch`: zo draagt een verlenging nooit een nieuwere
+    sessieteller dan de cookie die hem verdiende."""
+    now: datetime = utcnow()
     return jwt.encode(
         {
             "sub": user_id,
             "usr": username,
-            "ep": await session_epoch(user_id),
-            "iat": utcnow(),
-            "exp": utcnow() + timedelta(seconds=SESSION_MAX_AGE_SECONDS),
+            "ep": await session_epoch(user_id) if epoch is None else epoch,
+            "sid": sid or secrets.token_hex(16),
+            "auth_time": int(now.timestamp()) if auth_time is None else auth_time,
+            "iat": now,
+            "exp": now + timedelta(seconds=session_max_age_seconds()),
         },
         await signing_secret(),
         algorithm="HS256",
     )
+
+
+async def _session_revoked(conn: aiosqlite.Connection, sid: Any) -> bool:
+    if not sid:
+        return False  # een token van voor 4.10.3 heeft geen sessie-id en verloopt binnen een dag
+    return await fetchone(conn, "SELECT 1 FROM revoked_sessions WHERE sid=?", (str(sid),)) is not None
+
+
+async def revoke_session(token: str) -> None:
+    """Uitloggen: de sessie van `token` (en elke verlenging ervan, dezelfde `sid`) is vanaf nu ongeldig, ook al is het token nog
+    niet verlopen. De rij blijft staan tot de laatste verlenging verlopen kan zijn, oude rijen gaan er meteen uit."""
+    try:
+        payload: dict[str, Any] = jwt.decode(token, await signing_secret(), algorithms=["HS256"], options={"verify_exp": False})
+    except Exception:
+        return
+    sid: Any = payload.get("sid")
+    if not sid:
+        return
+    auth_time: float = float(payload.get("auth_time") or payload.get("iat") or utcnow().timestamp())
+    expires_at: datetime = datetime.fromtimestamp(auth_time, tz=timezone.utc) + timedelta(seconds=SESSION_ABSOLUTE_SECONDS + session_max_age_seconds())
+    async with connect() as conn:
+        await conn.execute("DELETE FROM revoked_sessions WHERE expires_at < ?", (utcnow().isoformat(),))
+        await conn.execute("INSERT OR REPLACE INTO revoked_sessions (sid, expires_at) VALUES (?, ?)", (str(sid), expires_at.isoformat()))
+        await conn.commit()
 
 
 async def verify_token(token: str) -> dict[str, Any] | None:
@@ -527,6 +572,7 @@ async def verify_token(token: str) -> dict[str, Any] | None:
 async def current_user() -> dict[str, Any] | None:
     await ensure_db()
     token = str(request.cookies.get(SESSION_COOKIE_NAME) or "").strip()
+    from_cookie: bool = bool(token)
     if not token:
         auth_header = request.headers.get("Authorization", "")
         if auth_header.startswith("Bearer "):
@@ -538,8 +584,13 @@ async def current_user() -> dict[str, Any] | None:
         return None  # een kaartje voor een tussenstap (bijvoorbeeld MFA) is geen sessie
     async with connect() as conn:
         row = await fetchone(conn, "SELECT id, username, created_at, session_epoch FROM users WHERE id=?", (payload.get("sub"),))
-    if not row or int(payload.get("ep") or 0) != int(row["session_epoch"]):
-        return None
+        if not row or int(payload.get("ep") or 0) != int(row["session_epoch"]) or await _session_revoked(conn, payload.get("sid")):
+            return None
+    now: float = utcnow().timestamp()
+    auth_time: int = int(payload.get("auth_time") or payload.get("iat") or now)
+    if from_cookie and now - float(payload.get("iat") or 0) >= SESSION_RENEW_AFTER_SECONDS and now - auth_time < SESSION_ABSOLUTE_SECONDS:
+        # De after_request-hook zet de verse cookie, met de sessieteller, sessie-id en inlogtijd van deze gecontroleerde cookie.
+        g.renew_session = {"user_id": str(row["id"]), "username": str(row["username"]), "epoch": int(row["session_epoch"]), "sid": payload.get("sid"), "auth_time": auth_time}
     user = {"id": row["id"], "username": row["username"], "created_at": row["created_at"]}
     return {**user, "role": "owner" if user["id"] == OWNER_ID else "user"}
 
@@ -643,7 +694,7 @@ def set_session_cookie(response: Any, token: str) -> None:
     response.set_cookie(
         SESSION_COOKIE_NAME,
         token,
-        max_age=SESSION_MAX_AGE_SECONDS,
+        max_age=session_max_age_seconds(),
         httponly=True,
         secure=request_is_secure(),
         samesite="Lax",
@@ -658,32 +709,13 @@ async def cookie_response(payload: dict[str, Any], token: str | None = None, sta
     return result
 
 
-async def renew_session(response: Any) -> Any:
-    """De after_request-hook van app.py: laat een sessie meeschuiven met het gebruik.
-
-    Een geldige sessiecookie die ouder is dan `SESSION_RENEW_AFTER_SECONDS` krijgt een nieuw token en een nieuwe cookie, dus wie de
-    app regelmatig opent blijft ingelogd en wie hem `SESSION_MAX_AGE_SECONDS` niet opent logt opnieuw in. Alleen op een gelukt
-    verzoek aan de API: een statisch bestand wordt gecachet en hoort geen cookie te zetten. Niet met een `Bearer`-token (dat is
-    geen cookie), en niet als het antwoord de cookie zelf al zet of wist (inloggen, uitloggen, een fabrieksreset).
-    `current_user` controleert de handtekening, de vervaldatum en `session_epoch`, dus een ingetrokken sessie komt niet terug.
-    """
-    if not request.path.startswith("/api/") or not 200 <= response.status_code < 300:
+async def renew_session_cookie(response: Any) -> Any:
+    """De after_request-hook: een sessie die `current_user` ouder dan een dag vond krijgt een verse cookie, behalve als het
+    antwoord de cookie zelf al zet of wist (inloggen, uitloggen)."""
+    renew: dict[str, Any] | None = g.get("renew_session")
+    if not renew or any(header.startswith(f"{SESSION_COOKIE_NAME}=") for header in response.headers.getlist("Set-Cookie")):
         return response
-    token = str(request.cookies.get(SESSION_COOKIE_NAME) or "").strip()
-    if not token or any(value.startswith(f"{SESSION_COOKIE_NAME}=") for value in response.headers.getlist("Set-Cookie")):
-        return response
-    payload = await verify_token(token)
-    if not payload or payload.get("purpose"):
-        return response
-    try:
-        age = utcnow().timestamp() - float(payload.get("iat") or 0)
-    except (TypeError, ValueError):
-        return response
-    if age < SESSION_RENEW_AFTER_SECONDS:
-        return response
-    user = await current_user()
-    if user:
-        set_session_cookie(response, await create_token(user["id"], user["username"]))
+    set_session_cookie(response, await create_token(renew["user_id"], renew["username"], epoch=renew["epoch"], sid=renew["sid"], auth_time=renew["auth_time"]))
     return response
 
 
@@ -694,6 +726,8 @@ async def clear_cookie_response(payload: dict[str, Any]):
 
 
 def register_routes(app: Quart) -> None:
+    app.after_request(renew_session_cookie)
+
     @app.get("/.well-known/webauthn")
     async def webauthn_well_known():
         return jsonify({"origins": rp_origins()})
@@ -938,6 +972,9 @@ def register_routes(app: Quart) -> None:
 
     @app.post("/api/auth/logout")
     async def logout():
+        token = str(request.cookies.get(SESSION_COOKIE_NAME) or "").strip()
+        if token:
+            await revoke_session(token)  # de cookie wissen is niet genoeg: het token zelf blijft anders geldig tot hij verloopt
         return await clear_cookie_response({"status": "ok"})
 
 
