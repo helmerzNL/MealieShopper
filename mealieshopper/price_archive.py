@@ -66,7 +66,7 @@ import aiosqlite
 import httpx
 from quart import Quart, Response, jsonify, request
 
-from . import audit, auth, http_client, offers, prices, tasks, thread_db, uploads
+from . import audit, auth, http_client, offers, prices, request_body, tasks, thread_db, uploads
 from .price_archive_tidy import ARCHIVE_OFFERS_SQL, ARCHIVE_PRICES_SQL, Tidy
 from .i18n import tr
 
@@ -1619,7 +1619,7 @@ async def _ajobs_connect() -> AsyncIterator[aiosqlite.Connection]:
     """Een verbinding met de tabel van de klussen. Sluit zonder commit, zoals `auth.connect`."""
     await auth.ensure_db()
     async with auth.connect() as conn:
-        await conn.executescript(JOB_SCHEMA)
+        await auth.ensure_schema(conn, "price_archive_jobs", JOB_SCHEMA)
         yield conn
 
 
@@ -1833,7 +1833,7 @@ def register_routes(app: Quart) -> None:
 
     @app.post("/api/price-archive/jobs")
     async def price_archive_start() -> Response | tuple[Response, int]:
-        body: Any = await request.get_json(silent=True) or {}
+        body: Any = await request_body.json_object()
         try:
             job: dict[str, Any] = await start_job(str(body.get("token") or ""), replace=body.get("replace") is True)
         except ArchiveError as exc:

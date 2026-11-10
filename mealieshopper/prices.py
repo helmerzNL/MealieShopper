@@ -25,7 +25,9 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import re
+import weakref
 from collections.abc import AsyncIterator, Awaitable
 from contextlib import asynccontextmanager
 from datetime import date, datetime, timedelta, timezone
@@ -62,6 +64,7 @@ CREATE TABLE IF NOT EXISTS price_observations (
   seen_at TEXT NOT NULL,
   PRIMARY KEY (store, product_id, day)
 );
+CREATE INDEX IF NOT EXISTS price_observations_day ON price_observations (store, day);
 
 -- De afbeelding van een aanbieding die je minstens één keer kocht, verkleind tot hooguit 1024 pixels breed (zie product_images.py).
 -- `title` is de naam die het product had toen de afbeelding werd bewaard: zo zie je later of het hetzelfde product is, ook als de
@@ -176,7 +179,7 @@ async def _connect() -> AsyncIterator[aiosqlite.Connection]:
     `product_links.ensure` (de tabel en de SQL-functie `ms_fold`)."""
     async with auth.connect() as conn:
         await offers.prepare(conn)
-        await conn.executescript(SCHEMA)
+        await auth.ensure_schema(conn, "prices", SCHEMA)
         yield await product_links.ensure(conn)
 
 
@@ -274,9 +277,23 @@ def recorded(store: str, search: Callable[..., Awaitable[list[dict[str, Any]]]])
 
 _TABLES_SQL = "SELECT name FROM sqlite_master WHERE type = 'table'"
 
+# De tabellen per verbinding, een keer gelezen: een verzoek vraagt ze tot vijftien keer (`_purchase_sources` per bron). Een verbinding
+# van `_connect` heeft haar schema al voordat iemand dit vraagt, en de tabellen van een winkel komen op een andere verbinding erbij.
+_TABLE_CACHE: weakref.WeakKeyDictionary[aiosqlite.Connection, set[str]] = weakref.WeakKeyDictionary()
+
 
 async def _tables(conn: aiosqlite.Connection) -> set[str]:
-    return {row["name"] for row in await conn.execute_fetchall(_TABLES_SQL)}
+    tables: set[str] | None = _TABLE_CACHE.get(conn)
+    if tables is None:
+        tables = _TABLE_CACHE[conn] = {row["name"] for row in await conn.execute_fetchall(_TABLES_SQL)}
+    return tables
+
+
+def native_id(store: str, product_id: str) -> Any:
+    """Het product-id zoals de tabel van de winkel het bewaart: AH als INTEGER, de andere winkels als TEXT. Zo vergelijkt SQL de kolom
+    zonder CAST met de waarde en doet de index op `product_id` het werk (SQLite past anders de affiniteit van de kolom toe, Postgres
+    weigert een tekst naast een getal)."""
+    return int(product_id) if store == "ah" and product_id.isdigit() else product_id
 
 
 def _purchase_sources(tables: set[str], store: str) -> list[str]:
@@ -295,12 +312,39 @@ def _without_house_brand(store: str, name: str) -> str | None:
     return name[3:] if store == "ah" and name.startswith("ah ") else (name if store == "ah" else None)
 
 
+# Een bestelling van AH of Jumbo die nog niet geleverd is, telt niet als aankoop (`_PURCHASES`), maar het product heeft er wel
+# zijn naam en zijn prijs.
+_ORDER_NAMES_SQL = """
+SELECT CAST(product_id AS TEXT) AS product_id, title,
+       CASE WHEN COALESCE(bonus, 0) = 0 THEN price ELSE price_before_bonus END AS price
+FROM {store}_order_items WHERE product_id IS NOT NULL AND CAST(product_id AS TEXT) NOT IN ('', '0')
+"""
+# Een artikelnummer van de kassabon dat AH aan de webwinkel koppelde: de naam uit de webwinkel, met de prijzen op de bon.
+_RECEIPT_NAMES_SQL = """
+SELECT CAST(p.product_id AS TEXT) AS product_id, p.title AS title,
+       COALESCE(l.price, CASE WHEN l.quantity > 0 THEN round(l.amount / l.quantity, 2) END) AS price
+FROM ah_receipt_products p LEFT JOIN ah_receipt_items l ON l.product_id = p.receipt_product_id
+WHERE p.product_id IS NOT NULL AND COALESCE(p.title, '') != ''
+"""
+_PRICE_CHUNK = 500  # zoveel product-id's per query: ruim onder de grens van SQLite voor het aantal parameters
+# Wanneer de prijs tussen producten met dezelfde naam kiest (`_nearest_priced`), als verhouding tussen twee prijzen:
+_PRICE_NEAR = math.log(1.5)  # verder dan dit van elke bekende prijs (een krat naast een fles): de prijs zegt niets
+_PRICE_CLEAR = math.log(1.15)  # zoveel dichterbij dan het eerste product met die naam, anders blijft het daarbij
+
+
 def _name_sources(tables: set[str], store: str) -> list[tuple[str, tuple[Any, ...]]]:
-    """De queries van `_name_index`, in volgorde: de aanbiedingen, de bewaarde prijzen en de bestellingen."""
-    return [
-        ("SELECT product_id, title FROM offer_history WHERE store = ? GROUP BY product_id, title", (store,)),
-        ("SELECT product_id, title FROM price_observations WHERE store = ? GROUP BY product_id, title", (store,)),
-    ] + [(f"SELECT product_id, title FROM ({sql}) GROUP BY product_id, title", ()) for sql in _purchase_sources(tables, store)]
+    """De bronnen van `_name_index`, elk met `product_id`, `title` en `price` (de gewone prijs, als de bron die kent). In volgorde:
+    de aanbiedingen, de bewaarde prijzen en de aankopen, en als laatste wat alleen een naam geeft: een bestelling die nog open
+    staat en een bonkoppeling van AH. Bij dezelfde naam wint de eerste bron (`_add_names`)."""
+    sources: list[tuple[str, tuple[Any, ...]]] = [
+        ("SELECT product_id, title, price_before AS price FROM offer_history WHERE store = ?", (store,)),
+        ("SELECT product_id, title, price FROM price_observations WHERE store = ?", (store,)),
+    ] + [(f"SELECT product_id, title, COALESCE(regular, paid) AS price FROM ({sql})", ()) for sql in _purchase_sources(tables, store)]
+    if store in ("ah", "jumbo") and f"{store}_order_items" in tables:
+        sources.append((_ORDER_NAMES_SQL.format(store=store), ()))
+    if store == "ah" and {"ah_receipt_products", "ah_receipt_items"} <= tables:
+        sources.append((_RECEIPT_NAMES_SQL, ()))
+    return sources
 
 
 def _add_names(index: dict[str, str], rows: Iterable[Any]) -> None:
@@ -309,12 +353,76 @@ def _add_names(index: dict[str, str], rows: Iterable[Any]) -> None:
             index.setdefault(_fold_name(row["title"]), str(row["product_id"]))
 
 
+async def _name_rows(conn: aiosqlite.Connection, sources: list[tuple[str, tuple[Any, ...]]]) -> list[Any]:
+    """Elk paar (product, naam) uit de bronnen van `_name_sources`, in hun volgorde."""
+    rows: list[Any] = []
+    for sql, args in sources:
+        rows += await conn.execute_fetchall(f"SELECT product_id, title FROM ({sql}) GROUP BY product_id, title", args)
+    return rows
+
+
 async def _name_index(conn: aiosqlite.Connection, store: str) -> dict[str, str]:
-    """Naam (gevouwen: kleine letters, zonder accenten) -> product-id, uit de aanbiedingen, de bewaarde prijzen en de bestellingen."""
+    """Naam (gevouwen: kleine letters, zonder accenten) -> product-id, uit de bronnen van `_name_sources`."""
     index: dict[str, str] = {}
-    for sql, args in _name_sources(await _tables(conn), store):
-        _add_names(index, await conn.execute_fetchall(sql, args))
+    _add_names(index, await _name_rows(conn, _name_sources(await _tables(conn), store)))
     return index
+
+
+class _Names(NamedTuple):
+    """De namen van een winkel om een aankoop zonder product-id aan een product te koppelen (`_link_receipt_rows`)."""
+
+    index: dict[str, str]  # `_name_index`: naam -> het eerste product met die naam
+    # Een naam waar meer dan een product bij hoort ("AH Sweet Palermo rode puntpaprika": 2 stuks en een zak van 500 gram)
+    # -> per product de gewone prijzen die we ervan kennen. De prijs van de aankoop kiest dan (`_nearest_priced`).
+    shared: dict[str, dict[str, tuple[float, ...]]]
+
+
+async def _known_prices(conn: aiosqlite.Connection, sources: list[tuple[str, tuple[Any, ...]]], ids: list[str]) -> dict[str, set[float]]:
+    """Per product de gewone prijzen uit de bronnen van `_name_sources`."""
+    found: dict[str, set[float]] = {}
+    for start in range(0, len(ids), _PRICE_CHUNK):
+        chunk: list[str] = ids[start : start + _PRICE_CHUNK]
+        for sql, args in sources:
+            query: str = f"SELECT DISTINCT product_id, price FROM ({sql}) WHERE product_id IN ({_in(chunk)}) AND price > 0"
+            for row in await conn.execute_fetchall(query, (*args, *chunk)):
+                found.setdefault(str(row["product_id"]), set()).add(float(row["price"]))
+    return found
+
+
+async def _names(conn: aiosqlite.Connection, store: str) -> _Names:
+    sources: list[tuple[str, tuple[Any, ...]]] = _name_sources(await _tables(conn), store)
+    rows: list[Any] = await _name_rows(conn, sources)
+    index: dict[str, str] = {}
+    _add_names(index, rows)
+    products: dict[str, set[str]] = {}
+    for row in rows:
+        if row["product_id"] and row["title"]:
+            products.setdefault(_fold_name(row["title"]), set()).add(str(row["product_id"]))
+    several: dict[str, set[str]] = {name: ids for name, ids in products.items() if len(ids) > 1}
+    known: dict[str, set[float]] = await _known_prices(conn, sources, sorted(set().union(*several.values()))) if several else {}
+    shared: dict[str, dict[str, tuple[float, ...]]] = {
+        name: {product_id: tuple(sorted(known.get(product_id, ()))) for product_id in sorted(ids)} for name, ids in several.items()
+    }
+    return _Names(index, shared)
+
+
+def _nearest_priced(choices: dict[str, tuple[float, ...]], row: Any, first: str | None) -> str | None:
+    """Van de producten met dezelfde naam het product waarvan een bekende prijs het dichtst bij de gewone prijs van de aankoop
+    ligt (naar verhouding: 1,55 hoort bij 1,69 en niet bij 3,49). None als de prijs niet kiest, dan blijft het bij `first` (het
+    eerste product met die naam): de aankoop of de producten hebben geen prijs, geen prijs ligt in de buurt (`_PRICE_NEAR`), of
+    `first` ligt bijna even dichtbij (`_PRICE_CLEAR`)."""
+    price: float | None = _number(row["regular"]) or _number(row["paid"])
+    if not price or price <= 0:
+        return None
+    distance: dict[str, float] = {
+        product_id: min(abs(math.log(price / known)) for known in prices) for product_id, prices in choices.items() if prices
+    }
+    if not distance:
+        return None
+    best: str = min(distance, key=lambda product_id: (distance[product_id], product_id))
+    if distance[best] > _PRICE_NEAR or (first in distance and distance[first] - distance[best] < _PRICE_CLEAR):
+        return None
+    return best
 
 
 def _match_name(index: dict[str, str], bare: dict[str, str], store: str, name: str) -> str | None:
@@ -349,15 +457,30 @@ def _bare_index(index: dict[str, str], store: str) -> dict[str, str]:
     return {name: next(iter(ids)) for name, ids in found.items() if len(ids) == 1}
 
 
-_RECEIPT_PRODUCTS_SQL = "SELECT receipt_product_id, product_id, title FROM ah_receipt_products WHERE product_id IS NOT NULL"
+_RECEIPT_PRODUCTS_SQL = "SELECT * FROM ah_receipt_products WHERE product_id IS NOT NULL"
 
 
-def _receipt_product_map(rows: Iterable[Any]) -> dict[str, tuple[str, str]]:
-    return {str(row["receipt_product_id"]): (str(row["product_id"]), row["title"] or "") for row in rows}
+class _Linked(NamedTuple):
+    """Het webwinkelproduct bij een artikelnummer van de kassabon (`ah_receipt_products`)."""
+
+    product_id: str
+    title: str
+    brand: str | None  # het merk en de inhoud: None als ze (nog) niet zijn opgezocht of AH ze niet geeft
+    unit_size: str | None
 
 
-async def _receipt_products(conn: aiosqlite.Connection) -> dict[str, tuple[str, str]]:
-    """Artikelnummer op de bon -> (id van de webwinkel, naam in de webwinkel), voor zover AH ze koppelde (zie
+def _receipt_product_map(rows: Iterable[Any]) -> dict[str, _Linked]:
+    found: dict[str, _Linked] = {}
+    for row in rows:
+        columns = row.keys()  # `brand` en `unit_size` zijn er pas als ah_orders zijn schema heeft bijgewerkt
+        brand: str | None = (row["brand"] if "brand" in columns else None) or None
+        unit_size: str | None = (row["unit_size"] if "unit_size" in columns else None) or None
+        found[str(row["receipt_product_id"])] = _Linked(str(row["product_id"]), row["title"] or "", brand, unit_size)
+    return found
+
+
+async def _receipt_products(conn: aiosqlite.Connection) -> dict[str, _Linked]:
+    """Artikelnummer op de bon -> het product van de webwinkel (`_Linked`), voor zover AH ze koppelde (zie
     `ah_orders.resolve_receipt_products`)."""
     if "ah_receipt_products" not in await _tables(conn):
         return {}
@@ -418,17 +541,17 @@ async def _receipt_rows(conn: aiosqlite.Connection, store: str, today: str) -> l
         rows += await conn.execute_fetchall(_DATED_RECEIPTS_SQL, (today,))
     if not rows:
         return []
-    return _link_receipt_rows(
-        store, rows, await _name_index(conn, store), await _receipt_products(conn), await product_links.load(conn, store)
-    )
+    return _link_receipt_rows(store, rows, await _names(conn, store), await _receipt_products(conn), await product_links.load(conn, store))
 
 
 def _link_receipt_rows(
-    store: str, rows: list[Any], index: dict[str, str], linked: dict[str, tuple[str, str]], mine: product_links.Links
+    store: str, rows: list[Any], names: _Names, linked: dict[str, _Linked], mine: product_links.Links
 ) -> list[dict[str, Any]]:
-    """Het koppelen van `_receipt_rows`, zonder database: de regels, de namen (`_name_index`), de koppelingen van AH
+    """Het koppelen van `_receipt_rows`, zonder database: de regels, de namen (`_names`), de koppelingen van AH
     (`_receipt_products`) en je eigen koppelingen (`product_links.load`)."""
+    index: dict[str, str] = names.index
     bare = _bare_index(index, store)
+    webshop: dict[str, _Linked] = {link.product_id: link for link in linked.values()}
     titles: dict[str, list[str]] = {}
     for title, product_id in index.items():
         titles.setdefault(product_id, []).append(title)
@@ -447,13 +570,21 @@ def _link_receipt_rows(
         other_product = bool(own) and own in titles and not same_id
         if own in linked:
             # Gekoppeld via het artikelnummer: de echte naam uit de webwinkel ("Red Band Winegums original" in plaats van "RED BAND").
-            # De naam op de bon blijft vindbaar (`receipt_name`).
-            webshop_id, webshop_title = linked[own]
-            found.append({**dict(row), "product_id": webshop_id, "title": webshop_title or row["title"], "receipt_name": row["title"]})
+            # De naam op de bon blijft vindbaar (`receipt_name`). Het merk en de inhoud komen ook van de koppeling: een bon heeft ze niet.
+            shop: _Linked = linked[own]
+            found.append({
+                **dict(row), "product_id": shop.product_id, "title": shop.title or row["title"], "brand": shop.brand,
+                "unit_size": shop.unit_size, "receipt_name": row["title"],
+            })
             continue
-        key = own if same_id else (_match_name(index, bare, store, name) or (None if other_product else own) or fallback)
+        matched: str | None = _match_name(index, bare, store, name)
+        if name in names.shared:  # twee producten met precies deze naam: de prijs kiest
+            matched = _nearest_priced(names.shared[name], row, matched) or matched
+        key = own if same_id else (matched or (None if other_product else own) or fallback)
         # Een bonregel met een artikelnummer dat (nog) bij geen enkel product hoort: die kan `history` meteen laten opzoeken.
-        found.append({**dict(row), "product_id": key, "lookup": row["source"] == "receipt" and bool(own) and key in (own, fallback)})
+        # Op naam bij een product dat de app van de bonkoppeling kent: dan ook met het merk en de inhoud van daar.
+        known: dict[str, Any] = {"brand": webshop[key].brand, "unit_size": webshop[key].unit_size} if key in webshop and not row["unit_size"] else {}
+        found.append({**dict(row), **known, "product_id": key, "lookup": row["source"] == "receipt" and bool(own) and key in (own, fallback)})
     return found
 
 
@@ -474,6 +605,11 @@ async def _product_details(conn: aiosqlite.Connection, store: str, ids: list[str
             for key, column in fields:
                 if not details.get(key) and row[column]:
                     details[key] = row[column]
+    for linked in (await _receipt_products(conn)).values() if store == "ah" else ():  # als laatste: wat de bonkoppeling weet
+        details = found.get(linked.product_id)
+        for key, value in (("title", linked.title), ("brand", linked.brand), ("unitSize", linked.unit_size)) if details is not None else ():
+            if not details.get(key) and value:
+                details[key] = value
     missing = [product_id for product_id, details in found.items() if not details.get("image")]
     for product_id, images in (await _saved_images(conn, store, missing) if missing else {}).items():
         found[product_id]["image"] = images[0]["url"]
@@ -706,7 +842,7 @@ CATALOGUE_TABLES: frozenset[str] = frozenset({table for sources in _PURCHASES.va
 }
 _CATALOGUE_OPS: tuple[str, ...] = ("INSERT", "UPDATE", "DELETE")
 _CATALOGUE_TRIGGERS_SQL = "SELECT name FROM sqlite_master WHERE type = 'trigger' AND name LIKE 'catalogue!_%' ESCAPE '!'"
-_CATALOGUE_START_SQL = "INSERT OR IGNORE INTO catalogue_changes (id, token, version) VALUES (1, lower(hex(randomblob(8))), 0)"
+_CATALOGUE_START_SQL = "INSERT INTO catalogue_changes (id, token, version) VALUES (1, lower(hex(randomblob(8))), 0) ON CONFLICT(id) DO NOTHING"
 
 
 class _Catalogue(NamedTuple):
@@ -796,10 +932,10 @@ async def _pinned(conn: aiosqlite.Connection, store: str, product_id: str, table
     prijzen, in plaats van alleen andere producten met die naam."""
     sources: list[tuple[str, str, tuple[Any, ...]]] = [
         ("offers", "store = ? AND product_id = ?", (store, product_id)),
-        (f"{store}_order_items", "CAST(product_id AS TEXT) = ?", (product_id,)),
+        (f"{store}_order_items", "product_id = ?", (native_id(store, product_id),)),
     ]
     if store == "ah":
-        sources.append(("ah_receipt_products", "CAST(product_id AS TEXT) = ?", (product_id,)))
+        sources.append(("ah_receipt_products", "product_id = ?", (native_id(store, product_id),)))
     for table, where, args in sources:
         if table not in tables:
             continue

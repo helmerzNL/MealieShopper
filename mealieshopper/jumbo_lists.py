@@ -71,15 +71,21 @@ async def _connect() -> AsyncIterator[aiosqlite.Connection]:
     """Een verbinding met foreign keys aan, het schema en de migratie. Sluit zonder commit, zoals `auth.connect`."""
     async with auth.connect() as conn:
         await conn.execute("PRAGMA foreign_keys = ON")
-        await conn.executescript(SCHEMA)
-        columns: set[str] = {row["name"] for row in await conn.execute_fetchall("PRAGMA table_info(jumbo_list_items)")}
-        if "brand" not in columns:  # database van voor de eigen lijstjes (1.9.0)
-            try:
-                await conn.execute(MIGRATE_BRAND)
-            except sqlite3.OperationalError as exc:  # een andere verbinding was ons net voor
-                if "duplicate column" not in str(exc):
-                    raise
+        await auth.ensure_schema(conn, "jumbo_lists", _setup)
         yield conn
+
+
+async def _setup(conn: aiosqlite.Connection) -> None:
+    """Het schema en de migratie, een keer per proces (`auth.ensure_schema`)."""
+    await conn.executescript(SCHEMA)
+    columns: set[str] = {row["name"] for row in await conn.execute_fetchall("PRAGMA table_info(jumbo_list_items)")}
+    if "brand" not in columns:  # database van voor de eigen lijstjes (1.9.0)
+        try:
+            await conn.execute(MIGRATE_BRAND)
+        except sqlite3.OperationalError as exc:  # een andere verbinding was ons net voor
+            if "duplicate column" not in str(exc):
+                raise
+        await conn.commit()
 
 
 def _now() -> str:

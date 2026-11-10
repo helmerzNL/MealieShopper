@@ -19,7 +19,7 @@ from typing import Any, Awaitable, Callable
 
 from quart import Quart, jsonify, request
 
-from . import auth, oauth, profile
+from . import auth, cart_memory, oauth, profile, request_body
 from .i18n import tr
 
 INVITE_TTL = timedelta(days=7)
@@ -98,6 +98,7 @@ async def delete_user(user_id: str) -> bool:
         await conn.execute("DELETE FROM users WHERE id = ?", (user_id,))
         await conn.commit()
     await profile.delete(user_id)
+    await cart_memory.remove_user(user_id)  # het product per ingrediënt en de voorraadkast van deze gebruiker
     await oauth.forget_user(user_id)  # ook de AI-apps van deze gebruiker
     return True
 
@@ -215,7 +216,7 @@ def register_routes(app: Quart, base_url: Callable[[], Awaitable[str]]) -> None:
 
     @app.post("/api/users/invites")
     async def users_invite():
-        body = await request.get_json(silent=True) or {}
+        body = await request_body.json_object()
         username = str(body.get("username") or "").strip()
         if username:
             from .auth_password import validate_username
@@ -266,7 +267,7 @@ def register_routes(app: Quart, base_url: Callable[[], Awaitable[str]]) -> None:
     async def invite_password():
         from . import auth_password
 
-        body = await request.get_json(silent=True) or {}
+        body = await request_body.json_object()
         invite = await find_invite(body.get("token"))
         if not invite:
             return jsonify({"error": tr("Deze uitnodiging bestaat niet meer of is verlopen.", "This invitation no longer exists or has expired.")}), 404

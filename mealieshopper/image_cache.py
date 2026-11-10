@@ -61,7 +61,8 @@ CREATE TABLE IF NOT EXISTS image_cache (
   error TEXT,
   seen_at TEXT NOT NULL
 );
-CREATE INDEX IF NOT EXISTS image_cache_todo ON image_cache (fetched_at, seen_at);
+DROP INDEX IF EXISTS image_cache_todo;
+CREATE INDEX IF NOT EXISTS image_cache_pending ON image_cache (seen_at, id) WHERE path IS NULL;
 """
 
 MAX_DOWNLOAD_BYTES = 10 * 1024 * 1024
@@ -164,7 +165,7 @@ async def _wait(seconds: float) -> None:
 async def _connect() -> AsyncIterator[aiosqlite.Connection]:
     """Een verbinding met de tabel `image_cache`. Sluit zonder commit, zoals `auth.connect`."""
     async with auth.connect() as conn:
-        await conn.executescript(SCHEMA)
+        await auth.ensure_schema(conn, "image_cache", SCHEMA)
         yield conn
 
 
@@ -657,7 +658,7 @@ async def collect_known(now: str | None = None) -> int:
                 if not safe_url(url):
                     continue
                 cursor = await conn.execute(
-                    "INSERT OR IGNORE INTO image_cache (url, host, seen_at) VALUES (?, ?, ?)", (url, urlsplit(url).hostname or "", now)
+                    "INSERT INTO image_cache (url, host, seen_at) VALUES (?, ?, ?) ON CONFLICT(url) DO NOTHING", (url, urlsplit(url).hostname or "", now)
                 )
                 added += cursor.rowcount
         await conn.commit()

@@ -63,7 +63,7 @@ def image_path(recipe: dict[str, Any] | None) -> str | None:
 async def _connect() -> AsyncIterator[aiosqlite.Connection]:
     """Een verbinding met de tabel van de afbeeldingen. Sluit zonder commit, zoals `auth.connect`."""
     async with auth.connect() as conn:
-        await conn.executescript(SCHEMA)
+        await auth.ensure_schema(conn, "mealie_images", SCHEMA)
         yield conn
 
 

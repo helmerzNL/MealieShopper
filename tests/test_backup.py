@@ -118,7 +118,7 @@ class BackupCase(unittest.IsolatedAsyncioTestCase):
                         name, kind = column["name"], column["type"].upper()
                         if table in SINGLETONS and name == "id":
                             values[name] = 1
-                        elif table == "user_profiles" and name == "user_id":
+                        elif table in backup.USER_TABLES and name == "user_id":  # het profiel, en wat het weekmenu onthoudt
                             values[name] = "owner" if n == 1 else "ghost"
                         elif table == "user_profiles" and name == "avatar":
                             values[name] = PNG
@@ -328,7 +328,8 @@ class RoundTripTest(BackupCase):
         self.assertEqual(job["status"], "done", job)
         self.assertIsNone(job["error"])
         expected = dict(before)
-        expected["user_profiles"] = [row for row in before["user_profiles"] if row[0] == "owner"]  # "ghost" bestaat hier niet
+        for table in backup.USER_TABLES:  # "ghost" bestaat hier niet: zijn profiel, keuzes en voorraadkast gaan niet terug
+            expected[table] = [row for row in before[table] if row[0] == "owner"]
         self.assertEqual(self.snapshot(), expected)
         self.assertEqual(job["summary"]["skippedProfiles"], 1)
         self.assertEqual(sorted(job["summary"]["links"]), ["ah", "ai_anthropic", "ai_openai", "crisp", "jumbo", "mealie", "picnic"])
@@ -802,7 +803,8 @@ class ChunkedUploadTest(BackupCase):
         self.assertEqual((await self.start(token)).status_code, 202)
         self.assertEqual((await self.wait())["status"], "done")
         expected = dict(before)
-        expected["user_profiles"] = [row for row in before["user_profiles"] if row[0] == "owner"]  # "ghost" bestaat hier niet
+        for table in backup.USER_TABLES:  # "ghost" bestaat hier niet: zijn profiel, keuzes en voorraadkast gaan niet terug
+            expected[table] = [row for row in before[table] if row[0] == "owner"]
         self.assertEqual(self.snapshot(), expected)
         self.assertEqual(self.settings(), settings)
 

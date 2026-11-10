@@ -171,7 +171,7 @@ async def test_verify_token_with_a_damaged_key_gives_none(data_dir: Path) -> Non
 
 # Paden voor de toegangscontrole, met de uitkomst per beller (eigenaar, gebruiker, gebruiker met Bearer, anoniem).
 OPEN: None = None
-UNAUTHORIZED: tuple[dict[str, str], int] = ({"error": "Unauthorized"}, 401)
+UNAUTHORIZED: tuple[dict[str, str], int] = ({"error": "Je bent niet ingelogd. Log opnieuw in."}, 401)
 OWNER_ONLY: tuple[dict[str, str], int] = ({"error": "Dit kan alleen de beheerder."}, 403)
 ACCESS: list[tuple[str, tuple[Any, Any, Any, Any]]] = [
     ("/", (OPEN, OPEN, OPEN, OPEN)),
@@ -214,7 +214,7 @@ async def test_the_allowlist_opens_a_path_and_a_prefix(seeded: Path, monkeypatch
 async def test_setup_is_required_without_credentials(data_dir: Path) -> None:
     await auth.ensure_db()
     async with request_as(None):
-        assert await auth.require_auth_for_request() == ({"error": "Setup required"}, 401)
+        assert await auth.require_auth_for_request() == ({"error": "Stel eerst de beveiliging in."}, 401)
 
 
 async def test_create_token_carries_the_claims(seeded: Path) -> None:
@@ -222,7 +222,17 @@ async def test_create_token_carries_the_claims(seeded: Path) -> None:
         await auth.verify_token(await auth.create_token(auth.OWNER_ID, "spam")) or {}
     )
     assert (claims["sub"], claims["usr"], claims["ep"]) == (auth.OWNER_ID, "spam", 3)
-    assert claims["exp"] - claims["iat"] == auth.SESSION_MAX_AGE_SECONDS
+    assert claims["exp"] - claims["iat"] == auth.session_max_age_seconds()
+
+
+def test_a_session_lasts_ninety_days_unless_the_environment_says_otherwise(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("MEALIESHOPPER_SESSION_DAYS", raising=False)
+    assert auth.session_max_age_seconds() == 90 * 24 * 60 * 60
+    monkeypatch.setenv("MEALIESHOPPER_SESSION_DAYS", "7")
+    assert auth.session_max_age_seconds() == 7 * 24 * 60 * 60
+    for wrong in ("0", "-3", "rommel", "1.5", ""):
+        monkeypatch.setenv("MEALIESHOPPER_SESSION_DAYS", wrong)
+        assert auth.session_max_age_seconds() == 90 * 24 * 60 * 60, wrong
 
 
 async def test_secret_box_decrypts_what_it_encrypted(seeded: Path) -> None:

@@ -18,6 +18,7 @@ HTML = (ROOT / "templates" / "index.html").read_text(encoding="utf-8")
 SOURCES = {
     "app.js": (STATIC / "app.js").read_text(encoding="utf-8"),
     "recipe_view.js": (STATIC / "recipe_view.js").read_text(encoding="utf-8"),
+    "cook_timers.js": (STATIC / "cook_timers.js").read_text(encoding="utf-8"),
     "categories.js": (STATIC / "categories.js").read_text(encoding="utf-8"),
     "onboarding.js": (STATIC / "onboarding.js").read_text(encoding="utf-8"),
     "users.js": (STATIC / "users.js").read_text(encoding="utf-8"),
@@ -48,6 +49,7 @@ SOURCES = {
     "profile.js": (STATIC / "profile.js").read_text(encoding="utf-8"),
     "theme.js": (STATIC / "theme.js").read_text(encoding="utf-8"),
     "appearance.js": (STATIC / "appearance.js").read_text(encoding="utf-8"),
+    "shopping.js": (STATIC / "shopping.js").read_text(encoding="utf-8"),
 }
 JS = "\n".join(SOURCES.values())
 ENTRY = re.compile(r'^  "([^"]+)": "((?:[^"\\]|\\.)*)",$', re.M)

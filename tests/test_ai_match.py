@@ -443,7 +443,7 @@ class MarkupTest(unittest.TestCase):
         self.assertIn('data-i18n="aireview.run">Recepten zoeken met AI</button>', html)
         for route in ("/api/offers/ai/search/plan", "/api/offers/ai/search", "/api/offers/ai/search/status"):
             self.assertIn(route, script)
-        self.assertIn('window.confirm(t("aisearch.confirm"', script, "geld uitgeven vraagt een bevestiging met een schatting")
+        self.assertIn('await confirmDialog(t("aisearch.confirm"', script, "geld uitgeven vraagt een bevestiging met een schatting")
         self.assertIn("mdiIcon(MDI_LOADING", script)
         self.assertIn("setInterval", script, "de voortgang wordt bijgewerkt zolang de ronde loopt")
         self.assertIn('item.ai === "search"', offers_js)

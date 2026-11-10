@@ -158,7 +158,7 @@ class WeekNavigationTest(unittest.TestCase):
         self.assertIn('$("#mealkits-this-week").hidden = !menu || menu.week === menu.currentWeek;', MEALKITS)
 
     def test_meal_kits_refresh_is_an_icon_button_like_the_week_menu(self):
-        self.assertRegex(HTML, r'<button class="icon-button" id="mealkits-refresh" type="button" aria-label="Verversen" title="Verversen" data-i18n-attr="aria-label:mealkits.refresh;title:mealkits.refresh"><svg[^>]*data-mdi="mdiSync">')
+        self.assertRegex(HTML, r'<button class="icon-button" id="mealkits-refresh" type="button" aria-label="Vernieuwen" title="Vernieuwen" data-i18n-attr="aria-label:mealkits.refresh;title:mealkits.refresh"><svg[^>]*data-mdi="mdiSync">')
 
 
 if __name__ == "__main__":

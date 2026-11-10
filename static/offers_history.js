@@ -230,7 +230,7 @@ function offerHistoryChart(product, width, range = undefined) {
       price: offerHistoryPrice(current.segment.price),
       period: offerHistoryPeriodText({ start: current.segment.from, end: current.segment.to }),
     });
-    parts.push(`<g class="ohc-step" tabindex="0"><title>${escapeHtml(title)}</title><line class="ohc-step-hit" x1="${x0}" x2="${x1}" y1="${cy}" y2="${cy}"/><line class="ohc-regular" x1="${x0}" x2="${x1}" y1="${cy}" y2="${cy}"/></g>`);
+    parts.push(`<g class="ohc-step" tabindex="-1" role="img" aria-label="${escapeHtml(title)}"><title>${escapeHtml(title)}</title><line class="ohc-step-hit" x1="${x0}" x2="${x1}" y1="${cy}" y2="${cy}"/><line class="ohc-regular" x1="${x0}" x2="${x1}" y1="${cy}" y2="${cy}"/></g>`);
     if (next) parts.push(`<line class="ohc-regular" x1="${x1}" x2="${x1}" y1="${cy}" y2="${y(next.segment.price)}"/>`);
   });
   if (shownSteps.length) {
@@ -249,7 +249,7 @@ function offerHistoryChart(product, width, range = undefined) {
     const height = 8;
     take(x0, x1, y0, y0 + height);
     parts.push(
-      `<g class="ohc-line${priced ? " ohc-line--priced" : ""}" tabindex="0"><title>${escapeHtml(offerHistoryLineTitle(line.line))}</title>` +
+      `<g class="ohc-line${priced ? " ohc-line--priced" : ""}" tabindex="-1" role="img" aria-label="${escapeHtml(offerHistoryLineTitle(line.line))}"><title>${escapeHtml(offerHistoryLineTitle(line.line))}</title>` +
         `<rect x="${x0}" y="${y0}" width="${x1 - x0}" height="${height}" rx="${priced ? 3 : 1.5}"/></g>`
     );
   }
@@ -264,7 +264,7 @@ function offerHistoryChart(product, width, range = undefined) {
     drawn.push({ x0, x1, cy, price });
     take(x0, x1 + (open ? 9 : 0), cy - OFFER_HISTORY_BAR / 2, cy + OFFER_HISTORY_BAR / 2);
     parts.push(
-      `<g class="ohc-bar${open ? " ohc-bar--open" : ""}" tabindex="0"><title>${escapeHtml(offerHistoryBarTitle(bar.episode))}</title>` +
+      `<g class="ohc-bar${open ? " ohc-bar--open" : ""}" tabindex="-1" role="img" aria-label="${escapeHtml(offerHistoryBarTitle(bar.episode))}"><title>${escapeHtml(offerHistoryBarTitle(bar.episode))}</title>` +
         `<rect x="${x0}" y="${cy - OFFER_HISTORY_BAR / 2}" width="${x1 - x0}" height="${OFFER_HISTORY_BAR}" rx="3"/>` +
         (open ? `<path d="M${x1 - 1} ${cy - 8}L${x1 + 9} ${cy}L${x1 - 1} ${cy + 8}Z"/>` : "") +
         `</g>`
@@ -274,14 +274,14 @@ function offerHistoryChart(product, width, range = undefined) {
     const cx = x(dot.day + 0.5);
     const cy = y(dot.purchase.price);
     take(cx - 5, cx + 5, cy - 5, cy + 5);
-    parts.push(`<g class="ohc-paid" tabindex="0"><title>${escapeHtml(offerHistoryPurchaseTitle(dot.purchase))}</title><circle cx="${cx}" cy="${cy}" r="4.5"/></g>`);
+    parts.push(`<g class="ohc-paid" tabindex="-1" role="img" aria-label="${escapeHtml(offerHistoryPurchaseTitle(dot.purchase))}"><title>${escapeHtml(offerHistoryPurchaseTitle(dot.purchase))}</title><circle cx="${cx}" cy="${cy}" r="4.5"/></g>`);
   }
   for (const dot of shownMeasured) {
     const cx = x(dot.day + 0.5);
     const cy = y(dot.point.price);
     take(cx - 5, cx + 5, cy - 5, cy + 5);
     const title = [offerHistoryDayText(dot.day, true), offerHistoryPrice(dot.point.price), dot.point.unitSize, t("offers.history.observed_note")].filter(Boolean).join(" - ");
-    parts.push(`<g class="ohc-observed" tabindex="0"><title>${escapeHtml(title)}</title><path d="M${cx} ${cy - 5}L${cx + 5} ${cy}L${cx} ${cy + 5}L${cx - 5} ${cy}Z"/></g>`);
+    parts.push(`<g class="ohc-observed" tabindex="-1" role="img" aria-label="${escapeHtml(title)}"><title>${escapeHtml(title)}</title><path d="M${cx} ${cy - 5}L${cx + 5} ${cy}L${cx} ${cy + 5}L${cx - 5} ${cy}Z"/></g>`);
   }
   // De prijs bij een balk: erboven, anders eronder, anders een regel hoger of lager. Past hij nergens zonder een ander label of
   // een balk te raken, dan blijft hij weg; de prijs staat altijd nog in het hoverlabel en in de tabel. De nieuwste balk gaat voor.
@@ -304,7 +304,35 @@ function offerHistoryChart(product, width, range = undefined) {
   }
   const offersText = [tn("offers.history.item.times", offerHistoryTimes(product)), offerHistoryLineText(product)].filter(Boolean).join(", ");
   const label = t("offers.history.chart.label_full", { product: product.title, offers: offersText, bought: tn("offers.history.item.bought", product.timesBought || 0), observed: tn("offers.history.item.observed", observed.length) });
-  return `<svg class="ohc" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="${escapeHtml(label)}">${parts.join("")}</svg>`;
+  // Eén Tab-stop per grafiek (sinds 4.12.0): daarvoor was elke balk en stip er een, tientallen per grafiek, en kon een schermlezer
+  // ze niet lezen omdat de grafiek zelf een afbeelding heette. De pijltjestoetsen lopen de punten langs (offerChartKeys).
+  return `<svg class="ohc" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="group" tabindex="0" aria-label="${escapeHtml(`${label} ${t("offers.history.chart.keys")}`)}">${parts.join("")}</svg>`;
+}
+
+// De punten van een grafiek met het toetsenbord: pijl rechts en links naar het volgende en vorige punt, Home en End naar het
+// eerste en laatste, Escape terug naar de grafiek. `index` is het punt dat nu de focus heeft (-1: de grafiek zelf).
+function offerChartNext(key, index, count) {
+  if (!count) return null;
+  if (key === "ArrowRight" || key === "ArrowDown") return Math.min(count - 1, index + 1);
+  if (key === "ArrowLeft" || key === "ArrowUp") return index < 0 ? 0 : Math.max(0, index - 1);
+  if (key === "Home") return 0;
+  if (key === "End") return count - 1;
+  return null;
+}
+
+function offerChartKeys(event) {
+  const chart = event.target.closest?.("svg.ohc");
+  if (!chart) return;
+  if (event.key === "Escape" && event.target !== chart) {
+    event.stopPropagation();
+    chart.focus();
+    return;
+  }
+  const marks = [...chart.querySelectorAll("g[role='img']")];
+  const next = offerChartNext(event.key, marks.indexOf(event.target.closest("g[role='img']")), marks.length);
+  if (next === null) return;
+  event.preventDefault();
+  marks[next].focus();
 }
 
 // Waar een aankoop vandaan komt. Een kassabon toont de prijs zonder de korting onderaan de bon; dat staat onder de tabel.
@@ -368,7 +396,7 @@ function offerHistoryImages(product) {
 
 // De kop van een product: plaatje, naam, merk en verpakking, de status (nu in de aanbieding, vanaf, of niet) met de link naar de
 // winkel en Vergelijk verpakkingen. `compact` (de popup bij een aanbieding) zet een grotere foto links en laat de vergelijkknop weg.
-function offerHistoryHead(product, { compact = false } = {}) {
+function offerHistoryHead(product, { compact = false, offer = null } = {}) {
   const meta = [product.brand, product.unitSize].filter(Boolean).join(" · ");
   const image = ((product.savedImages || [])[0] || {}).url || product.image;
   const status = product.onOfferNow ? t("offers.history.now")
@@ -381,11 +409,16 @@ function offerHistoryHead(product, { compact = false } = {}) {
   const compare = !compact && product.regularPerUnit && !offersOnlyStore(product.store)
     ? `<button class="link-button" type="button" data-compare="${escapeHtml(product.productId)}" data-store="${escapeHtml(product.store)}">${escapeHtml(t("offers.compare.open"))}</button>`
     : "";
+  // De prijsregel van de aanbieding zelf (de popup): actieprijs, de oude prijs doorgestreept en de actietekst, zoals op de kaart.
+  const price = offer && typeof offer.price === "number"
+    ? `<p class="ohc-head__price"><b>${escapeHtml(offerHistoryPrice(offer.price))}</b>${typeof offer.priceBefore === "number" && offer.priceBefore > offer.price ? ` <s>${escapeHtml(offerHistoryPrice(offer.priceBefore))}</s>` : ""}${offer.promoLabel || offer.personal ? ` <small>${escapeHtml(offer.promoLabel || t("offers.personal.badge"))}</small>` : ""}</p>`
+    : "";
   return `<div class="ohc-head${compact ? " ohc-head--compact" : ""}">
       ${image ? `<img src="${escapeHtml(storeImage(image))}" alt="" loading="lazy" data-hide-on-error>` : ""}
       <div>
         <h3>${escapeHtml(product.title)}</h3>
         ${meta ? `<p class="muted">${escapeHtml(meta)}</p>` : ""}
+        ${price}
         <p class="${product.onOfferNow || product.upcoming ? "bonus" : "muted"}">${escapeHtml(status)}${link ? ` · ${link}` : ""}</p>
         ${compare}
       </div>
@@ -512,14 +545,17 @@ function offerHistoryRangeLabel(key) {
 
 // De knoppen voor de periode en de grafiek; een klik op een knop tekent alleen dit blok opnieuw. `width` voor een grafiek buiten de
 // prijsgeschiedenis (de popup bij een aanbieding), anders de breedte van het detailvak.
-function offerHistoryChartBlock(product, { width = null } = {}) {
-  const range = offerHistoryRange(product, offerHistory.ranges[offerHistoryKey(product)]);
+// `ranges`: de map met de periodekeuze per product; de popup bij een aanbieding heeft een eigen map (offers.js, offerPopup.ranges),
+// zodat haar knoppen de keuze van de pagina Prijsgeschiedenis niet veranderen.
+function offerHistoryChartBlock(product, { width = null, ranges = null } = {}) {
+  const own = ranges && ranges !== offerHistory.ranges;
+  const range = offerHistoryRange(product, (ranges || offerHistory.ranges)[offerHistoryKey(product)]);
   const buttons = range.options.length
     ? `<div class="ohc-range" role="group" aria-label="${escapeHtml(t("offers.history.range.label"))}">${range.options
         .map((key) => `<button type="button" class="ohc-range-button" data-range="${key}" aria-pressed="${key === range.choice}">${escapeHtml(offerHistoryRangeLabel(key))}</button>`)
         .join("")}</div>`
     : "";
-  return `<div class="ohc-block" data-product="${escapeHtml(offerHistoryKey(product))}"${width === null ? ' id="offers-history-chart-block"' : ` data-width="${width}"`}>${buttons}<div class="ohc-chart"${width === null ? ' id="offers-history-chart"' : ""}>${offerHistoryChart(product, width === null ? offerHistoryChartWidth() : width, range.choice)}</div></div>`;
+  return `<div class="ohc-block" data-product="${escapeHtml(offerHistoryKey(product))}"${width === null ? ' id="offers-history-chart-block"' : ` data-width="${width}"`}${own ? ' data-ranges="popup"' : ""}>${buttons}<div class="ohc-chart"${width === null ? ' id="offers-history-chart"' : ""}>${offerHistoryChart(product, width === null ? offerHistoryChartWidth() : width, range.choice)}</div></div>`;
 }
 
 function offerHistoryChartWidth() {
@@ -810,9 +846,10 @@ document.addEventListener("click", (event) => {
   const key = block.dataset.product;
   const product = offerHistory.products.find((item) => offerHistoryKey(item) === key) || (typeof offerPopupProduct === "function" ? offerPopupProduct(key) : null);
   if (!product) return;
-  offerHistory.ranges[key] = range.dataset.range;
+  const popup = block.dataset.ranges === "popup" && typeof offerPopup !== "undefined";
+  (popup ? offerPopup.ranges : offerHistory.ranges)[key] = range.dataset.range;
   const width = block.dataset.width ? Number(block.dataset.width) : null;
-  block.outerHTML = offerHistoryChartBlock(product, { width });
+  block.outerHTML = offerHistoryChartBlock(product, { width, ranges: popup ? offerPopup.ranges : null });
 });
 
 // Oude aankopen importeren (#178): bestellingen uit bevestigingsmails, omgezet naar JSON door een AI-assistent met de prompt van de
@@ -958,3 +995,6 @@ $("#import-close").addEventListener("click", () => $("#import-dialog").close());
 $("#import-dialog").addEventListener("click", (event) => {
   if (event.target === event.currentTarget) event.currentTarget.close();
 });
+
+// De pijltjestoetsen in een grafiek (offerChartKeys), ook in de popup en het venster van Aanbiedingen.
+document.addEventListener("keydown", offerChartKeys);

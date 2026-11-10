@@ -4,6 +4,7 @@
 const AI_REVIEW_PROVIDERS = ["anthropic", "openai"];
 const AI_REVIEW_ENV = { anthropic: "ANTHROPIC_API_KEY", openai: "OPENAI_API_KEY" };
 const AI_SEARCH_POLL_MS = 2000;
+const AI_SEARCH_POLL_MISSES = 10; // zoveel mislukte statusvragen op rij voordat de pagina de ronde als verloren meldt
 const aiReviewState = { status: null, running: false, timer: 0 };
 
 // Het tabblad Recepten bij Aanbiedingen is zichtbaar met een AI-sleutel (of de omgevingsvariabele); na het opslaan van een sleutel zonder herladen.
@@ -165,11 +166,17 @@ function watchAiSearch(job) {
   aiReviewState.running = true;
   setAiSearchBusy(job);
   clearInterval(aiReviewState.timer);
+  let misses = 0;
   const tick = async () => {
     let current;
     try {
       current = await jsonFetch("/api/offers/ai/search/status");
+      misses = 0;
     } catch (error) {
+      // Een weggevallen verbinding stopt de ronde op de server niet (sinds 4.12.0): opnieuw vragen, zoals de back-up en de
+      // bulkimport doen. Pas na tien missers op rij (twintig seconden) geven we het op.
+      misses += 1;
+      if (misses < AI_SEARCH_POLL_MISSES) return;
       current = { state: "error", error: error.message };
     }
     if (current.state === "running") {
@@ -199,7 +206,7 @@ async function runAiSearch() {
       message("#offers-recipes-message", t("aisearch.nothing"), "success");
       return;
     }
-    if (!window.confirm(t("aisearch.confirm", { recipes: plan.chosen, name: info.name, tokens: I18N.formatNumber(plan.estimatedTokens) }))) return;
+    if (!(await confirmDialog(t("aisearch.confirm", { recipes: plan.chosen, name: info.name, tokens: I18N.formatNumber(plan.estimatedTokens) })))) return;
     const job = await jsonFetch("/api/offers/ai/search", {
       method: "POST",
       headers: { "Content-Type": "application/json" },

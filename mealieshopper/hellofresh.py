@@ -86,7 +86,7 @@ async def _wait(seconds: float) -> None:
 async def _connect() -> AsyncIterator[aiosqlite.Connection]:
     """Een verbinding met het schema, via `auth.connect()`. Sluit zonder commit."""
     async with auth.connect() as conn:
-        await conn.executescript(SCHEMA)
+        await auth.ensure_schema(conn, "hellofresh", SCHEMA)
         yield conn
 
 

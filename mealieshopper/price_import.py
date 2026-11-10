@@ -159,14 +159,20 @@ async def _connect() -> AsyncIterator[aiosqlite.Connection]:
     """Een verbinding met het schema en de migratie. Sluit zonder commit, zoals `auth.connect`."""
     await auth.ensure_db()
     async with auth.connect() as conn:
-        await conn.executescript(SCHEMA)
-        for name, kind in _missing_columns(await conn.execute_fetchall(_COLUMNS_SQL)):
-            try:
-                await conn.execute(_ADD_COLUMN_SQL.format(name=name, kind=kind))
-            except sqlite3.OperationalError as exc:
-                if not _added_elsewhere(exc):
-                    raise
+        await auth.ensure_schema(conn, "price_import", _setup)
         yield conn
+
+
+async def _setup(conn: aiosqlite.Connection) -> None:
+    """Het schema en de kolommen die later kwamen, een keer per proces (`auth.ensure_schema`)."""
+    await conn.executescript(SCHEMA)
+    for name, kind in _missing_columns(await conn.execute_fetchall(_COLUMNS_SQL)):
+        try:
+            await conn.execute(_ADD_COLUMN_SQL.format(name=name, kind=kind))
+        except sqlite3.OperationalError as exc:
+            if not _added_elsewhere(exc):
+                raise
+    await conn.commit()
 
 
 def _store(value: Any) -> str:

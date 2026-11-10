@@ -14,14 +14,14 @@ from typing import Any
 
 from quart import Quart, jsonify
 
-from . import ah, auth, crisp, jumbo, mealie, picnic
+from . import ah, auth, crisp, jumbo, mealie, picnic, urls
 from .i18n import tr
 
 SETTING_ACTIVE = "ONBOARDING_ACTIVE"
 SETTING_DONE = "ONBOARDING_DONE"
 
-# Adressen die alleen binnen je eigen netwerk bestaan: daar werkt geen passkey en is geen echt domein.
-PRIVATE_SUFFIXES = (".local", ".lan", ".home", ".home.arpa", ".internal", ".localdomain", ".intranet", ".private")
+# Adressen die alleen binnen je eigen netwerk bestaan: daar werkt geen passkey en is geen echt domein (de lijst staat in urls.py).
+PRIVATE_SUFFIXES = urls.PRIVATE_SUFFIXES
 
 
 async def _flag(key: str) -> bool:

@@ -48,7 +48,7 @@ from cryptography.fernet import Fernet, InvalidToken
 from cryptography.hazmat.primitives.kdf.scrypt import Scrypt
 from quart import Quart, Response, jsonify, request
 
-from . import about, ah_lists, ah_orders, ah_recipes, ai_review, auth, crisp, crisp_orders, hellofresh, jumbo, jumbo_lists, jumbo_orders, marleyspoon, mealie, offers, offers_schedule, picnic, picnic_orders, price_import, prices, product_images, product_links, profile, server_settings, tasks, thread_db, uploads
+from . import about, ah_lists, ah_orders, ah_recipes, ai_review, auth, cart_memory, crisp, crisp_orders, hellofresh, jumbo, jumbo_lists, jumbo_orders, marleyspoon, mealie, offers, offers_schedule, picnic, picnic_orders, price_import, prices, product_images, product_links, profile, request_body, server_settings, tasks, thread_db, uploads
 from .i18n import tr
 
 log = logging.getLogger(__name__)
@@ -87,10 +87,13 @@ DATA_TABLES = (
     "ai_recipe_matches", "ai_recipe_runs",
     "offers_schedule",
     "user_profiles",
+    "cart_choices", "pantry_items",  # per gebruiker: het product dat je bij een ingrediënt koos en wat je altijd in huis hebt (cart_memory.py)
 )
+# Tabellen met een rij per gebruiker (`user_id`): een rij van iemand die op deze installatie niet bestaat, gaat niet terug.
+USER_TABLES = frozenset({"user_profiles", "cart_choices", "pantry_items"})
 # Tabellen die er bewust niet in zitten: de inloggegevens van de app, tijdelijke staat, caches en logboeken.
 EXCLUDED_TABLES = frozenset({
-    "users", "passkey_credentials", "auth_challenges", "password_credentials", "mfa_totp", "mfa_recovery_codes",
+    "users", "passkey_credentials", "auth_challenges", "revoked_sessions", "password_credentials", "mfa_totp", "mfa_recovery_codes",
     "login_attempts", "invites", "oauth_clients", "oauth_codes", "oauth_tokens",
     "app_settings",  # staat er wel in, maar apart: zie SECRET_KEYS en PLAIN_SETTINGS
     "audit_log", "mealie_images", "backup_jobs", "sqlite_sequence",
@@ -147,9 +150,10 @@ COUNT_GROUPS: dict[str, tuple[str, ...]] = {
     "recipes": ("ah_saved_recipes", "offer_recipes"),
     "judgements": ("offer_rejections", "offer_verdicts", "ai_recipe_matches"),
     "profiles": ("user_profiles",),
+    "cartMemory": ("cart_choices", "pantry_items"),
 }
 
-SCHEMA_OWNERS = (ah_lists, ah_orders, ah_recipes, crisp_orders, hellofresh, jumbo_lists, jumbo_orders, marleyspoon, offers, offers_schedule, picnic_orders, price_import, prices, product_links, profile)
+SCHEMA_OWNERS = (ah_lists, ah_orders, ah_recipes, cart_memory, crisp_orders, hellofresh, jumbo_lists, jumbo_orders, marleyspoon, offers, offers_schedule, picnic_orders, price_import, prices, product_links, profile)
 
 JOB_SCHEMA = """
 CREATE TABLE IF NOT EXISTS backup_jobs (
@@ -287,7 +291,7 @@ async def _ajobs_connect() -> AsyncIterator[aiosqlite.Connection]:
     """Async tweeling van `_jobs_connect`, voor de event loop. Sluit zonder commit, zoals `auth.connect`."""
     await auth.ensure_db()
     async with auth.connect() as conn:
-        await conn.executescript(JOB_SCHEMA)
+        await auth.ensure_schema(conn, "backup_jobs", JOB_SCHEMA)
         yield conn
 
 
@@ -689,8 +693,9 @@ def replace_everything(
                 continue
             groups: dict[tuple[str, ...], list[list[Any]]] = {}
             for _, values in prepared.get(table, []):
-                if table == "user_profiles" and values.get("user_id") not in users:
-                    skipped_profiles += 1  # een profiel van iemand die op deze installatie niet bestaat
+                if table in USER_TABLES and values.get("user_id") not in users:
+                    # Een profiel (of wat het weekmenu onthoudt) van iemand die op deze installatie niet bestaat.
+                    skipped_profiles += table == "user_profiles"
                     continue
                 names = tuple(values)
                 groups.setdefault(names, []).append([values[n] for n in names])
@@ -1005,7 +1010,7 @@ def register_routes(app: Quart) -> None:
 
     @app.post("/api/backup")
     async def backup_create() -> Response | tuple[Response, int]:
-        body = await request.get_json(silent=True) or {}
+        body = await request_body.json_object()
         links = bool(body.get("links", True))
         passphrase = str(body.get("passphrase") or "")
         leave_out = [part for part in OPTIONAL_PARTS if body.get(part, True) is False]  # standaard gaat alles mee
@@ -1083,7 +1088,7 @@ def register_routes(app: Quart) -> None:
 
     @app.post("/api/backup/jobs")
     async def backup_start() -> tuple[Response, int]:
-        body = await request.get_json(silent=True) or {}
+        body = await request_body.json_object()
         try:
             job = await start_job(
                 str(body.get("token") or ""), str(body.get("passphrase") or ""),

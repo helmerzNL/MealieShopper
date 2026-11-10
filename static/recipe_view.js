@@ -2,7 +2,9 @@
 // Alle schermen die een recept tonen gebruiken renderCookView: het detail bij Recepten zoeken, de winkels en de maaltijdboxen
 // (renderStoreRecipeDetail in recipe_search.js) en het venster van een maaltijd in het weekmenu (renderMealRecipeBody in
 // app.js). Eén model voor beide bronnen (cookRecipeFromStore en cookRecipeFromMealie):
-//   { key, title, ingredients: [{ text, amount, section }], steps: [{ text, title }] }
+//   { key, title, slug, linkable, ingredients: [{ text, amount, section, ref }], steps: [{ text, title, id, refs, uses, auto }] }
+// `slug`, `ref`, `id` en `refs` komen van Mealie (koppelingen tussen stappen en ingrediënten); `uses` zijn de ingrediënten bij
+// een stap en `auto` zegt dat ze in de tekst zijn gevonden (cookLinkSteps, issue #309).
 // De ingrediënten vink je af, de stappen markeer je als klaar; de eerste open stap is dan "Nu". Die voortgang staat per
 // recept in localStorage onder ms-cook-progress:<key> en vervalt 12 uur na het laatste vinkje, of als het recept een ander
 // aantal regels kreeg. Een recept uit Mealie heeft in het weekmenu en bij Recepten zoeken dezelfde sleutel (mealie:<slug>),
@@ -34,7 +36,7 @@ const COOK_BARE_RE = /^(?:(?:een|a|an)\s+)?(?:snufje|snufjes|snuf|mespunt|mespun
 const cookViews = new Map(); // weergave -> model; een weergave is één keer renderCookView (data-cook-view)
 const cookProgressCache = new Map(); // sleutel -> voortgang, ook als localStorage niet werkt
 const cookWake = { lock: null, busy: false, again: false, wanted: null };
-const cookMode = { view: 0, key: "", index: 0, opener: null, swipe: null };
+const cookMode = { view: 0, key: "", index: 0, opener: null, swipe: null, linking: -1, saving: false };
 let cookViewSeq = 0;
 
 // Staat de kookmodus aan? Zonder theme.js (de tests in Node) wel.
@@ -83,33 +85,48 @@ function cookSplitAmount(text, units = []) {
   return line.slice(amount.length).trim() ? amount : "";
 }
 
-function cookIngredient(text, section = "", units = []) {
+// Een referenceId of id van Mealie (een UUID), klein geschreven; "" als het er geen is.
+function cookRef(value) {
+  const text = String(value ?? "").trim().toLowerCase();
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(text) ? text : "";
+}
+
+function cookIngredient(text, section = "", units = [], ref = "") {
   const line = cookText(text);
-  return { text: line, amount: cookSplitAmount(line, units), section: cookText(section) };
+  return { text: line, amount: cookSplitAmount(line, units), section: cookText(section), ref: cookRef(ref) };
 }
 
-function cookStep(text, title = "") {
-  return { text: String(text ?? "").trim(), title: cookText(title) };
+// Een stap. `id` en `refs` komen van Mealie: het id van de stap en de referenceId's van de ingrediënten die eraan gekoppeld
+// zijn (issue #309). cookLinkSteps zet daarna `uses` (de ingrediënten bij deze stap, als index) en `auto` (gevonden in de tekst).
+function cookStep(text, title = "", id = "", refs = []) {
+  const linked = [...new Set((Array.isArray(refs) ? refs : []).map(cookRef).filter(Boolean))];
+  return { text: String(text ?? "").trim(), title: cookText(title), id: cookRef(id), refs: linked, uses: [], auto: false };
 }
 
-// Een recept uit het detailscherm (/api/<winkel>/recipes/<id>): ingredients [{line, section?}], steps [tekst] en eventueel
-// stepTitles (Mealie, even lang als steps). Een sectie op een lege regel schuift door naar de volgende regel.
+// Een recept uit het detailscherm (/api/<winkel>/recipes/<id>): ingredients [{line, section?, ref?}], steps [tekst] en eventueel
+// stepTitles, stepIds en stepRefs (Mealie, even lang als steps). Een sectie op een lege regel schuift door naar de volgende regel.
 function cookRecipeFromStore(store, recipe) {
   const titles = Array.isArray(recipe?.stepTitles) ? recipe.stepTitles : [];
+  const ids = Array.isArray(recipe?.stepIds) ? recipe.stepIds : [];
+  const refs = Array.isArray(recipe?.stepRefs) ? recipe.stepRefs : [];
   const ingredients = [];
   let section = "";
   for (const item of recipe?.ingredients || []) {
     const line = typeof item === "string" ? item : item?.line;
     section = cookText(typeof item === "object" ? item?.section : "") || section;
-    const ingredient = cookIngredient(line, section);
+    const ingredient = cookIngredient(line, section, [], typeof item === "object" ? item?.ref : "");
     if (!ingredient.text) continue;
     ingredients.push(ingredient);
     section = "";
   }
   const steps = (recipe?.steps || [])
-    .map((step, index) => (typeof step === "string" ? cookStep(step, titles[index]) : cookStep(step?.text, step?.title ?? titles[index])))
+    .map((step, index) =>
+      typeof step === "string"
+        ? cookStep(step, titles[index], ids[index], refs[index])
+        : cookStep(step?.text, step?.title ?? titles[index], ids[index], refs[index]))
     .filter((step) => step.text);
-  return { key: `${store}:${recipe?.id ?? recipe?.slug ?? ""}`, title: String(recipe?.name || ""), ingredients, steps };
+  const slug = store === "mealie" ? cookText(recipe?.slug || recipe?.id) : "";
+  return cookLinkSteps({ key: `${store}:${recipe?.id ?? recipe?.slug ?? ""}`, title: String(recipe?.name || ""), slug, ingredients, steps });
 }
 
 // Een recept zoals Mealie het geeft (recipeDetail van een maaltijd, al omgerekend naar de porties). Dezelfde regels als
@@ -121,16 +138,107 @@ function cookRecipeFromMealie(detail, key, title) {
     if (!item || typeof item !== "object") continue;
     section = cookText(item.title) || section;
     const unit = item.unit && typeof item.unit === "object" ? item.unit : {};
-    const ingredient = cookIngredient(item.display || item.note, section, [unit.name, unit.abbreviation, unit.pluralName, unit.pluralAbbreviation]);
+    const ingredient = cookIngredient(item.display || item.note, section, [unit.name, unit.abbreviation, unit.pluralName, unit.pluralAbbreviation], item.referenceId);
     if (!ingredient.text) continue;
     ingredients.push(ingredient);
     section = "";
   }
   const steps = (detail?.recipeInstructions || [])
     .filter((step) => step && typeof step === "object")
-    .map((step) => cookStep(step.text, step.title))
+    .map((step) => cookStep(step.text, step.title, step.id, (Array.isArray(step.ingredientReferences) ? step.ingredientReferences : []).map((item) => item?.referenceId)))
     .filter((step) => step.text);
-  return { key, title: String(title || detail?.name || ""), ingredients, steps };
+  const slug = String(key || "").startsWith("mealie:") ? String(key).slice("mealie:".length) : "";
+  return cookLinkSteps({ key, title: String(title || detail?.name || ""), slug, ingredients, steps });
+}
+
+// ---- Ingrediënten bij een stap (issue #309)
+// Een stap met koppelingen in Mealie toont die ingrediënten. Zonder koppelingen zoekt de app ze in de tekst van de stap
+// ("snijd de ui" vindt "1 rode ui, gesnipperd"); dat staat er dan bij als "automatisch gevonden". Een recept uit Mealie met
+// id's en referenceId's kan per stap gekoppeld worden (cookLinkable); dat gaat meteen naar Mealie (cookSaveLinks).
+// Wat in deze pagina is opgeslagen, onthoudt cookLinkOverrides, zodat een recept dat later opnieuw wordt opgebouwd
+// (het weekmenu heeft nog het recept van bij het laden) de nieuwe koppelingen toont.
+const cookLinkOverrides = new Map(); // "<slug> <stap-id>" -> referenceId's
+
+function cookLinkSteps(recipe) {
+  const byRef = new Map();
+  recipe.ingredients.forEach((item, index) => {
+    if (item.ref && !byRef.has(item.ref)) byRef.set(item.ref, index);
+  });
+  for (const step of recipe.steps) {
+    const saved = recipe.slug && step.id ? cookLinkOverrides.get(`${recipe.slug} ${step.id}`) : undefined;
+    if (saved) step.refs = [...saved];
+    const linked = [...new Set(step.refs.map((ref) => byRef.get(ref)).filter((index) => index !== undefined))].sort((a, b) => a - b);
+    step.uses = linked.length ? linked : cookMatchStep(recipe.ingredients, step);
+    step.auto = !linked.length && step.uses.length > 0;
+  }
+  recipe.linkable = Boolean(recipe.slug) && byRef.size > 0;
+  return recipe;
+}
+
+// De ingrediënten bij een stap (indexen); een model zonder `uses` (ouder of nagemaakt) heeft er geen.
+function cookUses(step) {
+  return Array.isArray(step?.uses) ? step.uses : [];
+}
+
+function cookLinkable(recipe, step) {
+  return Boolean(recipe?.linkable && step?.id);
+}
+
+// Woorden die nooit het ingrediënt zelf zijn: lidwoorden, voorzetsels, "naar smaak" en hoe het gesneden is.
+const COOK_MATCH_SKIP = new Set("de het een van met voor en of in op aan uit bij tot te naar smaak eventueel optioneel extra vers verse gedroogd gedroogde fijn fijne fijngehakt fijngehakte gehakte gesneden gesnipperd gesnipperde geraspt geraspte grof grove klein kleine groot grote middelgrote halve hele the a an of and or for with to in on at into from taste optional fresh dried chopped minced sliced diced grated finely large small medium whole".split(" "));
+
+function cookFold(text) {
+  return String(text ?? "").toLowerCase().normalize("NFD").replace(/\p{M}/gu, "");
+}
+
+function cookWords(text) {
+  return cookFold(text).match(/\p{L}+(?:['’]\p{L}+)*/gu) || [];
+}
+
+// De stam van een woord, zodat meervoud en verkleinwoord hetzelfde zijn: "uien" en "ui", "tomaten" en "tomaat", "eieren"
+// en "ei", "kippen" en "kip", "boontjes" en "bonen", "paprika's" en "paprika", "onions" en "onion", "olives" en "olive".
+function cookStem(word) {
+  let stem = cookFold(word).replace(/['’]s$/, "");
+  for (const end of ["tjes", "tje", "jes", "je", "eren", "en", "s"]) {
+    if (stem.length - end.length >= 2 && stem.endsWith(end)) {
+      stem = stem.slice(0, -end.length);
+      break;
+    }
+  }
+  stem = stem.replace(/([^aeiou])\1$/, "$1").replace(/([aeiou])\1/g, "$1");
+  return stem.length > 3 ? stem.replace(/e$/, "") : stem; // "olive" en "olives", "tomato" en "tomatoes"
+}
+
+// Waar een regel om gaat: het laatste woord voor een komma of haakje, zonder de hoeveelheid ("2 tenen knoflook, fijngehakt"
+// is knoflook). "zout en peper naar smaak" gaat om zout en om peper.
+function cookIngredientStems(item) {
+  const name = item.text.slice(item.amount.length).replace(/\([^)]*\)/g, " ").split(/[,;:]/)[0];
+  const stems = [];
+  for (const part of name.split(/\s+(?:en|of|and|or)\s+|\s*[&/+]\s*/i)) {
+    const words = cookWords(part).filter((word) => !COOK_MATCH_SKIP.has(word) && !COOK_UNITS.has(word));
+    const stem = words.length ? cookStem(words[words.length - 1]) : "";
+    if (stem.length >= 2 && !stems.includes(stem)) stems.push(stem);
+  }
+  return stems;
+}
+
+// Hoort een woord uit de stap bij een ingrediënt? Als de stammen gelijk zijn, of als de ene samenstelling op de andere
+// eindigt: "olijfolie" bij olie, "rundergehakt" bij gehakt, "kookroom" bij room. Niet op het begin: "tomaat" is geen
+// "tomatenblokjes". De kortste stam heeft dan minstens 3 letters ("ui" moet gelijk zijn).
+function cookStemsMatch(ingredient, word) {
+  if (ingredient === word) return true;
+  const [short, long] = ingredient.length < word.length ? [ingredient, word] : [word, ingredient];
+  return short.length >= 3 && long.endsWith(short);
+}
+
+function cookMatchStep(ingredients, step) {
+  const words = [...new Set(cookWords(`${step.title} ${step.text}`).filter((word) => !COOK_MATCH_SKIP.has(word)).map(cookStem))].filter((stem) => stem.length >= 2);
+  if (!words.length) return [];
+  const found = [];
+  ingredients.forEach((item, index) => {
+    if (cookIngredientStems(item).some((stem) => words.some((word) => cookStemsMatch(stem, word)))) found.push(index);
+  });
+  return found;
 }
 
 // ---- Voortgang
@@ -316,10 +424,46 @@ function cookStepsHtml(recipe, progress, level) {
           <span class="cook-step__now" data-i18n="cook.now">${escapeHtml(t("cook.now"))}</span>
           ${step.title ? cookHeading(level, "cook-step__title", escapeHtml(step.title)) : ""}
           <p class="cook-step__text">${escapeHtml(step.text)}</p>
+          <p class="cook-step__uses" data-cook-uses="${index}"${cookUses(step).length ? "" : " hidden"}>${cookUsesHtml(recipe, step)}</p>
         </div>
       </li>`;
   });
   return `<ol class="cook-steps" role="list">${items.join("")}</ol>`;
+}
+
+// De ingrediënten bij een stap in de lijst met stappen, kort: "400 g spaghetti · 1 bosje basilicum".
+function cookUsesHtml(recipe, step) {
+  if (!cookUses(step).length) return "";
+  const items = cookUses(step).map((index) => {
+    const item = recipe.ingredients[index];
+    if (!item) return "";
+    const text = item.amount ? `<b>${escapeHtml(item.amount)}</b>${escapeHtml(item.text.slice(item.amount.length))}` : escapeHtml(item.text);
+    return `<span class="cook-step__use">${text}</span>`;
+  });
+  const label = t(step.auto ? "cook.uses_found" : "cook.uses");
+  return `<span class="visually-hidden">${escapeHtml(label)}: </span>${items.filter(Boolean).join('<span aria-hidden="true"> · </span>')}`;
+}
+
+// De ingrediënten bij de stap in de kookmodus: met vinkjes, gelijk met de lijst van alle ingrediënten (data-cook-tick).
+function cookModeUsesHtml(recipe, step, progress) {
+  return cookUses(step)
+    .filter((index) => recipe.ingredients[index])
+    .map((index) => cookIngredientHtml(recipe.ingredients[index], index, progress.ingredients.has(index)))
+    .join("");
+}
+
+// Het formulier om ingrediënten aan een stap te koppelen: alle ingrediënten met een referenceId, per sectie, met de
+// ingrediënten die er nu bij staan (ook die automatisch gevonden zijn) al aangevinkt.
+function cookLinkFormHtml(recipe, step) {
+  const chosen = new Set(cookUses(step));
+  return recipe.ingredients
+    .map((item, index) => {
+      if (!item.ref) return "";
+      const heading = item.section ? `<p class="cook-link__section">${escapeHtml(item.section)}</p>` : "";
+      const text = item.amount ? `<b>${escapeHtml(item.amount)}</b>${escapeHtml(item.text.slice(item.amount.length))}` : escapeHtml(item.text);
+      return `${heading}<label class="cook-link__item"><input type="checkbox" value="${escapeHtml(item.ref)}" data-cook-link-ref${chosen.has(index) ? " checked" : ""}><span>${text}</span></label>`;
+    })
+    .join("");
 }
 
 // De weergaven die niet meer in de pagina staan vergeten (hun HTML is vervangen).
@@ -383,6 +527,11 @@ function cookApply(root, recipe, progress) {
   });
   root.querySelectorAll("[data-cook-ticked]").forEach((element) => {
     element.textContent = cookTickedText(recipe, progress);
+  });
+  root.querySelectorAll("[data-cook-uses]").forEach((element) => {
+    const step = recipe.steps[Number(element.dataset.cookUses)];
+    element.innerHTML = step ? cookUsesHtml(recipe, step) : "";
+    element.hidden = !cookUses(step).length;
   });
   root.querySelectorAll("[data-cook-reset]").forEach((button) => {
     button.hidden = !cookStarted(progress);
@@ -518,7 +667,54 @@ function cookModeRender() {
   next.dataset.i18n = last ? "cook.finish" : "cook.next";
   next.textContent = t(next.dataset.i18n);
   $("#cook-mode-meter").style.width = `${cookPercent(recipe, progress)}%`;
+  cookModeUses(recipe, step, index, progress);
   cookApply($("#cook-mode"), recipe, progress);
+  // De timers (cook_timers.js) tonen de tijden uit deze stap.
+  window.dispatchEvent(new CustomEvent("ms:cookstep", { detail: { recipe, index, step } }));
+}
+
+// De ingrediënten bij de stap, en bij een recept uit Mealie de knop Koppelen met het formulier.
+function cookModeUses(recipe, step, index, progress) {
+  const linkable = cookLinkable(recipe, step);
+  const editing = linkable && cookMode.linking === index;
+  const uses = cookUses(step);
+  $("#cook-mode-uses").hidden = !uses.length && !linkable;
+  $("#cook-mode-uses-list").innerHTML = editing ? "" : cookModeUsesHtml(recipe, step, progress);
+  $("#cook-mode-uses-list").hidden = editing || !uses.length;
+  $("#cook-mode-uses-auto").hidden = editing || !step.auto;
+  $("#cook-mode-uses-none").hidden = editing || uses.length > 0;
+  const link = $("#cook-mode-link");
+  link.hidden = !linkable || editing;
+  link.setAttribute("aria-expanded", String(editing));
+  const form = $("#cook-mode-link-form");
+  if (editing && form.hidden) {
+    $("#cook-mode-link-items").innerHTML = cookLinkFormHtml(recipe, step);
+    message("#cook-mode-link-message", "");
+  }
+  form.hidden = !editing;
+}
+
+function cookModeLinking(index) {
+  cookMode.linking = index;
+  cookModeRender();
+  if (index >= 0) $("#cook-mode-link-items input")?.focus({ preventScroll: true });
+}
+
+// Slaat de koppelingen van één stap op in Mealie en werkt elk recept met dezelfde slug bij (het weekmenu en Recepten
+// zoeken kunnen hetzelfde recept tegelijk open hebben).
+async function cookSaveLinks(recipe, index, refs) {
+  const step = recipe.steps[index];
+  const data = await jsonFetch(`/api/mealie/recipes/${encodeURIComponent(recipe.slug)}/steps/${encodeURIComponent(step.id)}/ingredients`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ refs }),
+  });
+  const saved = (Array.isArray(data?.refs) ? data.refs : refs).map(cookRef).filter(Boolean);
+  cookLinkOverrides.set(`${recipe.slug} ${step.id}`, saved);
+  for (const model of new Set([recipe, ...cookViews.values()])) {
+    if (model.slug === recipe.slug) cookLinkSteps(model);
+  }
+  return saved;
 }
 
 function openCookMode(root, opener) {
@@ -527,7 +723,7 @@ function openCookMode(root, opener) {
   if (!recipe || !recipe.steps.length || !dialog) return;
   const progress = cookProgress(recipe);
   const open = recipe.steps.findIndex((_, index) => !progress.steps.has(index));
-  Object.assign(cookMode, { view: Number(root.dataset.cookView), key: recipe.key, index: open < 0 ? 0 : open, opener, swipe: null });
+  Object.assign(cookMode, { view: Number(root.dataset.cookView), key: recipe.key, index: open < 0 ? 0 : open, opener, swipe: null, linking: -1, saving: false });
   dialog.dataset.cookKey = recipe.key;
   dialog.dataset.cookView = root.dataset.cookView;
   $("#cook-mode-ingredients-list").innerHTML = cookIngredientsHtml(recipe, progress, 4);
@@ -546,9 +742,11 @@ function cookModeAct(action) {
   const from = Math.min(Math.max(cookMode.index, 0), recipe.steps.length - 1);
   const move = cookModeMove(from, recipe.steps.length, action);
   cookMode.index = move.index;
+  if (move.index !== from) cookMode.linking = -1; // een andere stap: het formulier van de vorige stap gaat dicht
   if (move.markDone) cookChange($("#cook-mode"), (progress) => progress.steps.add(from));
   if (move.close) $("#cook-mode").close();
   else cookModeRender();
+  if (move.index !== from) $("#cook-mode-stage").scrollTop = 0; // een nieuwe stap begint bovenaan
 }
 
 function cookModeClosed() {
@@ -556,7 +754,8 @@ function cookModeClosed() {
   const opener = cookMode.opener;
   delete dialog.dataset.cookKey;
   delete dialog.dataset.cookView;
-  Object.assign(cookMode, { view: 0, key: "", index: 0, opener: null, swipe: null });
+  Object.assign(cookMode, { view: 0, key: "", index: 0, opener: null, swipe: null, linking: -1, saving: false });
+  $("#cook-mode-link-form").hidden = true;
   if (opener?.isConnected) opener.focus({ preventScroll: true });
   cookWakeUpdate();
 }
@@ -619,11 +818,43 @@ $("#cook-mode-done").addEventListener("click", () => {
   cookChange($("#cook-mode"), (progress) => cookToggle(progress.steps, index));
 });
 $("#cook-mode-ingredients").addEventListener("click", () => cookModePanel($("#cook-mode-panel").hidden));
+// Ingrediënten koppelen aan de stap (recept uit Mealie): het formulier opent op de plek van de lijst; Opslaan schrijft naar Mealie.
+$("#cook-mode-link").addEventListener("click", () => cookModeLinking(cookMode.index));
+$("#cook-mode-link-cancel").addEventListener("click", () => {
+  cookModeLinking(-1);
+  $("#cook-mode-link").focus({ preventScroll: true });
+});
+$("#cook-mode-link-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const recipe = cookModeRecipe();
+  const index = cookMode.linking;
+  if (!recipe || index < 0 || cookMode.saving) return;
+  const refs = [...$("#cook-mode-link-items").querySelectorAll("[data-cook-link-ref]:checked")].map((input) => input.value);
+  const save = $("#cook-mode-link-save");
+  cookMode.saving = true;
+  save.disabled = true;
+  message("#cook-mode-link-message", t("cook.link_saving"), "info");
+  try {
+    await cookSaveLinks(recipe, index, refs);
+    if (cookMode.linking === index) cookMode.linking = -1;
+    cookSyncAll();
+    $("#cook-mode-link").focus({ preventScroll: true });
+  } catch (error) {
+    message("#cook-mode-link-message", error.message || t("cook.link_failed"));
+  } finally {
+    cookMode.saving = false;
+    save.disabled = false;
+  }
+});
 $("#cook-mode").addEventListener("close", cookModeClosed);
 // Esc sluit de kookmodus; op een smal scherm sluit hij eerst het ingrediëntenpaneel dat over de stap ligt.
 $("#cook-mode").addEventListener("cancel", (event) => {
   const narrow = typeof window.matchMedia === "function" && !window.matchMedia("(min-width: 860px)").matches;
-  if (narrow && !$("#cook-mode-panel").hidden) {
+  if (cookMode.linking >= 0) {
+    event.preventDefault(); // Esc sluit eerst het formulier om te koppelen
+    cookModeLinking(-1);
+    $("#cook-mode-link").focus({ preventScroll: true });
+  } else if (narrow && !$("#cook-mode-panel").hidden) {
     event.preventDefault();
     cookModePanel(false);
   }

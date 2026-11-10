@@ -47,7 +47,7 @@ async function showJumboBasket() {
 }
 
 async function checkJumboConnection() {
-  message("#jumbo-status", t("ah.checking"), "success");
+  message("#jumbo-status", t("ah.checking"), "info");
   try {
     const data = await jsonFetch("/api/jumbo/auth/status?verify=1");
     if (data.verified) renderLinkStatus("#jumbo-status", STORES.jumbo.name, "working");
@@ -120,7 +120,7 @@ async function runJumboExplore() {
 
 $("#jumbo-link").addEventListener("click", linkJumbo);
 $("#jumbo-check").addEventListener("click", checkJumboConnection);
-$("#jumbo-unlink").addEventListener("click", unlinkJumbo);
+$("#jumbo-unlink").addEventListener("click", (event) => unlinkWithConfirm(event.currentTarget, STORES.jumbo.name, unlinkJumbo));
 $("#jumbo-explore-run").addEventListener("click", runJumboExplore);
 $("#jumbo-explore-copy").addEventListener("click", async (event) => {
   const text = $("#jumbo-explore-output").textContent;

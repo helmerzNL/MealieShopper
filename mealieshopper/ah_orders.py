@@ -103,12 +103,16 @@ CREATE TABLE IF NOT EXISTS ah_receipt_items (
 -- Het id op een kassabon is AH's artikelnummer (`hqId`), niet het id van de webwinkel. Deze tabel koppelt ze, zodat "BLOEMKOOL" op de
 -- bon bij "AH Bloemkool" uit de bestellingen hoort (issue #178). `product_id` NULL: AH vond het artikelnummer niet (opnieuw na een tijd).
 -- `image`: de foto van het webwinkelproduct (NULL: nog niet opgezocht, "": geen foto), zodat een bon ook foto's kan tonen.
+-- `brand` en `unit_size`: het merk en de inhoud ("2 stuks", "500 g") van het webwinkelproduct, met dezelfde NULL en "". Een
+-- product dat de app alleen van de bon kent, heeft ze nergens anders vandaan.
 CREATE TABLE IF NOT EXISTS ah_receipt_products (
   receipt_product_id INTEGER PRIMARY KEY,
   product_id INTEGER,
   title TEXT,
   checked_at TEXT NOT NULL,
-  image TEXT
+  image TEXT,
+  brand TEXT,
+  unit_size TEXT
 );
 
 CREATE TABLE IF NOT EXISTS ah_orders_meta (
@@ -123,6 +127,17 @@ ITEM_COLUMNS = ("product_id", "title", "brand", "unit_size", "quantity", "amount
 # `regular_price` NULL met een `regular_checked_at`: bepaald, maar er was geen gewone prijs bekend. Ook op `jumbo_order_items`.
 REGULAR_COLUMNS: tuple[tuple[str, str], ...] = (("regular_price", "REAL"), ("regular_checked_at", "TEXT"))
 
+# De indexen, na de migraties (de index op `image` heeft die kolom nodig). De deelindexen (`WHERE ...`) houden alleen de rijen die
+# nog werk vragen: wat de teller op het dashboard en de nachtelijke rondes telkens opzoeken, ook als er duizenden bonnen staan.
+INDEXES = """
+CREATE INDEX IF NOT EXISTS ah_orders_unsynced ON ah_orders (order_id) WHERE items_synced = 0;
+CREATE INDEX IF NOT EXISTS ah_order_items_product ON ah_order_items (product_id);
+CREATE INDEX IF NOT EXISTS ah_receipts_unsynced ON ah_receipts (date_time) WHERE details_synced = 0;
+CREATE INDEX IF NOT EXISTS ah_receipt_items_product ON ah_receipt_items (product_id);
+CREATE INDEX IF NOT EXISTS ah_receipt_products_product ON ah_receipt_products (product_id);
+CREATE INDEX IF NOT EXISTS ah_receipt_products_unimaged ON ah_receipt_products (product_id) WHERE image IS NULL;
+"""
+
 
 @asynccontextmanager
 async def _connect() -> AsyncIterator[aiosqlite.Connection]:
@@ -130,11 +145,18 @@ async def _connect() -> AsyncIterator[aiosqlite.Connection]:
     `product_links` (`product_links.ensure`). Sluit zonder commit, zoals `auth.connect`."""
     await auth.ensure_db()
     async with auth.connect() as conn:
-        await conn.executescript(SCHEMA)
-        await _ensure_columns(conn, "ah_receipt_products", (("image", "TEXT"),))
-        for table in ("ah_order_items", "ah_receipt_items"):
-            await _ensure_columns(conn, table, REGULAR_COLUMNS)
+        await auth.ensure_schema(conn, "ah_orders", _setup)
         yield await product_links.ensure(conn)
+
+
+async def _setup(conn: aiosqlite.Connection) -> None:
+    """Het schema en de migraties, een keer per proces (`auth.ensure_schema`)."""
+    await conn.executescript(SCHEMA)
+    await _ensure_columns(conn, "ah_receipt_products", (("image", "TEXT"), ("brand", "TEXT"), ("unit_size", "TEXT")))
+    for table in ("ah_order_items", "ah_receipt_items"):
+        await _ensure_columns(conn, table, REGULAR_COLUMNS)
+    await conn.executescript(INDEXES)
+    await conn.commit()
 
 
 async def _ensure_columns(conn: aiosqlite.Connection, table: str, columns: tuple[tuple[str, str], ...]) -> None:
@@ -528,13 +550,29 @@ SETTING_RECEIPT_PRODUCTS_VERSION = "receipt_products_version"
 _UPSERT_RECEIPT_PRODUCT = """
 INSERT INTO ah_receipt_products (receipt_product_id, product_id, title, checked_at, image) VALUES (?, ?, ?, ?, ?)
 ON CONFLICT(receipt_product_id) DO UPDATE SET product_id = excluded.product_id, title = excluded.title, checked_at = excluded.checked_at,
-  image = excluded.image
-"""
+  image = excluded.image,
+  brand = CASE WHEN product_id IS excluded.product_id THEN brand END,
+  unit_size = CASE WHEN product_id IS excluded.product_id THEN unit_size END
+"""  # het merk en de inhoud horen bij het product: bij een ander product opnieuw opzoeken (`_backfill_images`)
 RECEIPT_IMAGES_BATCH = 25  # zoveel webwinkel-id's per verzoek aan `get_products_by_ids`
 RECEIPT_IMAGES_BATCHES = 20  # en zoveel verzoeken per nachtelijke ronde (500 producten)
 RECEIPT_IMAGES_BATCHES_OPEN = 4  # en zoveel in de ronde op de achtergrond als de bonnenlijst opent (100 producten)
 _BACKFILL_TASK: asyncio.Task[None] | None = None  # de ronde op de achtergrond (`receipt-images`), hooguit een tegelijk
 _IMAGES_MISSING_FROM = "FROM ah_receipt_products WHERE image IS NULL AND product_id IS NOT NULL"
+# Een koppeling waarvan de foto of de inhoud nog niet is opgezocht: het werk van `_backfill_images`. De producten van je eigen
+# bonnen eerst (een zoekopdracht bewaart ook de koppelingen van alle andere resultaten), daarna de laatst gekoppelde.
+_DETAILS_MISSING_WHERE = "product_id IS NOT NULL AND (image IS NULL OR unit_size IS NULL)"
+_DETAILS_TODO_SQL = f"""
+SELECT p.product_id, MAX(p.image IS NULL) AS unimaged FROM ah_receipt_products p
+WHERE p.{_DETAILS_MISSING_WHERE.replace("(image", "(p.image").replace("unit_size", "p.unit_size")}
+GROUP BY p.product_id
+ORDER BY MAX(EXISTS (SELECT 1 FROM ah_receipt_items l WHERE l.product_id = p.receipt_product_id)) DESC, MAX(p.checked_at) DESC
+LIMIT ?
+"""
+_DETAILS_SAVE_SQL = """
+UPDATE ah_receipt_products SET image = COALESCE(image, ?), brand = ?, unit_size = ?, title = COALESCE(NULLIF(title, ''), ?)
+WHERE product_id = ?
+"""
 _MISSING_RECEIPT_PRODUCT = """
 INSERT INTO ah_receipt_products (receipt_product_id, product_id, title, checked_at) VALUES (?, NULL, NULL, ?)
 ON CONFLICT(receipt_product_id) DO UPDATE SET checked_at = excluded.checked_at WHERE product_id IS NULL
@@ -807,14 +845,13 @@ async def backfill_receipt_images(now: str | None = None, batches: int = RECEIPT
 
 
 async def _backfill_images(now: str, batches: int, only: set[int] | None) -> dict[str, Any]:
-    """Het eigenlijke ophalen van de foto's van `backfill_receipt_images`, buiten de pauze."""
+    """Het eigenlijke ophalen van `backfill_receipt_images`, buiten de pauze: de foto, en ook het merk en de inhoud van het
+    product (`_DETAILS_TODO_SQL`). `products` telt de producten die een foto kregen."""
     result: dict[str, Any] = {"products": 0, "requests": 0, "failed": 0}
     async with _connect() as conn:
-        rows = await conn.execute_fetchall(
-            "SELECT DISTINCT product_id FROM ah_receipt_products WHERE image IS NULL AND product_id IS NOT NULL ORDER BY checked_at DESC LIMIT ?",
-            (RECEIPT_IMAGES_BATCH * batches if only is None else -1,),
-        )
+        rows = await conn.execute_fetchall(_DETAILS_TODO_SQL, (RECEIPT_IMAGES_BATCH * batches if only is None else -1,))
     todo = [int(row[0]) for row in rows if only is None or int(row[0]) in only][: RECEIPT_IMAGES_BATCH * batches]
+    unimaged: set[int] = {int(row[0]) for row in rows if row[1]}
     for start in range(0, len(todo), RECEIPT_IMAGES_BATCH):
         ids = todo[start : start + RECEIPT_IMAGES_BATCH]
         try:
@@ -832,21 +869,23 @@ async def _backfill_images(now: str, batches: int, only: set[int] | None) -> dic
             result["failed"] += 1
             return result
         result["requests"] += 1
-        images = {int(product["id"]): str(product.get("image") or "") for product in products if product.get("id") is not None}
+        known: dict[int, dict[str, Any]] = {int(product["id"]): product for product in products if product.get("id") is not None}
+        images = {product_id: str(product.get("image") or "") for product_id, product in known.items()}
         async with _connect() as conn:
             for product_id in ids:
+                product: dict[str, Any] = known.get(product_id, {})  # AH kent het product niet meer: "" en niet opnieuw vragen
                 await conn.execute(
-                    "UPDATE ah_receipt_products SET image = ?, title = COALESCE(NULLIF(title, ''), ?) WHERE product_id = ? AND image IS NULL",
-                    (images.get(product_id, ""), next((p.get("title") for p in products if p.get("id") == product_id), None), product_id),
+                    _DETAILS_SAVE_SQL,
+                    (images.get(product_id, ""), str(product.get("brand") or ""), str(product.get("unitSize") or ""), product.get("title"), product_id),
                 )
             await conn.commit()
-        result["products"] += sum(1 for product_id in ids if images.get(product_id))  # met een foto
+        result["products"] += sum(1 for product_id in ids if product_id in unimaged and images.get(product_id))  # met een nieuwe foto
     return result
 
 
 async def _receipt_images_missing() -> bool:
     async with _connect() as conn:
-        return await auth.fetchone(conn, f"SELECT 1 {_IMAGES_MISSING_FROM} LIMIT 1") is not None
+        return await auth.fetchone(conn, f"SELECT 1 FROM ah_receipt_products WHERE {_DETAILS_MISSING_WHERE} LIMIT 1") is not None
 
 
 def _backfill_running() -> bool:
@@ -1207,7 +1246,7 @@ async def _enrich_receipt(conn: aiosqlite.Connection, row: Any, lines: list[dict
 
 _RECEIPT_IMAGES_MISSING_SQL = """
 SELECT DISTINCT p.product_id FROM ah_receipt_items l JOIN ah_receipt_products p ON p.receipt_product_id = l.product_id
-WHERE l.receipt_id = ? AND p.image IS NULL AND p.product_id IS NOT NULL
+WHERE l.receipt_id = ? AND (p.image IS NULL OR p.unit_size IS NULL) AND p.product_id IS NOT NULL
 """
 
 

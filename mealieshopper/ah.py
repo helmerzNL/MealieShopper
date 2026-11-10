@@ -494,6 +494,19 @@ async def _store_rotated_refresh_token(used: str, new: Any) -> None:
         await save_refresh_token(new_token)
 
 
+async def unlink() -> dict[str, Any]:
+    """Ontkoppel het AH-account (4.13.0): het bewaarde refresh-token en het token in het geheugen zijn weg.
+
+    Tot 4.13.0 kon dat bij Albert Heijn niet, bij de andere winkels wel. Staat het token ook in de omgevingsvariabele
+    `AH_REFRESH_TOKEN` (de startwaarde, zie `configured_refresh_token`), dan blijft de app daarmee gekoppeld: dat zegt het
+    antwoord (`fromEnvironment`), zodat de beheerder weet dat hij die variabele moet weghalen."""
+    global user_token_cache
+    await auth.delete_secret("AH_REFRESH_TOKEN")
+    user_token_cache = None
+    from_environment = bool(environ.get("AH_REFRESH_TOKEN", "").strip())
+    return {"connected": from_environment, "fromEnvironment": from_environment}
+
+
 async def save_refresh_token(refresh_token: str) -> None:
     token = str(refresh_token or "").strip()
     if not token:

@@ -20,7 +20,7 @@ import aiosqlite
 
 from quart import Quart, Response, jsonify, request
 
-from . import auth
+from . import auth, request_body
 from .i18n import tr
 
 MAX_NAME_LENGTH = 40
@@ -78,17 +78,22 @@ _ADDED_COLUMNS = {
 async def _connect() -> AsyncIterator[aiosqlite.Connection]:
     """Een verbinding met het schema en de kolommen die later kwamen. Sluit zonder commit, zoals `auth.connect`."""
     async with auth.connect() as conn:
-        await conn.executescript(SCHEMA)
-        columns = {row["name"] for row in await conn.execute_fetchall("PRAGMA table_info(user_profiles)")}
-        for name, definition in _ADDED_COLUMNS.items():
-            if name not in columns:
-                try:
-                    await conn.execute(f"ALTER TABLE user_profiles ADD COLUMN {name} {definition}")
-                except aiosqlite.OperationalError as exc:  # een andere verbinding was ons net voor
-                    if "duplicate column" not in str(exc):
-                        raise
-        await conn.commit()
+        await auth.ensure_schema(conn, "profile", _setup)
         yield conn
+
+
+async def _setup(conn: aiosqlite.Connection) -> None:
+    """Het schema en de kolommen die later kwamen, een keer per proces (`auth.ensure_schema`)."""
+    await conn.executescript(SCHEMA)
+    columns: set[str] = {row["name"] for row in await conn.execute_fetchall("PRAGMA table_info(user_profiles)")}
+    for name, definition in _ADDED_COLUMNS.items():
+        if name not in columns:
+            try:
+                await conn.execute(f"ALTER TABLE user_profiles ADD COLUMN {name} {definition}")
+            except aiosqlite.OperationalError as exc:  # een andere verbinding was ons net voor
+                if "duplicate column" not in str(exc):
+                    raise
+    await conn.commit()
 
 
 def clean_name(value: Any) -> str:
@@ -366,7 +371,7 @@ def register_routes(app: Quart) -> None:
 
     @app.put("/api/profile")
     async def profile_put():
-        body = await request.get_json(silent=True) or {}
+        body = await request_body.json_object()
         user_id = await auth.acting_user_id()
         await set_display_name(user_id, body.get("displayName"))
         return jsonify(await payload(user_id))
@@ -413,7 +418,7 @@ def register_routes(app: Quart) -> None:
     async def profile_avatar_get(user_id: str):
         found = await avatar(user_id)
         if not found:
-            return jsonify({"error": "Not found"}), 404
+            return jsonify({"error": tr("Niet gevonden.", "Not found.")}), 404
         data, content_type = found
         return Response(
             data,
