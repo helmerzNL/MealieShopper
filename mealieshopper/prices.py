@@ -699,7 +699,19 @@ async def bought_ids(store: str, today: str | None = None) -> set[str]:
     """De product-id's van een winkel die je minstens één keer kocht (uit je bestellingen en kassabonnen)."""
     today = today or _now()[:10]
     async with _connect() as conn:
-        return await _bought(conn, store, today, (await _catalogue(conn, store, today)).receipts)
+        catalogue = await _catalogue(conn, store, today)
+        return _with_twins(await _bought(conn, store, today, catalogue.receipts), catalogue.twins)
+
+
+def _with_twins(ids: set[str], twins: dict[str, tuple[str, ...]]) -> set[str]:
+    """De nummers en de andere nummers van dezelfde producten: wat je onder het ene nummer kocht, kocht je ook van het andere."""
+    return ids | {twin for product_id in ids for twin in twins.get(product_id, ())}
+
+
+def _twin_rows(found: dict[str, list[Any]], product_id: str, twins: dict[str, tuple[str, ...]], order: Callable[[Any], Any]) -> list[Any]:
+    """De rijen van een product en van zijn andere nummers samen, op `order`."""
+    rows = [row for twin in twins.get(product_id, (product_id,)) for row in found.get(twin, [])]
+    return sorted(rows, key=order) if product_id in twins else rows
 
 
 async def _saved_images(conn: aiosqlite.Connection, store: str, ids: list[str]) -> dict[str, list[dict[str, Any]]]:
@@ -791,6 +803,25 @@ class _Known(NamedTuple):
     sizes: frozenset[tuple[float, str]]
     brand: str = ""
     category: str = ""
+    same: str = ""  # naam, merk en verpakking samen: twee productnummers met dezelfde waarde zijn hetzelfde product (`_twins`)
+
+
+def _same_key(product_id: str, entry: dict[str, Any]) -> str:
+    """Waaraan je ziet dat twee productnummers hetzelfde product zijn: dezelfde naam, hetzelfde merk en dezelfde verpakking. Leeg
+    zonder naam of verpakking, en voor een folderproduct of een ingelezen aankoop: die hebben geen eigen nummer van de winkel."""
+    if ":" in product_id or not entry["title"] or not entry["sizes"]:
+        return ""
+    return f"{_fold_name(entry['title'])}|{_fold_name(entry['brand'])}|{sorted(entry['sizes'])}"
+
+
+def _twins(products: dict[str, _Known]) -> dict[str, tuple[str, ...]]:
+    """Per productnummer de nummers van hetzelfde product (zichzelf erbij), alleen voor producten met meer dan een nummer. AH
+    voert "AH Les pains triomphe heel" onder 230786 (de kassabon) en 446408 (de webwinkel en de bonus)."""
+    groups: dict[str, list[str]] = {}
+    for product_id, known in products.items():
+        if known.same:
+            groups.setdefault(known.same, []).append(product_id)
+    return {product_id: tuple(sorted(group)) for group in groups.values() if len(group) > 1 for product_id in group}
 
 
 async def _known_products(conn: aiosqlite.Connection, store: str, today: str, receipts: list[dict[str, Any]]) -> dict[str, _Known]:
@@ -834,6 +865,7 @@ async def _known_products(conn: aiosqlite.Connection, store: str, today: str, re
         product_id: _Known(
             entry["last"], frozenset(entry["names"]), frozenset(entry["sizes"]), entry["brand"],
             stored.get(product_id) or (offer_categories.offer_category(store, entry["title"]) if entry["title"] else ""),
+            _same_key(product_id, entry),
         )
         for product_id, entry in found.items()
     }
@@ -867,6 +899,7 @@ class _Catalogue(NamedTuple):
     receipts: list[dict[str, Any]]  # `_receipt_rows`: niet aanpassen, de volgende aanvraag krijgt dezelfde lijst
     products: dict[str, _Known]  # `_known_products`
     lines: line_offers.LineIndex  # `_line_index`: de folderproducten, om lijnacties bij een product te vinden
+    twins: dict[str, tuple[str, ...]]  # `_twins`: de andere nummers van hetzelfde product
 
 
 _FOLDER_PRODUCTS_SQL = "SELECT DISTINCT product_id, title FROM offer_history WHERE store = ? AND product_id LIKE 'folder:%' ORDER BY product_id"
@@ -915,7 +948,8 @@ async def _catalogue(conn: aiosqlite.Connection, store: str, today: str) -> _Cat
     if found is not None and found[0] == version and found[1] == today:
         return found[2]
     receipts = await _receipt_rows(conn, store, today)
-    catalogue = _Catalogue(receipts, await _known_products(conn, store, today, receipts), await _line_index(conn, store))
+    products = await _known_products(conn, store, today, receipts)
+    catalogue = _Catalogue(receipts, products, await _line_index(conn, store), _twins(products))
     _CATALOGUES[key] = (version, today, catalogue)
     return catalogue
 
@@ -1155,7 +1189,7 @@ async def _line_offers(
         known = catalogue.products.get(product_id) or (fallback or {}).get(product_id)
         if known is None or product_id.startswith("folder:"):
             continue
-        found = catalogue.lines.lines_for(known.names, known.sizes)
+        found = catalogue.lines.lines_for(known.names, known.sizes, line_offers.category_words(known.category))
         if found:
             wanted[product_id] = found
     if not wanted:
@@ -1273,12 +1307,18 @@ async def history(store: Any = None, query: Any = "", limit: Any = 50, today: st
         candidates: dict[tuple[str, str], str] = {}
         pinned_known: dict[str, dict[str, Any]] = {}  # winkel -> wat `_pinned` van het product uit de link weet
         for name in stores:
-            keep = await _bought(conn, name, today, receipts[name]) if bought else None
-            for product_id, day in _candidates(catalogues[name].products, wanted, always=pinned).items():
-                if only is not None and product_id != only:
+            twins = catalogues[name].twins
+            keep = _with_twins(await _bought(conn, name, today, receipts[name]), twins) if bought else None
+            found_here = _candidates(catalogues[name].products, wanted, always=pinned)
+            for product_id, day in found_here.items():
+                # Twee nummers voor hetzelfde product: een rij, onder het gevraagde nummer of anders het nummer met de nieuwste gegevens.
+                group = twins.get(product_id, (product_id,))
+                asked = next((twin for twin in group if twin in (only, pinned)), None)
+                lead = asked or max(group, key=lambda twin: (catalogues[name].products[twin].last, twin))
+                if only is not None and lead != only:
                     continue
-                if keep is None or product_id in keep or product_id == pinned:
-                    candidates[(name, product_id)] = day
+                if keep is None or lead in keep or lead == pinned:
+                    candidates[(name, lead)] = max(day, candidates.get((name, lead), ""))
             # Het product uit de link staat nergens in de prijsgeschiedenis (alleen in een open bestelling, of in een
             # aanbieding die net begon): dan toch het product zelf, met wat de app ervan weet. Alleen met een winkel: een id
             # hoort bij een winkel.
@@ -1303,7 +1343,7 @@ async def history(store: Any = None, query: Any = "", limit: Any = 50, today: st
         chosen = ranked[:limit]
         found: dict[str, tuple[dict[str, list[Any]], dict[str, list[Any]], dict[str, list[dict[str, Any]]]]] = {}
         for name in stores:
-            ids = [product_id for store_name, product_id in chosen if store_name == name]
+            ids = sorted(_with_twins({product_id for store_name, product_id in chosen if store_name == name}, catalogues[name].twins))
             found[name] = (
                 (await _observations(conn, name, ids), await _purchases(conn, name, ids, today, receipts[name]), await _saved_images(conn, name, ids))
                 if ids else ({}, {}, {})
@@ -1312,7 +1352,9 @@ async def history(store: Any = None, query: Any = "", limit: Any = 50, today: st
     offered = {name: await offers.history_of(name, [pid for s, pid in chosen if s == name]) for name in stores}
     lines = {name: await _line_offers(name, catalogues[name], [pid for s, pid in chosen if s == name]) for name in stores}
     products = [
-        _product(name, product_id, offered[name].get(product_id), found[name][0].get(product_id, []), found[name][1].get(product_id, []), today,
+        _product(name, product_id, offered[name].get(product_id),
+                 _twin_rows(found[name][0], product_id, catalogues[name].twins, lambda row: row["day"]),
+                 _twin_rows(found[name][1], product_id, catalogues[name].twins, lambda row: (row["day"] or "", row["source"], str(row["ref"]))), today,
                  found[name][2].get(product_id, []), upcoming[name].get(product_id), pinned_known.get(name) if product_id == pinned else None,
                  lines[name].get(product_id, []))
         for name, product_id in chosen
@@ -1693,7 +1735,7 @@ async def _annotate(store: str, items: list[dict[str, Any]], today: str) -> None
         try:
             catalogue = await _catalogue(conn, store, today)
             points = await _history_points(conn, store, today, catalogue.receipts, ids)
-            bought_ids = await _bought(conn, store, today, catalogue.receipts)  # voor het filter Eerder gekocht
+            bought_ids = _with_twins(await _bought(conn, store, today, catalogue.receipts), catalogue.twins)  # voor het filter Eerder gekocht
         except Exception:  # noqa: BLE001 - de ladder is een extraatje: zonder blijven het oordeel en de badge staan
             log.exception("Prijslabels: de geschiedenis van %s kon niet worden gelezen", store)
             catalogue, points, bought_ids = None, {}, set()

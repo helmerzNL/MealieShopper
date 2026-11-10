@@ -29,7 +29,7 @@ import test_offers_scan_js  # idem: de Node-opbouw van offers.js
 import test_order_views  # idem: de Node-opbouw van order_views.js en de gedeelde keuzelijst
 from test_prices import PricesCase, offer
 
-from mealieshopper import ah, ah_orders, assets, auth, deals, image_cache, offer_categories, offers, offers_schedule, price_archive_tidy, price_import, prices
+from mealieshopper import ah, ah_orders, assets, auth, deals, image_cache, line_offers, offer_categories, offers, offers_schedule, price_archive_tidy, price_import, prices
 from mealieshopper.app import create_app
 
 ROOT: Path = Path(__file__).resolve().parents[1]
@@ -999,6 +999,56 @@ class FiltersEverywhereCoursesTest(test_offers.TempDataDirTest):
         self.assertEqual((data["total"], len(data["courses"])), (2, 3), "de aantallen per soort blijven die van alle voorstellen")
         with self.assertRaises(ValueError):
             run(offers.suggest("ah", courses=["pannenkoek"]))
+
+
+class TwoNumbersOneProductTest(PricesCase):
+    """2026-11-10: "dit kan niet kloppen: ik koop die soort brood regelmatig dus er zouden meer bestellingen moeten zijn. en het is
+    met regelmaat in de aanbieding" (AH Les pains triomphe heel, 1 keer gekocht in de popup).
+
+    AH voert het brood onder twee nummers: 230786 (waar de kassabon "LP TRIOMPHE" naar wijst) en 446408 (de webwinkel en de bonus).
+    Zelfde naam, merk en verpakking: een product. En de folder noemt de lijn "Alle AH Bakkersbrood Les Pains heel", met een woord
+    dat niet in de productnaam staat maar wel de categorie noemt.
+    """
+
+    NAME: str = "AH Les pains triomphe heel"
+
+    async def asyncSetUp(self) -> None:
+        for number, back in enumerate((40, 30, 20)):
+            self.ah_receipt(f"R{number}", f"{days(-back)}T12:00:00", (794881, "LP TRIOMPHE", 1, 2.39, 2.39))
+        with closing(db(ah_orders)) as conn, conn:
+            conn.execute(
+                "INSERT INTO ah_receipt_products (receipt_product_id, product_id, title, checked_at, brand, unit_size) "
+                "VALUES (794881, 230786, ?, 'x', 'AH', 'per stuk')", (self.NAME,)
+            )
+        await self.ah_order(101, "delivered", days(-10), order_item(446408, self.NAME, 2.39, "per stuk"))
+
+    async def test_2026_11_10_purchases_under_the_other_number_count_for_the_product(self) -> None:
+        found: dict = await prices.history("ah", "triomphe", 50, today=TODAY)
+        self.assertEqual([product["productId"] for product in found["products"]], ["446408"], "een rij, onder het nummer met de nieuwste gegevens")
+        self.assertEqual((found["total"], found["products"][0]["timesBought"]), (1, 4))
+        self.assertEqual([purchase["date"] for purchase in found["products"][0]["purchases"]], [days(-40), days(-30), days(-20), days(-10)])
+        for asked in ("446408", "230786"):  # de popup en een link vragen een nummer: dat nummer krijgen ze, met alle aankopen
+            product: dict = (await prices.history("ah", "", 5, today=TODAY, product=asked))["products"][0]
+            self.assertEqual((product["productId"], product["timesBought"]), (asked, 4))
+        self.assertEqual(await prices.bought_ids("ah", TODAY) & {"446408", "230786"}, {"446408", "230786"})
+
+    async def test_2026_11_10_another_pack_with_the_same_name_stays_its_own_product(self) -> None:
+        await self.ah_order(102, "delivered", days(-5), order_item(999, self.NAME, 1.29, "400 g"))
+        found: dict = await prices.history("ah", "triomphe", 50, today=TODAY)
+        self.assertEqual(sorted(product["productId"] for product in found["products"]), ["446408", "999"])
+
+    def test_2026_11_10_a_leaflet_word_naming_the_category_may_be_missing_from_the_name(self) -> None:
+        index = line_offers.LineIndex([
+            ("folder:1", "Folder: Alle AH Bakkersbrood Les Pains heel"), ("folder:2", "Folder: Alle AH Bakkersbrood"),
+            ("folder:3", "Folder: AH Les Pains heel"), ("folder:4", "Folder: AH Bakkersbrood Les Pains half"),
+            ("folder:5", "Folder: Alle AH Bakkersbrood tijgerbrood heel"), ("folder:6", "Folder: AH Tijgerbrood heel"),
+        ])
+        bread: frozenset[str] = line_offers.category_words("brood_bakkerij")
+        self.assertEqual(bread, {"brood", "bakkerij"})
+        self.assertEqual(index.lines_for(["ah les pains triomphe heel ah"], (), bread), ["folder:1", "folder:3"])
+        self.assertEqual(index.lines_for(["ah les pains triomphe heel ah"]), ["folder:3"], "zonder categorie blijft de regel streng")
+        self.assertEqual(index.lines_for(["ah les pains triomphe heel ah"], (), line_offers.category_words("kaas_vleeswaren")), ["folder:3"])
+        self.assertEqual(line_offers.category_words("vis"), frozenset(), "een kort woord zegt te weinig")
 
 
 class OfferPerWeightTest(PricesCase):
