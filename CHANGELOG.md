@@ -6,7 +6,7 @@ Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar
 
 ### Nieuw in 4.14.0
 
-Pull request: PRNUM. Issue: [#309](https://github.com/helmerzNL/MealieShopper/issues/309).
+Pull request: [#310](https://github.com/helmerzNL/MealieShopper/pull/310). Issue: [#309](https://github.com/helmerzNL/MealieShopper/issues/309).
 
 *English summary: Cooking mode gets the ingredients of each step and timers. **Ingredients for a step**: under each step are the ingredients that belong to it, with their amount (in cooking mode with ticks, in step with the full list). For a recipe from Mealie they come from Mealie's own links between steps and ingredients (`ingredientReferences`); without links, and for store recipes, the app finds them in the text of the step ("chop the onion" finds "1 red onion, chopped"), marked as found automatically. For a recipe from Mealie, **Link** in cooking mode lets you tick the ingredients of a step and saves them straight to Mealie. **Timers**: a step that mentions a time ("10-12 minutes", "1 hour and 15 minutes", "een kwartier") gets a button with that time, and **Timer** sets your own; up to eight run at once, float at the bottom right above Previous and Next, survive another step, closing cooking mode and a reload, and can be paused, stopped and folded away. At 0 the app beeps (Web Audio, no sound file), a phone vibrates and, when the app is not in view, a system notification appears (through a small service worker that only shows notifications). **Fixed**: one ingredient with a long word (a link, a long compound) made the cooking view wider than the window, so half of the ingredient list fell off a phone screen, also in the week menu's recipe window.*
 
