@@ -34,7 +34,7 @@ PRELUDE = "\n".join(
     + [function_source(name) for name in ("viewState", "viewStatusId", "viewBarMarkup", "viewSortMenu", "viewOptionsMenu")]
     + [const_source(name) for name in ("MDI_VIEW_TABLE", "MDI_VIEW_CARDS", "MDI_VIEW_LIST", "MDI_CHEVRON_DOWN")]
     + [const_source(name) for name in ("PURCHASE_VIEWS", "PURCHASE_SORT_KEYS", "PURCHASE_SIZES", "PURCHASE_OPTIONS", "purchaseView")]
-    + [function_source(name) for name in ("purchaseViewLoad", "purchaseSortRows")]
+    + [function_source(name) for name in ("purchaseViewDefault", "purchaseViewLoad", "purchaseSortRows")]
     + [function_source(name, APP_JS) for name in ("badge", "mdiIcon")]
     + ["const escapeHtml = (v) => String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\"/g, '&quot;');"]
 )

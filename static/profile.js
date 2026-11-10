@@ -128,6 +128,8 @@ $("#user-menu-list").addEventListener("click", (event) => {
   if (item.dataset.userAction === "about") showPanel("about");
   if (item.dataset.userAction === "theme") THEME.choose(THEME.current() === "dark" ? "light" : "dark");
   if (item.dataset.userAction === "lang") I18N.setLang(I18N.lang() === "nl" ? "en" : "nl");
+  // Alleen in de geïnstalleerde app: daar is geen knop Vernieuwen van de browser, en omlaag slepen ververst er niet (styles.css).
+  if (item.dataset.userAction === "reload") window.location.reload();
 });
 
 // ---- De profielpagina

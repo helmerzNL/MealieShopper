@@ -18,7 +18,7 @@ onthoudt, (2) terugkoppeling bij wachten, fouten en een verlopen sessie, en (3) 
 | 1 | Vastlopers en fouten | 1.1, 1.10, 1.11, 2.1, 2.2, 2.6, 2.8, 2.9, 2.13, 2.14, 3.1, 3.3, 6.1, 6.3, 6.10, *Annuleren* met een vraag (uit 1.4) en het begin van 2.3 (meldingen worden voorgelezen) | gebouwd in 4.10.4 |
 | 2 | De app onthoudt je week | 1.2 tot en met 1.9 | gebouwd in 4.11.0 |
 | 3 | Terugkoppeling en bediening in één stijl | 2.3, 2.4, 2.5, 2.7, 2.10 tot 2.12, 2.15, 2.17, 2.18, 6.2, 6.4, 6.6 tot 6.9, 6.14 | gebouwd in 4.12.0 (zonder stoppen van de AI-zoekronde uit 2.12 en zonder € 0 uit 6.14) |
-| 4 | Wegwijs | 2.16, 3.2, 3.5 tot 3.8, 4.1 tot 4.4, 5.1 tot 5.3, 6.5, 6.11 tot 6.13 | voorstel |
+| 4 | Wegwijs | 2.16, 3.2, 3.5 tot 3.8, 4.1 tot 4.4, 5.1 tot 5.3, 6.5, 6.11 tot 6.13 | gebouwd in 4.13.0 (zonder de naam van de tab Recepten uit 3.5, zonder service worker uit 6.13 en zonder zoomen in de app uit 6.5; zie hieronder) |
 
 Besluiten van de eigenaar (9 november 2026):
 
@@ -143,3 +143,16 @@ Ronde 3 maakt de terugkoppeling en bediening gelijk: een toast en een eigen beve
 wachtwoordregels, en de teksten uit 2.18. Ronde 4 gaat over wegwijs worden: de installatiehulp met *welke winkels gebruik je?*
 en Crisp, de volgorde van Koppelen, *Liever biologisch* bij Voorkeuren, terug naar je plek in een lijst, de week in het adres,
 één winkelkeuze, een aanbieding direct in je mandje, en een ontkoppelknop voor Albert Heijn.
+
+### Wat ronde 4 bewust niet deed
+
+- **3.5, de naam van de tab Recepten.** Een andere naam in het hoofdmenu raakt de huisstijl, alle schermafbeeldingen en
+  `tests/test_tabbar.py`. Dat is een keuze van de eigenaar, geen reparatie.
+- **6.13, een service worker.** `docs/huisstijl.md` zegt dat er bewust geen offlinefunctie is; een service worker brengt een
+  eigen cache mee, naast de versiecontrole die er al is. Wel gedaan uit 6.13: de snelkoppelingen in het manifest.
+- **6.5, zoomen in de geïnstalleerde app.** Blijft uit, zoals de huisstijl beschrijft. Wel gedaan uit 6.5: *Vernieuwen* in
+  het menu *Meer*, nu omlaag slepen in de app niet ververst.
+
+Uit ronde 3 staan nog open: de AI-zoekronde stoppen (2.12, vraagt een route op de server) en `formatPrice` bij € 0 (6.14).
+Albert Heijn ontkoppelen (2.16) en een aanbieding in het mandje (5.1) zijn getest met nagebootste antwoorden, niet tegen de
+echte routes van de winkels.

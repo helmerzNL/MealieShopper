@@ -28,9 +28,13 @@ const UNLINKED = {
 };
 
 // Een stap van de installatiehulp: ga ernaartoe met de eigen functie van de pagina.
+// Sinds 4.13.0 krijgt alleen een gekozen winkel een stap: een winkelstap kiest hier eerst de drie winkels met een eigen stap.
 const step = (id, sub = "choose") => async (page) => {
   await page.waitForSelector("#onboarding:not([hidden])");
-  await page.evaluate(([s, u]) => obGo(s, u), [id, sub]);
+  await page.evaluate(([s, u]) => {
+    if (["ah", "jumbo", "picnic"].includes(s)) obSaveStores(["ah", "jumbo", "picnic"]);
+    obGo(s, u);
+  }, [id, sub]);
   await page.waitForTimeout(500);
 };
 
@@ -137,7 +141,18 @@ module.exports = [
     },
   },
 
-  // Stap 3: Albert Heijn, met de uitleg, de inlogknop en de geplakte regel uit de console.
+  // Stap 3 (sinds 4.13.0): welke winkels gebruik je? Albert Heijn en Picnic aangevinkt; alleen die krijgen een stap.
+  {
+    name: "ob-stores",
+    routes: { "/api/onboarding/status*": onboarding(), "/api/onboarding/start": { needed: true }, ...UNLINKED },
+    run: async (page) => {
+      await step("stores")(page);
+      for (const store of ["ah", "picnic"]) await page.locator(`#ob-stores input[value="${store}"]`).check({ force: true });
+      await page.waitForTimeout(300);
+    },
+  },
+
+  // Albert Heijn, met de uitleg, de inlogknop en de geplakte regel uit de console.
   {
     name: "ob-ah",
     routes: { "/api/onboarding/status*": onboarding(), "/api/onboarding/start": { needed: true }, ...UNLINKED },
@@ -148,7 +163,7 @@ module.exports = [
     },
   },
 
-  // Stap 4: Jumbo, hetzelfde als bij Albert Heijn.
+  // Jumbo, hetzelfde als bij Albert Heijn.
   {
     name: "ob-jumbo",
     routes: { "/api/onboarding/status*": onboarding(), "/api/onboarding/start": { needed: true }, ...UNLINKED },
@@ -159,7 +174,7 @@ module.exports = [
     },
   },
 
-  // Stap 5: Picnic, met het veld voor de bevestigingscode erbij.
+  // Picnic, met het veld voor de bevestigingscode erbij.
   {
     name: "ob-picnic",
     routes: {

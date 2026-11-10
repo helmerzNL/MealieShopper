@@ -1,9 +1,47 @@
 // Installatiehulp voor de eerste start, en het beheer van wachtwoord en tweestapsverificatie (MFA).
 // Wordt na app.js geladen en gebruikt de hulpfuncties daarvan ($, message, jsonFetch, escapeHtml, state).
 
-const OB_STEPS = [{ id: "auth" }, { id: "mealie" }, { id: "ah" }, { id: "jumbo" }, { id: "picnic" }, { id: "done" }];
+// De stappen. Sinds 4.13.0 kies je na Mealie welke winkels je gebruikt (de stap "stores"); alleen die winkels krijgen een
+// stap. Daarvoor liep de hulp altijd langs Albert Heijn, Jumbo en Picnic, die je een voor een oversloeg, en kwam Crisp niet voor.
+// Crisp heeft geen eigen stap: het koppelen staat onder Instellingen, Koppelen, en de laatste stap brengt je erheen.
+const OB_STORE_STEPS = ["ah", "jumbo", "picnic"];
+const OB_STORE_CHOICES = ["ah", "jumbo", "picnic", "crisp"];
+const OB_STORES_KEY = "ms-ob-stores";
 
-const ob = { step: null, sub: "choose", rendered: "", started: false, mfaBusy: false };
+const ob = { step: null, sub: "choose", rendered: "", started: false, mfaBusy: false, stores: obStoredStores() };
+
+// De gekozen winkels, bewaard voor dit tabblad zodat herladen ze houdt. null: nog niet gekozen.
+function obStoredStores() {
+  try {
+    const saved = JSON.parse(window.sessionStorage.getItem(OB_STORES_KEY) || "null");
+    return Array.isArray(saved) ? saved.filter((store) => OB_STORE_CHOICES.includes(store)) : null;
+  } catch {
+    return null;
+  }
+}
+
+function obSaveStores(stores) {
+  ob.stores = stores;
+  try {
+    window.sessionStorage.setItem(OB_STORES_KEY, JSON.stringify(stores));
+  } catch {
+    // Zonder opslag geldt de keuze tot je de pagina herlaadt.
+  }
+}
+
+// De stappen van deze installatie: beveiliging, Mealie, de winkelkeuze, een stap per gekozen winkel en Klaar. Zolang er niet
+// gekozen is (`stores` null) staan er nog geen winkelstappen in.
+function obSteps(stores = ob.stores) {
+  const chosen = OB_STORE_STEPS.filter((store) => (stores || []).includes(store));
+  return ["auth", "mealie", "stores", ...chosen, "done"].map((id) => ({ id }));
+}
+
+// De stap voor of na deze (`offset` -1 of 1), binnen de stappen van deze installatie.
+function obNeighbour(step, offset, stores = ob.stores) {
+  const steps = obSteps(stores).map((item) => item.id);
+  const at = steps.indexOf(step);
+  return steps[Math.min(steps.length - 1, Math.max(0, (at < 0 ? 0 : at) + offset))];
+}
 
 function postJson(url, body = {}) {
   return jsonFetch(url, {
@@ -32,7 +70,7 @@ function onboardingVisible() {
 }
 
 function stepIndex(id) {
-  return OB_STEPS.findIndex((step) => step.id === id);
+  return obSteps().findIndex((step) => step.id === id);
 }
 
 function renderOnboarding() {
@@ -69,7 +107,7 @@ function obGo(step, sub = "choose") {
 
 function obProgressHtml() {
   const current = stepIndex(ob.step);
-  return OB_STEPS.map((step, index) => {
+  return obSteps().map((step, index) => {
     const state_ = index < current ? "is-done" : index === current ? "is-current" : "";
     return `<li class="${state_}"${index === current ? ' aria-current="step"' : ""}><span class="ob-progress__dot" aria-hidden="true">${
       index < current ? "&#10003;" : index + 1
@@ -81,12 +119,14 @@ function renderObStep(force = false) {
   const key = `${ob.step}/${ob.sub}`;
   if (!force && ob.rendered === key) return;
   ob.rendered = key;
+  // Een winkelstap die niet (meer) gekozen is, bijvoorbeeld na herladen zonder opslag: terug naar de winkelkeuze.
+  if (stepIndex(ob.step) < 0) ob.step = "stores";
   const index = stepIndex(ob.step);
-  $("#ob-eyebrow").textContent = t("ob.step_of", { n: index + 1, total: OB_STEPS.length });
-  $("#ob-title").textContent = t(`ob.title.${OB_STEPS[index].id}`);
+  $("#ob-eyebrow").textContent = t("ob.step_of", { n: index + 1, total: obSteps().length });
+  $("#ob-title").textContent = t(`ob.title.${ob.step}`);
   $("#ob-progress").innerHTML = obProgressHtml();
   const body = $("#ob-body");
-  const renderers = { auth: renderObAuth, mealie: renderObMealie, ah: renderObAh, jumbo: renderObJumbo, picnic: renderObPicnic, done: renderObDone };
+  const renderers = { auth: renderObAuth, mealie: renderObMealie, stores: renderObStores, ah: renderObAh, jumbo: renderObJumbo, picnic: renderObPicnic, done: renderObDone };
   renderers[ob.step](body);
   $("#onboarding").scrollTo?.({ top: 0 });
   $("#ob-title").focus({ preventScroll: true });
@@ -241,8 +281,8 @@ function renderObMealie(body) {
       <p class="muted">${th("ob.mealie.note")}</p>
     </div>
     <div class="ob-actions">
-      <button class="button button--secondary" type="button" id="ob-mealie-skip" data-ob-action="go-ah">${escapeHtml(t("ob.skip"))}</button>
-      <button class="button" type="button" id="ob-mealie-next" data-ob-action="go-ah" hidden>${escapeHtml(t("ob.mealie.next_ah"))}</button>
+      <button class="button button--secondary" type="button" id="ob-mealie-skip" data-ob-action="next">${escapeHtml(t("ob.skip"))}</button>
+      <button class="button" type="button" id="ob-mealie-next" data-ob-action="next" hidden>${escapeHtml(t("ob.next"))}</button>
     </div>`;
   loadObIntegrationStatus("mealie");
 }
@@ -269,9 +309,9 @@ function renderObAh(body) {
       <p class="muted">${escapeHtml(t("ob.ah.skip_note"))}</p>
     </div>
     <div class="ob-actions">
-      ${obBackButton("go-mealie")}
-      <button class="button button--secondary" type="button" id="ob-ah-skip" data-ob-action="go-jumbo">${escapeHtml(t("ob.skip"))}</button>
-      <button class="button" type="button" id="ob-ah-next" data-ob-action="go-jumbo" hidden>${escapeHtml(t("ob.ah.next_jumbo"))}</button>
+      ${obBackButton("back")}
+      <button class="button button--secondary" type="button" id="ob-ah-skip" data-ob-action="next">${escapeHtml(t("ob.skip"))}</button>
+      <button class="button" type="button" id="ob-ah-next" data-ob-action="next" hidden>${escapeHtml(t("ob.next"))}</button>
     </div>`;
   loadObIntegrationStatus("ah");
 }
@@ -298,9 +338,9 @@ function renderObJumbo(body) {
       <p class="muted">${escapeHtml(t("ob.jumbo.skip_note"))}</p>
     </div>
     <div class="ob-actions">
-      ${obBackButton("go-ah")}
-      <button class="button button--secondary" type="button" id="ob-jumbo-skip" data-ob-action="go-picnic">${escapeHtml(t("ob.skip"))}</button>
-      <button class="button" type="button" id="ob-jumbo-next" data-ob-action="go-picnic" hidden>${escapeHtml(t("ob.jumbo.next_picnic"))}</button>
+      ${obBackButton("back")}
+      <button class="button button--secondary" type="button" id="ob-jumbo-skip" data-ob-action="next">${escapeHtml(t("ob.skip"))}</button>
+      <button class="button" type="button" id="ob-jumbo-next" data-ob-action="next" hidden>${escapeHtml(t("ob.next"))}</button>
     </div>`;
   loadObIntegrationStatus("jumbo");
 }
@@ -331,9 +371,9 @@ function renderObPicnic(body) {
       <p class="muted">${th("ob.picnic.note")}</p>
     </div>
     <div class="ob-actions">
-      ${obBackButton("go-jumbo")}
-      <button class="button button--secondary" type="button" id="ob-picnic-skip" data-ob-action="go-done">${escapeHtml(t("ob.skip"))}</button>
-      <button class="button" type="button" id="ob-picnic-next" data-ob-action="go-done" hidden>${escapeHtml(t("ob.picnic.next_done"))}</button>
+      ${obBackButton("back")}
+      <button class="button button--secondary" type="button" id="ob-picnic-skip" data-ob-action="next">${escapeHtml(t("ob.skip"))}</button>
+      <button class="button" type="button" id="ob-picnic-next" data-ob-action="next" hidden>${escapeHtml(t("ob.next"))}</button>
     </div>`;
   loadObIntegrationStatus("picnic");
 }
@@ -388,36 +428,65 @@ function authModeLabel() {
   return t("ob.mode.login_with", { methods: parts.join(t("ob.mode.and")) || t("ob.mode.password") });
 }
 
+// Welke winkels gebruik je? Alleen de aangevinkte winkels krijgen daarna een stap. Niets aanvinken kan: dan ga je door naar Klaar.
+function renderObStores(body) {
+  const chosen = ob.stores || [];
+  const names = { ah: "Albert Heijn", jumbo: "Jumbo", picnic: "Picnic", crisp: "Crisp" };
+  const notes = { ah: "ob.stores.ah", jumbo: "ob.stores.jumbo", picnic: "ob.stores.picnic", crisp: "ob.stores.crisp" };
+  body.innerHTML = `
+    <p>${escapeHtml(t("ob.stores.intro"))}</p>
+    <fieldset class="ob-stores" id="ob-stores">
+      <legend class="visually-hidden">${escapeHtml(t("ob.title.stores"))}</legend>
+      ${OB_STORE_CHOICES.map(
+        (store) => `<label class="ob-store"><input type="checkbox" value="${store}"${chosen.includes(store) ? " checked" : ""}><span><strong>${names[store]}</strong><small>${escapeHtml(t(notes[store]))}</small></span></label>`
+      ).join("")}
+    </fieldset>
+    <p class="muted">${escapeHtml(t("ob.stores.later"))}</p>
+    <div class="ob-actions">
+      ${obBackButton("back")}
+      <button class="button" type="button" data-ob-action="next">${escapeHtml(t("ob.next"))}</button>
+    </div>`;
+  if (!ob.stores) obSaveStores([]);
+}
+
 async function renderObDone(body) {
   body.innerHTML = `
     <p>${escapeHtml(t("ob.done.intro"))}</p>
     <ul class="ob-checklist" id="ob-checklist"></ul>
     <div class="ob-actions ob-actions--wrap" id="ob-done-actions"></div>`;
-  const [mealie, ah, jumbo, picnic] = await Promise.all([
+  // Alleen de winkels die je koos (sinds 4.13.0); zonder keuze, bij een hulp die voor 4.13.0 begon, de drie van voorheen.
+  const chosen = ob.stores || OB_STORE_STEPS;
+  const wanted = (store) => chosen.includes(store);
+  const [mealie, ah, jumbo, picnic, crisp] = await Promise.all([
     jsonFetch("/api/mealie/status").catch(() => ({})),
-    jsonFetch("/api/ah/auth/status").catch(() => ({})),
-    jsonFetch("/api/jumbo/auth/status").catch(() => ({})),
-    jsonFetch("/api/picnic/auth/status").catch(() => ({})),
+    wanted("ah") ? jsonFetch("/api/ah/auth/status").catch(() => ({})) : {},
+    wanted("jumbo") ? jsonFetch("/api/jumbo/auth/status").catch(() => ({})) : {},
+    wanted("picnic") ? jsonFetch("/api/picnic/auth/status").catch(() => ({})) : {},
+    wanted("crisp") ? jsonFetch("/api/crisp/auth/status").catch(() => ({})) : {},
   ]);
   const item = (ok, text) => `<li class="${ok ? "is-ok" : "is-todo"}"><span class="ob-check" aria-hidden="true">${ok ? "&#10003;" : "&#9675;"}</span><span>${escapeHtml(text)}</span></li>`;
   $("#ob-checklist").innerHTML =
     item(true, t("ob.done.security", { mode: authModeLabel() })) +
     item(Boolean(mealie.configured), mealie.configured ? t("ob.done.mealie_ok", { url: mealie.url || "" }) : t("ob.done.mealie_todo")) +
-    item(Boolean(ah.connected), ah.connected ? t("ob.done.ah_ok") : t("ob.done.ah_todo")) +
-    item(Boolean(jumbo.connected), jumbo.connected ? t("ob.done.jumbo_ok") : t("ob.done.jumbo_todo")) +
-    item(Boolean(picnic.connected), picnic.connected ? t("ob.done.picnic_ok") : t("ob.done.picnic_todo"));
+    (wanted("ah") ? item(Boolean(ah.connected), ah.connected ? t("ob.done.ah_ok") : t("ob.done.ah_todo")) : "") +
+    (wanted("jumbo") ? item(Boolean(jumbo.connected), jumbo.connected ? t("ob.done.jumbo_ok") : t("ob.done.jumbo_todo")) : "") +
+    (wanted("picnic") ? item(Boolean(picnic.connected), picnic.connected ? t("ob.done.picnic_ok") : t("ob.done.picnic_todo")) : "") +
+    (wanted("crisp") ? item(Boolean(crisp.connected), crisp.connected ? t("ob.done.crisp_ok") : t("ob.done.crisp_todo")) : "");
   const actions = [];
   if (!mealie.configured) actions.push(`<button class="button" type="button" data-ob-action="go-mealie">${escapeHtml(t("ob.done.link_mealie"))}</button>`);
-  if (!ah.connected) actions.push(`<button class="button button--secondary" type="button" data-ob-action="go-ah">${escapeHtml(t("ob.done.link_ah"))}</button>`);
-  if (!jumbo.connected) actions.push(`<button class="button button--secondary" type="button" data-ob-action="go-jumbo">${escapeHtml(t("ob.done.link_jumbo"))}</button>`);
-  if (!picnic.connected) actions.push(`<button class="button button--secondary" type="button" data-ob-action="go-picnic">${escapeHtml(t("ob.done.link_picnic"))}</button>`);
+  if (wanted("ah") && !ah.connected) actions.push(`<button class="button button--secondary" type="button" data-ob-action="go-ah">${escapeHtml(t("ob.done.link_ah"))}</button>`);
+  if (wanted("jumbo") && !jumbo.connected) actions.push(`<button class="button button--secondary" type="button" data-ob-action="go-jumbo">${escapeHtml(t("ob.done.link_jumbo"))}</button>`);
+  if (wanted("picnic") && !picnic.connected) actions.push(`<button class="button button--secondary" type="button" data-ob-action="go-picnic">${escapeHtml(t("ob.done.link_picnic"))}</button>`);
+  // Crisp heeft geen stap in de hulp: de knop rondt de hulp af en opent het blok onder Instellingen, Koppelen.
+  if (wanted("crisp") && !crisp.connected) actions.push(`<button class="button button--secondary" type="button" data-ob-action="link-crisp">${escapeHtml(t("ob.done.link_crisp"))}</button>`);
+  // Met Mealie gekoppeld is de eerste taak het weekmenu: de knop zegt dat, in plaats van alleen "openen".
   actions.push(
-    `<button class="button${actions.length ? " button--secondary" : ""}" type="button" data-ob-action="finish">${escapeHtml(t("ob.done.open"))}</button>`
+    `<button class="button${actions.length ? " button--secondary" : ""}" type="button" data-ob-action="finish">${escapeHtml(t(mealie.configured ? "ob.done.first_meal" : "ob.done.open"))}</button>`
   );
   $("#ob-done-actions").innerHTML = actions.join("");
 }
 
-async function finishOnboarding() {
+async function finishOnboarding({ then = null } = {}) {
   try {
     await postJson("/api/onboarding/complete");
   } catch (error) {
@@ -433,6 +502,13 @@ async function finishOnboarding() {
   refreshAhStatus();
   if (typeof refreshJumboStatus === "function") refreshJumboStatus(); // ook de winkelkeuze in de planner
   if (typeof refreshPicnicStatus === "function") refreshPicnicStatus();
+  if (typeof refreshCrispStatus === "function") refreshCrispStatus();
+  try {
+    window.sessionStorage.removeItem(OB_STORES_KEY); // de keuze hoorde bij de hulp
+  } catch {
+    // Zonder opslag viel er niets te wissen.
+  }
+  if (then) then();
 }
 
 // ---------------------------------------------------------------- acties en formulieren
@@ -533,6 +609,10 @@ const OB_ACTIONS = {
   "go-mfa": () => obGo("auth", "mfa-setup"),
   "skip-mfa": () => obGo("mealie"),
   "go-mealie": () => obGo("mealie"),
+  "go-stores": () => obGo("stores"),
+  next: () => obGo(obNeighbour(ob.step, 1)),
+  back: () => obGo(obNeighbour(ob.step, -1)),
+  "link-crisp": () => finishOnboarding({ then: () => openLinkBlock("crisp") }),
   "go-ah": () => obGo("ah"),
   "go-jumbo": () => obGo("jumbo"),
   "go-picnic": () => obGo("picnic"),
@@ -552,6 +632,12 @@ $("#ob-body").addEventListener("change", (event) => {
     for (const id of ["ob-password", "ob-password2"]) $(`#${id}`).type = event.target.checked ? "text" : "password";
   }
   if (event.target.id === "ob-open-confirm") $("#ob-open-submit").disabled = !event.target.checked;
+  if (event.target.closest("#ob-stores")) {
+    obSaveStores([...document.querySelectorAll("#ob-stores input:checked")].map((input) => input.value));
+    // De stappenbalk en de teller volgen de keuze meteen.
+    $("#ob-progress").innerHTML = obProgressHtml();
+    $("#ob-eyebrow").textContent = t("ob.step_of", { n: stepIndex(ob.step) + 1, total: obSteps().length });
+  }
 });
 
 $("#ob-body").addEventListener("submit", async (event) => {
@@ -887,7 +973,7 @@ $("#mfa-panel").addEventListener("submit", async (event) => {
 window.addEventListener("ms:languagechange", () => {
   if (!onboardingVisible()) return;
   if (ob.mfaBusy) {
-    $("#ob-eyebrow").textContent = t("ob.step_of", { n: stepIndex(ob.step) + 1, total: OB_STEPS.length });
+    $("#ob-eyebrow").textContent = t("ob.step_of", { n: stepIndex(ob.step) + 1, total: obSteps().length });
     $("#ob-title").textContent = t(`ob.title.${ob.step}`);
     $("#ob-progress").innerHTML = obProgressHtml();
     I18N.apply($("#ob-body"));

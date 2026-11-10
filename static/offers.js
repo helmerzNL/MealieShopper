@@ -39,6 +39,38 @@ try {
   // Zonder opslag staan de schakelaars uit en is de volgorde die van de winkel.
 }
 
+// Wat je zocht blijft staan (sinds 4.13.0): de zoektekst en de categorie staan in sessionStorage, zodat herladen en Terug uit de
+// prijsgeschiedenis ze houden. Per tabblad van de browser, en weg als je het sluit; de categorie hoort bij één winkel.
+const OFFERS_FIND_KEY = "ms-offers-find";
+
+function offersSavedFind() {
+  try {
+    const saved = JSON.parse(window.sessionStorage.getItem(OFFERS_FIND_KEY) || "null");
+    return saved && typeof saved === "object" ? saved : {};
+  } catch {
+    return {};
+  }
+}
+
+function offersSaveFind() {
+  try {
+    const find = { search: offersState.search, store: offersState.store, category: offersState.category };
+    if (!find.search && find.category === "all") window.sessionStorage.removeItem(OFFERS_FIND_KEY);
+    else window.sessionStorage.setItem(OFFERS_FIND_KEY, JSON.stringify(find));
+  } catch {
+    // Zonder opslag geldt de keuze tot je de pagina herlaadt.
+  }
+}
+
+// De categorie van voor het herladen, één keer, bij de eerste aanbiedingen van dezelfde winkel. Bestaat ze niet meer, dan "alle".
+function offersRestoreCategory(saved = offersSavedFind()) {
+  if (offersState.findRestored) return;
+  offersState.findRestored = true;
+  if (saved.store === offersState.store && typeof saved.category === "string") offersState.category = saved.category;
+}
+
+offersState.search = typeof offersSavedFind().search === "string" ? offersSavedFind().search : "";
+
 function offersRemember(key, value) {
   try {
     localStorage.setItem(key, value);
@@ -400,6 +432,7 @@ function offersChangeWeek(step) {
   if (offset === state.weekOffset) return;
   setPlanWeek(offset);
   showOffers();
+  if (typeof routerSync === "function") routerSync({ replace: true }); // de week in het adres (app.js, weekParam)
 }
 
 // De winkels die op Aanbiedingen te kiezen zijn. In de prijsgeschiedenis zijn dat ze allemaal: daar staan ook prijzen uit
@@ -604,6 +637,65 @@ function offerPriceLabelHtml(offer) {
 
 // De rij onderaan de kaart: Vergelijk verpakkingen (een knop) en Prijsgeschiedenis (een link) als twee icoonknoppen rechts, zoals in
 // de compacte rij (sinds 4.8.0; daarvoor twee onderstreepte links op elke kaart). De tekst staat in aria-label en title.
+// Een aanbieding in je mandje (sinds 4.13.0). Alleen bij een winkel met een mandje die gekoppeld is, en alleen bij een echt
+// product van de webwinkel: de Bonus Box als geheel (bonusbox-...) en een folderregel zonder product hebben geen productnummer
+// dat het mandje kent. Albert Heijn en Crisp kennen alleen nummers.
+function offerStoreLinked(store) {
+  return store === "ah" ? state.ahConnected === true : Boolean(state.linkedStores?.[store]);
+}
+
+// Het productnummer zoals het mandje van de winkel het kent, of "" als de aanbieding er geen heeft. Albert Heijn schrijft een
+// product op de site als wi123456; het mandje wil alleen het getal.
+function offerCartId(store, offer) {
+  const id = String(offer?.id ?? "").trim();
+  if (!id || id.startsWith("bonusbox-")) return "";
+  if (store === "ah") return /^(?:wi)?\d+$/.test(id) ? id.replace(/^wi/, "") : "";
+  if (store === "crisp") return /^\d+$/.test(id) ? id : "";
+  return id;
+}
+
+function offerCartable(store, offer, linked = offerStoreLinked(store)) {
+  return Object.hasOwn(STORES, store) && linked && Boolean(offerCartId(store, offer));
+}
+
+// Zoveel gaan er in het mandje: het aantal dat de actie vraagt (2 voor 3 euro: twee), anders één.
+function offerCartQuantity(offer) {
+  const min = Number(offer?.minQuantity);
+  return Number.isInteger(min) && min > 1 && min <= 12 ? min : 1;
+}
+
+function offerCartButton(offer, className = "") {
+  if (!offerCartable(offersState.store, offer)) return "";
+  const label = escapeHtml(t("offers.cart.add", { store: storeDisplayName(offersState.store) }));
+  return `<button class="icon-button${className ? ` ${className}` : ""}" type="button" data-offer-cart="${escapeHtml(offer.id)}" title="${label}" aria-label="${label}">${mdiIcon(MDI_CART_PLUS)}</button>`;
+}
+
+// Zet de aanbieding in het mandje van de winkel (nooit een bestelling) en meldt het met een toast. De route is die van de
+// controlelijst (/api/<winkel>/cart) met het product-id erbij, dus zonder zoeken; zonder `remember`, want dit is geen keuze bij een
+// ingrediënt.
+async function addOfferToCart(button) {
+  const store = offersState.store;
+  const offer = offerById(button.dataset.offerCart);
+  if (!offer || !offerCartable(store, offer)) return;
+  const quantity = offerCartQuantity(offer);
+  setBusy(button, true);
+  try {
+    const data = await jsonFetch(`/api/${STORES[store].api}/cart`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        items: [{ query: offer.title, productId: offerCartId(store, offer), quantity, title: offer.title, price: offer.price || 0, unitSize: offer.unitSize || null }],
+      }),
+    });
+    if (!data.added) throw new Error(t("offers.cart.failed", { store: storeDisplayName(store) }));
+    toast(tn("offers.cart.added", quantity, { title: offer.title, store: storeDisplayName(store) }));
+  } catch (error) {
+    toast(error.message, "error");
+  } finally {
+    setBusy(button, false);
+  }
+}
+
 function offerCardFoot(offer) {
   // Vergelijk verpakkingen zoekt bij de winkel; bij een winkel met alleen aanbiedingen (Lidl, Aldi) kan dat niet.
   const compareLabel = escapeHtml(t("offers.compare.open"));
@@ -612,7 +704,7 @@ function offerCardFoot(offer) {
     ? `<button class="icon-button offer-card__compare" type="button" data-compare="${escapeHtml(offer.id)}" title="${compareLabel}" aria-label="${compareLabel}">${mdiIcon(MDI_COMPARE_HORIZONTAL)}</button>`
     : "";
   const history = `<a class="icon-button offer-card__history" href="${escapeHtml(priceHistoryPath(offersState.store, offer.title, offer.id))}" data-route title="${historyLabel}" aria-label="${historyLabel}">${mdiIcon(MDI_CHART_LINE)}</a>`;
-  return `<div class="offer-card__foot">${compare}${history}</div>`;
+  return `<div class="offer-card__foot">${offerCartButton(offer, "offer-card__cart")}${compare}${history}</div>`;
 }
 
 // Het plaatje van een aanbieding met de badge en het prijslabel erop (of kaal, in de compacte rij). Zonder plaatje een leeg vlak
@@ -696,7 +788,7 @@ function offerProductRow(offer) {
       <span class="offer-row__price">${offerPriceHtml(offer)}</span>
       <small class="offer-row__unit">${escapeHtml(perUnit)}</small>
       <span class="offer-row__history">${history}</span>
-      <div class="offer-row__links">${compare}${chart}</div>
+      <div class="offer-row__links">${offerCartButton(offer)}${compare}${chart}</div>
     </article>`;
 }
 
@@ -983,6 +1075,7 @@ function renderOfferGrid() {
 function offersShowAll() {
   offersState.search = "";
   offersState.category = "all";
+  offersSaveFind();
   offersState.filters = offersEmptyFilters();
   offersSaveFilters();
   offersState.goodOnly = false;
@@ -1123,6 +1216,7 @@ function renderOffers(data) {
   offersState.packMargin = typeof data.packMargin === "number" ? data.packMargin : offersState.packMargin;
   offersState.categories = data.categories || [];
   offersState.personal = data.personal || null;
+  if (data.supported) offersRestoreCategory();
   if (offersState.category !== "all" && !offersState.categories.some((category) => category.id === offersState.category)) offersState.category = "all";
   offersState.rows = OFFER_ROWS;
   const status = $("#offers-status");
@@ -1162,6 +1256,7 @@ function renderOffersWeekNotes(data) {
 
 function offersChooseCategory(category) {
   offersState.category = category;
+  offersSaveFind();
   offersState.rows = OFFER_ROWS;
   renderOfferCategories();
   renderOfferGrid();
@@ -1443,6 +1538,8 @@ $("#offers-more").addEventListener("click", offersShowMore);
 $("#offers-products").addEventListener("click", (event) => {
   const button = event.target.closest("[data-compare]");
   if (button) openPackCompare(offersState.store, button.dataset.compare);
+  const cart = event.target.closest("[data-offer-cart]");
+  if (cart) addOfferToCart(cart);
 });
 $("#offers-recipes").addEventListener("click", (event) => {
   const button = event.target.closest(".offer-match, .offer-flag");
@@ -1489,6 +1586,7 @@ function offersRedrawSoon(redraw = offersRedraw) {
 }
 $("#offers-search").addEventListener("input", (event) => {
   offersState.search = event.target.value;
+  offersSaveFind();
   offersRedrawSoon();
 });
 $("#offers-empty-clear").addEventListener("click", offersShowAll);

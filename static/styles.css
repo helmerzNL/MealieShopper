@@ -504,6 +504,23 @@ h2 {
   .subtabs:has(.subtab-menu__toggle[aria-expanded="true"]) {
     overflow: visible;
   }
+
+  /* Er staat meer (sinds 4.13.0): de rand vervaagt aan de kant waar nog tabbladen buiten beeld staan. De klassen zet app.js
+     (subtabsEdges) bij het scrollen. Niet met de winkelkeuze open: een masker zou de lijst eronder afknippen. */
+  .subtabs.has-more-end:not(:has(.subtab-menu__toggle[aria-expanded="true"])) {
+    -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 36px), transparent);
+    mask-image: linear-gradient(to right, #000 calc(100% - 36px), transparent);
+  }
+
+  .subtabs.has-more-start:not(:has(.subtab-menu__toggle[aria-expanded="true"])) {
+    -webkit-mask-image: linear-gradient(to left, #000 calc(100% - 36px), transparent);
+    mask-image: linear-gradient(to left, #000 calc(100% - 36px), transparent);
+  }
+
+  .subtabs.has-more-start.has-more-end:not(:has(.subtab-menu__toggle[aria-expanded="true"])) {
+    -webkit-mask-image: linear-gradient(to right, transparent, #000 36px, #000 calc(100% - 36px), transparent);
+    mask-image: linear-gradient(to right, transparent, #000 36px, #000 calc(100% - 36px), transparent);
+  }
 }
 
 /* De titel van een scherm (sinds 4.7.0). Bij Weekmenu en Recepten zoeken staat hij er alleen als het zijmenu de
@@ -1781,6 +1798,12 @@ html:has(dialog[open]) {
 
 .skip-link:focus {
   transform: none;
+}
+
+/* De inhoud krijgt de focus na een schermwissel en na Naar de inhoud, zodat Tab daar verdergaat (app.js, router.js). Het is
+   geen bediening: een focusrand om de hele pagina zegt niets. */
+#main:focus {
+  outline: none;
 }
 
 /* De regel onder een veld (de wachtwoordregels, sinds 4.12.0): klein en gedempt, direct onder het veld waar hij bij hoort. */
@@ -6444,6 +6467,16 @@ html.is-standalone body {
 }
 
 /* Overzicht: rijen met een strook foto's links en de details rechts; de streep in de kleur van de soort aan de linkerrand. */
+/* Meer aankopen (sinds 4.13.0): de knop onder de lijst, in het midden, zoals Meer bij de aanbiedingen. */
+.purchase-more {
+  margin: 16px 0 0;
+  text-align: center;
+}
+
+.purchase-more:has([hidden]) {
+  display: none;
+}
+
 .purchase-overview {
   display: flex;
   flex-direction: column;
@@ -7145,8 +7178,15 @@ html.is-standalone body {
 }
 
 .user-menu__item[hidden],
-.user-menu__item--small {
+.user-menu__item--small,
+.user-menu__item--standalone {
   display: none;
+}
+
+/* Vernieuwen staat alleen in de geïnstalleerde app (sinds 4.13.0): die heeft geen knop van de browser, en omlaag slepen
+   ververst er niet. */
+html.is-standalone .user-menu__item--standalone:not([hidden]) {
+  display: flex;
 }
 
 .user-menu__icon {
@@ -9031,7 +9071,7 @@ html.is-standalone body {
 
 .offer-row {
   display: grid;
-  grid-template-columns: 48px 60px minmax(0, 1fr) 110px 100px 150px 72px;
+  grid-template-columns: 48px 60px minmax(0, 1fr) 110px 100px 150px 106px;
   align-items: center;
   gap: 10px;
   min-height: 56px;
@@ -9157,7 +9197,7 @@ html.is-standalone body {
    alleen (bij 1280 px met beide open is de lijst ~690 px breed). */
 @container (max-width: 799px) {
   .offer-row {
-    grid-template-columns: 48px 60px minmax(0, 1fr) 100px 90px 72px;
+    grid-template-columns: 48px 60px minmax(0, 1fr) 100px 90px 106px;
     row-gap: 2px;
   }
 
@@ -10263,4 +10303,49 @@ html.is-standalone body {
   .user-menu__item {
     min-height: 44px;
   }
+}
+
+/* De installatiehulp: welke winkels gebruik je? (sinds 4.13.0). Een regel per winkel, het hele vlak is het vinkje. */
+.ob-stores {
+  display: grid;
+  gap: 8px;
+  margin: 14px 0;
+  padding: 0;
+  border: 0;
+}
+
+.ob-store {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+  min-height: 56px;
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+  cursor: pointer;
+}
+
+.ob-store:has(input:checked) {
+  border-color: var(--primary);
+  background: var(--selection);
+}
+
+.ob-store input {
+  width: 20px;
+  height: 20px;
+  margin: 0;
+  accent-color: var(--primary);
+}
+
+.ob-store strong,
+.ob-store small {
+  display: block;
+}
+
+.ob-store small {
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: var(--text-sm);
 }

@@ -312,7 +312,8 @@ class DesignTokensTest(AppTestCase):
         widths = set(re.findall(r"@media[^{]*?\((?:min|max)-width: (\d+)px\)", self.css))
         self.assertEqual(widths, {"640", "641", "860", "1199", "1200"})
         script = "\n".join(path.read_text(encoding="utf-8") for path in STATIC.glob("*.js"))
-        self.assertEqual(set(re.findall(r"\((?:min|max)-width: \$?\{?(\w+)\}?px\)", script)) - {"minWidth"}, {"860"})
+        # In de scripts: 860 (het menu links) en, sinds 4.13.0, 640 (op een telefoon is Kaarten de standaard bij de aankopen).
+        self.assertEqual(set(re.findall(r"\((?:min|max)-width: \$?\{?(\w+)\}?px\)", script)) - {"minWidth"}, {"640", "860"})
         self.assertIn("minWidth = 1200", script)
         self.assertIn("OFFER_POPUP_MIN_SCREEN = 860;", script)
 

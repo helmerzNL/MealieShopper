@@ -684,6 +684,7 @@ const assigned = []; const applied = [];
 const window = {location: {origin: "http://localhost", pathname: "/offers", search: "", assign: (href) => assigned.push(href)},
   addEventListener: () => {}};
 const history = {pushState: () => {}};
+function routerRememberScroll() {}
 function routerApply(href) { applied.push(href); }
 function setInterval() {}
 """
