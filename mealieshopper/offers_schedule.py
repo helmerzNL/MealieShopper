@@ -18,7 +18,7 @@ from typing import Any, Awaitable, Callable
 
 import aiosqlite
 
-from . import ah_orders, auth, image_cache, offers, prices, tasks
+from . import ah_orders, auth, image_cache, offers, prices, purchase_sync, tasks
 
 log = logging.getLogger(__name__)
 
@@ -96,11 +96,18 @@ async def _record(trigger: str, result: dict[str, Any], when: datetime | None = 
 
 
 async def run_all(trigger: str, now: datetime | None = None, *, wait_for_images: bool = True) -> dict[str, Any]:
-    """De dagelijkse run: alle aanbiedingen, daarna de extraatjes die in hetzelfde rustige tempo bij de winkels langsgaan: een deel
-    van de artikelnummers op de kassabonnen koppelen (ah_orders.resolve_receipt_products), de foto's bij oude koppelingen en de
-    afbeeldingencache aanvullen (image_cache.prefetch), en de gewone prijs per aankoopregel bijwerken
-    (prices.fill_regular_prices_nightly). Elk extraatje staat alleen in de uitkomst als het iets te doen had."""
+    """De dagelijkse run: alle aanbiedingen, je bestellingen en kassabonnen (purchase_sync.sync_nightly), daarna de extraatjes die
+    in hetzelfde rustige tempo bij de winkels langsgaan: een deel van de artikelnummers op de kassabonnen koppelen
+    (ah_orders.resolve_receipt_products), de foto's bij oude koppelingen en de afbeeldingencache aanvullen (image_cache.prefetch),
+    en de gewone prijs per aankoopregel bijwerken (prices.fill_regular_prices_nightly). Elk extraatje staat alleen in de uitkomst
+    als het iets te doen had."""
     result = await offers.sync_all()
+    # Alleen de dagelijkse run (die wacht ook op de foto's): de knop geeft meteen antwoord, en de bestelpagina heeft een eigen
+    # knop. Voor de catalogus en de extraatjes: die rekenen met de nieuwe aankopen.
+    if wait_for_images:
+        purchases = await purchase_sync.sync_nightly()
+        if purchases is not None:
+            result = {**result, "purchases": purchases}
     await prices.warm_catalogues()  # de catalogus is na de synchronisatie anders: nu opbouwen, niet bij de eerste aanvraag
     # Het koppelen en de foto's van de bonnen krijgen hetzelfde tijdstip mee: zo staan ze samen in een laatste ronde
     # (ah_orders.SETTING_LAST_ROUND), net als bij een ronde op afroep.

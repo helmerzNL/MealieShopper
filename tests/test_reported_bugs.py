@@ -26,7 +26,7 @@ import test_offers_scan_js  # idem: de Node-opbouw van offers.js
 from test_auth_password import PASSWORD, AuthPasswordTestCase
 from test_prices import PricesCase, offer
 
-from mealieshopper import ah_orders, assets, auth, offers, price_archive_tidy, price_import, prices
+from mealieshopper import ah, ah_orders, assets, auth, image_cache, offers, offers_schedule, price_archive_tidy, price_import, prices
 from mealieshopper.app import create_app
 
 ROOT: Path = Path(__file__).resolve().parents[1]
@@ -268,6 +268,111 @@ class PriceHistoryLinkTest(PricesCase):
         self.assertEqual(
             [p["productId"] for p in await self.linked("pindakaas", "99999999")], ["1"]
         )
+
+
+class SameNameTwoProductsTest(PricesCase):
+    """2026-11-10: "ik zie hier 3x hetzelfde product, waarom zijn die niet samengevoegd?" (AH Sweet Palermo rode puntpaprika).
+
+    AH verkoopt twee artikelen met op een hoofdletter na dezelfde naam: 2 stuks (123865, bekend van de kassabon) en een zak van
+    500 gram (579310, bekend van een bestelling die nog open staat). De ingelezen aankopen hebben alleen die naam en bleven als
+    derde rij `import:<naam>` staan.
+    """
+
+    NAME: str = "AH Sweet Palermo rode puntpaprika"
+    IMPORTED: tuple[tuple[str, str, str, float, float], ...] = (
+        ("M1", "2021-04-28", "AH Sweet palermo rode puntpaprika", 1.19, 1.55),
+        ("M2", "2026-07-24", "AH Sweet palermo rode puntpaprika", 2.29, 3.29),
+        ("M3", "2026-07-28", "AH Sweet palermo rode puntpaprika", 0.99, 1.69),
+        ("M4", "2026-09-05", "AH Sweet Palermo rode puntpaprika", 2.23, 3.19),
+    )
+
+    async def asyncSetUp(self) -> None:
+        self.ah_receipt("R1", "2024-11-11T12:00:00", (526638, "PUNTPAPRIKA", 1, 1.59, 1.59))
+        self.ah_receipt("R2", "2025-06-06T12:00:00", (526638, "PUNTPAPRIKA", 1, 1.69, 1.69))
+        with closing(db(ah_orders)) as conn, conn:
+            conn.execute(
+                "INSERT INTO ah_receipt_products (receipt_product_id, product_id, title, checked_at) "
+                "VALUES (526638, 123865, 'AH Sweet palermo rode puntpaprika', 'x')"
+            )
+        await self.ah_order(913252041, "open", days(-7), order_item(579310, self.NAME, 3.49))
+        with closing(db(price_import)) as conn, conn:
+            conn.executemany(
+                "INSERT INTO imported_purchases (store, order_ref, position, day, title, quantity, paid, regular, imported_at) "
+                "VALUES ('ah', ?, 1, ?, ?, 1, ?, ?, 'x')",
+                self.IMPORTED,
+            )
+
+    async def bought(self) -> dict[str, list[str]]:
+        products: list[dict] = (await prices.history("ah", self.NAME, 50, today=TODAY))["products"]
+        return {product["productId"]: [purchase["date"] for purchase in product["purchases"]] for product in products}
+
+    async def test_imported_purchases_join_the_product_with_the_nearest_price(self) -> None:
+        self.assertEqual(
+            await self.bought(),
+            {"579310": ["2026-07-24", "2026-09-05"], "123865": ["2021-04-28", "2024-11-11", "2025-06-06", "2026-07-28"]},
+            "geen derde rij import:<naam>: de prijs kiest tussen de twee artikelen",
+        )
+
+    async def test_one_product_with_the_name_gets_every_imported_purchase(self) -> None:
+        # Zonder de bonkoppeling kent de app alleen de zak van 500 gram: dan is er niets te kiezen.
+        with closing(db(ah_orders)) as conn, conn:
+            conn.execute("DELETE FROM ah_receipt_products")
+        found: dict[str, list[str]] = await self.bought()
+        self.assertEqual(found["579310"], ["2021-04-28", "2026-07-24", "2026-07-28", "2026-09-05"])
+        self.assertNotIn("import:ah sweet palermo rode puntpaprika", found)
+
+    def test_a_price_that_does_not_clearly_choose_keeps_the_first_product(self) -> None:
+        # Uit de productiedata: een krat naast twee flesjes zegt niets, en 6,03 naast 6,46 is geen keuze.
+        bottles: dict[str, tuple[float, ...]] = {"230582": (1.47,), "364160": (1.64, 1.67)}
+        self.assertIsNone(prices._nearest_priced(bottles, {"regular": 7.49, "paid": 7.49}, "230582"))
+        close: dict[str, tuple[float, ...]] = {"232208": (6.0, 6.03), "4044": (4.26, 6.46, 17.29)}
+        self.assertIsNone(prices._nearest_priced(close, {"regular": 7.12, "paid": None}, "232208"))
+        self.assertIsNone(prices._nearest_priced(close, {"regular": None, "paid": None}, "232208"), "zonder prijs valt er niets te kiezen")
+        pack: dict[str, tuple[float, ...]] = {"238770": (7.99,), "606448": (2.49,)}
+        self.assertEqual(prices._nearest_priced(pack, {"regular": 1.79, "paid": None}, "238770"), "606448")
+        unpriced: dict[str, tuple[float, ...]] = {"231530": (), "395946": (2.29, 2.49)}
+        self.assertEqual(prices._nearest_priced(unpriced, {"regular": 3.09, "paid": None}, "231530"), "395946")
+
+    async def test_the_orders_page_links_the_name_to_a_known_product(self) -> None:
+        linked: dict[str, dict] = await prices.link_names("ah", [self.NAME])
+        self.assertIn(linked[self.NAME]["productId"], {"579310", "123865"})
+
+
+class OrdersSyncedNightlyTest(PricesCase):
+    """2026-11-10: bij dezelfde melding stond de bestelling van 3 november een week na de bezorging nog op "open", en haar
+    producten ontbraken in de prijsgeschiedenis. Bestellingen en kassabonnen kwamen alleen binnen via de knop op de bestelpagina."""
+
+    async def run_daily(self, **kwargs: bool) -> dict:
+        with mock.patch.object(offers, "sync_all", new_callable=mock.AsyncMock, return_value={"stores": {}}), \
+             mock.patch.object(ah_orders, "resolve_receipt_products_nightly", new_callable=mock.AsyncMock, return_value=None), \
+             mock.patch.object(ah_orders, "backfill_receipt_images_nightly", new_callable=mock.AsyncMock, return_value=None), \
+             mock.patch.object(image_cache, "prefetch_nightly", new_callable=mock.AsyncMock, return_value=None), \
+             mock.patch.object(image_cache, "prefetch_async", new_callable=mock.AsyncMock, return_value=None):
+            return await offers_schedule.run_all("scheduled", **kwargs)
+
+    async def test_the_daily_run_marks_a_delivered_order_as_delivered(self) -> None:
+        await auth.set_secret("AH_REFRESH_TOKEN", "token")
+        item: dict = order_item(579310, "AH Sweet Palermo rode puntpaprika", 3.49)
+        await self.ah_order(913252041, "open", days(-7), item)
+        delivered: dict = {"id": 913252041, "deliveryDate": days(-7), "deliveryStatus": "DELIVERED"}
+        with mock.patch.object(ah, "get_open_fulfillments", new_callable=mock.AsyncMock, return_value=[]), \
+             mock.patch.object(ah_orders, "_closed_orders", new_callable=mock.AsyncMock, return_value=[delivered]), \
+             mock.patch.object(ah_orders, "_details_or_none", new_callable=mock.AsyncMock, return_value={"items": [item]}), \
+             mock.patch.object(ah_orders, "sync_receipts", new_callable=mock.AsyncMock, return_value={"new": 0}):
+            result: dict = await self.run_daily()
+        self.assertNotIn("error", result["purchases"]["ah"]["orders"])
+        self.assertEqual(result["purchases"]["ah"]["receipts"], {"new": 0})
+        bought: dict[str, list[str]] = {
+            product["productId"]: [purchase["date"] for purchase in product["purchases"]]
+            for product in (await prices.history("ah", "", 50, today=TODAY))["products"]
+        }
+        self.assertEqual(bought, {"579310": [days(-7)]}, "geleverd, dus een aankoop")
+
+    async def test_the_button_does_not_wait_for_the_stores(self) -> None:
+        await auth.set_secret("AH_REFRESH_TOKEN", "token")
+        with mock.patch.object(ah_orders, "sync_orders", new_callable=mock.AsyncMock) as orders:
+            result: dict = await self.run_daily(wait_for_images=False)
+        self.assertEqual((orders.call_count, "purchases" in result), (0, False))
 
 
 class BestOffersTest(PricesCase):
