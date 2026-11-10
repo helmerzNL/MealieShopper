@@ -564,6 +564,32 @@ class OfferCartQuantityTest(test_ah_orders.AhOrdersTestCase):
 
 
 @unittest.skipUnless(shutil.which("node"), "Node is not installed")
+class OfferLabelsSayItOnceTest(unittest.TestCase):
+    """Melding van 2026-11-10: "deze tags lijken redundant?" bij een kaart met "Laagste in 12 mnd" en "Laagste prijs in een jaar"."""
+
+    def labels(self, offer: dict) -> list:
+        script = f"""{test_offers_scan_js.PRELUDE}
+const offer = {json.dumps(offer)};
+console.log(JSON.stringify([offerPriceLabel(offer), offerYearLowLine(offer)].map((label) => label && label.text)));"""
+        result = subprocess.run(["node", "-e", script], capture_output=True, text=True, timeout=30, check=False)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        return json.loads(result.stdout)
+
+    def test_2026_11_10_a_card_names_the_lowest_price_of_the_year_once(self):
+        lowest: dict = {"status": "lowest", "month": "2026-09", "above": 0.0}
+        above: dict = {"status": "above", "month": "2026-09", "above": 0.5, "price": 1.79}
+        for kind in ("lowest_12m", "lowest_6m"):
+            self.assertEqual(self.labels({"priceLabel": {"kind": kind}, "yearLow": lowest}), [None, "offers.label.year_low"], kind)
+            found = self.labels({"priceLabel": {"kind": kind}, "yearLow": above})
+            self.assertIsNone(found[0], "geen groen label naast 'boven de laagste van het jaar'")
+            self.assertIn("offers.label.year_above", found[1])
+            # Zonder een jaar aan prijzen uit alle bronnen blijft het label uit de geschiedenis het enige oordeel.
+            self.assertEqual(self.labels({"priceLabel": {"kind": kind}, "yearLow": {"status": "unknown"}}), [f"offers.label.{kind}", None])
+        self.assertEqual(self.labels({"priceLabel": {"kind": "lowest_ever"}, "yearLow": lowest}), ["offers.label.lowest_ever", None])
+        self.assertIsNone(self.labels({"priceLabel": {"kind": "lowest_ever"}, "yearLow": above})[0])
+
+
+@unittest.skipUnless(shutil.which("node"), "Node is not installed")
 class OfferCartStepperTest(unittest.TestCase):
     """Hetzelfde verzoek van 2026-11-10, het scherm: op de kaart het aantal dat al in het mandje zit, met min, een veld en plus."""
 

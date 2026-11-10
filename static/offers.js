@@ -500,6 +500,7 @@ function offerYearLowLine(offer) {
   const low = offer.yearLow;
   if (!low || !low.status || low.status === "unknown") return null;
   if (low.status === "lowest") {
+    if (offer.priceLabel && offer.priceLabel.kind === "lowest_ever") return null; // "laagste prijs ooit" zegt dit al, en meer
     return { cls: "verdict verdict--year-low", text: t("offers.label.year_low"), title: t("offers.label.year_low_title", { month: offerMonthText(low.month, true) }) };
   }
   return {
@@ -582,9 +583,12 @@ function offerPriceLabel(offer) {
   if (!label || !label.kind) return null;
   const green = "offer-label offer-label--green";
   const grey = "offer-label offer-label--grey";
-  if (label.kind === "lowest_ever") return { cls: green, text: t("offers.label.lowest_ever"), title: "" };
-  if (label.kind === "lowest_12m") return { cls: green, text: t("offers.label.lowest_12m"), title: "" };
-  if (label.kind === "lowest_6m") return { cls: green, text: t("offers.label.lowest_6m"), title: "" };
+  // Met een jaar aan prijzen uit alle bronnen (yearLow: ook aankopen en folderacties) staat het oordeel over het jaar al in die
+  // regel. "Laagste in 12 mnd" ernaast zegt hetzelfde twee keer, en naast "boven de laagste" spreekt een groen label haar tegen.
+  const year = offer.yearLow && offer.yearLow.status && offer.yearLow.status !== "unknown" ? offer.yearLow.status : null;
+  if (label.kind === "lowest_ever") return year === "above" ? null : { cls: green, text: t("offers.label.lowest_ever"), title: "" };
+  if (label.kind === "lowest_12m") return year ? null : { cls: green, text: t("offers.label.lowest_12m"), title: "" };
+  if (label.kind === "lowest_6m") return year ? null : { cls: green, text: t("offers.label.lowest_6m"), title: "" };
   if (label.kind === "lowest_seen") {
     return { cls: grey, text: t("offers.label.lowest_seen", { month: offerMonthText(label.month) }), title: t("offers.label.lowest_seen_title", { date: offerDateText(label.coveredSince) }) };
   }
