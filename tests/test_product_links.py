@@ -79,6 +79,40 @@ class SaveTest(LinksCase):
         links = run(product_links.list_links("ah"))["links"]
         self.assertEqual([(l["key"], l["productId"]) for l in links], [("20960", "4711")])
 
+    def test_a_save_without_origin_is_manual_and_the_origin_is_listed(self):
+        self.assertEqual(run(product_links.save("ah", "COTTAGE CH", COTTAGE))["origin"], "manual")
+        run(product_links.save("jumbo", "Kipfilet", COTTAGE, origin="confirmed"))
+        self.assertEqual({l["store"]: l["origin"] for l in run(product_links.list_links())["links"]}, {"ah": "manual", "jumbo": "confirmed"})
+
+    def test_an_unknown_origin_is_refused(self):
+        with self.assertRaises(ValueError):
+            run(product_links.save("ah", "X", COTTAGE, origin="ai"))
+
+    def test_an_exact_link_never_replaces_a_manual_or_confirmed_one(self):
+        for origin in ("manual", "confirmed"):
+            run(product_links.save("ah", "Cottage", COTTAGE, origin=origin))
+            link = run(product_links.save("ah", "Cottage", BLOEMKOOL, origin="exact"))
+            self.assertEqual((link["productId"], link["origin"]), ("4711", origin))
+            run(product_links.remove("ah", "name", "cottage"))
+
+    def test_exact_replaces_exact_and_manual_or_confirmed_replace_anything(self):
+        run(product_links.save("ah", "Cottage", COTTAGE, origin="exact"))
+        self.assertEqual(run(product_links.save("ah", "Cottage", BLOEMKOOL, origin="exact"))["productId"], "4183")
+        self.assertEqual(run(product_links.save("ah", "Cottage", COTTAGE, origin="confirmed"))["origin"], "confirmed")
+        link = run(product_links.save("ah", "Cottage", BLOEMKOOL))
+        self.assertEqual((link["productId"], link["origin"]), ("4183", "manual"))
+
+    def test_a_database_from_before_the_origin_column_gets_it_with_manual(self):
+        run(product_links.list_links())  # maakt de database
+        with closing(db(product_links)) as conn, conn:
+            conn.execute("DROP TABLE product_links")
+            conn.execute("CREATE TABLE product_links (store TEXT NOT NULL, kind TEXT NOT NULL, key TEXT NOT NULL, product_id TEXT NOT NULL,"
+                         " title TEXT NOT NULL, brand TEXT, unit_size TEXT, image TEXT, source_name TEXT, created_at TEXT NOT NULL,"
+                         " PRIMARY KEY (store, kind, key))")
+            conn.execute("INSERT INTO product_links VALUES ('ah', 'name', 'oud', '1', 'Oud', NULL, NULL, NULL, 'Oud', 'x')")
+        auth._SCHEMAS_READY.clear()
+        self.assertEqual([l["origin"] for l in run(product_links.list_links())["links"]], ["manual"])
+
     def test_bad_input_is_refused_with_a_readable_message(self):
         with self.assertRaises(ValueError):
             run(product_links.save("nope", "X", COTTAGE))

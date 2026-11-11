@@ -563,6 +563,21 @@ class OlderBackupTest(BackupCase):
             {"theme": None, "darkBackground": "green", "accent": "", "navbarStyle": "auto", "navbarGlass": 60, "cookingMode": True, "preferredStore": "ah"},
         )
 
+    async def test_a_backup_from_before_the_link_origin_still_restores_as_manual(self) -> None:
+        # product_links kreeg de kolom origin (herkomst van de koppeling); een oudere back-up heeft hem niet en geeft `manual`.
+        self.seed()
+        _, data = await self.make()
+
+        def older(doc):
+            for row in doc["tables"]["product_links"]:
+                del row["origin"]
+
+        job = await self.restore(self.tweak(data, older))
+        self.assertEqual(job["status"], "done", job)
+        with closing(self.connect()) as conn:
+            origins = [row["origin"] for row in conn.execute("SELECT origin FROM product_links")]
+        self.assertEqual(origins, ["manual", "manual"])
+
     async def test_restore_of_a_3_x_backup_file_succeeds(self) -> None:
         # tests/fixtures/backup-3.13.1.json is gemaakt met de code van release 3.13.1 (commit 135bd86) op een lege
         # installatie: een AH-lijstje met twee artikelen, twee aanbiedingen van AH met hun geschiedenis en de eerste dag
