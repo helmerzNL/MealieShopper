@@ -20,7 +20,7 @@ from werkzeug.exceptions import RequestTimeout
 
 os.environ["PASSKEY_AUTH_ENABLED"] = "false"
 
-from mealieshopper import audit, auth, auth_password, backup, factory_reset, image_cache, mealie, mealie_images, oauth, price_archive, prices, profile, push, recipe_nutrition, tasks, uploads  # noqa: E402
+from mealieshopper import audit, auth, auth_password, backup, factory_reset, image_cache, mealie, mealie_images, oauth, price_archive, prices, profile, push, recipe_nutrition, shared_links, tasks, uploads  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
 from helpers import AppClient, db, ReadResponse, run_aside  # noqa: E402
 
@@ -309,6 +309,17 @@ class RoundTripTest(BackupCase):
         }])
         self.assertEqual(product["regular"], [])
         self.assertIsNone(product["regularPrice"])
+
+    async def test_a_rejected_shared_link_comes_back_with_a_restore(self) -> None:
+        # Klopt niet (shared_links.py) is werk van de gebruiker: zonder de back-up wijst de gedeelde lijst na een herstel weer naar het oude product.
+        self.assertIn("shared_link_rejections", backup.DATA_TABLES)
+        await backup.ensure_schemas()
+        self.assertTrue(await shared_links.reject("ah", "AH Doosjevol kersen", "1234"))
+        response, data = await self.make()
+        self.assertEqual(response.status_code, 200)
+        self.wipe()
+        self.assertEqual((await self.restore(data))["status"], "done")
+        self.assertFalse(await shared_links.reject("ah", "AH Doosjevol kersen", "1234"), "de afwijzing was er al")
 
     async def test_everything_comes_back_with_its_links(self) -> None:
         self.seed()

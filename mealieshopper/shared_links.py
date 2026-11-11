@@ -9,18 +9,26 @@ from __future__ import annotations
 
 import json
 import logging
-from collections.abc import Iterable, Mapping
+from collections.abc import AsyncIterator, Iterable, Mapping
+from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 from pathlib import Path
 from types import MappingProxyType
 from typing import Any, NamedTuple
 
-from . import name_keys
+import aiosqlite
+
+from . import auth, name_keys, offers
+from .i18n import tr
 
 log: logging.Logger = logging.getLogger(__name__)
 
 DATA_DIR: Path = Path(__file__).resolve().parent / "shared_link_data"
 VERSION: int = 1
 _LINK_KEYS: tuple[str, ...] = ("name", "productId", "title", "unitSize")
+STORES: tuple[str, ...] = offers.SHOP_STORES  # dezelfde winkels als `product_links.STORES`, zonder die module te importeren
+MAX_NAME_CHARS: int = 300
+MAX_ID_CHARS: int = 64
 
 
 class SharedLink(NamedTuple):
@@ -129,3 +137,81 @@ def load(store: str) -> Mapping[str, SharedLink]:
     if store not in _cache:
         _cache[store] = _read(store)
     return _cache[store]
+
+
+def active(store: str, rejected: set[tuple[str, str]]) -> dict[str, SharedLink]:
+    """De koppelingen van `load` zonder de afgewezen (`rejected`: sleutel en productnummer). Een nieuwe dict: wat `load` geeft
+    blijft ongemoeid. Wijst het bestand later naar een ander product, dan telt die koppeling weer."""
+    return {key: link for key, link in load(store).items() if (key, link.product_id) not in rejected}
+
+
+# --- "Klopt niet": per installatie een gedeelde koppeling uitzetten. Het bestand zelf verandert niet. -------------------------
+
+SCHEMA: str = """
+-- Een gedeelde koppeling (`shared_links`) die deze installatie afwees: de sleutel van de naam (`name_keys.key`) en het product
+-- uit het bestand. Wijst het bestand na een update naar een ander product, dan geldt die koppeling wel.
+CREATE TABLE IF NOT EXISTS shared_link_rejections (
+  store TEXT NOT NULL,
+  key TEXT NOT NULL,
+  product_id TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  PRIMARY KEY (store, key, product_id)
+);
+"""
+
+
+async def ensure(conn: aiosqlite.Connection) -> aiosqlite.Connection:
+    """Maak de tabel als die er nog niet is. Voor de `_connect` van `prices` en van deze module."""
+    await auth.ensure_schema(conn, "shared_link_rejections", SCHEMA)
+    return conn
+
+
+@asynccontextmanager
+async def _connect() -> AsyncIterator[aiosqlite.Connection]:
+    """Een verbinding met de tabel. Sluit zonder commit, zoals `auth.connect`."""
+    await auth.ensure_db()
+    async with auth.connect() as conn:
+        yield await ensure(conn)
+
+
+async def rejected(conn: aiosqlite.Connection, store: str) -> set[tuple[str, str]]:
+    """De afgewezen koppelingen van een winkel als (sleutel, productnummer), uit een open verbinding (die `ensure` al zag)."""
+    rows = await conn.execute_fetchall("SELECT key, product_id FROM shared_link_rejections WHERE store = ?", (store,))
+    return {(row["key"], row["product_id"]) for row in rows}
+
+
+def _identity(store: Any, name: Any, product_id: Any) -> tuple[str, str, str]:
+    """(winkel, sleutel, productnummer) uit een verzoek. ValueError met een leesbare melding bij een ongeldige invoer."""
+    key_store: str = str(store or "").strip().lower()
+    if key_store not in STORES:
+        raise ValueError(tr("Onbekende winkel", "Unknown store"))
+    text: str = " ".join(str(name or "").split())[:MAX_NAME_CHARS]
+    product: str = " ".join(str(product_id or "").split())[:MAX_ID_CHARS]
+    if not text or not product:
+        raise ValueError(tr("Een naam en een productnummer zijn nodig", "A name and a product number are required"))
+    return key_store, name_keys.key(text), product
+
+
+async def reject(store: Any, name: Any, product_id: Any) -> bool:
+    """Zet een gedeelde koppeling uit voor deze installatie. Geeft of er iets veranderde (False als hij al uit stond)."""
+    key_store, key, product = _identity(store, name, product_id)
+    now: str = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    async with _connect() as conn:
+        cursor: aiosqlite.Cursor = await conn.execute(
+            "INSERT OR IGNORE INTO shared_link_rejections (store, key, product_id, created_at) VALUES (?, ?, ?, ?)",
+            (key_store, key, product, now),
+        )
+        await conn.commit()
+    return cursor.rowcount > 0
+
+
+async def restore(store: Any, name: Any, product_id: Any) -> bool:
+    """Zet een afgewezen gedeelde koppeling weer aan. Geeft of er iets veranderde (False als hij niet uit stond)."""
+    key_store, key, product = _identity(store, name, product_id)
+    async with _connect() as conn:
+        cursor: aiosqlite.Cursor = await conn.execute(
+            "DELETE FROM shared_link_rejections WHERE store = ? AND key = ? AND product_id = ?",
+            (key_store, key, product),
+        )
+        await conn.commit()
+    return cursor.rowcount > 0

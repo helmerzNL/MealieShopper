@@ -12,7 +12,7 @@ import sqlite3
 import httpx
 from quart import Quart, Response, jsonify, redirect, render_template, request, send_file, send_from_directory
 
-from . import about, ah, ah_explore, ah_lists, ah_orders, ah_planner, ah_recipes, ai_match, ai_review, audit, auth_password, backup, cart_memory, crisp, crisp_orders, factory_reset, hellofresh, image_cache, jumbo, jumbo_explore, jumbo_lists, jumbo_orders, jumbo_recipes, marleyspoon, mcp_http, mealie, mealie_images, offers, offers_schedule, onboarding, picnic, picnic_explore, picnic_orders, picnic_recipes, price_archive, price_import, prices, product_images, product_links, profile, push, recipe_bulk, recipe_nutrition, request_body, server_settings, updates, users
+from . import about, ah, ah_explore, ah_lists, ah_orders, ah_planner, ah_recipes, ai_match, ai_review, audit, auth_password, backup, cart_memory, crisp, crisp_orders, factory_reset, hellofresh, image_cache, jumbo, jumbo_explore, jumbo_lists, jumbo_orders, jumbo_recipes, marleyspoon, mcp_http, mealie, mealie_images, offers, offers_schedule, onboarding, picnic, picnic_explore, picnic_orders, picnic_recipes, price_archive, price_import, prices, product_images, product_links, profile, push, recipe_bulk, recipe_nutrition, request_body, server_settings, shared_links, updates, users
 from . import auth, deals, http_client, tasks, urls
 from . import assets
 from .body_limits import DEFAULT_MAX_BODY, SizedRequest
@@ -920,6 +920,26 @@ def create_app() -> Quart:
             return {"removed": await product_links.remove(store, kind, key)}
 
         return await import_action(remove)
+
+    # Een koppeling uit het gedeelde bestand (shared_links.py) die voor deze installatie niet klopt: Klopt niet zet hem uit, en
+    # terugzetten zet hem weer aan. Voor iedereen die is ingelogd, net als je eigen koppelingen hierboven.
+    @app.post("/api/shared-links/reject")
+    async def shared_links_reject():
+        body = await request_body.json_object()
+
+        async def reject() -> dict[str, Any]:
+            return {"changed": await shared_links.reject(body.get("store"), body.get("name"), body.get("productId"))}
+
+        return await import_action(reject)
+
+    @app.post("/api/shared-links/restore")
+    async def shared_links_restore():
+        body = await request_body.json_object()
+
+        async def restore() -> dict[str, Any]:
+            return {"changed": await shared_links.restore(body.get("store"), body.get("name"), body.get("productId"))}
+
+        return await import_action(restore)
 
     @app.get("/api/prices/compare")
     async def prices_compare():

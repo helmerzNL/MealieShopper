@@ -24,6 +24,8 @@ from helpers import AppTestCase, db, returned, run, sent_json, served  # helpers
 import httpx
 
 import test_ah_orders  # als module: de opzet van het AH-mandje
+import test_shared_links  # idem: de gedeelde lijst en zijn opzet
+import test_price_import  # idem
 import test_history_chart_js  # als module, voor de Node-opbouw van offers_history.js
 import test_history_stores_js  # als module: anders draait pytest die tests hier nog een keer
 import test_offers  # idem: de opzet van de receptvoorstellen
@@ -1561,6 +1563,23 @@ class CookingIngredientsFitOnAPhoneTest(unittest.TestCase):
         self.assertNotIn("justify-content: center", stage)
         self.assertIn("overflow-y: auto", stage)
         self.assertIn("margin-top: auto", self.rule(".cook-mode__stage > :first-child"))
+
+
+class LooseNamesSharedListTest(test_shared_links.SharedListCase):
+    async def test_2026_11_10_a_loose_name_in_the_shared_list_counts_for_its_product(self):
+        """Rick, 2026-11-10: "hoe lossen we dit probleem fatsoenlijk op voor de rest van de aankoopregels? kijk of er een patroon
+        is en of we dit goed automatisch kunnen regelen". Een oude naam uit een bestelmail die in het gedeelde bestand staat, hoort
+        bij het product van nu."""
+        await self.seed_catalogue()
+        orders = (test_price_import.mail_order(number=f"N{n}", day=f"2026-09-1{n}", items=test_shared_links.mail_lines("AH Doosjevol kersen")) for n in range(3))
+        await self.run_import(*orders)
+        products = (await prices.history("ah", "", 50, today="2026-10-20", product="1234"))["products"]
+        self.assertEqual(sum(p["timesBought"] for p in products if p["productId"] == "1234"), 1, "zonder het bestand is het een losse naam")
+        prices._CATALOGUES.clear()  # het bestand verandert alleen met een update van de app, dus na een herstart van het proces
+        with test_shared_links.shared(test_shared_links.CHERRIES):
+            product = (await prices.history("ah", "", 50, today="2026-10-20", product="1234"))["products"][0]
+        self.assertEqual((product["productId"], product["timesBought"]), ("1234", 4))
+        self.assertEqual(sum(1 for p in product["purchases"] if p["source"] == "import"), 3)
 
 
 if __name__ == "__main__":

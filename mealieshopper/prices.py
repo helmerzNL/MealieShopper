@@ -35,7 +35,7 @@ from typing import Any, Callable, Iterable, NamedTuple
 
 import aiosqlite
 
-from . import ah, ah_lists, ah_orders, auth, deals, line_offers, name_keys, offer_categories, offer_ranking, offers, packs, price_import, product_links
+from . import ah, ah_lists, ah_orders, auth, deals, line_offers, name_keys, offer_categories, offer_ranking, offers, packs, price_import, product_links, shared_links
 from .i18n import tr
 
 log = logging.getLogger(__name__)
@@ -176,11 +176,11 @@ async def _connect() -> AsyncIterator[aiosqlite.Connection]:
     """Een verbinding met het schema. Sluit zonder commit, zoals `auth.connect`.
 
     Eerst het schema van de aanbiedingen en zijn migraties (`offers.prepare`, het maakt ook `offer_history` aan), dan dit schema en
-    `product_links.ensure` (de tabel en de SQL-functie `ms_fold`)."""
+    `product_links.ensure` (de tabel en de SQL-functie `ms_fold`) en `shared_links.ensure` (de afgewezen gedeelde koppelingen)."""
     async with auth.connect() as conn:
         await offers.prepare(conn)
         await auth.ensure_schema(conn, "prices", SCHEMA)
-        yield await product_links.ensure(conn)
+        yield await shared_links.ensure(await product_links.ensure(conn))
 
 
 def _number(value: Any) -> float | None:
@@ -515,6 +515,12 @@ async def _imported_rows(conn: aiosqlite.Connection, store: str, today: str) -> 
     return _not_in_account(await conn.execute_fetchall(_IMPORTED_SQL, (store, today)), *await price_import.account_orders(conn, store))
 
 
+def _shared_link_row(row: Any, link: shared_links.SharedLink) -> dict[str, Any]:
+    """Een ingelezen aankoop met een koppeling uit het gedeelde bestand (`shared_links`): het product, met de naam en de inhoud uit
+    het bestand. De naam uit de mail blijft vindbaar (`receipt_name`), `shared` laat het scherm Klopt niet tonen."""
+    return {**dict(row), "product_id": link.product_id, "title": link.title, "unit_size": link.unit_size, "receipt_name": row["title"], "shared": True}
+
+
 def _own_link_row(row: Any, link: dict[str, Any]) -> dict[str, Any]:
     """Een bonregel of ingelezen aankoop met je eigen koppeling (#238): het product, met de naam, het merk, de inhoud en de foto
     die je koos. De naam op de bon of in de mail blijft vindbaar (`receipt_name`)."""
@@ -548,14 +554,18 @@ async def _receipt_rows(conn: aiosqlite.Connection, store: str, today: str) -> l
         rows += await conn.execute_fetchall(_DATED_RECEIPTS_SQL, (today,))
     if not rows:
         return []
-    return _link_receipt_rows(store, rows, await _names(conn, store), await _receipt_products(conn), await product_links.load(conn, store))
+    shared: dict[str, shared_links.SharedLink] = shared_links.active(store, await shared_links.rejected(conn, store))
+    return _link_receipt_rows(store, rows, await _names(conn, store), await _receipt_products(conn), await product_links.load(conn, store), shared)
 
 
 def _link_receipt_rows(
-    store: str, rows: list[Any], names: _Names, linked: dict[str, _Linked], mine: product_links.Links
+    store: str, rows: list[Any], names: _Names, linked: dict[str, _Linked], mine: product_links.Links,
+    shared: dict[str, shared_links.SharedLink] | None = None,
 ) -> list[dict[str, Any]]:
     """Het koppelen van `_receipt_rows`, zonder database: de regels, de namen (`_names`), de koppelingen van AH
-    (`_receipt_products`) en je eigen koppelingen (`product_links.load`)."""
+    (`_receipt_products`), je eigen koppelingen (`product_links.load`) en de gedeelde (`shared_links.active`).
+
+    Een gedeelde koppeling geldt alleen voor een ingelezen aankoop, na je eigen koppeling en voor al het andere."""
     index: dict[str, str] = names.index
     bare = _bare_index(index, store)
     webshop: dict[str, _Linked] = {link.product_id: link for link in linked.values()}
@@ -568,6 +578,10 @@ def _link_receipt_rows(
         link = mine.find(own if row["source"] == "receipt" else None, name)
         if link:
             found.append(_own_link_row(row, link))
+            continue
+        shared_link = shared.get(name_keys.key(row["title"])) if shared and row["source"] == "import" else None
+        if shared_link:
+            found.append(_shared_link_row(row, shared_link))
             continue
         fallback = f"import:{name}" if row["source"] == "import" else f"bon:{name}"
         # Het id op een bon is AH's artikelnummer, dat toevallig gelijk kan zijn aan het id van een ander product in de webwinkel
@@ -630,18 +644,23 @@ async def link_names(store: str, names: Iterable[str]) -> dict[str, dict[str, An
     Zo ziet een ingelezen bestelling eruit als een bestelling uit je account (#229).
 
     Je eigen koppeling op naam (#238) gaat voor; die naam heeft ook `link` ({"kind", "key"}), zodat het scherm hem kan wijzigen of
-    weghalen. Wat de app van het product weet, gaat voor wat in de koppeling staat (een nieuwere foto of naam van de winkel)."""
+    weghalen. Daarna komt het gedeelde bestand (`shared_links`): die naam heeft `shared` True, zodat het scherm Klopt niet kan tonen.
+    Wat de app van het product weet, gaat voor wat in de koppeling staat (een nieuwere foto of naam van de winkel)."""
     names = {name for name in names if name}
     if not names:
         return {}
     async with _connect() as conn:
         mine = await product_links.load(conn, store)
         own = {name: link for name in names if (link := mine.names.get(_fold_name(name)))}
+        shared_all = shared_links.active(store, await shared_links.rejected(conn, store))
+        shared = {name: shared_all[key] for name in names if name not in own and (key := name_keys.key(name)) in shared_all}
         index = await _name_index(conn, store)
         bare = _bare_index(index, store)
         matched = {name: link["productId"] for name, link in own.items()}
+        matched.update({name: link.product_id for name, link in shared.items()})
         matched.update({
-            name: product_id for name in names if name not in own and (product_id := _match_name(index, bare, store, _fold_name(name)))
+            name: product_id for name in names if name not in own and name not in shared
+            and (product_id := _match_name(index, bare, store, _fold_name(name)))
         })
         details = await _product_details(conn, store, sorted(set(matched.values())))
     found: dict[str, dict[str, Any]] = {}
@@ -651,6 +670,9 @@ async def link_names(store: str, names: Iterable[str]) -> dict[str, dict[str, An
         if link:
             saved = {"title": link["title"], "brand": link["brand"], "unitSize": link["unitSize"], "image": link["image"]}
             known = {**{key: value for key, value in saved.items() if value}, **known, "link": {"kind": link["kind"], "key": link["key"]}}
+        elif name in shared:
+            saved = {"title": shared[name].title, "unitSize": shared[name].unit_size}
+            known = {**{key: value for key, value in saved.items() if value}, **known, "shared": True}
         found[name] = {"productId": product_id, **known}
     return found
 
@@ -895,7 +917,7 @@ _UPCOMING_SQL = (
 # koppeling of een test die direct in SQLite schrijft.
 CATALOGUE_TABLES: frozenset[str] = frozenset({table for sources in _PURCHASES.values() for needed, _ in sources for table in needed}) | {
     "offer_history", "offers", "price_observations", "imported_purchases", "ah_receipts", "ah_receipt_items", "ah_receipt_products",
-    "product_links",
+    "product_links", "shared_link_rejections",
 }
 _CATALOGUE_OPS: tuple[str, ...] = ("INSERT", "UPDATE", "DELETE")
 _CATALOGUE_TRIGGERS_SQL = "SELECT name FROM sqlite_master WHERE type = 'trigger' AND name LIKE 'catalogue!_%' ESCAPE '!'"

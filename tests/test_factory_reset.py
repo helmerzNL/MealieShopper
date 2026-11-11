@@ -67,6 +67,16 @@ class PasswordResetTest(FactoryResetCase):
         self.assertEqual(self.files(), [])
         self.assertIn("ms_session=;", response.headers.get("Set-Cookie", ""))
 
+    async def test_a_rejected_shared_link_goes_with_the_database(self):
+        from mealieshopper import shared_links
+
+        self.assertTrue(await shared_links.reject("ah", "AH Doosjevol kersen", "1234"))
+        response = await self.reset({"password": PASSWORD})
+        self.assertEqual(response.status_code, 200, response.get_json())
+        auth.forget_runtime_state()
+        await auth.init_db()
+        self.assertTrue(await shared_links.reject("ah", "AH Doosjevol kersen", "1234"), "na de reset is de afwijzing weg")
+
     async def test_the_image_cache_folder_goes_too(self):
         cached = self.data / "images" / "ab" / "abcd.webp"
         cached.parent.mkdir(parents=True)

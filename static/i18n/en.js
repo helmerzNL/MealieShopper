@@ -542,6 +542,8 @@ I18N.add("en", {
   "links.saving": "Linking...",
   "links.unlink": "Unlink",
   "links.unlink_confirm": "Unlink {name}? The link is removed; to link again you sign in at {name} again.",
+  "links.shared_source": "Linked through the shared list",
+  "links.shared_wrong": "Not right",
   "links.note": "After linking, MealieShopper also recognises this line on your other and future receipts and orders.",
   "orders.imported.delete": "Remove order",
   "orders.imported.delete_confirm": "Remove the whole imported order of {date}?",

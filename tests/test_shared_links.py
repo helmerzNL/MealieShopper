@@ -4,11 +4,17 @@ import logging
 import os
 import subprocess
 import sys
+from contextlib import closing
 from pathlib import Path
+from typing import Any
+from unittest import mock
 
 import pytest
 
-from mealieshopper import name_keys, prices, product_links, shared_links
+import test_price_import
+from helpers import db, in_db
+from mealieshopper import ah_orders, auth, name_keys, price_import, prices, product_links, shared_links
+from mealieshopper.app import create_app
 from mealieshopper.shared_links import SharedLink
 
 
@@ -202,3 +208,116 @@ def test_import_order_does_not_matter(order: str) -> None:
         text=True,
     )
     assert result.returncode == 0, result.stderr
+
+
+TODAY: str = "2026-10-20"
+CHERRIES: SharedLink = SharedLink("ah doosjevol kersen", "1234", "AH Doosje met kersen", "250 g")
+
+
+def shared(*links: SharedLink) -> Any:
+    """Het gedeelde bestand van AH met deze koppelingen (de bestanden die de app meelevert zijn nog leeg)."""
+    by_key: dict[str, SharedLink] = {name_keys.key(link.name): link for link in links}
+    return mock.patch.object(shared_links, "load", side_effect=lambda store: by_key if store == "ah" else {})
+
+
+def mail_lines(*names: str) -> list[dict[str, Any]]:
+    return [{"name": name, "quantity": 1, "price": 3.0, "total": 3.0} for name in names]
+
+
+class SharedListCase(test_price_import.ImportCase):
+    async def seed_catalogue(self) -> None:
+        await self.ah_order(101, "2026-09-01", {"productId": 1234, "title": "AH Doosje met kersen", "quantity": 1, "price": 3.0, "amount": 3.0})
+        await self.ah_order(102, "2026-09-02", {"productId": 4183, "title": "AH Bananen tros", "quantity": 1, "price": 1.29, "amount": 1.29})
+
+    async def rows(self) -> dict[str, dict[str, Any]]:
+        found = await in_db(prices._connect, lambda conn: prices._receipt_rows(conn, "ah", TODAY))
+        return {row.get("receipt_name") or row["title"]: row for row in found[0]}
+
+    def receipt(self, name: str) -> None:
+        with closing(db(ah_orders)) as conn, conn:
+            conn.execute("INSERT INTO ah_receipts (receipt_id, date_time, total, details_synced, first_seen) VALUES ('R1', '2026-09-03', 0, 1, '2026-09-03')")
+            conn.execute("INSERT INTO ah_receipt_items (receipt_id, position, product_id, name, quantity, price, amount) VALUES ('R1', 0, '99999', ?, 1, 3.0, 3.0)", (name,))
+
+
+class SharedListTest(SharedListCase):
+    async def test_own_link_beats_shared_and_shared_beats_name_match(self):
+        await self.seed_catalogue()
+        names = ("AH Eigen naam", "AH Doosjevol kersen", "AH Bananen tros")
+        await self.run_import(test_price_import.mail_order(items=mail_lines(*names)))
+        await product_links.save("ah", "AH Eigen naam", {"productId": "9", "title": "Eigen keus"})
+        links = (SharedLink("ah eigen naam", "7777", "Gedeeld", ""), CHERRIES, SharedLink("ah bananen tros", "5678", "AH Bananen los", "1 kg"))
+        with shared(*links):
+            rows = await self.rows()
+        assert (rows["AH Eigen naam"]["product_id"], rows["AH Eigen naam"].get("shared")) == ("9", None)
+        cherries = rows["AH Doosjevol kersen"]
+        assert (cherries["product_id"], cherries["title"], cherries["unit_size"], cherries["receipt_name"], cherries["shared"]) == (
+            "1234", "AH Doosje met kersen", "250 g", "AH Doosjevol kersen", True,
+        )
+        assert (rows["AH Bananen tros"]["product_id"], rows["AH Bananen tros"]["shared"]) == ("5678", True)
+        assert (await self.rows())["AH Bananen tros"]["product_id"] == "4183", "zonder het bestand telt de naam"
+
+    async def test_shared_link_does_not_touch_receipt_lines(self):
+        await self.seed_catalogue()
+        self.receipt("AH Doosjevol kersen")
+        with shared(CHERRIES):
+            rows = await self.rows()
+        assert rows["AH Doosjevol kersen"]["product_id"] != "1234"
+        assert not rows["AH Doosjevol kersen"].get("shared")
+
+    async def test_reject_makes_the_name_loose_again_and_survives_a_new_file(self):
+        await self.seed_catalogue()
+        await self.run_import(test_price_import.mail_order(items=mail_lines("AH Doosjevol kersen")))
+        with shared(CHERRIES):
+            assert (await self.rows())["AH Doosjevol kersen"]["product_id"] == "1234"
+            assert await shared_links.reject("ah", "AH Doosjevol kersen", "1234") is True
+            assert await shared_links.reject("ah", "AH  Doosjevol kersen", "1234") is False, "dezelfde sleutel, al afgewezen"
+            assert (await self.rows())["AH Doosjevol kersen"]["product_id"] == "import:ah doosjevol kersen"
+        with shared(SharedLink("ah doosjevol kersen", "5678", "AH Kersen", "")):
+            assert (await self.rows())["AH Doosjevol kersen"]["product_id"] == "5678"
+        with shared(CHERRIES):
+            assert await shared_links.restore("ah", "AH Doosjevol kersen", "1234") is True
+            assert await shared_links.restore("ah", "AH Doosjevol kersen", "1234") is False
+            assert (await self.rows())["AH Doosjevol kersen"]["product_id"] == "1234"
+
+    async def test_reject_changes_the_history_of_a_product(self):
+        await self.seed_catalogue()
+        await self.run_import(*(test_price_import.mail_order(number=f"N{n}", day=f"2026-09-1{n}", items=mail_lines("AH Doosjevol kersen")) for n in range(3)))
+        with shared(CHERRIES):
+            product = (await prices.history("ah", "kersen", 50, today=TODAY))["products"][0]
+            assert (product["productId"], product["timesBought"]) == ("1234", 4)
+            await shared_links.reject("ah", "AH Doosjevol kersen", "1234")
+            product = next(p for p in (await prices.history("ah", "kersen", 50, today=TODAY))["products"] if p["productId"] == "1234")
+            assert product["timesBought"] == 1
+
+    async def test_link_names_marks_a_shared_link_and_an_own_link_wins(self):
+        await self.seed_catalogue()
+        await product_links.save("ah", "AH Eigen naam", {"productId": "9", "title": "Eigen keus"})
+        with shared(CHERRIES, SharedLink("ah eigen naam", "7777", "Gedeeld", "")):
+            found = await prices.link_names("ah", ["AH Doosjevol kersen", "AH Eigen naam"])
+        assert (found["AH Doosjevol kersen"]["productId"], found["AH Doosjevol kersen"]["shared"]) == ("1234", True)
+        assert found["AH Eigen naam"]["productId"] == "9" and "shared" not in found["AH Eigen naam"]
+
+    async def test_the_imported_order_carries_shared(self):
+        await self.seed_catalogue()
+        await self.run_import(test_price_import.mail_order(items=mail_lines("AH Doosjevol kersen")))
+        with shared(CHERRIES):
+            item = (await price_import.get_order("ah", "225301"))["items"][0]
+        assert (item["productId"], item["shared"]) == ("1234", True)
+
+
+class RejectionRouteTest(SharedListCase):
+    async def test_routes_change_and_validate(self):
+        client = self.client_for(create_app())
+        body = {"store": "ah", "name": "AH Doosjevol kersen", "productId": "1234"}
+        assert (await client.post("/api/shared-links/reject", json=body)).get_json() == {"changed": True}
+        assert (await client.post("/api/shared-links/reject", json=body)).get_json() == {"changed": False}
+        assert (await client.post("/api/shared-links/restore", json=body)).get_json() == {"changed": True}
+        for bad in ({**body, "store": "aldi"}, {**body, "store": "nope"}, {**body, "name": " "}, {**body, "productId": ""}, {"store": "ah"}):
+            for route in ("reject", "restore"):
+                response = await client.post(f"/api/shared-links/{route}", json=bad)
+                assert response.status_code == 400, (route, bad)
+                assert response.get_json()["error"]
+
+    def test_everyone_may_reject(self):
+        assert not auth.admin_only("/api/shared-links/reject")
+        assert not auth.admin_only("/api/shared-links/restore")

@@ -399,8 +399,8 @@ class ScreensTest(AppTestCase):
                             " crisp: [renderCrispOrderItem(items[1], true), renderCrispOrderItem(items[1], false)] }));")
         self.assertEqual(found["lines"], [
             {"store": "picnic", "name": "Kipfilet uit de mail", "article": None, "product": "Picnic kipfilet", "productId": "s1",
-             "link": {"kind": "name", "key": "kipfilet uit de mail"}},
-            {"store": "picnic", "name": "Iets anders", "article": None, "product": None, "productId": None, "link": None},
+             "link": {"kind": "name", "key": "kipfilet uit de mail"}, "shared": False},
+            {"store": "picnic", "name": "Iets anders", "article": None, "product": None, "productId": None, "link": None, "shared": False},
         ])
         self.assertEqual({view: html.count("data-product-link") for view, html in found["ah"].items()}, {"cards": 2, "category": 2, "table": 2})
         self.assertIn('data-store="ah" data-name="Kipfilet uit de mail" data-article="" data-product="Picnic kipfilet" data-product-id="s1"', found["ah"]["cards"])

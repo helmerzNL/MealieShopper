@@ -542,6 +542,8 @@ I18N.add("nl", {
   "links.saving": "Koppelen...",
   "links.unlink": "Ontkoppelen",
   "links.unlink_confirm": "{name} ontkoppelen? De koppeling wordt gewist; om daarna weer te koppelen log je opnieuw in bij {name}.",
+  "links.shared_source": "Gekoppeld via de gedeelde lijst",
+  "links.shared_wrong": "Klopt niet",
   "links.note": "Na het koppelen herkent MealieShopper deze regel ook op je andere en volgende bonnen en bestellingen.",
   "orders.imported.delete": "Bestelling verwijderen",
   "orders.imported.delete_confirm": "De geïmporteerde bestelling van {date} helemaal verwijderen?",

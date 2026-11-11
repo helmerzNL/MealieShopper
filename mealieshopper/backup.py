@@ -48,7 +48,7 @@ from cryptography.fernet import Fernet, InvalidToken
 from cryptography.hazmat.primitives.kdf.scrypt import Scrypt
 from quart import Quart, Response, jsonify, request
 
-from . import about, ah_lists, ah_orders, ah_recipes, ai_review, auth, cart_memory, crisp, crisp_orders, hellofresh, jumbo, jumbo_lists, jumbo_orders, marleyspoon, mealie, offers, offers_schedule, picnic, picnic_orders, price_import, prices, product_images, product_links, profile, request_body, server_settings, tasks, thread_db, uploads
+from . import about, ah_lists, ah_orders, ah_recipes, ai_review, auth, cart_memory, crisp, crisp_orders, hellofresh, jumbo, jumbo_lists, jumbo_orders, marleyspoon, mealie, offers, offers_schedule, picnic, picnic_orders, price_import, prices, product_images, product_links, profile, request_body, server_settings, shared_links, tasks, thread_db, uploads
 from .i18n import tr
 
 log = logging.getLogger(__name__)
@@ -82,6 +82,7 @@ DATA_TABLES = (
     "offers", "offer_history", "offers_meta",
     "price_observations", "product_images", "imported_purchases",
     "product_links",  # je eigen koppelingen van bonregels en ingelezen aankopen aan een product (#238): werk van de gebruiker
+    "shared_link_rejections",  # de gedeelde koppelingen die je afwees met Klopt niet (shared_links.py): ook werk van de gebruiker
     "offer_recipes", "offer_recipes_meta",
     "offer_rejections", "offer_verdicts",
     "ai_recipe_matches", "ai_recipe_runs",
@@ -149,14 +150,14 @@ COUNT_GROUPS: dict[str, tuple[str, ...]] = {
     "prices": ("price_observations",),
     "productImages": ("product_images",),
     "importedPurchases": ("imported_purchases",),
-    "productLinks": ("product_links",),
+    "productLinks": ("product_links", "shared_link_rejections"),
     "recipes": ("ah_saved_recipes", "offer_recipes"),
     "judgements": ("offer_rejections", "offer_verdicts", "ai_recipe_matches"),
     "profiles": ("user_profiles",),
     "cartMemory": ("cart_choices", "pantry_items"),
 }
 
-SCHEMA_OWNERS = (ah_lists, ah_orders, ah_recipes, cart_memory, crisp_orders, hellofresh, jumbo_lists, jumbo_orders, marleyspoon, offers, offers_schedule, picnic_orders, price_import, prices, product_links, profile)
+SCHEMA_OWNERS = (ah_lists, ah_orders, ah_recipes, cart_memory, crisp_orders, hellofresh, jumbo_lists, jumbo_orders, marleyspoon, offers, offers_schedule, picnic_orders, price_import, prices, product_links, profile, shared_links)
 
 JOB_SCHEMA = """
 CREATE TABLE IF NOT EXISTS backup_jobs (
