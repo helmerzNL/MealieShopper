@@ -20,7 +20,7 @@ from werkzeug.exceptions import RequestTimeout
 
 os.environ["PASSKEY_AUTH_ENABLED"] = "false"
 
-from mealieshopper import audit, auth, auth_password, backup, factory_reset, image_cache, mealie, mealie_images, oauth, price_archive, prices, profile, recipe_nutrition, tasks, uploads  # noqa: E402
+from mealieshopper import audit, auth, auth_password, backup, factory_reset, image_cache, mealie, mealie_images, oauth, price_archive, prices, profile, push, recipe_nutrition, tasks, uploads  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
 from helpers import AppClient, db, ReadResponse, run_aside  # noqa: E402
 
@@ -254,6 +254,8 @@ class ClassificationTest(BackupCase):
             pass
         async with recipe_nutrition._connect():
             pass
+        async with push._connect():  # de push van de kooktimers (issue #311): bewust niet in de back-up
+            pass
 
     async def test_every_table_is_either_in_the_backup_or_left_out_on_purpose(self) -> None:
         # Een nieuwe tabel met gegevens hoort in de back-up (DATA_TABLES) en in de round-trip-test: dit is de herinnering.
@@ -274,6 +276,12 @@ class ClassificationTest(BackupCase):
     def test_nothing_that_unlocks_the_app_is_in_the_list(self) -> None:
         for table in ("users", "passkey_credentials", "password_credentials", "mfa_totp", "mfa_recovery_codes", "invites", "oauth_tokens", "oauth_codes", "login_attempts"):
             self.assertNotIn(table, backup.DATA_TABLES)
+
+    def test_push_subscriptions_stay_with_their_browser(self) -> None:
+        # Een abonnement hoort bij een browser en bij de VAPID-sleutel van deze installatie (issue #311); geen van beide gaat mee.
+        self.assertTrue({"push_subscriptions", "cook_timers"} <= backup.EXCLUDED_TABLES)
+        self.assertNotIn(push.SETTING_VAPID_KEY, backup.SECRET_KEYS)
+        self.assertNotIn(push.SETTING_VAPID_KEY, backup.PLAIN_SETTINGS)
 
     def test_every_stored_link_is_known(self) -> None:
         source = (ROOT / "mealieshopper" / "ah.py").read_text(encoding="utf-8")

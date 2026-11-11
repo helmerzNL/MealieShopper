@@ -1,5 +1,6 @@
 """De timers bij het koken (static/cook_timers.js, issue #309): tijden uit een stap halen, meer timers tegelijk, pauzeren,
-afgaan, bewaren in localStorage, en de melding via de service worker (static/cook_sw.js).
+afgaan, bewaren in localStorage, en de melding via de service worker (static/cook_sw.js). Sinds issue #311 ook de push van de
+server: welke timers de app naar de server stuurt, het abonnement, en de push-handler van de service worker.
 
 De functies draaien hier echt, in Node, met een nagemaakte localStorage. Zonder Node slaan die tests over; de controles van
 de pagina en de bestanden draaien altijd.
@@ -18,6 +19,7 @@ WORKER_JS = (ROOT / "static" / "cook_sw.js").read_text(encoding="utf-8")
 VIEW_JS = (ROOT / "static" / "recipe_view.js").read_text(encoding="utf-8")
 HTML = (ROOT / "templates" / "index.html").read_text(encoding="utf-8")
 CSS = (ROOT / "static" / "styles.css").read_text(encoding="utf-8")
+APP_JS = (ROOT / "static" / "app.js").read_text(encoding="utf-8")
 
 PRELUDE = r"""
 const t = (key, vars) => vars ? `${key}${JSON.stringify(vars)}` : key;
@@ -46,13 +48,18 @@ def timers_source():
 
 
 @unittest.skipUnless(shutil.which("node"), "Node is niet geïnstalleerd")
-class CookTimersJsTest(unittest.TestCase):
+class NodeCase(unittest.TestCase):
+    """De functies van cook_timers.js in Node: `run_js` draait `body` erachter en geeft wat `out` schreef."""
+
     def run_js(self, body):
         script = "\n".join([PRELUDE, timers_source(), body])
         result = subprocess.run(["node", "-e", script], capture_output=True, text=True, timeout=30)
         if result.returncode:
             self.fail(result.stderr[-2000:])
         return json.loads(result.stdout)
+
+
+class CookTimersJsTest(NodeCase):
 
     # ---- Tijden uit een stap
     def test_the_times_in_a_step(self):
@@ -182,6 +189,218 @@ class CookTimersJsTest(unittest.TestCase):
         self.assertIn("data-cook-timer-custom>", found["none"], "zelf een timer zetten kan altijd")
 
 
+# Een browser met push (issue #311): een service worker, een push-abonnement en jsonFetch, nagemaakt. KEY is de publieke sleutel
+# van de server, OLD een sleutel van voor de fabrieksinstellingen.
+PUSH_BROWSER = r"""
+const KEY = "BAABAgMEBQYHCAkKCwwNDg8QERITFBUWFxgZGhscHR4fICEiIyQlJicoKSorLC0uLzAxMjM0NTY3ODk6Ozw9Pj8";
+const OLD = "BP__________________________________________________________________________________w";
+const calls = [];
+const made = { subscribed: [], unsubscribed: 0 };
+let current = null;
+function subscription(key) {
+  return {
+    endpoint: "https://fcm.googleapis.com/fcm/send/abc", options: { applicationServerKey: cookPushKeyBytes(key).buffer },
+    toJSON() { return { endpoint: this.endpoint, keys: { p256dh: "p", auth: "a" } }; },
+    async unsubscribe() { made.unsubscribed += 1; current = null; return true; },
+  };
+}
+const registration = {
+  active: {},
+  pushManager: {
+    async getSubscription() { return current; },
+    async subscribe(options) { made.subscribed.push(Array.from(options.applicationServerKey).length); current = subscription(KEY); return current; },
+  },
+};
+globalThis.Notification = { permission: "granted" };
+globalThis.window = { isSecureContext: true, PushManager: function PushManager() {}, Notification: globalThis.Notification };
+Object.defineProperty(globalThis, "navigator", { value: { serviceWorker: { async register() { return registration; }, async getRegistration() { return registration; } } }, configurable: true, writable: true });
+globalThis.location = { href: "https://shop.example.nl/recipes?week=2026-11-16", pathname: "/recipes", search: "?week=2026-11-16" };
+$ = (selector) => (selector === "#cook-timers" ? { dataset: { worker: "/static/cook_sw.js?v=1" } } : null);
+globalThis.jsonFetch = async (url, options = {}) => {
+  calls.push({ url, method: options.method || "GET", body: options.body ? JSON.parse(options.body) : null });
+  return url === "/api/push/key" ? { publicKey: KEY } : { timers: 1, publicKey: KEY };
+};
+"""
+
+
+class CookPushJsTest(NodeCase):
+    """Push van de server (issue #311): wat de app naar de server stuurt, en wanneer."""
+
+    def test_only_running_timers_go_to_the_server(self):
+        found = self.run_js("""
+          const a = cookTimerAdd(600, { title: 'Pasta', step: 2 }, NOW);
+          const b = cookTimerAdd(300, { title: 'Pasta', step: 3 }, NOW);
+          const c = cookTimerAdd(60, { title: 'Pasta', step: 4 }, NOW);
+          cookTimerPause(b, NOW + 1000);
+          cookTimersDue(NOW + 61000);
+          out({ timers: cookPushTimers(NOW + 100000.4), ids: [a.id] });
+        """)
+        self.assertEqual(found["timers"], [{
+            "id": found["ids"][0], "left": 500000,
+            "title": 'cook.timer_notify_title{"name":"cook.timer_minutes_short{\\"n\\":10}"}',
+            "body": 'Pasta · cook.timer_step{"n":"2"}',
+        }], "een gepauzeerde timer en een die afgaat krijgen geen push; de resttijd, niet de eindtijd (de klok van de server)")
+
+    def test_the_key_and_the_remembered_state(self):
+        found = self.run_js(PUSH_BROWSER + """
+          const key = cookPushKeyBytes(KEY);
+          const same = cookPushSameKey(subscription(KEY), key);
+          const other = cookPushSameKey(subscription(OLD), key);
+          const unknown = cookPushSameKey({ options: {} }, key);
+          const before = cookPushPending();
+          cookPushPending(true);
+          const set = cookPushPending();
+          cookPushPending(false);
+          const cleared = cookPushPending();
+          globalThis.localStorage = { getItem() { throw new Error('geen opslag'); }, setItem() { throw new Error('geen opslag'); }, removeItem() { throw new Error('geen opslag'); } };
+          out({ length: key.length, first: key[0], bad: cookPushKeyBytes('***').length, same, other, unknown, before, set, cleared, without: cookPushPending() });
+        """)
+        self.assertEqual((found["length"], found["first"], found["bad"]), (65, 4, 0))
+        self.assertEqual((found["same"], found["other"], found["unknown"]), (True, False, True))
+        self.assertEqual((found["before"], found["set"], found["cleared"]), (False, True, False))
+        self.assertTrue(found["without"], "zonder opslag liever een keer te veel melden")
+
+    def test_without_push_nothing_is_sent(self):
+        found = self.run_js("""
+          cookTimerAdd(600, {}, NOW);
+          cookPushSync().then((sent) => out({ sent }));
+        """)
+        self.assertEqual(found, {"sent": False}, "zonder push in de browser (of zonder https) blijft alles zoals het was")
+
+    def test_the_timers_and_the_subscription_go_to_the_server(self):
+        found = self.run_js(PUSH_BROWSER + """
+          (async () => {
+            const a = cookTimerAdd(600, { title: 'Pasta', step: 2 }, Date.now());
+            await cookPushSync();
+            cookTimerRemove(a.id);
+            await cookPushSync();
+            const afterStop = calls.length;
+            await cookPushSync();  // niets meer bij de server: geen verzoek
+            out({ calls, afterStop, subscribed: made.subscribed, pending: cookPushPending() });
+          })();
+        """)
+        calls = found["calls"]
+        self.assertEqual([(call["url"], call["method"]) for call in calls], [("/api/push/key", "GET"), ("/api/cook/timers", "PUT"), ("/api/cook/timers", "PUT")])
+        first = calls[1]["body"]
+        self.assertEqual(first["subscription"], {"endpoint": "https://fcm.googleapis.com/fcm/send/abc", "keys": {"p256dh": "p", "auth": "a"}})
+        self.assertEqual(first["url"], "/recipes?week=2026-11-16")
+        self.assertEqual(len(first["timers"]), 1)
+        self.assertTrue(595000 < first["timers"][0]["left"] <= 600000)
+        self.assertEqual(calls[2]["body"]["timers"], [], "een gestopte timer gaat er bij de server af")
+        self.assertEqual(found["afterStop"], len(calls))
+        self.assertEqual(found["subscribed"], [65], "een abonnement met de sleutel van de server")
+        self.assertFalse(found["pending"])
+
+    def test_a_subscription_with_an_old_key_is_replaced(self):
+        found = self.run_js(PUSH_BROWSER + """
+          (async () => {
+            current = subscription(OLD);  // van voor de fabrieksinstellingen
+            cookTimerAdd(60, {}, Date.now());
+            await cookPushSync();
+            out({ unsubscribed: made.unsubscribed, subscribed: made.subscribed.length, sent: calls.filter((call) => call.method === 'PUT').length });
+          })();
+        """)
+        self.assertEqual(found, {"unsubscribed": 1, "subscribed": 1, "sent": 1})
+
+    def test_changes_during_a_request_follow_after_it(self):
+        found = self.run_js(PUSH_BROWSER + """
+          (async () => {
+            cookTimerAdd(600, {}, Date.now());
+            const first = cookPushSync();
+            cookTimerAdd(300, { step: 2 }, Date.now());
+            const second = cookPushSync();
+            await Promise.all([first, second]);
+            out(calls.filter((call) => call.method === 'PUT').map((call) => call.body.timers.length));
+          })();
+        """)
+        self.assertEqual(found[-1], 2, "de laatste melding heeft beide timers")
+        self.assertLessEqual(len(found), 2, "geen twee verzoeken tegelijk")
+
+    def test_logging_out_forgets_the_subscription(self):
+        found = self.run_js(PUSH_BROWSER + """
+          (async () => {
+            current = subscription(KEY);
+            cookPushPending(true);
+            await cookPushForget();
+            out({ calls, unsubscribed: made.unsubscribed, pending: cookPushPending() });
+          })();
+        """)
+        self.assertEqual([(call["url"], call["method"], call["body"]) for call in found["calls"]], [("/api/push/subscription", "DELETE", {"endpoint": "https://fcm.googleapis.com/fcm/send/abc"})])
+        self.assertEqual((found["unsubscribed"], found["pending"]), (1, False))
+
+
+@unittest.skipUnless(shutil.which("node"), "Node is niet geïnstalleerd")
+class CookWorkerPushTest(unittest.TestCase):
+    """De push-handler van de service worker, in Node met een nagemaakte `self`."""
+
+    def run_worker(self, body):
+        script = r"""
+const handlers = {};
+const shown = [];
+let existing = [];
+let windows = [];
+globalThis.self = {
+  addEventListener: (type, fn) => { handlers[type] = fn; },
+  skipWaiting() {},
+  location: new URL("https://shop.example.nl/static/cook_sw.js?v=1"),
+  clients: { matchAll: async () => windows, openWindow: async () => null },
+  registration: {
+    getNotifications: async ({ tag }) => existing.filter((item) => item.tag === tag),
+    showNotification: async (title, options) => { shown.push({ title, ...options }); },
+  },
+};
+async function deliver(data) {
+  let waiting = null;
+  const payload = data === undefined ? null : { json: () => (typeof data === "string" ? JSON.parse(data) : data) };
+  handlers.push({ data: payload, waitUntil: (promise) => { waiting = promise; } });
+  if (waiting) await waiting;
+}
+const TIMER = { type: "cook-timer", id: "lz9-1", title: "Timer klaar: 10 min", body: "Pasta · Stap 2", url: "/recipes?week=2026-11-16" };
+""" + WORKER_JS + "\n(async () => {\n" + body + "\n})();"
+        result = subprocess.run(["node", "-e", script], capture_output=True, text=True, timeout=30)
+        if result.returncode:
+            self.fail(result.stderr[-2000:])
+        return json.loads(result.stdout)
+
+    def test_a_push_shows_the_timer(self):
+        found = self.run_worker("await deliver(TIMER); process.stdout.write(JSON.stringify(shown));")
+        self.assertEqual(found, [{
+            "title": "Timer klaar: 10 min", "body": "Pasta · Stap 2", "tag": "cook-timer-lz9-1", "renotify": True, "requireInteraction": True,
+            "vibrate": [300, 150, 300, 150, 300], "icon": "https://shop.example.nl/static/brand/icon-192.png",
+            "data": {"url": "https://shop.example.nl/recipes?week=2026-11-16"},
+        }])
+
+    def test_never_a_second_notification(self):
+        found = self.run_worker("""
+          existing = [{ tag: "cook-timer-lz9-1" }];  // de app toonde hem net zelf
+          await deliver(TIMER);
+          const replaced = shown.splice(0);
+          windows = [{ visibilityState: "visible", focused: true, url: "https://shop.example.nl/recipes" }];  // de app is in beeld
+          await deliver(TIMER);
+          const watching = shown.splice(0);
+          windows = [{ visibilityState: "visible", focused: false, url: "https://shop.example.nl/recipes" }];
+          existing = [];
+          await deliver(TIMER);
+          process.stdout.write(JSON.stringify({ replaced, watching, behind: shown }));
+        """)
+        self.assertEqual(len(found["replaced"]), 1)
+        self.assertFalse(found["replaced"][0]["renotify"], "dezelfde melding vervangen, zonder opnieuw te trillen")
+        self.assertEqual(found["watching"], [], "in beeld piept de app zelf")
+        self.assertEqual(len(found["behind"]), 1, "een venster op de achtergrond telt niet als in beeld")
+
+    def test_odd_messages_and_other_sites(self):
+        found = self.run_worker("""
+          await deliver({ type: "iets-anders", id: "x" });
+          await deliver(undefined);
+          await deliver("{kapot");
+          await deliver({ type: "cook-timer" });
+          const nothing = shown.length;
+          await deliver({ ...TIMER, url: "//evil.example/x" });
+          process.stdout.write(JSON.stringify({ nothing, url: shown[0].data.url }));
+        """)
+        self.assertEqual(found, {"nothing": 0, "url": "/"})
+
+
 class CookTimersPageTest(unittest.TestCase):
     def test_the_script_loads_after_the_cooking_view(self):
         scripts = re.findall(r"filename='([\w/]+\.js)'", HTML)
@@ -209,8 +428,16 @@ class CookTimersPageTest(unittest.TestCase):
 
     def test_the_service_worker_only_shows_notifications(self):
         self.assertIn('addEventListener("notificationclick"', WORKER_JS)
+        self.assertIn('addEventListener("push"', WORKER_JS, "de melding van de server (issue #311)")
         self.assertNotIn('"fetch"', WORKER_JS, "geen fetch-handler: de app werkt precies zoals zonder")
         self.assertNotIn("caches.", WORKER_JS)
+
+    def test_every_change_goes_to_the_server(self):
+        changed = TIMERS_JS[TIMERS_JS.index("function cookTimersChanged"):]
+        self.assertIn("cookPushSync()", changed[:changed.index("\n}")], "starten, pauzeren, verder laten lopen en stoppen")
+        tick = TIMERS_JS[TIMERS_JS.index("function cookTimersTick"):]
+        self.assertIn("cookPushSync()", tick[:tick.index("\n}")], "een timer die in de app afgaat, gaat er bij de server af")
+        self.assertIn('typeof cookPushForget === "function"', APP_JS, "uitloggen meldt het abonnement af")
 
     def test_the_styles(self):
         tray = re.search(r"\.cook-timers \{(.*?)\}", CSS, re.S).group(1)
