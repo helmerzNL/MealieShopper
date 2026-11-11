@@ -1106,6 +1106,39 @@ class LinkingStatusTest(AhOrdersTestCase):
         )
         self.assertTrue(all(0 < c.args[0] <= ah_orders.RECEIPT_PRODUCTS_PAUSE_SECONDS for c in self.sleep.call_args_list))
 
+    async def test_polite_pauses_on_403_and_429_under_the_lock_and_reraises_the_same_error(self) -> None:
+        # Wie op het slot wacht (een tweede ronde, de zoekronde van losse namen) moet de pauze zien voordat hij zijn verzoek stuurt.
+        for status in (403, 429):
+            await auth.set_setting(ah_orders.SETTING_RECEIPT_PRODUCTS_PAUSED, "")
+            error = ah.AhHttpError(f"AH productzoekopdracht mislukt ({status})", status)
+            seen: list[str | None] = []
+
+            async def refused() -> None:
+                raise error
+
+            async def waiting() -> None:
+                seen.append(await ah_orders.paused_until(self.NOW))
+
+            queued = asyncio.ensure_future(ah_orders._polite(waiting))
+            with self.assertRaises(ah.AhHttpError) as raised:
+                await ah_orders._polite(refused)
+            self.assertIs(raised.exception, error)
+            await asyncio.wait_for(queued, 5)
+            self.assertEqual(seen, ["2026-11-06T03:00:00+00:00"], "de wachtende zag de pauze al")
+            self.assertEqual(await auth.get_setting(ah_orders.SETTING_RECEIPT_PRODUCTS_PAUSED_REASON), f"{status}@{self.NOW}")
+
+    async def test_polite_sets_no_pause_on_other_errors(self) -> None:
+        for error in (ah.AhHttpError("AH productzoekopdracht mislukt (500)", 500), RuntimeError("verbinding verbroken")):
+
+            async def failing(error: Exception = error) -> None:
+                raise error
+
+            with self.assertRaises(type(error)) as raised:
+                await ah_orders._polite(failing)
+            self.assertIs(raised.exception, error)
+            self.assertEqual(await auth.get_setting(ah_orders.SETTING_RECEIPT_PRODUCTS_PAUSED), "")
+            self.assertIsNone(await ah_orders.paused_until(self.NOW))
+
     def test_a_403_records_the_reason_next_to_the_pause(self):
         with mock.patch.object(ah_orders, "_polite_search", new_callable=mock.AsyncMock, side_effect=ah.AhHttpError("AH productzoekopdracht mislukt", 403)):
             result = run(ah_orders.resolve_receipt_products("2026-11-05T14:02:00+00:00"))

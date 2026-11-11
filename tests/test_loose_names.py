@@ -1060,7 +1060,8 @@ class RaceTest(LooseNamesCase):
 
     async def test_a_403_of_another_ah_caller_while_queued_sends_nothing(self) -> None:
         # De bonnenronde (of het zoeken in de Prijsgeschiedenis) houdt het slot van `ah_orders.polite` en krijgt een 403, terwijl
-        # de ronde van losse namen erachter wacht: daarna mag er geen verzoek meer naar AH.
+        # de ronde van losse namen erachter wacht. `ah_orders._polite` zet de pauze nog onder het slot, dus de wachtende ronde ziet
+        # hem in zijn eigen beurt en stuurt niets meer naar AH. Het tempo is hier geen echte pauze (`ah_orders._wait` doet niets).
         self.bought("AH Eerste naam", 2, store="ah")
         old: str = later(days=-100)
         self.state("ah", "AH Eerste naam", old, "candidates", [item("1", "AH Iets")])
@@ -1072,13 +1073,9 @@ class RaceTest(LooseNamesCase):
                 await release.wait()
                 raise ah.AhHttpError("AH productzoekopdracht mislukt (403)", 403)
 
-            try:
+            with self.assertRaises(ah.AhHttpError):
                 await ah_orders.polite(call)
-            except ah.AhHttpError as error:
-                await ah_orders.pause(NOW, error.status)
 
-        other: asyncio.Task[None] = asyncio.create_task(other_caller())
-        await asyncio.wait_for(inside.wait(), 5)
         queued: asyncio.Event = asyncio.Event()
         polite = ah_orders.polite
 
@@ -1086,21 +1083,20 @@ class RaceTest(LooseNamesCase):
             queued.set()  # de ronde keek al naar de pauze en wacht nu op het slot van de ander
             return await polite(call)
 
-        async def pace(seconds: float) -> None:
-            # Het tempo van `ah_orders._polite` echt laten lopen (hooguit een seconde): in die 1,5 seconde onder het slot zet de
-            # ander zijn pauze, want `ah_orders` pauzeert pas nadat het slot vrij is.
-            await asyncio.sleep(min(seconds, 1.0))
-
         search = FakeSearch()
-        with mock.patch.object(ah_orders, "polite", queue), mock.patch.object(ah_orders, "_wait", pace):
-            loose: asyncio.Task[dict[str, Any]] = asyncio.create_task(loose_names.run_round("ah", NOW, search=search))
-            await asyncio.wait_for(queued.wait(), 5)
-            self.assertFalse(loose.done())
-            release.set()
-            await other
-            result: dict[str, Any] = await asyncio.wait_for(loose, 5)
+        with mock.patch.object(ah_orders, "_now", return_value=NOW):
+            other: asyncio.Task[None] = asyncio.create_task(other_caller())
+            await asyncio.wait_for(inside.wait(), 5)
+            with mock.patch.object(ah_orders, "polite", queue):
+                loose: asyncio.Task[dict[str, Any]] = asyncio.create_task(loose_names.run_round("ah", NOW, search=search))
+                await asyncio.wait_for(queued.wait(), 5)
+                self.assertFalse(loose.done())
+                release.set()
+                await other
+                result: dict[str, Any] = await asyncio.wait_for(loose, 5)
         self.assertEqual(search.calls, [], "geen verzoek na de 403 van de ander")
         self.assertEqual((result["searches"], result["stopped"]), (0, "blocked"))
+        self.assertEqual(await ah_orders.paused_until(NOW), later(hours=ah_orders.RECEIPT_PRODUCTS_BACKOFF_HOURS))
         state = self.row("ah", "AH Eerste naam")
         self.assertEqual((state["checked_at"], state["outcome"]), (old, "candidates"), "de oude stand")
 

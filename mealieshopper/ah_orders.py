@@ -663,7 +663,15 @@ async def _polite(call: Callable[[], Awaitable[T]]) -> T:
             await _wait(wait)
         _PACE["last"] = time.monotonic()
         _PACE["recent"].append(_PACE["last"])
-        return await call()
+        try:
+            return await call()
+        except ah.AhHttpError as exc:
+            if exc.status in (403, 429):  # de pauze moet er al zijn voor wie op het slot wacht, niet pas na de aanroeper
+                try:
+                    await _pause(_now(), exc.status)
+                except Exception:  # noqa: BLE001 - de fout van AH gaat hoe dan ook ongewijzigd door, de aanroeper pauzeert ook
+                    log.exception("Koppelen: de pauze na een %s van AH vastleggen mislukte", exc.status)
+            raise
 
 
 async def polite(call: Callable[[], Awaitable[T]]) -> T:
