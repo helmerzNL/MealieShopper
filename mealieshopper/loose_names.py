@@ -32,7 +32,7 @@ from typing import Any
 
 import aiosqlite
 
-from . import ah, ah_orders, auth, crisp, jumbo, picnic, prices, product_links
+from . import ah, ah_orders, ai_review, auth, crisp, jumbo, picnic, prices, product_links, purchase_sync, tasks
 from .i18n import tr
 from .loose_name_rules import candidates_of, kept_proposal, outcome_of, status_of
 
@@ -55,6 +55,8 @@ SETTING_PAUSED_PREFIX: str = "loose_names_paused_until_"  # plus de winkel, niet
 MAX_KEY_CHARS: int = 400
 PAGE_SIZE: int = 30
 MAX_PAGE_SIZE: int = 100
+SETTING_LAST_ROUND: str = "loose_names_last_round"
+TASK_NAME: str = "loose-names"
 
 SCHEMA: str = """
 -- De stand per losse aankoopnaam (loose_names.py): de sleutel van de naam (`name_keys.key`), de schrijfwijze die het vaakst in de
@@ -133,9 +135,12 @@ def _lock(store: str) -> asyncio.Lock:
     return locks.setdefault(store, asyncio.Lock())
 
 
-def running(store: str) -> bool:
-    """Of er nu een ronde loopt voor `store`."""
-    return _lock(store).locked()
+def running(store: str | None = None) -> bool:
+    """Of er nu een ronde loopt voor `store`, of zonder winkel of de taak `loose-names` (`start`) loopt."""
+    if store is not None:
+        return _lock(store).locked()
+    task: asyncio.Task[Any] | None = tasks.running().get(TASK_NAME)
+    return task is not None and not task.done()
 
 
 # --- invoer van buiten ------------------------------------------------------------------------------------------------------
@@ -425,6 +430,8 @@ async def confirm(store: Any, key: Any, product_id: Any) -> dict[str, Any]:
         None,
     )
     state: aiosqlite.Row | None = (await _states(key_store)).get(text)
+    if not chosen_id:
+        raise ValueError(tr("Kies een product om te koppelen", "Choose a product to link"))
     if entry is None or state is None or state["outcome"] != "candidates":
         raise ValueError(
             tr(
@@ -433,10 +440,17 @@ async def confirm(store: Any, key: Any, product_id: Any) -> dict[str, Any]:
             )
         )
     found: list[dict[str, Any]] = _json(state["candidates"], list) or []
-    chosen: dict[str, Any] = next(
+    chosen: dict[str, Any] | None = next(
         (c for c in found if isinstance(c, dict) and c.get("productId") == chosen_id),
-        {"productId": chosen_id},
+        None,
     )
+    if chosen is None:
+        raise ValueError(
+            tr(
+                "Dit product staat niet meer bij de voorstellen. Laad de pagina opnieuw.",
+                "This product is no longer among the suggestions. Reload the page.",
+            )
+        )
     link: dict[str, Any] = {}
     for spelling in entry["spellings"]:
         link = await product_links.save(key_store, spelling, chosen, origin="confirmed")
@@ -532,4 +546,82 @@ async def page(store: Any, offset: int = 0, limit: int = PAGE_SIZE) -> dict[str,
         "rejected": _listed(loose, states, "rejected"),
         "pausedUntil": await paused_until(key_store, now),
         "running": running(key_store),
+    }
+
+
+# --- de planning: 's nachts en op verzoek ---------------------------------------------------------------------------------------
+
+
+async def _linked_stores() -> list[str]:
+    """De winkels van `product_links.STORES` die gekoppeld zijn, met dezelfde controle als de nachtelijke synchronisatie."""
+    return [
+        s.name
+        for s in purchase_sync._STORES
+        if s.name in STORES and await purchase_sync._is_linked(s)
+    ]
+
+
+async def _round_of(store: str, now: str | None) -> dict[str, Any]:
+    try:
+        return await run_round(store, now)
+    except Exception as exc:  # noqa: BLE001 - een winkel die faalt, houdt de volgende niet tegen
+        log.warning("Ronde voor losse namen van %s mislukt: %s", store, exc, exc_info=True)
+        return {**_counts("error"), "error": str(exc) or type(exc).__name__}
+
+
+async def _proposals_of(store: str) -> dict[str, Any] | None:
+    """De voorstellen van de AI na de ronde, alleen met een AI en de instelling voor 's nachts aan. Een fout komt in de uitkomst."""
+    if not (await ai_review.configured() and await ai_review.loose_nightly()):
+        return None
+    from . import loose_names_ai  # pas hier: loose_names_ai importeert deze module
+
+    try:
+        return dict(await loose_names_ai.propose(store))
+    except Exception as exc:  # noqa: BLE001 - de AI is een extraatje: de ronde zelf is al gelukt
+        log.warning("Voorstellen van de AI voor losse namen van %s mislukt: %s", store, exc)
+        return {"error": str(exc) or type(exc).__name__}
+
+
+async def run_all_stores(
+    trigger: str, now: str | None = None, only: str | None = None
+) -> dict[str, Any]:
+    """Loop de ronde voor elke gekoppelde winkel (of alleen `only`), na elkaar, daarna de voorstellen van de AI als die aan staan.
+    De uitkomst, {at, trigger, stores: {winkel: ronde plus eventueel "ai"}}, gaat naar de instelling `loose_names_last_round`."""
+    names: list[str] = [_store(only)] if only else await _linked_stores()
+    stores: dict[str, Any] = {}
+    for name in names:
+        stores[name] = await _round_of(name, now)
+        proposals: dict[str, Any] | None = await _proposals_of(name)
+        if proposals is not None:
+            stores[name]["ai"] = proposals
+    result: dict[str, Any] = {"at": now or _now(), "trigger": trigger, "stores": stores}
+    await auth.set_setting(SETTING_LAST_ROUND, json.dumps(result))
+    return result
+
+
+async def last_round() -> dict[str, Any] | None:
+    """De uitkomst van de laatste `run_all_stores`, of None als die er niet is of niet te lezen is."""
+    return _json(await auth.get_setting(SETTING_LAST_ROUND, ""), dict)
+
+
+def start(store: str | None, trigger: str) -> bool:
+    """Start de taak `loose-names` (een winkel, of alle gekoppelde winkels bij None) en wacht er niet op. Geeft False als de taak al
+    loopt: er is er hooguit een tegelijk. ValueError bij een onbekende winkel."""
+    only: str | None = None if store is None else _store(store)
+    if running():
+        return False
+    tasks.spawn(TASK_NAME, run_all_stores(trigger, only=only))
+    return True
+
+
+async def overview(store: Any, offset: int = 0, limit: int = PAGE_SIZE) -> dict[str, Any]:
+    """`page` plus wat de pagina nodig heeft om de knoppen te kiezen: of er een AI is (`ai.configured`) en of die 's nachts voorstelt
+    (`ai.nightly`), en de uitkomst van de laatste ronde (`lastRound`)."""
+    return {
+        **await page(store, offset, limit),
+        "ai": {
+            "configured": await ai_review.configured(),
+            "nightly": await ai_review.loose_nightly(),
+        },
+        "lastRound": await last_round(),
     }

@@ -12,7 +12,7 @@ import sqlite3
 import httpx
 from quart import Quart, Response, jsonify, redirect, render_template, request, send_file, send_from_directory
 
-from . import about, ah, ah_explore, ah_lists, ah_orders, ah_planner, ah_recipes, ai_match, ai_review, audit, auth_password, backup, cart_memory, crisp, crisp_orders, factory_reset, hellofresh, image_cache, jumbo, jumbo_explore, jumbo_lists, jumbo_orders, jumbo_recipes, marleyspoon, mcp_http, mealie, mealie_images, offers, offers_schedule, onboarding, picnic, picnic_explore, picnic_orders, picnic_recipes, price_archive, price_import, prices, product_images, product_links, profile, push, recipe_bulk, recipe_nutrition, request_body, server_settings, shared_links, updates, users
+from . import about, ah, ah_explore, ah_lists, ah_orders, ah_planner, ah_recipes, ai_match, ai_review, audit, auth_password, backup, cart_memory, crisp, crisp_orders, factory_reset, hellofresh, image_cache, jumbo, jumbo_explore, jumbo_lists, jumbo_orders, jumbo_recipes, loose_names, loose_names_ai, marleyspoon, mcp_http, mealie, mealie_images, offers, offers_schedule, onboarding, picnic, picnic_explore, picnic_orders, picnic_recipes, price_archive, price_import, prices, product_images, product_links, profile, push, recipe_bulk, recipe_nutrition, request_body, server_settings, shared_links, updates, users
 from . import auth, deals, http_client, tasks, urls
 from . import assets
 from .body_limits import DEFAULT_MAX_BODY, SizedRequest
@@ -938,6 +938,72 @@ def create_app() -> Quart:
 
         async def restore() -> dict[str, Any]:
             return {"changed": await shared_links.restore(body.get("store"), body.get("name"), body.get("productId"))}
+
+        return await import_action(restore)
+
+    # De pagina "Losse aankopen" (loose_names.py). Alleen de beheerder: /api/loose-names staat in auth.ADMIN_PREFIXES, want de ronde
+    # gebruikt het tempo van de winkels en de AI kost geld.
+    def page_number(name: str, default: int) -> int:
+        raw: str | None = request.args.get(name)
+        if raw is None or raw == "":
+            return default
+        try:
+            return int(raw)
+        except ValueError:
+            raise ValueError(tr(f"{name} moet een geheel getal zijn", f"{name} must be an integer")) from None
+
+    @app.get("/api/loose-names")
+    async def loose_names_page():
+        async def read() -> dict[str, Any]:
+            return await loose_names.overview(
+                request.args.get("store"), page_number("offset", 0), page_number("limit", loose_names.PAGE_SIZE)
+            )
+
+        return await import_action(read)
+
+    @app.post("/api/loose-names/run")
+    async def loose_names_run():
+        body = await request_body.json_object()
+
+        async def run() -> dict[str, Any]:
+            store: str = loose_names._store(body.get("store"))
+            return {"started": loose_names.start(store, "manual")}
+
+        return await import_action(run)
+
+    @app.post("/api/loose-names/propose")
+    async def loose_names_propose():
+        body = await request_body.json_object()
+
+        async def propose() -> dict[str, Any]:
+            store: str = loose_names._store(body.get("store"))
+            try:
+                return await loose_names_ai.propose(store)
+            except ai_review.AiError as exc:
+                raise ValueError(str(exc)) from exc
+
+        return await import_action(propose)
+
+    @app.post("/api/loose-names/confirm")
+    async def loose_names_confirm():
+        body = await request_body.json_object()
+        return await import_action(lambda: loose_names.confirm(body.get("store"), body.get("key"), body.get("productId")))
+
+    @app.post("/api/loose-names/reject")
+    async def loose_names_reject():
+        body = await request_body.json_object()
+
+        async def reject() -> dict[str, Any]:
+            return {"changed": await loose_names.reject(body.get("store"), body.get("key"))}
+
+        return await import_action(reject)
+
+    @app.post("/api/loose-names/restore")
+    async def loose_names_restore():
+        body = await request_body.json_object()
+
+        async def restore() -> dict[str, Any]:
+            return {"changed": await loose_names.restore(body.get("store"), body.get("key"))}
 
         return await import_action(restore)
 

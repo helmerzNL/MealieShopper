@@ -17,23 +17,29 @@ from typing import Any
 from unittest import mock
 
 import test_shared_links
+import helpers
 from helpers import AppTestCase, db, run
 
 from mealieshopper import (
     ah,
     ah_orders,
+    ai_review,
     auth,
+    auth_password,
     crisp,
     jumbo,
     loose_name_rules,
     loose_names,
+    loose_names_ai,
     name_keys,
     picnic,
     price_import,
     prices,
     product_links,
     shared_links,
+    tasks,
 )
+from mealieshopper.app import create_app
 
 NOW: str = "2026-11-11T01:00:00+00:00"
 TODAY: str = "2026-11-11"
@@ -1139,3 +1145,444 @@ class RaceTest(LooseNamesCase):
         self.assertEqual((result["searches"], result["stopped"]), (1, "blocked"))
         self.assertEqual(search.queries, ["Crisp Eerste naam"])
         self.assertEqual(await loose_names.paused_until("crisp", NOW), later(hours=loose_names.BACKOFF_HOURS))
+class PlanningCase(LooseNamesCase):
+    """De planning (`run_all_stores`, `start`): de rondes en de AI zijn vervangen, er gaat niets naar een winkel of een aanbieder."""
+
+    def linked(self, **stores: str) -> None:
+        """Welke winkels gekoppeld zijn, zoals in tests/test_purchase_sync.py: de naam met het token, de rest heeft er geen."""
+        checks = {
+            "ah": (ah, "configured_refresh_token"),
+            "jumbo": (jumbo, "configured_refresh_token"),
+            "picnic": (picnic, "configured_auth_key"),
+            "crisp": (crisp, "configured_client_id"),
+        }
+        for store, (module, name) in checks.items():
+            patcher = mock.patch.object(
+                module,
+                name,
+                new_callable=mock.AsyncMock,
+                return_value=stores.get(store, ""),
+            )
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    def rounds(self, fail: dict[str, Exception] | None = None) -> list[str]:
+        """Vervang `run_round` door een ronde die alleen onthoudt voor welke winkel hij liep."""
+        seen: list[str] = []
+
+        async def fake_round(
+            store: str, now: str | None = None, **kwargs: Any
+        ) -> dict[str, Any]:
+            seen.append(store)
+            if fail and store in fail:
+                raise fail[store]
+            return {
+                "searches": 1,
+                "exact": 0,
+                "candidates": 1,
+                "missing": 0,
+                "stopped": None,
+            }
+
+        patcher = mock.patch.object(loose_names, "run_round", fake_round)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        return seen
+
+    def ai(
+        self,
+        configured: bool,
+        nightly: bool,
+        seen: list[str],
+        error: Exception | None = None,
+    ) -> None:
+        async def propose(store: str, limit: int | None = None) -> dict[str, int]:
+            seen.append(f"ai-{store}")
+            if error is not None:
+                raise error
+            return {"asked": 2, "proposed": 1, "none": 1, "tokens": 30}
+
+        for patcher in (
+            mock.patch.object(
+                ai_review, "configured", mock.AsyncMock(return_value=configured)
+            ),
+            mock.patch.object(
+                ai_review, "loose_nightly", mock.AsyncMock(return_value=nightly)
+            ),
+            mock.patch.object(loose_names_ai, "propose", propose),
+        ):
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+
+class PlanningTest(PlanningCase):
+    async def test_round_skips_unlinked_stores(self) -> None:
+        self.linked(jumbo="token", crisp="id")
+        seen: list[str] = self.rounds()
+        result: dict[str, Any] = await loose_names.run_all_stores("nightly", NOW)
+        self.assertEqual(seen, ["jumbo", "crisp"], "een na een, alleen gekoppeld")
+        self.assertEqual((result["at"], result["trigger"]), (NOW, "nightly"))
+        self.assertEqual(list(result["stores"]), ["jumbo", "crisp"])
+        self.assertEqual(
+            await loose_names.last_round(), result, "bewaard in de instelling"
+        )
+        self.assertEqual(
+            json.loads(await auth.get_setting("loose_names_last_round")), result
+        )
+
+    async def test_nothing_linked_records_an_empty_round(self) -> None:
+        self.linked()
+        seen: list[str] = self.rounds()
+        result: dict[str, Any] = await loose_names.run_all_stores("nightly", NOW)
+        self.assertEqual((seen, result["stores"]), ([], {}))
+
+    async def test_a_failing_store_does_not_stop_the_next_one(self) -> None:
+        self.linked(ah="t", jumbo="t")
+        seen: list[str] = self.rounds({"ah": RuntimeError("stuk")})
+        with self.assertLogs(loose_names.log, level="WARNING"):
+            result: dict[str, Any] = await loose_names.run_all_stores("nightly", NOW)
+        self.assertEqual(seen, ["ah", "jumbo"])
+        self.assertEqual(
+            (result["stores"]["ah"]["stopped"], result["stores"]["ah"]["error"]),
+            ("error", "stuk"),
+        )
+        self.assertIsNone(result["stores"]["jumbo"]["stopped"])
+
+    async def test_ai_runs_after_the_round_only_with_the_setting_on(self) -> None:
+        self.linked(jumbo="t")
+        seen: list[str] = self.rounds()
+        for configured, nightly in ((True, False), (False, True), (False, False)):
+            self.ai(configured, nightly, seen)
+            result: dict[str, Any] = await loose_names.run_all_stores("nightly", NOW)
+            self.assertNotIn("ai", result["stores"]["jumbo"], (configured, nightly))
+        self.assertEqual(
+            seen, ["jumbo"] * 3, "geen voorstellen zonder AI of zonder de instelling"
+        )
+        seen.clear()
+        self.ai(True, True, seen)
+        result = await loose_names.run_all_stores("nightly", NOW)
+        self.assertEqual(seen, ["jumbo", "ai-jumbo"], "eerst de ronde, dan de AI")
+        self.assertEqual(
+            result["stores"]["jumbo"]["ai"],
+            {"asked": 2, "proposed": 1, "none": 1, "tokens": 30},
+        )
+
+    async def test_an_ai_error_is_recorded_and_does_not_fail_the_round(self) -> None:
+        self.linked(jumbo="t")
+        seen: list[str] = self.rounds()
+        self.ai(True, True, seen, ai_review.AiError("sleutel geweigerd"))
+        with self.assertLogs(loose_names.log, level="WARNING"):
+            result: dict[str, Any] = await loose_names.run_all_stores("nightly", NOW)
+        self.assertEqual(
+            result["stores"]["jumbo"]["ai"], {"error": "sleutel geweigerd"}
+        )
+        self.assertEqual(
+            result["stores"]["jumbo"]["searches"], 1, "de ronde zelf is gelukt"
+        )
+
+    async def test_start_with_a_store_runs_only_that_store(self) -> None:
+        self.linked(ah="t", jumbo="t")
+        seen: list[str] = self.rounds()
+        self.assertTrue(loose_names.start("jumbo", "manual"))
+        await asyncio.gather(*tasks.running().values())
+        self.assertEqual(seen, ["jumbo"])
+        self.assertEqual((await loose_names.last_round())["trigger"], "manual")
+        with self.assertRaises(ValueError):
+            loose_names.start("aldi", "manual")
+
+    async def test_second_start_while_running_returns_false(self) -> None:
+        self.linked(jumbo="t")
+        release: asyncio.Event = asyncio.Event()
+
+        async def slow(
+            trigger: str, now: str | None = None, only: str | None = None
+        ) -> dict[str, Any]:
+            await release.wait()
+            return {}
+
+        with mock.patch.object(loose_names, "run_all_stores", slow):
+            self.assertFalse(loose_names.running())
+            self.assertTrue(loose_names.start(None, "nightly"))
+            self.assertTrue(loose_names.running())
+            self.assertFalse(
+                loose_names.start("jumbo", "manual"),
+                "een tegelijk, voor de hele module",
+            )
+            release.set()
+            await asyncio.gather(*tasks.running().values())
+            self.assertFalse(loose_names.running())
+            self.assertTrue(loose_names.start(None, "nightly"), "daarna kan het weer")
+            await asyncio.gather(*tasks.running().values())
+
+    async def test_confirm_refuses_a_product_that_is_not_a_candidate(self) -> None:
+        self.bought("Jumbo Oude naam", 2)
+        self.state(
+            "jumbo",
+            "Jumbo Oude naam",
+            NOW,
+            "candidates",
+            [loose_name_rules.candidate("jumbo", item("1", "Jumbo Nieuw"))],
+        )
+        key: str = name_keys.key("Jumbo Oude naam")
+        with self.assertRaises(ValueError) as caught:
+            await loose_names.confirm("jumbo", key, "99")
+        self.assertIn("Laad de pagina opnieuw", str(caught.exception))
+        self.assertIn("niet meer bij de voorstellen", str(caught.exception))
+        with self.assertRaises(ValueError) as missing:
+            await loose_names.confirm("jumbo", key, "")
+        self.assertIn("Kies een product", str(missing.exception))
+        self.assertEqual((await product_links.list_links("jumbo"))["links"], [])
+        self.assertIsNotNone(
+            self.row("jumbo", "Jumbo Oude naam"), "de kaart blijft staan"
+        )
+
+
+class RoutesTest(LooseNamesCase):
+    PASSWORD: str = "koffie-met-melk-42"
+    ANNA: str = "een-heel-ander-wachtwoord"
+
+    def setUp(self) -> None:
+        super().setUp()
+        env = mock.patch.dict(
+            os.environ,
+            {
+                "PASSKEY_AUTH_ENABLED": "true",
+                "MEALIESHOPPER_AUTH_SECRET": "test-secret",
+            },
+        )
+        env.start()
+        self.addCleanup(env.stop)
+        cost = mock.patch.object(auth_password, "SCRYPT_N", 2**4)
+        cost.start()
+        self.addCleanup(cost.stop)
+        auth.forget_runtime_state()
+        self.addCleanup(auth.forget_runtime_state)
+        run(auth.init_db())
+        self.app = create_app()
+
+    async def asyncSetUp(self) -> None:
+        self.addAsyncCleanup(tasks.cancel_all)
+        self.admin: helpers.AppClient = self.client_for(self.app)
+        await self.admin.post(
+            "/api/auth/password", json={"username": "admin", "password": self.PASSWORD}
+        )
+
+    async def join(self) -> helpers.AppClient:
+        invite = await self.admin.post("/api/users/invites", json={"username": "anna"})
+        client: helpers.AppClient = self.client_for(self.app)
+        await client.post(
+            "/api/invites/password",
+            json={"token": invite.get_json()["token"], "password": self.ANNA},
+        )
+        return client
+
+    async def card(self) -> str:
+        """Een losse naam bij AH met twee kandidaten (productId 1 en 2). Geeft de sleutel."""
+        self.bought("AH Les pain triomphe heel", 2, store="ah")
+        search = FakeSearch(
+            {
+                "AH Les pain triomphe heel": [
+                    ah_item("1", "AH Pain wit"),
+                    ah_item("2", "AH Pain bruin", "400 g"),
+                ]
+            }
+        )
+        await loose_names.run_round("ah", NOW, search=search)
+        return (await loose_names.page("ah"))["cards"][0]["key"]
+
+    def test_the_path_and_everything_under_it_is_admin_only(self) -> None:
+        for path in (
+            "/api/loose-names",
+            "/api/loose-names/run",
+            "/api/loose-names/propose",
+            "/api/loose-names/confirm",
+            "/api/loose-names/reject",
+            "/api/loose-names/restore",
+        ):
+            self.assertTrue(auth.admin_only(path), path)
+        self.assertFalse(auth.admin_only("/api/loose-namesx"))
+
+    async def test_routes_are_admin_only_and_validate_the_store(self) -> None:
+        anna, anonymous = await self.join(), self.client_for(self.app)
+        posts = ("run", "propose", "confirm", "reject", "restore")
+        for client, expected in ((anna, 403), (anonymous, 401)):
+            self.assertEqual(
+                (await client.get("/api/loose-names?store=ah")).status_code, expected
+            )
+            for route in posts:
+                response = await client.post(
+                    f"/api/loose-names/{route}",
+                    json={"store": "ah", "key": "~x", "productId": "1"},
+                )
+                self.assertEqual(response.status_code, expected, route)
+        for query in ("", "?store=nope", "?store=aldi"):
+            response = await self.admin.get(f"/api/loose-names{query}")
+            self.assertEqual(response.status_code, 400, query)
+            self.assertTrue(response.get_json()["error"])
+        for route in posts:
+            for body in (
+                {},
+                {"store": "nope", "key": "~x", "productId": "1"},
+                {"store": "ah", "key": "~x", "productId": "1"}
+                if route == "propose"
+                else {"store": "aldi"},
+            ):
+                if route == "propose" and body.get("store") == "ah":
+                    continue
+                response = await self.admin.post(f"/api/loose-names/{route}", json=body)
+                self.assertEqual(response.status_code, 400, (route, body))
+                self.assertTrue(response.get_json()["error"], (route, body))
+        for route in ("confirm", "reject", "restore"):
+            response = await self.admin.post(
+                f"/api/loose-names/{route}", json={"store": "ah"}
+            )
+            self.assertEqual(response.status_code, 400, route)
+        self.assertEqual(
+            (
+                await self.admin.post(
+                    "/api/loose-names/confirm", json={"store": "ah", "key": "~x"}
+                )
+            ).status_code,
+            400,
+        )
+        self.assertEqual(
+            (await self.admin.post("/api/loose-names/run", json=["ah"])).status_code,
+            400,
+        )
+
+    async def test_page_arguments_are_integers(self) -> None:
+        for query in ("offset=abc", "limit=x", "limit=1.5"):
+            response = await self.admin.get(f"/api/loose-names?store=ah&{query}")
+            self.assertEqual(response.status_code, 400, query)
+            self.assertTrue(response.get_json()["error"])
+        ok = await self.admin.get("/api/loose-names?store=ah&offset=0&limit=1000")
+        self.assertEqual(ok.status_code, 200, "limit wordt begrensd, niet geweigerd")
+
+    async def test_page_carries_the_ai_state_and_the_last_round(self) -> None:
+        body: dict[str, Any] = (
+            await self.admin.get("/api/loose-names?store=jumbo")
+        ).get_json()
+        self.assertEqual(
+            (body["ai"], body["lastRound"]),
+            ({"configured": False, "nightly": False}, None),
+        )
+        self.assertEqual(
+            (body["cards"], body["total"], body["running"]), ([], 0, False)
+        )
+        await ai_review.save(
+            {
+                "keys": {"anthropic": "sk-ant-api03-GEHEIM-0123456789abcdef"},
+                "looseNightly": True,
+            }
+        )
+        patcher = mock.patch.object(
+            loose_names,
+            "run_round",
+            mock.AsyncMock(return_value={"searches": 0, "stopped": None}),
+        )
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        with (
+            mock.patch.object(
+                ai_review, "loose_nightly", mock.AsyncMock(return_value=True)
+            ),
+            mock.patch.object(
+                loose_names_ai,
+                "propose",
+                mock.AsyncMock(
+                    return_value={"asked": 0, "proposed": 0, "none": 0, "tokens": 0}
+                ),
+            ),
+        ):
+            await loose_names.run_all_stores("manual", NOW, only="jumbo")
+            body = (await self.admin.get("/api/loose-names?store=jumbo")).get_json()
+        self.assertTrue(body["ai"]["configured"])
+        self.assertEqual(
+            (body["lastRound"]["trigger"], list(body["lastRound"]["stores"])),
+            ("manual", ["jumbo"]),
+        )
+
+    async def test_propose_without_ai_key_is_a_400(self) -> None:
+        response = await self.admin.post(
+            "/api/loose-names/propose", json={"store": "jumbo"}
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("AI", response.get_json()["error"])
+
+    async def test_propose_with_a_key_returns_the_result(self) -> None:
+        with mock.patch.object(
+            loose_names_ai,
+            "propose",
+            mock.AsyncMock(
+                return_value={"asked": 3, "proposed": 2, "none": 1, "tokens": 90}
+            ),
+        ) as propose:
+            response = await self.admin.post(
+                "/api/loose-names/propose", json={"store": "jumbo"}
+            )
+        self.assertEqual(
+            (response.status_code, response.get_json()),
+            (200, {"asked": 3, "proposed": 2, "none": 1, "tokens": 90}),
+        )
+        propose.assert_awaited_once_with("jumbo")
+
+    async def test_run_starts_the_round_and_a_second_run_reports_false(self) -> None:
+        release: asyncio.Event = asyncio.Event()
+        seen: list[tuple[str | None, str]] = []
+
+        async def slow(
+            trigger: str, now: str | None = None, only: str | None = None
+        ) -> dict[str, Any]:
+            seen.append((only, trigger))
+            await release.wait()
+            return {}
+
+        with mock.patch.object(loose_names, "run_all_stores", slow):
+            first = await self.admin.post(
+                "/api/loose-names/run", json={"store": "jumbo"}
+            )
+            second = await self.admin.post(
+                "/api/loose-names/run", json={"store": "jumbo"}
+            )
+            await asyncio.sleep(0)
+            self.assertEqual(
+                (first.get_json(), second.get_json()),
+                ({"started": True}, {"started": False}),
+            )
+            self.assertTrue(
+                (await self.admin.get("/api/loose-names?store=jumbo")).get_json()[
+                    "running"
+                ]
+                is False,
+                "de vergrendeling per winkel is van de ronde zelf",
+            )
+            release.set()
+            await asyncio.gather(*tasks.running().values())
+        self.assertEqual(seen, [("jumbo", "manual")])
+
+    async def test_confirm_reject_and_restore_over_the_api(self) -> None:
+        key: str = await self.card()
+        refused = await self.admin.post(
+            "/api/loose-names/confirm",
+            json={"store": "ah", "key": key, "productId": "99"},
+        )
+        self.assertEqual(refused.status_code, 400)
+        self.assertIn("Laad de pagina opnieuw", refused.get_json()["error"])
+        rejected = await self.admin.post(
+            "/api/loose-names/reject", json={"store": "ah", "key": key}
+        )
+        self.assertEqual(rejected.get_json(), {"changed": True})
+        restored = await self.admin.post(
+            "/api/loose-names/restore", json={"store": "ah", "key": key}
+        )
+        self.assertEqual(restored.get_json(), {"changed": True})
+        confirmed = await self.admin.post(
+            "/api/loose-names/confirm",
+            json={"store": "ah", "key": key, "productId": "2"},
+        )
+        self.assertEqual(confirmed.status_code, 200)
+        link = confirmed.get_json()
+        self.assertEqual((link["productId"], link["origin"]), ("2", "confirmed"))
+        self.assertEqual(
+            (await self.admin.get("/api/loose-names?store=ah")).get_json()["cards"], []
+        )
