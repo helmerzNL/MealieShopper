@@ -1679,13 +1679,13 @@ const JUMBO_SUBTABS = ["ah-items-jumbo-recepten"];
 const CRISP_SUBTABS = ["ah-items-crisp-recepten", "ah-items-crisp-favorieten", "ah-items-crisp-bestellingen"];
 
 // Winkels: per winkel de onderdelen en hun subtab, in de volgorde van de tabs. Het onderdeel is ook het stuk in het adres
-// (/stores/jumbo/lists, /stores/ah/planner); /stores/ah/receipts/<id> is een kassabon onder Bestellingen, /stores/ah/imported/<ref> een ingelezen
+// (/stores/jumbo/lists, /stores/ah/planner, /stores/ah/loose voor Losse aankopen); /stores/ah/receipts/<id> is een kassabon onder Bestellingen, /stores/ah/imported/<ref> een ingelezen
 // oude bestelling (zie price_import.py en router.js). Elk subtab hoort bij één onderdeel, bij welke winkel ook.
 const STORE_SECTIONS = {
-  ah: { recipes: "ah-items-recepten", planner: "ah-items-weekplanner", lists: "ah-items-lijstjes", orders: "ah-items-bestellingen" },
-  jumbo: { recipes: "ah-items-jumbo-recepten", lists: "ah-items-lijstjes", orders: "ah-items-bestellingen" },
-  picnic: { recipes: "ah-items-picnic", favorites: "ah-items-picnic-favorieten", orders: "ah-items-picnic-bestellingen" },
-  crisp: { recipes: "ah-items-crisp-recepten", favorites: "ah-items-crisp-favorieten", orders: "ah-items-crisp-bestellingen" },
+  ah: { recipes: "ah-items-recepten", planner: "ah-items-weekplanner", lists: "ah-items-lijstjes", orders: "ah-items-bestellingen", loose: "ah-items-losse-aankopen" },
+  jumbo: { recipes: "ah-items-jumbo-recepten", lists: "ah-items-lijstjes", orders: "ah-items-bestellingen", loose: "ah-items-losse-aankopen" },
+  picnic: { recipes: "ah-items-picnic", favorites: "ah-items-picnic-favorieten", orders: "ah-items-picnic-bestellingen", loose: "ah-items-losse-aankopen" },
+  crisp: { recipes: "ah-items-crisp-recepten", favorites: "ah-items-crisp-favorieten", orders: "ah-items-crisp-bestellingen", loose: "ah-items-losse-aankopen" },
 };
 
 function itemsOpenSubtab() {
@@ -2923,6 +2923,7 @@ document.querySelectorAll(".subtab[data-subtab], .subtab-menu__item[data-subtab]
     if (subtab.dataset.subtab === "settings-system" && typeof loadPriceArchive === "function") loadPriceArchive();
     if (subtab.dataset.subtab === "settings-system" && typeof loadImageCacheStatus === "function") loadImageCacheStatus();
     if (subtab.dataset.subtab === "ah-items-bestellingen" && typeof loadOrders === "function") loadOrders();
+    if (subtab.dataset.subtab === "ah-items-losse-aankopen" && typeof loadLooseNames === "function") loadLooseNames();
     if (subtab.dataset.subtab === "ah-items-weekplanner" && typeof showAhPlanner === "function") showAhPlanner();
     if (subtab.dataset.subtab === "ah-items-picnic" && typeof loadPicnicRecipes === "function" && !picnicRecipes.loaded) loadPicnicRecipes();
     if (subtab.dataset.subtab === "ah-items-picnic-favorieten" && typeof loadPicnicFavorites === "function" && !picnicFavorites.loaded) loadPicnicFavorites({ refresh: false });

@@ -30,12 +30,13 @@ class StoreSubtabsTest(unittest.TestCase):
         "ah-items-recepten", "ah-items-weekplanner", "ah-items-jumbo-recepten", "ah-items-lijstjes", "ah-items-bestellingen",
         "ah-items-picnic", "ah-items-picnic-favorieten", "ah-items-picnic-bestellingen",
         "ah-items-crisp-recepten", "ah-items-crisp-favorieten", "ah-items-crisp-bestellingen",
+        "ah-items-losse-aankopen",
     ]
     STORES = {
-        "ah": ["ah-items-recepten", "ah-items-weekplanner", "ah-items-lijstjes", "ah-items-bestellingen"],
-        "jumbo": ["ah-items-jumbo-recepten", "ah-items-lijstjes", "ah-items-bestellingen"],
-        "picnic": ["ah-items-picnic", "ah-items-picnic-favorieten", "ah-items-picnic-bestellingen"],
-        "crisp": ["ah-items-crisp-recepten", "ah-items-crisp-favorieten", "ah-items-crisp-bestellingen"],
+        "ah": ["ah-items-recepten", "ah-items-weekplanner", "ah-items-lijstjes", "ah-items-bestellingen", "ah-items-losse-aankopen"],
+        "jumbo": ["ah-items-jumbo-recepten", "ah-items-lijstjes", "ah-items-bestellingen", "ah-items-losse-aankopen"],
+        "picnic": ["ah-items-picnic", "ah-items-picnic-favorieten", "ah-items-picnic-bestellingen", "ah-items-losse-aankopen"],
+        "crisp": ["ah-items-crisp-recepten", "ah-items-crisp-favorieten", "ah-items-crisp-bestellingen", "ah-items-losse-aankopen"],
     }
 
     def nav(self):

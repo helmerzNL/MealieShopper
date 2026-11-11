@@ -53,6 +53,7 @@ SOURCES = {
     "theme.js": (STATIC / "theme.js").read_text(encoding="utf-8"),
     "appearance.js": (STATIC / "appearance.js").read_text(encoding="utf-8"),
     "shopping.js": (STATIC / "shopping.js").read_text(encoding="utf-8"),
+    "loose_names.js": (STATIC / "loose_names.js").read_text(encoding="utf-8"),
 }
 JS = "\n".join(SOURCES.values())
 ENTRY = re.compile(r'^  "([^"]+)": "((?:[^"\\]|\\.)*)",$', re.M)
@@ -184,6 +185,14 @@ class UsageTest(AppTestCase):
 
 
 class PageTest(AppTestCase):
+    def test_loose_names_texts_exist_in_both_languages_with_the_same_placeholders(self):
+        keys = [key for key in NL if key.startswith("loose.") or key.startswith("aireview.loose_")]
+        self.assertGreater(len(keys), 30)
+        for key in keys:
+            self.assertIn(key, EN, key)
+            self.assertEqual(placeholders(NL[key]), placeholders(EN[key]), key)
+        self.assertIn("'s nachts", NL["aireview.loose_nightly"])
+
     def test_scripts_load_in_the_right_order(self):
         order = [HTML.index(name) for name in ("i18n.js", "i18n/nl.js", "i18n/en.js", "app.js", "onboarding.js")]
         self.assertEqual(order, sorted(order))

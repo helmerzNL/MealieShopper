@@ -1036,6 +1036,7 @@
           <a class="subtab" data-subtab="ah-items-crisp-recepten" hidden data-i18n="crisp.recipes.tab" href="/stores/crisp/recipes" data-nav>Recepten</a>
           <a class="subtab" data-subtab="ah-items-crisp-favorieten" hidden data-i18n="crisp.favorites.tab" href="/stores/crisp/favorites" data-nav>Favorieten</a>
           <a class="subtab" data-subtab="ah-items-crisp-bestellingen" hidden data-i18n="crisp.orders.tab" href="/stores/crisp/orders" data-nav>Bestellingen</a>
+          <a class="subtab" data-subtab="ah-items-losse-aankopen" data-admin-only data-i18n="loose.tab" href="/stores/ah/loose" data-nav>Losse aankopen</a>
         </nav>
 
         <div id="ah-items-recepten" class="subpanel is-active">
@@ -1136,6 +1137,25 @@
           <p class="muted" id="ah-list-meta"></p>
           <div id="ah-list-items-message"></div>
           <div id="ah-list-items"></div>
+        </div>
+        </div>
+
+        <div id="ah-items-losse-aankopen" class="subpanel">
+        <div class="box box--wide" id="loose-view">
+          <div class="toolbar">
+            <h2 data-i18n="loose.title">Losse aankopen</h2>
+          </div>
+          <p class="muted" data-i18n="loose.intro">Oude productnamen uit bevestigingsmails die nog bij geen product horen. Kies bij elke naam het product van de winkel, zoek zelf of wijs de naam af.</p>
+          <details class="help">
+            <summary data-i18n="common.help">Hoe werkt dit?</summary>
+            <p class="muted" data-i18n="loose.intro_more">De app zoekt zulke namen 's nachts of op verzoek op bij de winkel. Een voorstel van de AI is alleen een voorgeselecteerde keuze: er wordt niets gekoppeld voordat je op Koppel gekozen product klikt.</p>
+          </details>
+          <div id="loose-header"></div>
+          <div id="loose-message"></div>
+          <div id="loose-cards" class="loose-cards"></div>
+          <p class="muted" id="loose-empty" hidden data-i18n="loose.empty">Er staan geen losse aankopen met voorstellen klaar.</p>
+          <p><button class="button button--secondary" id="loose-more" type="button" hidden data-i18n="offers.more">Meer</button></p>
+          <div id="loose-lists"></div>
         </div>
         </div>
 
@@ -1908,6 +1928,11 @@
               <p class="muted" data-i18n="aireview.privacy_more">Er gaan geen recepttitels, namen of adressen mee. Een ronde doorzoekt maximaal 120 recepten; je ziet vooraf een schatting en na afloop het aantal gebruikte tokens. De sleutel wordt versleuteld opgeslagen en nooit meer getoond.</p>
             </details>
             <form class="auth-form" id="ai-review-form" autocomplete="off">
+              <label class="check">
+                <input type="checkbox" id="ai-loose-nightly">
+                <span><span data-i18n="aireview.loose_nightly">Laat de AI 's nachts voorstellen doen voor losse aankopen</span>
+                <small class="muted" data-i18n="aireview.loose_nightly_note">Dan stuurt de app oude productnamen, de jaren waarin je ze kocht en de betaalde prijzen naar de AI-aanbieder. Uit staat standaard.</small></span>
+              </label>
               <label class="field">
                 <span data-i18n="aireview.provider">Gebruik</span>
                 <select class="input" id="ai-provider">
@@ -2425,6 +2450,7 @@
     <script src="{{ url_for('static', filename='recipe_bulk.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='crisp.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='product_links.js', v=config.ASSET_VERSION) }}"></script>
+    <script src="{{ url_for('static', filename='loose_names.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='mealkits.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='ah_planner.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='basket.js', v=config.ASSET_VERSION) }}"></script>
