@@ -3206,6 +3206,7 @@ $("#auth-logout").addEventListener("click", async (event) => {
   const button = event.currentTarget;
   button.disabled = true;
   try {
+    if (typeof cookPushForget === "function") await cookPushForget(); // de meldingen van de kooktimers stoppen (cook_timers.js)
     await jsonFetch("/api/auth/logout", { method: "POST", body: "{}" });
     await refreshAuthStatus();
   } catch (error) {

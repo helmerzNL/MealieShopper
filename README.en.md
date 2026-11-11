@@ -69,7 +69,7 @@ Planning a week menu in Mealie is nice, but then the retyping starts: looking up
 - **Offers and recipe suggestions**: the offers of Albert Heijn (including your personal Bonus Box), Picnic, Jumbo and Crisp, and without an account those of Lidl and Aldi too, per week and updated every day, with recipes whose ingredients are on offer.
 - **Is it really a deal?**: every offer shows its price per kilo, litre or piece and a verdict against the regular price of the last 30 days. The **Price history** shows per product the offers, the regular price and what you paid yourself, and **Compare pack sizes** points out the cheapest pack. Public historical prices with unknown promotion status appear separately as **Observed prices**, with their sources. They do not count as regular prices. Historical leaflet prices, such as the archive of Albert Heijn and Jumbo since 2009, the administrator imports under **Settings, System**.
 - **Search and import recipes**: search Mealie, Albert Heijn, Jumbo, Picnic and Crisp and the menus of HelloFresh and Marley Spoon at the same time, view a recipe and plan it with one click, or import a recipe from a link. Your saved AH recipes, Jumbo recipe lists and favourite Crisp recipes also go into Mealie in one go.
-- **Cooking from a recipe**: a recipe is shown in a cooking view with the ingredients next to the numbered steps; tick off what is done and see which step is next. **Start cooking** shows one step at a time full screen, and with **Keep screen on** your screen does not switch off meanwhile.
+- **Cooking from a recipe**: a recipe is shown in a cooking view with the ingredients next to the numbered steps; tick off what is done and see which step is next. **Start cooking** shows one step at a time full screen, with the ingredients that belong to the step and timers with an alarm, which also comes when your phone is locked, and with **Keep screen on** your screen does not switch off meanwhile.
 - **Calories and nutrition**: the kcal per serving and a table with protein, fat, carbohydrates, sugars, fibre and salt with a recipe and a planned meal, with the total for the servings you plan and a day total per person in the week menu. Choose the number of servings when planning (4 becomes 2) and search by a minimum and maximum per serving (for example at least 30 g of protein, at most 1.5 g of salt), also through your AI assistant; your saved AH recipes show their nutrition too.
 - **Your stores in one place**: your basket, lists, saved recipes, favourites, orders and AH receipts, kept as a copy of their own that you can search ("when did I last buy coffee?"), even when the store is unavailable. A product on a receipt that the app does not recognise, you link to a product of the store yourself; from then on it does recognise it.
 - **AI assistants**: an MCP server, so Claude, ChatGPT or Copilot can look at your week menu, recipes and lists, plan a meal and import a recipe into Mealie; OAuth login, with your own account.
@@ -266,6 +266,7 @@ MealieShopper is an unofficial tool and is not affiliated with Mealie, Albert He
 | [Aldi](https://www.aldi.nl) | The offers of the week, from the public offers page; no account. Aldi does not sell groceries online, so there is no basket. Aldi may change the page without notice. |
 | [WebAuthn](https://www.w3.org/TR/webauthn-2/) | Logging in with a passkey. |
 | [TOTP (RFC 6238)](https://www.rfc-editor.org/rfc/rfc6238) | Two-step verification with an authenticator app. |
+| [Web Push (RFC 8030)](https://www.rfc-editor.org/rfc/rfc8030) | The notification of a cooking timer, even when your phone is locked, through your browser's push service (Google, Apple, Mozilla or Microsoft). |
 | [MCP](https://modelcontextprotocol.io) and [OAuth 2.1](https://datatracker.ietf.org/doc/draft-ietf-oauth-v2-1/) | The link with AI assistants such as Claude, ChatGPT and Copilot. |
 | [GitHub Container Registry](https://ghcr.io) | Where the Docker image lives. |
 
@@ -287,6 +288,8 @@ MealieShopper is an unofficial tool and is not affiliated with Mealie, Albert He
 | [pyOpenSSL](https://pyopenssl.org) | Apache-2.0 | Used by py_webauthn to check passkey certificates. |
 | [HTTPX](https://www.python-httpx.org) | BSD-3-Clause | Talks to Mealie and the supermarkets. |
 | [aiosqlite](https://github.com/omnilib/aiosqlite) | MIT | Reads and writes the database without making the server wait. |
+| [py-vapid](https://github.com/web-push-libs/vapid) | MPL-2.0 | Signs the push notifications of the cooking timers (VAPID). |
+| [http-ece](https://github.com/web-push-libs/encrypted-content-encoding) | MIT | Encrypts the push notifications of the cooking timers for your browser. |
 | [SQLite](https://sqlite.org) | Public domain | The database. |
 | [Material Design Icons](https://pictogrammers.com/library/mdi/) | Apache-2.0 | The icons. |
 | [qrcode-generator](https://github.com/kazuhikoarase/qrcode-generator) | MIT | Draws the QR code for two-step verification in your browser. |
@@ -353,6 +356,7 @@ The app listens on `http://localhost:8000`. See [`.env.local.example`](.env.loca
 
 - Everything is stored on your own server: no account with us, no analytics, no tracking. The update check only asks GitHub for the latest release, without information about you or your installation, and something only goes to an AI service when the administrator enters their own key and presses the button themselves.
 - Your links with Mealie and the supermarkets are stored encrypted in the database. MealieShopper does not keep store passwords or your delivery address.
+- A cooking timer notification goes through your browser's push service (Google, Apple, Mozilla or Microsoft), encrypted: it only sees that there is a message. See the [user guide](docs/handleiding.en.md#cooking-from-a-recipe).
 - An AI assistant you connect yourself (MCP) reads only in your name and with your rights.
 - You log in with a passkey, or with a password (scrypt, at least 10 characters) and optional two-step verification; after 5 failed attempts per IP address, logging in is blocked for 15 minutes. Everything about logging in, users and the AI connection is in the [user guide](docs/handleiding.en.md#security).
 - As long as no login method is set up, whoever opens the address first can claim the installation. Do the first start on a network you trust, or right after the container is running.

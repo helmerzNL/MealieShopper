@@ -69,7 +69,7 @@ Een weekmenu plannen in Mealie is fijn, maar daarna begint het overtypen: elk in
 - **Aanbiedingen en receptvoorstellen**: de aanbiedingen van Albert Heijn (ook je persoonlijke Bonus Box), Picnic, Jumbo en Crisp, en zonder account ook die van Lidl en Aldi, per week en elke dag bijgewerkt, met recepten waarvan ingrediënten in de aanbieding zijn.
 - **Is het echt een aanbieding?**: bij elke aanbieding de prijs per kilo, liter of stuk en een oordeel tegen de gewone prijs van de laatste 30 dagen. De **Prijsgeschiedenis** toont per product de aanbiedingen, de gewone prijs en wat je zelf betaalde, en **Vergelijk verpakkingen** wijst de goedkoopste verpakking aan. Openbare historische prijzen met onbekende actiestatus staan apart als **Waargenomen prijzen**, met hun bronnen. Ze tellen niet als gewone prijzen. Historische folderprijzen, zoals het archief van Albert Heijn en Jumbo sinds 2009, importeert de beheerder onder **Instellingen, Systeem**.
 - **Recepten zoeken en importeren**: zoek tegelijk in Mealie, bij Albert Heijn, Jumbo, Picnic en Crisp en in de menu's van HelloFresh en Marley Spoon, bekijk een recept en plan het met één klik in, of importeer een recept via een link. Je bewaarde AH-recepten, je Jumbo-receptenlijsten en je favoriete Crisp-recepten zet je ook in één keer in Mealie.
-- **Koken met een recept**: een recept staat in een kookweergave met de ingrediënten naast de genummerde stappen; vink af wat klaar is en zie welke stap nu aan de beurt is. **Start met koken** toont schermvullend één stap tegelijk, en met **Scherm aan laten** gaat je scherm intussen niet uit.
+- **Koken met een recept**: een recept staat in een kookweergave met de ingrediënten naast de genummerde stappen; vink af wat klaar is en zie welke stap nu aan de beurt is. **Start met koken** toont schermvullend één stap tegelijk, met de ingrediënten die bij de stap horen en timers met een alarm, dat ook komt als je telefoon vergrendeld is, en met **Scherm aan laten** gaat je scherm intussen niet uit.
 - **Calorieën en voedingswaarden**: de kcal per persoon en een tabel met eiwit, vet, koolhydraten, suikers, vezels en zout bij een recept en een geplande maaltijd, met het totaal voor de porties die je plant en een dagtotaal per persoon in het weekmenu. Kies bij het inplannen het aantal porties (4 wordt 2) en zoek op een minimum en maximum per persoon (bijvoorbeeld minstens 30 g eiwit, hooguit 1,5 g zout), ook via je AI-assistent; ook je bewaarde AH-recepten tonen hun voedingswaarden.
 - **Je winkels op één plek**: je mandje, lijstjes, bewaarde recepten, favorieten, bestellingen en AH-kassabonnen, in een eigen kopie die je doorzoekt ("wanneer kocht ik voor het laatst koffie?"), ook als de winkel even niet meewerkt. Een product op een bon dat de app niet herkent, koppel je zelf aan een product van de winkel; daarna herkent hij het wel.
 - **AI-assistenten**: een MCP-server, zodat Claude, ChatGPT of Copilot je weekmenu, recepten en lijstjes kan bekijken, een maaltijd kan plannen en een recept in Mealie kan importeren; inloggen met OAuth, met je eigen account.
@@ -266,6 +266,7 @@ MealieShopper is een onofficieel hulpmiddel en heeft geen band met Mealie, Alber
 | [Aldi](https://www.aldi.nl) | De aanbiedingen van de week, van de openbare aanbiedingenpagina; geen account. Aldi verkoopt geen boodschappen online, dus er is geen mandje. Aldi kan de pagina zonder bericht wijzigen. |
 | [WebAuthn](https://www.w3.org/TR/webauthn-2/) | Inloggen met een passkey. |
 | [TOTP (RFC 6238)](https://www.rfc-editor.org/rfc/rfc6238) | Tweestapsverificatie met een authenticator-app. |
+| [Web Push (RFC 8030)](https://www.rfc-editor.org/rfc/rfc8030) | De melding van een kooktimer, ook als je telefoon vergrendeld is, via de push-dienst van je browser (Google, Apple, Mozilla of Microsoft). |
 | [MCP](https://modelcontextprotocol.io) en [OAuth 2.1](https://datatracker.ietf.org/doc/draft-ietf-oauth-v2-1/) | De koppeling met AI-assistenten zoals Claude, ChatGPT en Copilot. |
 | [GitHub Container Registry](https://ghcr.io) | Hier staat de Docker-image. |
 
@@ -287,6 +288,8 @@ MealieShopper is een onofficieel hulpmiddel en heeft geen band met Mealie, Alber
 | [pyOpenSSL](https://pyopenssl.org) | Apache-2.0 | Wordt door py_webauthn gebruikt om passkey-certificaten te controleren. |
 | [HTTPX](https://www.python-httpx.org) | BSD-3-Clause | Praat met Mealie en de supermarkten. |
 | [aiosqlite](https://github.com/omnilib/aiosqlite) | MIT | Leest en schrijft de database zonder de server te laten wachten. |
+| [py-vapid](https://github.com/web-push-libs/vapid) | MPL-2.0 | Ondertekent de push-meldingen van de kooktimers (VAPID). |
+| [http-ece](https://github.com/web-push-libs/encrypted-content-encoding) | MIT | Versleutelt de push-meldingen van de kooktimers voor je browser. |
 | [SQLite](https://sqlite.org) | Public domain | De database. |
 | [Material Design Icons](https://pictogrammers.com/library/mdi/) | Apache-2.0 | De iconen. |
 | [qrcode-generator](https://github.com/kazuhikoarase/qrcode-generator) | MIT | Tekent in je browser de QR-code voor tweestapsverificatie. |
@@ -353,6 +356,7 @@ De app luistert op `http://localhost:8000`. Zie [`.env.local.example`](.env.loca
 
 - Alles staat op je eigen server: geen account bij ons, geen analytics, geen tracking. De updatecheck vraagt GitHub alleen naar de nieuwste release, zonder informatie over jou of je installatie, en naar een AI-dienst gaat alleen iets als de beheerder een eigen sleutel invult en zelf op de knop drukt.
 - Je koppelingen met Mealie en de supermarkten staan versleuteld in de database. Wachtwoorden van de winkels en je afleveradres bewaart MealieShopper niet.
+- De melding van een kooktimer gaat via de push-dienst van je browser (Google, Apple, Mozilla of Microsoft), versleuteld: die ziet alleen dat er een bericht is. Zie de [handleiding](docs/handleiding.md#koken-met-een-recept).
 - Een AI-assistent die je zelf koppelt (MCP), leest alleen in jouw naam en met jouw rechten.
 - Inloggen gaat met een passkey, of met een wachtwoord (scrypt, minstens 10 tekens) en optionele tweestapsverificatie; na 5 mislukte pogingen per IP-adres is inloggen 15 minuten geblokkeerd. Alles over inloggen, gebruikers en de AI-koppeling staat in de [handleiding](docs/handleiding.md#beveiliging).
 - Zolang er nog geen inlogmethode is ingesteld, kan wie het adres als eerste opent de installatie claimen. Doe de eerste start op een netwerk dat je vertrouwt, of meteen nadat de container draait.

@@ -2,15 +2,15 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub; een stabiele release krijgt de teksten van alle versies sinds de vorige stabiele release.
 
-## v4.14.0
+## v4.16.0
 
-### Nieuw in 4.14.0
+### Nieuw in 4.16.0
 
-Pull request: [#PRNUM](https://github.com/helmerzNL/MealieShopper/pull/PRNUM), van wolph. Bouwt voort op [#308](https://github.com/helmerzNL/MealieShopper/pull/308).
+Pull request: [#PRNUM](https://github.com/helmerzNL/MealieShopper/pull/PRNUM), van wolph.
 
 *English summary: The offers page gets a basket control, filter lists and a lighter popup, and the Price history counts what a piece really costs. **Basket on every offer**: Albert Heijn, Picnic and Crisp show a minus, the quantity already in your basket and a plus, and a change is sent as an exact quantity. Jumbo cannot set an exact quantity and keeps the single basket button of 4.13.0. **Lists with plus and minus**: categories and brands are lists with a plus (only this one), a minus (hide this one) and a count, on the offers, on an order or receipt, in the purchase search, in the Price history and for the recipes with the offers. They replace the category chips of 4.13.0. The offers use the full width of the screen and the next ones load by themselves. **The popup on an offer** appears after 100 ms, lets the mouse through, shows the legend of the chart and has no buttons or links any more. **Prices**: an offer with a condition (second one half price) is counted per piece in the Price history, an offer "per 100 gram" is converted to the price of the pack instead of showing a 90% discount, two product numbers for the same product are one row, and a purchase from an old confirmation mail with the name in the singular joins its product.*
 
-Het werk aan de aanbiedingen en de Prijsgeschiedenis dat op de installatie van wolph al draaide, samengevoegd met 4.13.0.
+Het werk aan de aanbiedingen en de Prijsgeschiedenis dat op de installatie van wolph al draaide, samengevoegd met 4.15.0.
 
 **Aanbiedingen**
 
@@ -34,10 +34,74 @@ Het werk aan de aanbiedingen en de Prijsgeschiedenis dat op de installatie van w
 
 - **Dezelfde lijsten.** Een bestelling of bon filtert op categorie en merk, het zoeken in de aankopen toont de gevonden producten als lijst, en de recepten bij de aanbiedingen kiezen meer dan een soort gerecht en kunnen soorten verbergen. De lijst staat los in `static/facets.js`.
 
-**Samengevoegd met 4.13.0**
+**Samengevoegd met beta**
 
 - De mandknop van 4.13.0 en de knoppen met min en plus doen hetzelfde werk. Een winkel die een exact aantal aanneemt, krijgt de knoppen, Jumbo de mandknop (`offerCartSlot`).
 - De functie die het minimum van een actie uitrekent, heet nu `offerCartMinimum`. De naam `offerCartQuantity` is van het aantal in het mandje.
+
+## v4.15.0
+
+### Nieuw in 4.15.0
+
+Pull request: [#314](https://github.com/helmerzNL/MealieShopper/pull/314). Issue: [#311](https://github.com/helmerzNL/MealieShopper/issues/311).
+
+*English summary: A cooking timer now also rings when the phone is locked or the app has been in the background for a long time. Until now the alarm and the notification came from the page itself, and a locked phone pauses the web app. Now the app tells the server its running timers with their remaining time whenever you start, pause, resume or stop one, and at 0 the server sends the notification with **Web Push**, through the browser's push service, also when the app is paused or closed. If the app is still running when a timer ends, it reports it itself and no second notification follows. The message is encrypted for the browser (RFC 8291) and signed (VAPID, RFC 8292) with `http-ece` and `py-vapid`, the two libraries pywebpush is built on; the server only sends to the push services of Google, Apple, Mozilla and Microsoft. There is nothing to configure: it works over HTTPS once notifications are allowed, on an iPhone only in the installed app (iOS 16.4 or newer). The server now needs outbound HTTPS to those push services. Logging out, deleting a user and the factory reset remove the push subscriptions; they and the server's key are not in the backup. Checked against Google's real push service: our signed message is accepted (201), one with another key refused (403).*
+
+- **Een kooktimer gaat ook af met een vergrendelde telefoon.** Sinds 4.14.0 piept een timer bij 0 en komt er een systeemmelding, maar alleen zolang de app draait: een vergrendelde telefoon, of een app die lang op de achtergrond staat, pauzeert haar. Nu stuurt de server de melding, met Web Push, ook als de app gepauzeerd of gesloten is. Een tik op de melding opent de app.
+  - **Timers op de server.** Starten, pauzeren, verder laten lopen en stoppen gaan naast localStorage ook naar de server: de app stuurt al haar lopende timers met hun resttijd (`PUT /api/cook/timers`), en de server rekent de eindtijd uit met zijn eigen klok (die van de telefoon kan anders lopen). Een gepauzeerde of gestopte timer staat er dan niet meer in en krijgt geen push. Een achtergrondtaak slaapt tot de eerstvolgende eindtijd en verstuurt dan; meer workers sturen samen één push (wie de timer eerst pakt).
+  - **Geen dubbele melding.** De server wacht twee seconden na de eindtijd. Draait de app nog, dan gaat de timer in de app af en haalt de app hem meteen bij de server weg. Is de app in beeld, dan toont de service worker geen melding (de app piept zelf); staat de melding er al, dan vervangt de push hem zonder opnieuw te trillen. Omgekeerd toont de app geen tweede melding als de push er al was.
+  - **Abonnement per toestel.** De app vraagt een push-abonnement aan via de service worker die er al was (`static/cook_sw.js`, die nu ook een `push`-handler heeft, nog steeds zonder fetch-handler of cache) en stuurt het mee met de timers. Het hoort bij de gebruiker en bij de sessie waarmee het binnenkwam. In de melding staan alleen de timer, het recept en de stap, en het pad van de pagina.
+  - **Alleen push-diensten.** De server stuurt alleen naar `fcm.googleapis.com` en `android.googleapis.com` (en `jmt17.google.com`, dat Chromium zonder de sleutels van Google gebruikt), `push.services.mozilla.com`, `push.apple.com` en `notify.windows.com` (met hun subdomeinen), over https op poort 443, zonder doorverwijzingen te volgen. Een ander adres weigert hij (400): de app kan zo niet worden gebruikt om iets op je eigen netwerk aan te spreken.
+  - **De VAPID-sleutel.** De server maakt hem één keer aan en bewaart hem versleuteld in `app_settings` (`PUSH_VAPID_PRIVATE_KEY`), zoals de koppelingen. Na de fabrieksinstellingen is er een nieuwe; de app ziet dat aan de sleutel en vraagt dan een nieuw abonnement aan.
+  - **Opruimen.** Een abonnement dat de push-dienst weigert (404, 410, of 403: gemaakt met een andere sleutel), haalt de server weg. Uitloggen haalt de abonnementen van die sessie weg (en de app meldt zich af bij de push-dienst), net als een gebruiker verwijderen en de fabrieksinstellingen. Een sessie die niet meer geldt (overal uitgelogd, een nieuw wachtwoord), krijgt geen push meer. Een tijdelijke fout (geen verbinding, 429, 5xx) probeert de server nog twee keer, na 5 en 10 seconden; een timer die al meer dan tien minuten voorbij is (de server stond uit), krijgt geen push meer.
+  - **Zonder push** (geen HTTPS, geen toestemming, een incognito- of privévenster, een iPhone buiten de geïnstalleerde app) werkt alles zoals in 4.14.0.
+- **Over** en de README's noemen Web Push, `py-vapid` en `http-ece`.
+
+### Netwerk in 4.15.0
+
+- De server heeft nu uitgaand HTTPS-verkeer (poort 443) nodig naar de push-dienst van de browsers die je gebruikt: `fcm.googleapis.com` (Chrome, Edge op Android, Samsung Internet, Opera, Brave), `web.push.apple.com` (Safari en iPhone), `updates.push.services.mozilla.com` (Firefox) en `*.notify.windows.com` (Edge op Windows). Zonder dat werkt alles zoals in 4.14.0. Een proxy voor uitgaand verkeer (`HTTPS_PROXY`) telt mee. Er komt geen instelling bij; de Compose- en `.env`-bestanden blijven gelijk.
+
+### Database en back-up in 4.15.0
+
+- Twee nieuwe tabellen: `push_subscriptions` (een abonnement per browser) en `cook_timers` (de lopende timers per abonnement). Ze staan bewust in `backup.EXCLUDED_TABLES`: een abonnement hoort bij één browser en bij de VAPID-sleutel van deze installatie, die ook niet in de back-up zit. Na het terugzetten op een andere installatie vraagt de app bij de volgende timer vanzelf een nieuw abonnement aan.
+
+### Afhankelijkheden in 4.15.0
+
+- `py-vapid` 1.9.6 (MPL-2.0) en `http-ece` 1.2.1 (MIT), van web-push-libs: het ondertekenen en het versleutelen, de standaard (RFC 8292 en RFC 8291) uit een bestaande open-sourcebibliotheek. pywebpush draait op dezelfde twee, maar brengt requests en aiohttp mee; de app verstuurt met haar eigen HTTPX-client.
+
+### Tests in 4.15.0
+
+- `tests/test_cook_push.py`: welke adressen de server aanneemt (alleen push-diensten), de sleutels van een abonnement, de timers (resttijd, marge, rare invoer), de VAPID-sleutel (één per installatie, versleuteld, ook als twee aanvragen tegelijk komen), het versleutelen en ondertekenen (echt ontsleuteld met `http_ece` en gecontroleerd met `py_vapid`), versturen, opnieuw proberen en opruimen, twee workers, de achtergrondtaak, de routes, en dat uitloggen, een verlopen sessie en een verwijderde gebruiker de abonnementen meenemen.
+- `tests/test_cook_timers.py`: welke timers de app naar de server stuurt, het abonnement met de sleutel van de server (en een nieuw na de fabrieksinstellingen), wijzigingen tijdens een verzoek, het afmelden bij uitloggen, en de `push`-handler van de service worker (in beeld geen melding, nooit een tweede, alleen een pad op de app).
+- `tests/test_backup.py`: de nieuwe tabellen en de VAPID-sleutel zitten niet in de back-up.
+
+## v4.14.0
+
+### Nieuw in 4.14.0
+
+Pull request: [#310](https://github.com/helmerzNL/MealieShopper/pull/310). Issue: [#309](https://github.com/helmerzNL/MealieShopper/issues/309).
+
+*English summary: Cooking mode gets the ingredients of each step and timers. **Ingredients for a step**: under each step are the ingredients that belong to it, with their amount (in cooking mode with ticks, in step with the full list). For a recipe from Mealie they come from Mealie's own links between steps and ingredients (`ingredientReferences`); without links, and for store recipes, the app finds them in the text of the step ("chop the onion" finds "1 red onion, chopped"), marked as found automatically. For a recipe from Mealie, **Link** in cooking mode lets you tick the ingredients of a step and saves them straight to Mealie. **Timers**: a step that mentions a time ("10-12 minutes", "1 hour and 15 minutes", "een kwartier") gets a button with that time, and **Timer** sets your own; up to eight run at once, float at the bottom right above Previous and Next, survive another step, closing cooking mode and a reload, and can be paused, stopped and folded away. At 0 the app beeps (Web Audio, no sound file), a phone vibrates and, when the app is not in view, a system notification appears (through a small service worker that only shows notifications). **Fixed**: one ingredient with a long word (a link, a long compound) made the cooking view wider than the window, so half of the ingredient list fell off a phone screen, also in the week menu's recipe window.*
+
+- **Ingrediënten bij een stap.** Onder elke stap staan de ingrediënten die erbij horen, met hun hoeveelheid: in de lijst met stappen kort onder de tekst, in de kookmodus in een eigen vak met vinkjes (gelijk met de lijst van alle ingrediënten, `data-cook-tick`).
+  - **Uit Mealie:** Mealie kan zelf ingrediënten aan een stap koppelen (*Link ingredients*); elk ingrediënt heeft een `referenceId` en een stap noemt de zijne in `ingredientReferences`. `mealie.recipe_detail` geeft die nu mee (`ref` bij een ingrediënt, `stepIds` en `stepRefs` naast de stappen), en het weekmenu had ze al in `recipeDetail`. Een stap met koppelingen toont precies die ingrediënten, ook als de tekst ze niet noemt.
+  - **Automatisch gevonden:** zonder koppelingen, en bij een recept van een winkel, zoekt `cookMatchStep` (static/recipe_view.js) de ingrediënten in de tekst van de stap: het laatste woord van een regel voor een komma of haakje (*2 tenen knoflook, fijngehakt* is knoflook), zonder hoeveelheid en eenheid, met meervoud en verkleinwoord gelijk (uien en ui, tomaten en tomaat, eieren en ei) en een samenstelling die op het woord eindigt (olijfolie bij olie, rundergehakt bij gehakt). Niet op het begin: *tomaat* is geen *tomatenblokjes*. Er staat dan *automatisch gevonden* bij.
+  - **Koppelen:** bij een recept uit Mealie staat in de kookmodus de knop **Koppelen**. Die opent een lijst van alle ingrediënten, met wat er nu bij staat al aangevinkt; **Opslaan** schrijft de koppelingen meteen naar Mealie (`PUT /api/mealie/recipes/<slug>/steps/<stap-id>/ingredients`, die met een `PATCH` alle stappen terugstuurt met alleen bij deze stap andere `ingredientReferences`). Een stap of ingrediënt dat er intussen niet meer is, geeft een 400 met de vraag het recept opnieuw te openen; Esc sluit eerst het formulier. Hetzelfde recept elders in de pagina (het weekmenu en Recepten zoeken) toont de nieuwe koppelingen meteen.
+- **Timers in de kookmodus.** Noemt een stap een tijd, dan staat er een knop met die tijd onder: *10-12 minuten* geeft 10 minuten (liever te vroeg kijken dan te laat), *1 uur en 15 minuten* één timer van 1 u 15 min, en ook *een kwartier*, *anderhalf uur*, *30 sec*, *2u* en Engelse tijden. Hooguit drie knoppen per stap, en **Timer** zet een eigen tijd in minuten.
+  - Tot acht timers tegelijk. Ze zweven rechtsonder (`#cook-timers`): in de kookmodus boven **Vorige** en **Volgende**, daarbuiten boven de menubalk, en in een open venster binnen dat venster. Elke timer toont de stap en de resttijd, met pauzeren en stoppen; **Timers (n)** klapt ze in tot de eerstvolgende tijd. De stap houdt onderaan ruimte vrij, zodat er niets achter de timers valt.
+  - Een timer loopt door bij een andere stap, als de kookmodus sluit en als de pagina opnieuw laadt: de eindtijd staat in localStorage (`ms-cook-timers`). Een timer die afliep terwijl de pagina dicht was, gaat bij het openen alsnog af (tot tien minuten erna).
+  - **Het alarm:** bij 0 wordt de timer rood en pulseert hij, piept de app (Web Audio, zonder geluidsbestand) en trilt een telefoon, tot je stopt; het piepen stopt na twee minuten. Staat de app niet in beeld, dan komt er een systeemmelding. Toestemming vraagt de browser bij de eerste timer. Op Android en in de geïnstalleerde app kan alleen een service worker een melding tonen: `static/cook_sw.js` doet niets anders (geen fetch-handler, geen cache) en brengt de app in beeld bij een tik op de melding. Een vergrendelde telefoon kan de app pauzeren; met **Scherm aan laten** blijft ze actief.
+
+### Opgelost in 4.14.0
+
+- **De ingrediëntenlijst viel op een telefoon half buiten beeld** (issue #309). Eén regel met een lang woord (een link, een lange samenstelling) maakte de kolom van de kookweergave breder dan het venster, en daarmee de hele lijst, ook in het receptvenster van het weekmenu. De kolom is nu `minmax(0, 1fr)` en lange woorden breken af (`overflow-wrap: anywhere`), bij de ingrediënten en de stappen. Een lange stap in de kookmodus scrolt nu ook vanaf de bovenkant: met `justify-content: center` viel die buiten de scroll.
+
+### Tests in 4.14.0
+
+- `tests/test_cook_step_links.py`: de koppelingen in het detail (`ref`, `stepIds`, `stepRefs`), dat het weekmenu ze bij het omrekenen houdt, en het opslaan (alle stappen terug, alleen één stap anders, onbekende stap of onbekend ingrediënt geeft een 400 zonder iets naar Mealie te sturen, rare invoer, een weigering van Mealie).
+- `tests/test_recipe_view.py`: de koppelingen in het model, het automatisch vinden (een tabel met Nederlandse en Engelse stappen), de stammen, opslaan voor elke weergave van hetzelfde recept, de ingrediënten onder een stap en het formulier.
+- `tests/test_cook_timers.py`: tijden uit een stap, de klok, meer timers tegelijk, pauzeren en afgaan, het maximum, bewaren en herladen (ook zonder opslag), de weergave en de knopjes, en de service worker zonder fetch-handler.
+- In `tests/test_reported_bugs.py` de melding uit issue #309 (de lijst buiten beeld op een telefoon).
 
 ## v4.13.1
 
@@ -196,7 +260,7 @@ De eerste ronde van een doorlichting van de gebruikerservaring van de hele app: 
 
 ### Opgelost in 4.10.3
 
-Pull request #303.
+Pull request: [#303](https://github.com/helmerzNL/MealieShopper/pull/303), van wolph.
 
 *English summary: You stay logged in. The session cookie expired after 24 hours no matter how often you used the app, so everyone logged in again every day. A session now lasts 90 days (`MEALIESHOPPER_SESSION_DAYS`), and every request with a session older than a day sets a fresh cookie, so whoever keeps using the app stays logged in. Logging out now revokes the session on the server (the cookie and every renewal of it), a new password and the reset still end every session at once, a renewal carries the epoch, session id and login time of the cookie that was checked, nothing is renewed a year after the login, a Bearer token (AI apps) gets no cookie, and a session from before this version keeps working until it expires.*
 
@@ -230,6 +294,12 @@ Pull request: [#300](https://github.com/helmerzNL/MealieShopper/pull/300).
 - **Database: indexen op wat de app telkens opzoekt, en het schema een keer per proces.** Een doorlichting van alle 1083 verschillende queries die de testsuite stuurt (`EXPLAIN QUERY PLAN` op een kopie van een productiedatabase) gaf tabellen zonder enige index op de kolommen waarop de nachtelijke rondes en het dashboard zoeken. Nu staan er indexen op `ah_receipt_products.product_id` (ook een deelindex op de producten zonder foto), `ah_receipt_items.product_id`, `ah_order_items.product_id` en `jumbo_order_items.product_id`, deelindexen op de bonnen en bestellingen die nog details missen (`details_synced = 0`, `items_synced = 0`), `audit_log.ts` (het opruimen), `offers (store, product_id)` (de prijsgeschiedenis per product), `price_observations (store, day)` (de prijzen per periode) en de user- en client-kolommen van `oauth_tokens`, `oauth_codes`, `passkey_credentials` en `mfa_recovery_codes`. De index `image_cache_todo` op `fetched_at` gebruikte geen enkele query en is vervangen door een deelindex op de afbeeldingen die nog opgehaald moeten worden (`path IS NULL`, 1700 van de 2106 rijen in productie). `prices._pinned` en `purchase_lines.times_before` vergelijken `product_id` zonder `CAST`, zodat de index werkt. Elke module maakte haar tabellen en migraties bij elke verbinding opnieuw (`CREATE TABLE IF NOT EXISTS`, `PRAGMA table_info`, ongeveer 0,7 milliseconde per verzoek). `auth.ensure_schema` doet dat nu een keer per proces en database, en een fabrieksreset vergeet het weer. De `INSERT OR REPLACE` en `INSERT OR IGNORE` van SQLite zijn `INSERT ... ON CONFLICT DO UPDATE` en `DO NOTHING`, dezelfde vorm als Postgres kent, met het oog op een database-server als alternatief.
 - **Tests:** `tests/test_db_schema.py` (de 24 indexen, de plannen van 15 hete queries, het schema een keer per proces en opnieuw na een fabrieksreset).
 
+## v4.10.0
+
+### Nieuw in 4.10.0
+
+Pull request: [#297](https://github.com/helmerzNL/MealieShopper/pull/297).
+
 *English summary: recipes and menus that **To week menu** (Stores, Albert Heijn, Week planner) makes from loose AH products now get servings and nutrition values. A new setting **Servings per recipe** under Settings, Preferences, Supermarket (2 by default, 1 to 8) sets the servings; the nutrition values are per person: the AH nutrition table of each product (per 100 g or ml, read with the anonymous token from the AH app's GraphQL, `product.tradeItem.nutritions`) times its whole pack, added up and divided by the servings. Only when that is known for all products in the recipe: a product without a nutrition table or with a pack in pieces leaves the recipe without nutrition values, so there are never too low totals in Mealie. Recipes that were already in Mealie do not change. The AH explorer gets a check that shows the shape of a product's nutrition table. Not tested against the live AH API.*
 
 - **Voedingswaarden in recepten en menu's van producten.** Een recept dat *Naar weekmenu* van een los product maakt (zoals soep of pizza), en een menu van meer producten (vlees, groente, aardappelen), krijgen nu voedingswaarden per persoon.
@@ -261,12 +331,6 @@ Pull request: [#300](https://github.com/helmerzNL/MealieShopper/pull/300).
   - `plannerServings` in het profiel
   - het getalveld in Voorkeuren
   - de controle in de verkenner
-
-## v4.10.0
-
-### Nieuw in 4.10.0
-
-Pull request: [#297](https://github.com/helmerzNL/MealieShopper/pull/297).
 
 ## v4.9.0
 

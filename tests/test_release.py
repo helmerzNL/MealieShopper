@@ -26,6 +26,17 @@ class ReleaseTest(unittest.TestCase):
         self.assertEqual(numbers, sorted(numbers, reverse=True))
         self.assertEqual(numbers[0], tuple(int(p) for p in release_notes.current_version()[1:].split(".")))
 
+    def test_every_block_has_at_most_one_english_summary(self):
+        # Komt het kopje van een nieuwe versie midden in de sectie van de vorige terecht (een merge die misging, zoals
+        # 4.10.1 in #300), dan blijft die sectie leeg en staat haar tekst onder de nieuwe versie, en daarmee in de
+        # releasetekst van een versie die hem niet bracht. Te zien aan twee Engelse samenvattingen in één blok.
+        text = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+        for section in re.split(r"^## (?=v\d+\.\d+\.\d+\s*$)", text, flags=re.M)[1:]:
+            version = section.split("\n", 1)[0].strip()
+            for block in re.split(r"^#{3,4} ", section, flags=re.M):
+                count = len(re.findall(r"^\*English summary:", block, re.M))
+                self.assertLessEqual(count, 1, f"{version}: {count} Engelse samenvattingen in één blok: {block.split(chr(10), 1)[0][:60]}")
+
     def test_section_ends_at_the_next_heading(self):
         notes = release_notes.notes_for("v1.2.0")
         self.assertNotIn("## v1.0.0", notes)

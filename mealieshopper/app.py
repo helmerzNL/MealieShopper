@@ -12,7 +12,7 @@ import sqlite3
 import httpx
 from quart import Quart, Response, jsonify, redirect, render_template, request, send_file, send_from_directory
 
-from . import about, ah, ah_explore, ah_lists, ah_orders, ah_planner, ah_recipes, ai_match, ai_review, audit, auth_password, backup, cart_memory, crisp, crisp_orders, factory_reset, hellofresh, image_cache, jumbo, jumbo_explore, jumbo_lists, jumbo_orders, jumbo_recipes, marleyspoon, mcp_http, mealie, mealie_images, offers, offers_schedule, onboarding, picnic, picnic_explore, picnic_orders, picnic_recipes, price_archive, price_import, prices, product_images, product_links, profile, recipe_bulk, recipe_nutrition, request_body, server_settings, updates, users
+from . import about, ah, ah_explore, ah_lists, ah_orders, ah_planner, ah_recipes, ai_match, ai_review, audit, auth_password, backup, cart_memory, crisp, crisp_orders, factory_reset, hellofresh, image_cache, jumbo, jumbo_explore, jumbo_lists, jumbo_orders, jumbo_recipes, marleyspoon, mcp_http, mealie, mealie_images, offers, offers_schedule, onboarding, picnic, picnic_explore, picnic_orders, picnic_recipes, price_archive, price_import, prices, product_images, product_links, profile, push, recipe_bulk, recipe_nutrition, request_body, server_settings, updates, users
 from . import auth, deals, http_client, tasks, urls
 from . import assets
 from .body_limits import DEFAULT_MAX_BODY, SizedRequest
@@ -147,6 +147,7 @@ def create_app() -> Quart:
         # De dagelijkse aanbiedingen-run hoort niet in de tests: die maken de app vaak aan.
         if not environ.get("MEALIESHOPPER_TESTING"):
             offers_schedule.start()
+            push.start()  # verstuurt de push van een kooktimer die afloopt
             tasks.spawn("warm-offers", warm_at_start())  # de eerste /api/offers na een start wacht niet op de catalogus en het oordeel
 
     # Fouten van externe diensten (AH, Mealie) geven we terug als 424 in
@@ -164,6 +165,7 @@ def create_app() -> Quart:
     server_settings.register_routes(app)
     users.register_routes(app, public_base_url)
     mcp_http.register_routes(app, public_base_url)
+    push.register_routes(app, public_base_url)  # de meldingen van de kooktimers via Web Push (issue #311)
 
     request_body.register(app)  # een JSON-body die geen object is: 400 in plaats van 500
 
@@ -313,6 +315,15 @@ def create_app() -> Quart:
     @app.get("/api/mealie/recipes/<slug>")
     async def mealie_recipe_detail(slug: str):
         return await mealie_action(lambda: mealie.recipe_detail(slug), tr("Recept ophalen mislukt", "Could not fetch the recipe"))
+
+    # De ingrediënten bij een stap van een recept in Mealie (kookmodus, issue #309): {"refs": [referenceId, ...]}.
+    @app.put("/api/mealie/recipes/<slug>/steps/<step_id>/ingredients")
+    async def mealie_step_ingredients(slug: str, step_id: str):
+        body = await request_body.json_object()
+        return await mealie_action(
+            lambda: mealie.link_step_ingredients(slug, step_id, body.get("refs", [])),
+            tr("Ingrediënten koppelen mislukt", "Linking the ingredients failed"),
+        )
 
     # Recepten van AH en Jumbo in één keer in Mealie zetten (zie recipe_bulk.py). Een selectie mag iedereen die ook één
     # recept mag importeren; een hele groep of lijst alleen de beheerder (dat pad staat in auth.ADMIN_PATHS).
