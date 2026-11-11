@@ -388,6 +388,107 @@ class ResultRulesTest(LooseNamesCase):
             [(link["productId"], link["origin"]) for link in links], [("1", "exact")]
         )
 
+    async def spellings_without_link(
+        self, store: str, spellings: dict[str, int], result: dict[str, Any]
+    ) -> None:
+        """Een losse naam met deze schrijfwijzen (en zoveel aankopen) en een resultaat dat alleen de vaakste letterlijk is: een kaart
+        en geen koppeling, ook niet voor de vaakste schrijfwijze."""
+        for spelling, times in spellings.items():
+            self.bought(spelling, times, store=store)
+        entry: dict[str, Any] = (await prices.loose_import_names(store))[0]
+        self.assertEqual(entry["spellings"], sorted(spellings), "een losse naam")
+        name: str = entry["name"]
+        found = await loose_names.run_round(store, NOW, search=FakeSearch({name: [result]}))
+        self.assertEqual((found["exact"], found["candidates"]), (0, 1), spellings)
+        self.assertEqual((await product_links.list_links(store))["links"], [], spellings)
+        self.assertEqual(self.row(store, name)["outcome"], "candidates")
+
+    async def test_a_spelling_with_another_number_makes_the_name_a_card(self) -> None:
+        # Tweede eindreview van 2026-11-11: de sleutel groepeert "1 L" en "1,5 L" tot een naam, en de koppeling gold voor elke
+        # schrijfwijze. Het resultaat moet letterlijk elke schrijfwijze zijn.
+        await self.spellings_without_link(
+            "jumbo",
+            {"Jumbo Halfvolle Melk 1 L": 3, "Jumbo Halfvolle Melk 1,5 L": 1},
+            item("1", "Jumbo Halfvolle Melk 1 L", "1 l"),
+        )
+
+    async def test_a_spelling_that_is_a_multipack_makes_the_name_a_card(self) -> None:
+        await self.spellings_without_link(
+            "ah",
+            {"AH Cola": 3, "AH Cola 6 x 0,33 l": 1},
+            ah_item("1", "AH Cola", "1,5 l"),
+        )
+
+    async def test_spellings_that_differ_in_case_or_punctuation_still_link_as_exact(
+        self,
+    ) -> None:
+        self.bought("Jumbo Pindakaas naturel", 3)
+        self.bought("JUMBO Pindakaas, naturel", 1)
+        entry: dict[str, Any] = (await prices.loose_import_names("jumbo"))[0]
+        self.assertEqual(len(entry["spellings"]), 2)
+        search = FakeSearch(
+            {"Jumbo Pindakaas naturel": [item("1", "Jumbo Pindakaas Naturel", "350 g")]}
+        )
+        found = await loose_names.run_round("jumbo", NOW, search=search)
+        self.assertEqual((found["exact"], found["candidates"]), (1, 0))
+        links = (await product_links.list_links("jumbo"))["links"]
+        self.assertEqual(
+            sorted((link["name"], link["productId"], link["origin"]) for link in links),
+            [
+                ("JUMBO Pindakaas, naturel", "1", "exact"),
+                ("Jumbo Pindakaas naturel", "1", "exact"),
+            ],
+        )
+
+    async def test_a_name_with_a_row_never_gets_an_automatic_link(self) -> None:
+        # Tweede eindreview van 2026-11-11: alleen de eerste zoekopdracht naar een naam koppelt zonder klik. Wat de gebruiker al zag
+        # (Niet gevonden, Geen van deze en Terugzetten), wordt bij een exact resultaat een kaart.
+        self.bought("Jumbo Pindakaas naturel")
+        self.bought("Jumbo Hagelslag puur")
+        first = FakeSearch(
+            {
+                "Jumbo Hagelslag puur": [
+                    item("2", "Jumbo Hagelslag puur", "400 g"),
+                    item("3", "Jumbo Hagelslag puur", "600 g"),
+                ]
+            }
+        )
+        await loose_names.run_round("jumbo", NOW, search=first)
+        self.assertEqual(self.row("jumbo", "Jumbo Pindakaas naturel")["outcome"], "missing")
+        hagelslag: str = name_keys.key("Jumbo Hagelslag puur")
+        self.assertTrue(await loose_names.reject("jumbo", hagelslag))
+        self.assertTrue(await loose_names.restore("jumbo", hagelslag))
+        self.assertEqual(self.row("jumbo", "Jumbo Hagelslag puur")["outcome"], "candidates")
+        exact = FakeSearch(
+            {
+                "Jumbo Pindakaas naturel": [item("1", "Jumbo Pindakaas Naturel", "350 g")],
+                "Jumbo Hagelslag puur": [item("2", "Jumbo Hagelslag puur", "400 g")],
+            }
+        )
+        found = await loose_names.run_round("jumbo", later(days=91), search=exact)
+        self.assertEqual((found["searches"], found["exact"], found["candidates"]), (2, 0, 2))
+        self.assertEqual((await product_links.list_links("jumbo"))["links"], [])
+        for name in ("Jumbo Pindakaas naturel", "Jumbo Hagelslag puur"):
+            self.assertEqual(self.row("jumbo", name)["outcome"], "candidates", name)
+
+    async def test_ah_search_of_the_round_matches_ah_search_products(self) -> None:
+        # `loose_names._ah_search` herhaalt `ah.search_products` met de privé-namen van `ah`: met alleen resultaten met een titel
+        # geven ze dezelfde lijst in dezelfde volgorde. Verandert `ah.search_products`, dan faalt deze test.
+        raw: dict[str, Any] = {
+            "products": [
+                {"webshopId": n, "title": title, "brand": "AH", "salesUnitSize": "1 l", "currentPrice": 1.0 + n,
+                 "isVirtualBundle": n == 2, "mainCategory": "Frisdrank"}
+                for n, title in enumerate(
+                    ["AH Cola zero", "AH Cola", "AH Cola 6-pack", "Coca-Cola", "AH Cola light"], 1
+                )
+            ]
+        }
+        with mock.patch.object(ah, "_search_json", mock.AsyncMock(return_value=raw)):
+            ours: list[dict[str, Any]] = await loose_names._ah_search("AH Cola", 3)
+            theirs: list[dict[str, Any]] = await ah.search_products("AH Cola", 3)
+        self.assertEqual(ours, theirs)
+        self.assertEqual(len(ours), 3)
+
     async def test_renamed_name_keeps_up_to_ten_candidates_with_price_and_image(
         self,
     ) -> None:

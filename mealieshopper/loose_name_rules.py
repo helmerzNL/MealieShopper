@@ -3,6 +3,7 @@
 - `candidate`: een resultaat van `search_products` van een winkel in een vorm voor alle winkels.
 - `outcome_of`: wat een zoekopdracht oplevert (`exact`, `candidates` of `missing`), met de kandidaten die blijven. `exact` is
   alleen letterlijk hetzelfde product (`_literal`): dezelfde sleutel, dezelfde getallen en dezelfde soort verpakking.
+- `literal_for_all`: of een resultaat letterlijk elke schrijfwijze van een losse naam is, voor een koppeling zonder klik.
 - `kept_proposal`: of een bestaand voorstel van de AI bij de nieuwe kandidaten blijft.
 - `status_of`: de HTTP-status van een fout van een winkel, om bij een 403 of 429 te stoppen en te pauzeren.
 """
@@ -122,6 +123,13 @@ def _literal(name: str, found: dict[str, Any]) -> bool:
     return _digits(name) == _digits(found["title"]) and is_multipack(name) == is_multipack(
         found["title"], found["unitSize"]
     )
+
+
+def literal_for_all(spellings: list[str], found: dict[str, Any]) -> bool:
+    """Of de kandidaat `found` letterlijk elke schrijfwijze van een losse naam is (`_literal`). De schrijfwijzen horen bij een naam
+    door hun sleutel, en die laat getallen weg: "Melk 1 L" en "Melk 1,5 L" zijn een losse naam, maar een koppeling geldt voor
+    elke schrijfwijze, dus alleen als het resultaat bij allemaal letterlijk klopt."""
+    return all(_literal(spelling, found) for spelling in spellings)
 
 
 def outcome_of(

@@ -6,8 +6,10 @@ winkel en bewaart de uitkomst per sleutel (`name_keys.key`) in `loose_names`. De
 `loose_name_rules`:
 
 - `exact`: precies een resultaat heeft dezelfde sleutel en is letterlijk dezelfde naam, met dezelfde getallen en verpakking
-  (`loose_name_rules.outcome_of`). Dat wordt meteen een koppeling met herkomst `exact` (`product_links.save`). Haalt de gebruiker
-  die koppeling weg, dan is de naam weer los en een kaart zoals bij `candidates`, en maakt de ronde hem niet opnieuw.
+  (`loose_name_rules.outcome_of`), voor elke schrijfwijze. Bij de eerste zoekopdracht naar de naam (nog geen rij) wordt dat meteen
+  een koppeling met herkomst `exact` (`product_links.save`). Een naam die al een rij heeft, krijgt nooit een koppeling zonder klik:
+  zijn `exact` wordt `candidates` (`_links_itself`). Haalt de gebruiker een directe koppeling weg, dan is de naam weer los en met
+  zijn rij `exact` een kaart zoals bij `candidates`.
 - `candidates`: de resultaten om uit te kiezen, als kaart op de pagina. Bevestigen (`confirm`) maakt een koppeling met herkomst
   `confirmed` en haalt de rij weg: de koppeling staat dan in `product_links`.
 - `missing`: de winkel vond niets.
@@ -36,7 +38,7 @@ import aiosqlite
 
 from . import ah, ah_orders, ai_review, auth, crisp, jumbo, picnic, prices, product_links, purchase_sync, tasks
 from .i18n import tr
-from .loose_name_rules import candidates_of, kept_proposal, outcome_of, status_of
+from .loose_name_rules import candidates_of, kept_proposal, literal_for_all, outcome_of, status_of
 
 log: logging.Logger = logging.getLogger(__name__)
 
@@ -266,10 +268,17 @@ async def _open_state(
     )
 
 
+def _links_itself(entry: dict[str, Any], kept: list[dict[str, Any]], old_outcome: str | None) -> bool:
+    """Of een uitkomst `exact` een koppeling zonder klik wordt. Alleen bij de eerste zoekopdracht naar de naam (`old_outcome` None:
+    nog geen rij), want een naam met een rij zag de gebruiker al (een kaart, Niet gevonden, Geen van deze of een koppeling die hij
+    weghaalde). En alleen als het resultaat letterlijk elke schrijfwijze is (`literal_for_all`): de koppeling geldt voor allemaal."""
+    return old_outcome is None and literal_for_all(entry["spellings"], kept[0])
+
+
 async def _settle(store: str, entry: dict[str, Any], products: list[Any], now: str) -> str | None:
     """Bewaar de uitkomst van een zoekopdracht voor `entry` en geef hem terug, of None als de naam intussen dicht is
-    (`_open_state`). Een directe koppeling geldt voor elke schrijfwijze. Was de naam al `exact` en is hij toch weer los, dan haalde
-    de gebruiker die koppeling weg: dan wordt het een kaart (`candidates`) en geen nieuwe koppeling."""
+    (`_open_state`). Een directe koppeling geldt voor elke schrijfwijze. Een `exact` dat geen koppeling zonder klik mag worden
+    (`_links_itself`), wordt een kaart (`candidates`)."""
     outcome: str
     kept: list[dict[str, Any]]
     outcome, kept = outcome_of(entry["key"], entry["name"], candidates_of(store, products, CANDIDATES))
@@ -279,7 +288,7 @@ async def _settle(store: str, entry: dict[str, Any], products: list[Any], now: s
     still_open, old_outcome, old_proposal = await _open_state(store, entry)
     if not still_open:
         return None
-    if outcome == "exact" and old_outcome == "exact":
+    if outcome == "exact" and not _links_itself(entry, kept, old_outcome):
         outcome = "candidates"
     if outcome == "exact":
         for spelling in entry["spellings"]:
