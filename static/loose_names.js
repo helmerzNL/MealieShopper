@@ -25,6 +25,9 @@ const looseState = {
   run: 0, // een nieuwere lading (andere winkel) maakt een oudere antwoord waardeloos
   pending: "", // de sleutel van de naam die in de koppeldialoog openstaat
   timer: 0,
+  stalled: false, // de poll stond stil omdat de pagina niet in beeld was: hij gaat verder zodra ze terug is
+  pollFailed: false,
+  headerHtml: "",
 };
 
 // ---- HTML: zuivere functies
@@ -136,7 +139,7 @@ function looseHeaderHtml(page, store) {
       </div>
       <div class="loose-header__actions">
         <button type="button" class="button" id="loose-run" data-loose-run${blocked ? " disabled" : ""}>${escapeHtml(t("loose.run"))}</button>
-        <button type="button" class="button button--secondary" id="loose-export">${escapeHtml(t("loose.export"))}</button>
+        <span id="loose-export-slot" class="loose-slot"></span>
         ${ask ? `<button type="button" class="button button--secondary" id="loose-ai-run" data-loose-ai>${escapeHtml(t("loose.ai_run"))}</button>` : ""}
       </div>
     </div>`;
@@ -168,14 +171,32 @@ function looseListsHtml(page, store) {
   return fold(t("loose.missing_title"), page.missing || [], "search") + fold(t("loose.rejected_title"), page.rejected || [], "restore");
 }
 
+// Mag deze kaart of regel nu iets doen? Niet terwijl zijn eerste verzoek nog loopt (`data-busy`, zie looseLock).
+function looseMayAct(holder) {
+  return Boolean(holder) && holder.dataset?.busy !== "1";
+}
+
+// Moet de voortgang nu ververst worden? Alleen voor de lading die nu geldt, zolang er een ronde loopt en de pagina in beeld is.
+function loosePollWanted({ running, run, current, panelActive, subtabActive, visible }) {
+  return Boolean(running) && run === current && Boolean(panelActive) && Boolean(subtabActive) && visible !== false;
+}
+
 // ---- de pagina
 
 function looseStore() {
   return state.itemsStore || "ah";
 }
 
-function looseRenderHeader() {
-  $("#loose-header").innerHTML = looseHeaderHtml(looseState, looseState.store);
+// De knop Exporteer voor GitHub is een vast element (`#loose-export` in de template): de kop krijgt alleen een plek (`#loose-export-slot`)
+// en de knop verhuist erheen, zodat wie hem bindt niet bij elke verversing opnieuw hoeft. Een kop die niet veranderd is, blijft staan.
+function looseRenderHeader({ force = false } = {}) {
+  const html = looseHeaderHtml(looseState, looseState.store);
+  if (!force && html === looseState.headerHtml) return;
+  looseState.headerHtml = html;
+  const button = $("#loose-export");
+  $("#loose-export-home").append(button);
+  $("#loose-header").innerHTML = html;
+  $("#loose-export-slot")?.replaceWith(button);
 }
 
 function looseRenderLists() {
@@ -218,7 +239,9 @@ async function loadLooseNames() {
   Object.assign(looseState, { store: looseStore(), cards: [], missing: [], rejected: [], total: 0, toSearch: 0, loading: true, pending: "" });
   $("#loose-cards").innerHTML = "";
   $("#loose-lists").innerHTML = "";
+  $("#loose-export-home").append($("#loose-export"));
   $("#loose-header").innerHTML = "";
+  looseState.headerHtml = "";
   $("#loose-more").hidden = true;
   $("#loose-empty").hidden = true;
   message("#loose-message", t("loose.loading"), "info");
@@ -278,42 +301,88 @@ function looseWatchMore() {
   looseMoreObserver.observe(button);
 }
 
-// Een ronde die loopt (ook na het herladen van de pagina): elke vijf seconden de stand, en aan het eind de lijst opnieuw.
+function looseWantsPoll(run) {
+  return loosePollWanted({
+    running: looseState.running, run, current: looseState.run,
+    panelActive: document.querySelector("#ah-items.is-active"), subtabActive: document.querySelector("#ah-items-losse-aankopen.is-active"),
+    visible: !document.hidden,
+  });
+}
+
+// Een ronde die loopt (ook na het herladen van de pagina): elke vijf seconden de stand, en aan het eind de lijst opnieuw. Staat de
+// pagina niet in beeld, dan stopt de poll en looseResume zet hem weer aan. Na een fout gaat hij gewoon verder.
+async function looseTick(run) {
+  if (!looseWantsPoll(run)) {
+    looseState.stalled = run === looseState.run && looseState.running;
+    return;
+  }
+  looseState.stalled = false;
+  try {
+    const data = await jsonFetch(`/api/loose-names?${looseQuery(0, 1)}`);
+    if (run !== looseState.run) return;
+    if (!data.running) {
+      loadLooseNames();
+      return;
+    }
+    looseApply(data);
+    looseRenderHeader();
+    looseRenderMore();
+    if (looseState.pollFailed) message("#loose-message", "");
+    looseState.pollFailed = false;
+  } catch (error) {
+    if (run !== looseState.run) return;
+    looseState.pollFailed = true;
+    message("#loose-message", error.message);
+  }
+  looseSchedulePoll();
+}
+
 function looseSchedulePoll() {
   clearTimeout(looseState.timer);
   if (!looseState.running) return;
   const run = looseState.run;
-  looseState.timer = setTimeout(async () => {
-    if (run !== looseState.run || !document.querySelector("#ah-items-losse-aankopen.is-active")) return;
-    try {
-      const data = await jsonFetch(`/api/loose-names?${looseQuery(0, 1)}`);
-      if (run !== looseState.run) return;
-      if (!data.running) {
-        loadLooseNames();
-        return;
-      }
-      looseApply(data);
-      looseRenderHeader();
-      looseSchedulePoll();
-    } catch (error) {
-      if (run === looseState.run) message("#loose-message", error.message);
-    }
-  }, LOOSE_POLL_MS);
+  looseState.timer = setTimeout(() => looseTick(run), LOOSE_POLL_MS);
+}
+
+// De pagina is weer in beeld terwijl de poll stilstond: eerst een keer verversen, dan verder.
+function looseResume() {
+  if (!looseState.stalled || !looseWantsPoll(looseState.run)) return;
+  clearTimeout(looseState.timer);
+  looseTick(looseState.run);
 }
 
 // ---- acties
 
+// Vergrendelt een kaart of regel voor de duur van een verzoek: alle knoppen en keuzerondjes uit, en `data-busy` zodat een klik of
+// wijziging op de kaart niets meer doet. Ontgrendelen zet het kiezen terug zoals het was (zonder keuze blijft Koppel uit).
+function looseLock(holder, locked) {
+  if (locked) holder.dataset.busy = "1";
+  else delete holder.dataset.busy;
+  holder.querySelectorAll("button, input").forEach((element) => {
+    element.disabled = locked;
+  });
+  const confirm = holder.querySelector("[data-loose-confirm]");
+  if (!locked && confirm) confirm.disabled = !holder.querySelector("input[type=radio]:checked");
+}
+
+// Een verzoek voor een kaart of regel. Het is een keer tegelijk per kaart: de kaart blijft op slot tot het antwoord er is, en blijft
+// alleen op slot als het lukte (dan verdwijnt hij). Bij een fout komt de melding in de pagina en kan de kaart weer.
 async function loosePost(path, body, button) {
+  const holder = button?.closest("[data-loose-card], [data-loose-row]");
+  if (button && !looseMayAct(holder)) return null;
   message("#loose-message", "");
+  if (holder) looseLock(holder, true);
   if (button) setBusy(button, true);
   try {
-    return await jsonFetch(`/api/loose-names/${path}`, {
+    const result = await jsonFetch(`/api/loose-names/${path}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     });
+    return result;
   } catch (error) {
     message("#loose-message", error.message);
+    if (holder) looseLock(holder, false);
     return null;
   } finally {
     if (button) setBusy(button, false);
@@ -387,7 +456,7 @@ function looseOnClick(event) {
   const target = event.target;
   const pick = (selector) => target.closest(selector);
   const link = pick("[data-product-link]");
-  if (link) {
+  if (link && looseMayAct(link.closest("[data-loose-card], [data-loose-row]"))) {
     const holder = link.closest("[data-loose-card], [data-loose-row]");
     looseState.pending = holder?.dataset.looseCard ?? holder?.dataset.looseRow ?? "";
   }
@@ -407,7 +476,7 @@ function looseOnClick(event) {
 
 function looseOnChange(event) {
   const card = event.target.closest("[data-loose-card]");
-  if (card && event.target.matches("input[type=radio]")) card.querySelector("[data-loose-confirm]").disabled = false;
+  if (card && looseMayAct(card) && event.target.matches("input[type=radio]")) card.querySelector("[data-loose-confirm]").disabled = false;
 }
 
 function looseStart() {
@@ -416,6 +485,10 @@ function looseStart() {
   view.addEventListener("click", looseOnClick);
   view.addEventListener("change", looseOnChange);
   window.addEventListener("ms:product-links", (event) => looseLinked(event.detail?.store));
+  document.addEventListener("visibilitychange", looseResume);
+  // Het hoofdtabblad Winkels dicht en weer open: de klasse van het paneel wijzigt, en de poll gaat verder.
+  const panel = $("#ah-items");
+  if (panel && typeof MutationObserver !== "undefined") new MutationObserver(looseResume).observe(panel, { attributes: true, attributeFilter: ["class"] });
   window.addEventListener("ms:languagechange", () => {
     if (looseState.loaded) looseRenderAll();
   });

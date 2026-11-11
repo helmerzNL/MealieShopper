@@ -10879,6 +10879,10 @@ html.is-standalone .user-menu__item--standalone:not([hidden]) {
   min-width: 0;
 }
 
+.loose-slot {
+  display: contents;
+}
+
 .loose-header__actions {
   display: flex;
   flex-wrap: wrap;
@@ -10985,7 +10989,7 @@ html.is-standalone .user-menu__item--standalone:not([hidden]) {
 }
 
 .loose-candidate__body strong {
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
 }
 
 .loose-candidate__body small {
@@ -11056,4 +11060,23 @@ html.is-standalone .user-menu__item--standalone:not([hidden]) {
   display: grid;
   min-width: 0;
   overflow-wrap: anywhere;
+}
+
+/* Op een telefoon is de kolom van de titel smal tussen foto en prijs: kleinere foto, en de prijs onder de titel. */
+@media (max-width: 640px) {
+  .loose-candidate {
+    display: grid;
+    grid-template-columns: 20px 40px minmax(0, 1fr);
+    align-items: start;
+  }
+
+  .loose-candidate img,
+  .loose-candidate .link-item__photo {
+    width: 40px;
+    height: 40px;
+  }
+
+  .loose-candidate__price {
+    grid-column: 3;
+  }
 }
