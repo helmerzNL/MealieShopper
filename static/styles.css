@@ -11076,7 +11076,21 @@ html.is-standalone .user-menu__item--standalone:not([hidden]) {
     height: 40px;
   }
 
+  /* Elk kind heeft zijn eigen cel: valt de foto weg (data-hide-on-error), dan blijft zijn cel leeg en houdt de titel zijn kolom. */
+  .loose-candidate input {
+    grid-area: 1 / 1;
+  }
+
+  .loose-candidate img,
+  .loose-candidate .link-item__photo {
+    grid-area: 1 / 2;
+  }
+
+  .loose-candidate__body {
+    grid-area: 1 / 3;
+  }
+
   .loose-candidate__price {
-    grid-column: 3;
+    grid-area: 2 / 3;
   }
 }

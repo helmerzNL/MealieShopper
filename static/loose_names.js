@@ -236,6 +236,7 @@ function looseQuery(offset, limit) {
 async function loadLooseNames() {
   const run = ++looseState.run;
   clearTimeout(looseState.timer);
+  looseState.pollFailed = false;
   Object.assign(looseState, { store: looseStore(), cards: [], missing: [], rejected: [], total: 0, toSearch: 0, loading: true, pending: "" });
   $("#loose-cards").innerHTML = "";
   $("#loose-lists").innerHTML = "";
@@ -244,20 +245,20 @@ async function loadLooseNames() {
   looseState.headerHtml = "";
   $("#loose-more").hidden = true;
   $("#loose-empty").hidden = true;
-  message("#loose-message", t("loose.loading"), "info");
+  looseMessage(t("loose.loading"), "info");
   try {
     const data = await jsonFetch(`/api/loose-names?${looseQuery(0, LOOSE_PAGE_SIZE)}`);
     if (run !== looseState.run) return;
     Object.assign(looseState, { cards: data.cards || [], missing: data.missing || [], rejected: data.rejected || [], loaded: true, loading: false });
     looseApply(data);
-    message("#loose-message", "");
+    looseMessage("");
     looseRenderAll();
     looseWatchMore();
     looseSchedulePoll();
   } catch (error) {
     if (run !== looseState.run) return;
     looseState.loading = false;
-    message("#loose-message", error.message);
+    looseMessage(error.message);
   }
 }
 
@@ -277,7 +278,7 @@ async function looseLoadMore() {
   } catch (error) {
     if (run !== looseState.run) return;
     looseState.loading = false;
-    message("#loose-message", error.message);
+    looseMessage(error.message);
   }
 }
 
@@ -353,6 +354,13 @@ function looseResume() {
 
 // ---- acties
 
+// Elke melding van de pagina, behalve die van de poll zelf, haalt de melding van de poll weg: herstelt de poll later, dan wist hij
+// alleen zijn eigen melding (zie looseTick).
+function looseMessage(text, type = "error") {
+  looseState.pollFailed = false;
+  message("#loose-message", text, type);
+}
+
 // Vergrendelt een kaart of regel voor de duur van een verzoek: alle knoppen en keuzerondjes uit, en `data-busy` zodat een klik of
 // wijziging op de kaart niets meer doet. Ontgrendelen zet het kiezen terug zoals het was (zonder keuze blijft Koppel uit).
 function looseLock(holder, locked) {
@@ -365,40 +373,50 @@ function looseLock(holder, locked) {
   if (!locked && confirm) confirm.disabled = !holder.querySelector("input[type=radio]:checked");
 }
 
-// Een verzoek voor een kaart of regel. Het is een keer tegelijk per kaart: de kaart blijft op slot tot het antwoord er is, en blijft
-// alleen op slot als het lukte (dan verdwijnt hij). Bij een fout komt de melding in de pagina en kan de kaart weer.
-async function loosePost(path, body, button) {
-  const holder = button?.closest("[data-loose-card], [data-loose-row]");
-  if (button && !looseMayAct(holder)) return null;
-  message("#loose-message", "");
+// Een verzoek voor een kaart of regel, een keer tegelijk: de kaart blijft op slot tot het antwoord er is. Een knop in de kop heeft geen
+// kaart, die is tegen een tweede klik beschermd doordat setBusy hem uitzet. `after(antwoord)` is wat er na een gelukt verzoek gebeurt
+// (de kaart weghalen, de lijst laden). Staat de kaart daarna nog in de pagina, of faalt `after`, dan komt de kaart weer vrij.
+async function loosePost(path, body, button, after) {
+  const holder = button?.closest("[data-loose-card], [data-loose-row]") || null;
+  if (holder ? !looseMayAct(holder) : button?.disabled) return null;
+  looseMessage("");
   if (holder) looseLock(holder, true);
   if (button) setBusy(button, true);
+  let result;
   try {
-    const result = await jsonFetch(`/api/loose-names/${path}`, {
+    result = await jsonFetch(`/api/loose-names/${path}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     });
-    return result;
   } catch (error) {
-    message("#loose-message", error.message);
+    looseMessage(error.message);
     if (holder) looseLock(holder, false);
     return null;
   } finally {
     if (button) setBusy(button, false);
   }
+  let failed = null;
+  try {
+    if (after) after(result);
+  } catch (error) {
+    failed = error;
+    looseMessage(error.message);
+  }
+  if (holder?.isConnected) looseLock(holder, false);
+  return failed ? null : result;
 }
 
 // De kaart verdwijnt en de tellers lopen bij, zonder de lijst opnieuw te laden.
 function looseDropCard(key, { rejected = false } = {}) {
+  for (const element of document.querySelectorAll("[data-loose-card]")) {
+    if (element.dataset.looseCard === key) element.remove();
+  }
   const at = looseState.cards.findIndex((card) => card.key === key);
   if (at < 0) return;
   const [card] = looseState.cards.splice(at, 1);
   looseState.total = Math.max(0, looseState.total - 1);
   if (rejected) looseState.rejected.push({ key: card.key, name: card.name, bought: card.bought });
-  for (const element of document.querySelectorAll("[data-loose-card]")) {
-    if (element.dataset.looseCard === key) element.remove();
-  }
   looseRenderHeader();
   looseRenderMore();
   if (rejected) looseRenderLists();
@@ -415,21 +433,21 @@ async function looseConfirm(button) {
   if (!card || !picked) return;
   const key = card.dataset.looseCard;
   // Alleen de sleutel en het gekozen productnummer: de server weet welk product dat is.
-  if (await loosePost("confirm", { store: looseState.store, key, productId: picked.value }, button)) looseDropCard(key);
+  await loosePost("confirm", { store: looseState.store, key, productId: picked.value }, button, () => looseDropCard(key));
 }
 
 async function looseReject(button) {
   const key = button.closest("[data-loose-card]")?.dataset.looseCard;
-  if (key && (await loosePost("reject", { store: looseState.store, key }, button))) looseDropCard(key, { rejected: true });
+  if (key) await loosePost("reject", { store: looseState.store, key }, button, () => looseDropCard(key, { rejected: true }));
 }
 
 async function looseRestore(button) {
   const key = button.closest("[data-loose-row]")?.dataset.looseRow;
-  if (key && (await loosePost("restore", { store: looseState.store, key }, button))) loadLooseNames();
+  if (key) await loosePost("restore", { store: looseState.store, key }, button, () => loadLooseNames());
 }
 
 async function looseRun(button) {
-  if (await loosePost("run", { store: looseState.store }, button)) loadLooseNames();
+  await loosePost("run", { store: looseState.store }, button, () => loadLooseNames());
 }
 
 async function looseAskAi(button) {
@@ -438,7 +456,7 @@ async function looseAskAi(button) {
   setBusy(button, false, t("loose.ai_busy"));
   if (!result) return;
   await loadLooseNames();
-  message("#loose-message", t("loose.ai_done", { asked: result.asked || 0, proposed: result.proposed || 0, none: result.none || 0 }), "success");
+  looseMessage(t("loose.ai_done", { asked: result.asked || 0, proposed: result.proposed || 0, none: result.none || 0 }), "success");
 }
 
 // De koppeldialoog van product_links.js meldt een gelukte koppeling met ms:product-links. De naam die we daar openden, is dan

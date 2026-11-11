@@ -48,6 +48,7 @@ LOOSE_FUNCTIONS: tuple[str, ...] = (
     "looseMayAct",
     "loosePollWanted",
     "looseLock",
+    "looseMessage",
 )
 
 PRELUDE: str = "\n".join(
@@ -353,7 +354,7 @@ class LooseNamesMarkupTest(unittest.TestCase):
         self.assertNotIn("catch {", LOOSE, "geen stille catch")
         self.assertEqual(
             LOOSE.count("catch (error)"),
-            LOOSE.count('message("#loose-message", error.message)'),
+            LOOSE.count("looseMessage(error.message)") + LOOSE.count('message("#loose-message", error.message)'),
         )
 
     def test_the_nightly_checkbox_sits_in_the_ai_login_block_and_is_saved(self):
@@ -383,12 +384,12 @@ class LooseNamesBehaviourNodeTest(unittest.TestCase):
             PRELUDE,
             *[function_source(name, LOOSE) for name in LOOSE_ASYNC],
             "const LOOSE_POLL_MS = 5000;",
-            "const looseState = { run: 1, running: true, stalled: false, pollFailed: false, timer: 0 };",
+            "const looseState = { run: 1, running: true, stalled: false, pollFailed: false, timer: 0 };\nconst headerButton = () => ({ disabled: false, closest: () => null });",
             "const log = { fetches: [], messages: [], scheduled: 0, loaded: 0, busy: [] };",
             "let reply = () => Promise.resolve({ ok: true });",
             "const jsonFetch = (url, options) => { log.fetches.push(url); return reply(url, options); };",
             "const message = (target, text) => log.messages.push(text);",
-            "const setBusy = (button, busy) => log.busy.push(busy);",
+            "const setBusy = (button, busy) => { log.busy.push(busy); button.disabled = busy; };",
             "const looseQuery = () => 'q';",
             "const looseApply = () => {};",
             "const looseRenderHeader = () => {};",
@@ -403,7 +404,7 @@ const makeCard = (checked) => {
   const reject = element();
   const radio = element();
   const holder = {
-    dataset: {},
+    dataset: {}, isConnected: true,
     confirm, reject, radio,
     querySelectorAll: () => [confirm, reject, radio],
     querySelector: (selector) => (selector === '[data-loose-confirm]' ? confirm : checked ? radio : null),
@@ -452,7 +453,7 @@ const makeCard = (checked) => {
         out = self.run_json(
             "let done; reply = () => new Promise((resolve) => { done = resolve; });"
             "const card = makeCard(true);"
-            "const first = loosePost('confirm', {}, card.confirm);"
+            "const first = loosePost('confirm', {}, card.confirm, () => { card.isConnected = false; });"
             "const second = await loosePost('reject', {}, card.reject);"
             "const during = { fetches: log.fetches.length, second, busy: card.dataset.busy, disabled: card.reject.disabled };"
             "done({ ok: true }); const result = await first;"
@@ -500,3 +501,51 @@ const makeCard = (checked) => {
         self.assertIs(out["failed"], False)
         self.assertEqual(out["messages"], [""])
         self.assertEqual(out["scheduled"], 1)
+
+    def test_a_header_button_has_no_card_and_still_sends_its_request_once(self):
+        out = self.run_json(
+            "let done; reply = () => new Promise((resolve) => { done = resolve; });"
+            "const button = headerButton();"
+            "const first = loosePost('run', { store: 'ah' }, button);"
+            "const second = await loosePost('run', { store: 'ah' }, button);"
+            "const during = { fetches: log.fetches.length, second, disabled: button.disabled };"
+            "done({ started: true }); const result = await first;"
+            "console.log(JSON.stringify({ during, result, disabled: button.disabled, fetches: log.fetches.length }));"
+        )
+        self.assertEqual(out["during"], {"fetches": 1, "second": None, "disabled": True})
+        self.assertEqual(out["result"], {"started": True})
+        self.assertIs(out["disabled"], False)
+        self.assertEqual(out["fetches"], 1)
+
+    def test_the_after_step_runs_on_success_and_a_failing_one_unlocks_the_card_and_shows_the_error(self):
+        out = self.run_json(
+            "const ran = []; const ok = makeCard(true);"
+            "await loosePost('confirm', {}, ok.confirm, (result) => { ran.push(result); ok.isConnected = false; });"
+            "const bad = makeCard(true);"
+            "const result = await loosePost('confirm', {}, bad.confirm, () => { throw new Error('tekenen mislukt'); });"
+            "console.log(JSON.stringify({ ran, okBusy: ok.dataset.busy, result, badBusy: bad.dataset.busy ?? null, messages: log.messages }));"
+        )
+        self.assertEqual(out["ran"], [{"ok": True}])
+        self.assertEqual(out["okBusy"], "1", "de kaart is weg: hij blijft op slot")
+        self.assertIsNone(out["result"])
+        self.assertIsNone(out["badBusy"], "een kaart die nog in de pagina staat, komt vrij")
+        self.assertIn("tekenen mislukt", out["messages"])
+
+    def test_a_card_that_is_still_in_the_page_after_success_is_unlocked(self):
+        out = self.run_json(
+            "const card = makeCard(true); await loosePost('confirm', {}, card.confirm, () => {});"
+            "console.log(JSON.stringify({ busy: card.dataset.busy ?? null, confirm: card.confirm.disabled }));"
+        )
+        self.assertEqual(out, {"busy": None, "confirm": False})
+
+    def test_a_recovering_poll_clears_only_its_own_message(self):
+        out = self.run_json(
+            "reply = () => Promise.reject(new Error('geen verbinding')); await looseTick(1);"
+            "const before = log.messages.slice();"
+            "looseMessage('De AI keek naar 3 namen', 'success');"
+            "reply = () => Promise.resolve({ running: true }); await looseTick(1);"
+            "console.log(JSON.stringify({ before, messages: log.messages, failed: looseState.pollFailed }));"
+        )
+        self.assertEqual(out["before"], ["geen verbinding"])
+        self.assertEqual(out["messages"], ["geen verbinding", "De AI keek naar 3 namen"], "geen wis na de melding van iets anders")
+        self.assertIs(out["failed"], False)
