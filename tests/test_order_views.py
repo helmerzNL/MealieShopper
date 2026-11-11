@@ -17,6 +17,8 @@ OFFERS = (ROOT / "static" / "offers.js").read_text(encoding="utf-8")
 CATEGORIES = (ROOT / "static" / "categories.js").read_text(encoding="utf-8")
 PURCHASE_VIEWS = (ROOT / "static" / "purchase_views.js").read_text(encoding="utf-8")
 ORDER_VIEWS_PATH = ROOT / "static" / "order_views.js"
+# De gedeelde keuzelijst, zonder de regel die bij het laden de uitklapvakken in de pagina opzoekt.
+FACETS = (ROOT / "static" / "facets.js").read_text(encoding="utf-8").replace("\nfacetPanelsInit();\n", "\n")
 ORDER_VIEWS = (
     ORDER_VIEWS_PATH.read_text(encoding="utf-8") if ORDER_VIEWS_PATH.exists() else ""
 )
@@ -48,6 +50,8 @@ ORDER_FUNCTIONS = (
     "orderLineSaved",
     "orderLinePaid",
     "orderFilter",
+    "orderFacetsEmpty",
+    "orderFacetRows",
     "orderSortLines",
     "orderGroups",
     "orderViewFor",
@@ -85,12 +89,14 @@ def prelude():
             "const mdiIcon = () => '';",
             "const badge = (kind, text, title = '') => `<span class=\"badge badge--${kind}\">${escapeHtml(text)}</span>`;",
             "const offerBadge = (offer) => (offer.badge && typeof offer.badge.percent === 'number' ? `<span class=\"offer-badge\">-${offer.badge.percent}%</span>` : '');",
+            FACETS,
             const_source("PURCHASE_SIZES", PURCHASE_VIEWS),
             const_source("CATEGORY_ORDER", CATEGORIES),
             function_source("categoryLabel", CATEGORIES),
             function_source("viewState", PURCHASE_VIEWS),
             function_source("foldText", ORDERS),
             function_source("matchesQuery", ORDERS),
+            function_source("matchesWords", (ROOT / "static" / "app.js").read_text(encoding="utf-8")),
             # De knop Koppelen (#238) bij een regel van een bon of ingelezen bestelling: hier alleen een merkteken.
             function_source("receiptLinkLine", ORDERS),
             function_source("importedLinkLine", ORDERS),
@@ -167,14 +173,14 @@ class OrderViewsNodeTest(unittest.TestCase):
         self.assertEqual(
             self.run_js(
                 lines
-                + 'console.log(JSON.stringify(orderFilter(lines, ["cheet"], "all").map((l) => l.title)));'
+                + 'console.log(JSON.stringify(orderFilter(lines, ["cheet"]).map((l) => l.title)));'
             ),
             ["Cheetos Chipito kaas", "Chéetos Crunchy"],
         )
         self.assertEqual(
             self.run_js(
                 lines
-                + 'console.log(JSON.stringify(orderFilter(lines, ["halfvolle", "m"], "all").length));'
+                + 'console.log(JSON.stringify(orderFilter(lines, ["halfvolle", "m"]).length));'
             ),
             1,
             "alle woorden moeten passen, ook in de bonnaam",
@@ -182,7 +188,7 @@ class OrderViewsNodeTest(unittest.TestCase):
         self.assertEqual(
             self.run_js(
                 lines
-                + 'console.log(JSON.stringify(orderFilter(lines, ["boerenk"], "all").length));'
+                + 'console.log(JSON.stringify(orderFilter(lines, ["boerenk"]).length));'
             ),
             1,
             "de bonnaam telt ook",
@@ -190,7 +196,7 @@ class OrderViewsNodeTest(unittest.TestCase):
         self.assertEqual(
             self.run_js(
                 lines
-                + 'console.log(JSON.stringify(orderFilter(lines, [], "all").length));'
+                + 'console.log(JSON.stringify(orderFilter(lines, []).length));'
             ),
             4,
             "zonder zoekwoorden alles",
@@ -198,14 +204,14 @@ class OrderViewsNodeTest(unittest.TestCase):
         self.assertEqual(
             self.run_js(
                 lines
-                + 'console.log(JSON.stringify(orderFilter(lines, [], "zuivel_eieren").map((l) => l.title)));'
+                + 'console.log(JSON.stringify(orderFilter(lines, [], { category: { shown: ["zuivel_eieren"], hidden: [] }, brand: facetSelection() }).map((l) => l.title)));'
             ),
             ["AH Halfvolle melk"],
         )
         self.assertEqual(
             self.run_js(
                 lines
-                + 'console.log(JSON.stringify(orderFilter(lines, ["cheet"], "zuivel_eieren").length));'
+                + 'console.log(JSON.stringify(orderFilter(lines, ["cheet"], { category: { shown: ["zuivel_eieren"], hidden: [] }, brand: facetSelection() }).length));'
             ),
             0,
             "zoeken en de chip werken samen",

@@ -2,6 +2,43 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub; een stabiele release krijgt de teksten van alle versies sinds de vorige stabiele release.
 
+## v4.16.0
+
+### Nieuw in 4.16.0
+
+Pull request: [#317](https://github.com/helmerzNL/MealieShopper/pull/317), van wolph.
+
+*English summary: The offers page gets a basket control, filter lists and a lighter popup, and the Price history counts what a piece really costs. **Basket on every offer**: Albert Heijn, Picnic and Crisp show a minus, the quantity already in your basket and a plus, and a change is sent as an exact quantity. Jumbo cannot set an exact quantity and keeps the single basket button of 4.13.0. **Lists with plus and minus**: categories and brands are lists with a plus (only this one), a minus (hide this one) and a count, on the offers, on an order or receipt, in the purchase search, in the Price history and for the recipes with the offers. They replace the category chips of 4.13.0. The offers use the full width of the screen and the next ones load by themselves. **The popup on an offer** appears after 100 ms, lets the mouse through, shows the legend of the chart and has no buttons or links any more. **Prices**: an offer with a condition (second one half price) is counted per piece in the Price history, an offer "per 100 gram" is converted to the price of the pack instead of showing a 90% discount, two product numbers for the same product are one row, and a purchase from an old confirmation mail with the name in the singular joins its product.*
+
+Het werk aan de aanbiedingen en de Prijsgeschiedenis dat op de installatie van wolph al draaide, samengevoegd met 4.15.0.
+
+**Aanbiedingen**
+
+- **Het mandje bij een aanbieding.** Op elke kaart en in elke compacte rij staan een min, het aantal dat al in het mandje van de winkel zit en een plus. Een wijziging gaat als exact aantal naar de winkel, 0 haalt het product weg. Bij Albert Heijn is het mandje de boodschappenlijst, Picnic en Crisp gebruiken hun eigen mandje. Jumbo kent geen exact aantal en houdt de mandknop van 4.13.0.
+- **Categorieën en merken als lijst.** De filterzijbalk heeft een lijst met alle categorieën en een lijst met alle merken, met een zoekveld boven de merken. Per regel een plus (alleen deze tonen), een min (verbergen, dat wint) en het aantal aanbiedingen, daarop gesorteerd met de gekozen regels bovenaan. De chips met categorieën boven de producten uit 4.13.0 zijn daarmee weg. *Alles tonen* bij een lege uitkomst en de onthouden zoekopdracht blijven.
+- **Schermbreed en vanzelf verder.** Het overzicht gebruikt de hele schermbreedte, de zijbalk loopt mee, en de volgende aanbiedingen komen er vanzelf bij als het einde van de lijst in de buurt komt. De knop *Meer tonen* is weg.
+- **De popup bij een aanbieding.** Hij komt na 100 ms (40 ms als er al een open is) en haalt de geschiedenis op zodra de muis op de kaart komt. De muis gaat erdoorheen, zodat de kaart eronder reageert. De knoppen en links staan er daarom niet meer in, de kop noemt de verpakking en de legenda van de grafiek staat eronder. Het venster op een aanraakscherm houdt alles, en met het toetsenbord blijft de wachttijd 400 ms.
+- **Naar de prijsgeschiedenis.** De foto en de titel van een aanbieding openen de prijsgeschiedenis. Naar de winkel gaat een eigen winkelicoon onderaan de kaart en in de compacte rij.
+- **De laagste prijs een keer.** Naast *Laagste prijs in een jaar* stond ook *Laagste in 12 mnd*. Dat tweede label is weg, en *Laagste prijs ooit* vervangt de regel van het jaar.
+- **Een aanbieding per 100 gram.** Albert Heijn geeft bij *per 100 GRAM voor 1.59* de prijs per 100 gram door als prijs van het product, naast de gewone prijs van het hele pak. Dat gaf 90% korting. De app rekent de prijs nu om naar de inhoud van het pak en herstelt bij het starten de rijen die al zo waren opgeslagen. Zonder leesbare inhoud blijft de prijs per gewicht staan, zonder gewone prijs ernaast.
+
+**Prijsgeschiedenis**
+
+- **De stukprijs bij een actie met een voorwaarde.** Bij *2e halve prijs* of *1+1 gratis* noemt Albert Heijn de gewone prijs als prijs. De grafiek, de tabel, de kerncijfers en de kop van de popup rekenen nu met wat een stuk kost, net als de kaart al deed.
+- **Twee productnummers, een product.** Albert Heijn voert sommige producten onder een nummer op de kassabon en een ander in de webwinkel. Producten met dezelfde naam, hetzelfde merk en dezelfde verpakking zijn nu een rij, met de aankopen en de gewone prijzen van elk nummer.
+- **Een folderactie die de categorie noemt.** *Alle AH Bakkersbrood Les Pains heel* hoort nu bij het brood: een woord dat de categorie noemt, mag in de productnaam ontbreken als de andere woorden er staan.
+- **De naam in enkelvoud.** Een ingelezen aankoop of bonregel hoort ook bij een product als de woorden in enkelvoud gelijk zijn en er maar een product met die woorden is (*Les pain* in een mail van 2022, *Les pains* in de winkel van nu).
+- **Filteren op merk en categorie.** De lijsten met plus en min staan ook hier. De server filtert en telt over alle gevonden producten, met hooguit 500 merken.
+
+**Bestellingen, kassabonnen en recepten**
+
+- **Dezelfde lijsten.** Een bestelling of bon filtert op categorie en merk, het zoeken in de aankopen toont de gevonden producten als lijst, en de recepten bij de aanbiedingen kiezen meer dan een soort gerecht en kunnen soorten verbergen. De lijst staat los in `static/facets.js`.
+
+**Samengevoegd met beta**
+
+- De mandknop van 4.13.0 en de knoppen met min en plus doen hetzelfde werk. Een winkel die een exact aantal aanneemt, krijgt de knoppen, Jumbo de mandknop (`offerCartSlot`).
+- De functie die het minimum van een actie uitrekent, heet nu `offerCartMinimum`. De naam `offerCartQuantity` is van het aantal in het mandje.
+
 ## v4.15.0
 
 ### Nieuw in 4.15.0

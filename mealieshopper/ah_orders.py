@@ -256,6 +256,32 @@ async def sync_basket() -> dict[str, Any]:
     return await get_basket()
 
 
+def cart_summary(basket: dict[str, Any]) -> dict[str, Any]:
+    """Het AH-mandje in de vorm van het mandje van Picnic en Crisp: per product het aantal, voor de aantallen bij de aanbiedingen.
+    Een vrije tekstregel heeft geen product en telt alleen mee in `totalCount`."""
+    lines: list[dict[str, Any]] = basket.get("items") or []
+    items: list[dict[str, Any]] = [
+        {"id": str(line["productId"]), "title": line.get("title"), "quantity": line.get("quantity") or 0, "unitSize": line.get("unitSize") or None,
+         "price": line.get("price"), "image": line.get("image") or None}
+        for line in lines if line.get("productId")
+    ]
+    return {"items": items, "totalCount": sum(line.get("quantity") or 0 for line in lines)}
+
+
+async def sync_cart() -> dict[str, Any]:
+    """Het AH-mandje vers van AH, als `cart_summary`; de bewaarde kopie (het tabblad Mandje) loopt mee."""
+    basket: dict[str, Any] = await ah.get_shopping_list()
+    await save_basket(basket)
+    return cart_summary(basket)
+
+
+async def set_cart_quantity(product_id: Any, quantity: Any, title: Any = "") -> dict[str, Any]:
+    """Zet een product in het AH-mandje op een exact aantal (0 haalt het weg) en geeft het mandje daarna."""
+    basket: dict[str, Any] = await ah.set_shopping_list_quantity(product_id, quantity, title)
+    await save_basket(basket)
+    return cart_summary(basket)
+
+
 # --- bestellingen ---------------------------------------------------------------------------------
 
 async def _save_order(conn: aiosqlite.Connection, header: dict[str, Any], kind: str, items: list[dict[str, Any]] | None) -> None:

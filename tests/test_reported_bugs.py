@@ -20,13 +20,19 @@ from unittest import mock
 
 import jwt
 
-from helpers import AppTestCase, db  # helpers zet ook het pad naar de app
+from helpers import AppTestCase, db, returned, run, sent_json, served  # helpers zet ook het pad naar de app
+import httpx
+
+import test_ah_orders  # als module: de opzet van het AH-mandje
+import test_history_chart_js  # als module, voor de Node-opbouw van offers_history.js
 import test_history_stores_js  # als module: anders draait pytest die tests hier nog een keer
+import test_offers  # idem: de opzet van de receptvoorstellen
 import test_offers_scan_js  # idem: de Node-opbouw van offers.js
 from test_auth_password import PASSWORD, AuthPasswordTestCase
+import test_order_views  # idem: de Node-opbouw van order_views.js en de gedeelde keuzelijst
 from test_prices import PricesCase, offer
 
-from mealieshopper import ah, ah_orders, assets, auth, image_cache, offers, offers_schedule, price_archive_tidy, price_import, prices
+from mealieshopper import ah, ah_orders, assets, auth, deals, image_cache, line_offers, offer_categories, offers, offers_schedule, price_archive_tidy, price_import, prices
 from mealieshopper.app import create_app
 
 ROOT: Path = Path(__file__).resolve().parents[1]
@@ -618,7 +624,7 @@ class OffersFiltersTest(unittest.TestCase):
             {"id": "3", "brand": "Unox", "title": "Rookworst", "badge": {"percent": 50}, "family": {"key": "c", "packs": []}},
             {"id": "4", "brand": "Dr. Oetker", "title": "Brownies", "badge": {"percent": 10}, "family": {"key": "d", "packs": []}},
         ]
-        filters = {"brands": ["Dr. Oetker"], "bought": False, "minDiscount": 15, "maxUnitPrice": {"value": None, "unit": "kg"}, "yearLow": False, "rare": False}
+        filters = {"brands": ["Dr. Oetker"], "brandsOut": [], "categories": [], "categoriesOut": [], "bought": False, "minDiscount": 15, "maxUnitPrice": {"value": None, "unit": "kg"}, "yearLow": False, "rare": False}
         script = f"""{test_offers_scan_js.PRELUDE}
 offersState.filters = {json.dumps(filters)};
 const shown = offersFilteredWithFamilies({json.dumps(offers)});
@@ -642,6 +648,615 @@ console.log(JSON.stringify(offerPopupHtml({json.dumps(offer)}, {json.dumps(produ
             self.assertIn(marker, html)
 
 
+@unittest.skipUnless(shutil.which("node"), "Node is not installed")
+class OfferCardLinksTest(unittest.TestCase):
+    """Verzoek van 2026-11-09: "ik wil overigens dat klikken naar de prijsgeschiedenis pagina gaat daar. maak een winkel (e.g. AH)
+    icoontje waarmee je wel direct naar de winkel gaat". De foto en de titel van een aanbieding gingen naar de winkel."""
+
+    STUBS: str = """
+const mdiIcon = (path) => '<svg data-icon="' + path + '"></svg>';
+const MDI_IMAGE_OUTLINE = 'image'; const MDI_COMPARE_HORIZONTAL = 'compare'; const MDI_CHART_LINE = 'chart'; const MDI_STORE = 'store';
+const storeImage = (url) => url; const storeDisplayName = () => 'Albert Heijn'; const offersOnlyStore = () => false;
+const offerPriceLabelHtml = () => '';
+"""
+
+    def render(self, offer: dict) -> dict:
+        names = ("offerThumb", "offerCardFoot", "offerTitleLink", "offerStoreLink")
+        script = f"""{test_offers_scan_js.PRELUDE}
+{chr(10).join(test_offers_scan_js.function_source(name) for name in names)}
+{self.STUBS}
+const offer = {json.dumps(offer)};
+console.log(JSON.stringify({{ thumb: offerThumb(offer), title: offerTitleLink(offer), foot: offerCardFoot(offer), store: offerStoreLink(offer) }}));"""
+        result = subprocess.run(["node", "-e", script], capture_output=True, text=True, timeout=30, check=False)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        return json.loads(result.stdout)
+
+    def test_2026_11_09_photo_and_title_open_the_price_history_and_an_icon_opens_the_store(self):
+        html = self.render({"id": "234871", "title": "Mutti Pizzasaus aromatica", "image": "i.png", "url": "https://www.ah.nl/producten/product/wi234871"})
+        for part in ("thumb", "title"):
+            self.assertIn('href="/offers/history?product=234871" data-route', html[part], part)
+            self.assertNotIn("ah.nl", html[part], part)
+            self.assertNotIn("_blank", html[part], part)
+        store = html["store"]
+        self.assertIn('href="https://www.ah.nl/producten/product/wi234871" target="_blank" rel="noopener noreferrer"', store)
+        self.assertIn('aria-label="offers.history.open {"store":"Albert Heijn"}"', store, "het icoon heeft een naam voor een schermlezer")
+        self.assertIn('data-icon="store"', store)
+        self.assertIn(store, html["foot"], "het winkelicoon staat onderaan de kaart")
+        row = test_offers_scan_js.function_source("offerProductRow")
+        self.assertIn("offerTitleLink(offer)", row)
+        self.assertIn("offerStoreLink(offer)", row, "ook in de compacte rij")
+        self.assertIn("offerTitleLink(offer)", test_offers_scan_js.function_source("offerProductCard"))
+
+    def test_2026_11_09_without_a_store_address_there_is_no_store_icon(self):
+        html = self.render({"id": "folder:1", "title": "Alle Mutti", "image": "", "url": ""})
+        self.assertEqual(html["store"], "")
+        self.assertIn('href="/offers/history?product=folder:1" data-route', html["title"])
+
+
+@unittest.skipUnless(shutil.which("node"), "Node is not installed")
+class OfferPopupLegendTest(unittest.TestCase):
+    """Melding van 2026-11-10: "in de popup mist de legenda van wat de dingen in de grafiek inhouden". De pagina Prijsgeschiedenis
+    had de legenda onder de grafiek, de popup bij een aanbieding niet."""
+
+    def test_2026_11_10_the_popup_has_the_legend_under_the_chart(self):
+        offer = {"id": "234871", "title": "Mutti Pizzasaus aromatica", "price": 2.49}
+        product = {"store": "ah", "productId": "234871", "title": offer["title"], "purchases": [{"date": "2026-03-07", "price": 1.87}], "episodes": []}
+        script = f"""{test_offers_scan_js.PRELUDE}
+console.log(JSON.stringify(offerPopupHtml({json.dumps(offer)}, {json.dumps(product)}, [])));"""
+        result = subprocess.run(["node", "-e", script], capture_output=True, text=True, timeout=30, check=False)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        html = json.loads(result.stdout)
+        self.assertIn('class="ohc-legend"', html)
+        self.assertLess(html.index('class="ohc-block"'), html.index('class="ohc-legend"'), "onder de grafiek")
+        self.assertLess(html.index('class="ohc-legend"'), html.index('class="ohc-table"'), "boven de aankopen")
+
+
+class OfferPopupPassThroughTest(unittest.TestCase):
+    """Melding van 2026-11-10: "met de huidige popup is het heel lastig om door te gaan naar het volgende product omdat de popup daar
+    overheen gaat". Gekozen: de muis gaat door de popup heen, zodat de kaart eronder reageert en de popup daarheen verspringt."""
+
+    @unittest.skipUnless(shutil.which("node"), "Node is not installed")
+    def test_2026_11_10_the_popup_has_no_buttons_or_links_and_the_dialog_keeps_them(self):
+        # "haal die knoppen/links weg, die hebben geen nut nu": de popup is alleen om naar te kijken. Het venster op een aanraakscherm
+        # houdt de verpakkingsknoppen en de link naar de volledige prijsgeschiedenis.
+        offer = {"id": "234871", "title": "Mutti Pizzasaus aromatica", "unitSize": "388 ml", "price": 2.49}
+        product = {"store": "ah", "productId": "234871", "title": offer["title"], "url": "https://www.ah.nl/x", "purchases": [], "episodes": []}
+        packs = [{"productId": "509883", "unitSize": "210 g"}, {"productId": "234871", "unitSize": "388 ml"}]
+        script = f"""{test_offers_scan_js.PRELUDE}
+const args = [{json.dumps(offer)}, {json.dumps(product)}, {json.dumps(packs)}, "234871"];
+console.log(JSON.stringify({{ popup: offerPopupHtml(...args, {{ preview: true }}), dialog: offerPopupHtml(...args) }}));"""
+        result = subprocess.run(["node", "-e", script], capture_output=True, text=True, timeout=30, check=False)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        html = json.loads(result.stdout)
+        for marker in ("<a ", "<button", "data-popup-pack", "offer-popup__foot"):
+            self.assertNotIn(marker, html["popup"], marker)
+        self.assertIn('data-links="false"', html["popup"], "de kop zonder de link naar de winkel")
+        self.assertIn('data-buttons="false"', html["popup"], "de grafiek zonder periodeknoppen")
+        for marker in ("data-popup-pack", "offer-popup__foot", 'data-links="true"', 'data-buttons="true"'):
+            self.assertIn(marker, html["dialog"], marker)
+        source = (ROOT / "static" / "offers_history.js").read_text(encoding="utf-8")
+        self.assertIn("const link = links && product.url", source)
+        self.assertIn("const buttons = withButtons && range.options.length", source)
+
+    @unittest.skipUnless(shutil.which("node"), "Node is not installed")
+    def test_2026_11_10_the_popup_comes_fast_and_its_history_is_fetched_at_once(self):
+        # "kunnen we de popup sneller maken? hij lijkt een vertraging te hebben": 400 ms wachten en dan pas de geschiedenis ophalen.
+        # Nu haalt de app de geschiedenis op zodra de muis op de kaart komt, staat de popup er na 100 ms en verspringt hij in 40 ms.
+        case = test_offers_scan_js.OffersScanNodeTest()
+        found = case.popup_js(
+            "let fetched = 0; const jsonFetch = () => { fetched += 1; return new Promise(() => {}); };"
+            f"offersState.offers = [{json.dumps(case.POPUP_OFFER)}, {{ ...{json.dumps(case.POPUP_OFFER)}, id: '777' }}];"
+            "const other = element('card2'); other.dataset.offer = '777'; const states = [];"
+            "scheduleOfferPopup(anchor); states.push({ fetched, hidden: box.hidden });"
+            "setTimeout(() => { states.push({ hidden: box.hidden, shown: offerPopup.id }); scheduleOfferPopup(other);"
+            "  setTimeout(() => { states.push({ shown: offerPopup.id, fetched }); console.log(JSON.stringify(states)); }, OFFER_POPUP_SWITCH + 30);"
+            "}, OFFER_POPUP_DELAY + 30);"
+        )
+        self.assertEqual(found, [{"fetched": 1, "hidden": True}, {"hidden": False, "shown": "514010"}, {"shown": "777", "fetched": 2}])
+        js = (ROOT / "static" / "offers.js").read_text(encoding="utf-8")
+        self.assertIn("const OFFER_POPUP_DELAY = 100;", js)
+        self.assertIn("const OFFER_POPUP_SWITCH = 40;", js)
+
+    def test_2026_11_10_the_mouse_goes_through_the_popup(self):
+        css = (ROOT / "static" / "styles.css").read_text(encoding="utf-8")
+        self.assertIn(".offer-popup {\n  pointer-events: none;\n}", css, "de kaart onder de popup blijft aan te wijzen")
+        self.assertNotIn(".offer-popup:focus-within", css, "er valt in de popup niets meer te klikken")
+        self.assertNotIn("pointer-events", css[css.index(".offer-popup__dialog") :].split("}")[0], "het venster op een aanraakscherm blijft gewoon klikbaar")
+
+
+class OfferCartQuantityTest(test_ah_orders.AhOrdersTestCase):
+    """Verzoek van 2026-11-10: "is er ook een mogelijkheid om het product direct aan het winkelwagentje toe te voegen en/of direct te
+    zien wat er al in de winkelwagen zit? (i.e. aantallen invulveld met +/- erbij)". Het AH-mandje is de boodschappenlijst: het
+    aantal in de PATCH vervangt wat er stond en 0 haalt de regel weg (gemeten bij AH op 2026-11-10)."""
+
+    LIST: dict = {"id": "x", "items": [test_ah_orders.shopping_entry("Halfvolle melk", 2), {"type": "FREE_TEXT", "description": "Bloemen", "quantity": 1}]}
+
+    async def test_2026_11_10_the_cart_gives_the_quantity_per_product(self):
+        with mock.patch.object(ah, "_get_json", return_value=self.LIST):
+            cart = (await self.client.get("/api/ah/cart")).get_json()
+        self.assertEqual([(item["id"], item["quantity"], item["title"]) for item in cart["items"]], [("111", 2, "Halfvolle melk")])
+        self.assertEqual(cart["totalCount"], 3, "de vrije tekstregel telt mee in het totaal")
+        self.assertEqual((await self.client.get("/api/ah/basket")).get_json()["itemCount"], 2, "het tabblad Mandje loopt mee")
+
+    async def test_2026_11_10_a_quantity_is_set_exactly_and_zero_removes(self):
+        for quantity, answer, expected in ((3, {"items": [test_ah_orders.shopping_entry("Halfvolle melk", 3)]}, [("111", 3)]), (0, {"items": []}, [])):
+            with mock.patch.object(ah, "get_user_token", return_value="tok"), served(httpx.Response(200, json=answer)) as patch:
+                response = await self.client.put("/api/ah/cart/items/111", json={"quantity": quantity, "title": "Halfvolle melk"})
+            self.assertEqual(response.status_code, 200, response.get_json())
+            self.assertEqual(patch.calls.last.request.method, "PATCH")
+            sent = sent_json(patch.calls.last)["items"]
+            self.assertEqual([(line["productId"], line["quantity"], line["description"]) for line in sent], [(111, quantity, "Halfvolle melk")], "0 blijft 0")
+            self.assertEqual([(item["id"], item["quantity"]) for item in response.get_json()["items"]], expected)
+            self.assertEqual((await self.client.get("/api/ah/basket")).get_json()["itemCount"], len(expected))
+
+    async def test_2026_11_10_a_wrong_quantity_never_reaches_ah(self):
+        with mock.patch.object(ah, "get_user_token", return_value="tok"), served(httpx.Response(200, json={})) as patch:
+            for quantity in (-1, 100, "veel", 1.5, True, None):
+                response = await self.client.put("/api/ah/cart/items/111", json={"quantity": quantity})
+                self.assertEqual(response.status_code, 400, quantity)
+            self.assertEqual((await self.client.put("/api/ah/cart/items/geen-getal", json={"quantity": 1})).status_code, 400)
+        self.assertEqual(patch.calls.call_count, 0)
+
+    async def test_2026_11_10_an_open_order_at_ah_gives_a_readable_error(self):
+        refused = httpx.Response(412, text='{"status":412,"message":"Server in order mode"}')
+        with mock.patch.object(ah, "get_user_token", return_value="tok"), served(refused):
+            response = await self.client.put("/api/ah/cart/items/111", json={"quantity": 1})
+        self.assertEqual(response.status_code, 424)
+        self.assertIn("order", response.get_json()["error"].lower())
+
+
+@unittest.skipUnless(shutil.which("node"), "Node is not installed")
+class OfferLabelsSayItOnceTest(unittest.TestCase):
+    """Melding van 2026-11-10: "deze tags lijken redundant?" bij een kaart met "Laagste in 12 mnd" en "Laagste prijs in een jaar"."""
+
+    def labels(self, offer: dict) -> list:
+        script = f"""{test_offers_scan_js.PRELUDE}
+const offer = {json.dumps(offer)};
+console.log(JSON.stringify([offerPriceLabel(offer), offerYearLowLine(offer)].map((label) => label && label.text)));"""
+        result = subprocess.run(["node", "-e", script], capture_output=True, text=True, timeout=30, check=False)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        return json.loads(result.stdout)
+
+    def test_2026_11_10_a_card_names_the_lowest_price_of_the_year_once(self):
+        lowest: dict = {"status": "lowest", "month": "2026-09", "above": 0.0}
+        above: dict = {"status": "above", "month": "2026-09", "above": 0.5, "price": 1.79}
+        for kind in ("lowest_12m", "lowest_6m"):
+            self.assertEqual(self.labels({"priceLabel": {"kind": kind}, "yearLow": lowest}), [None, "offers.label.year_low"], kind)
+            found = self.labels({"priceLabel": {"kind": kind}, "yearLow": above})
+            self.assertIsNone(found[0], "geen groen label naast 'boven de laagste van het jaar'")
+            self.assertIn("offers.label.year_above", found[1])
+            # Zonder een jaar aan prijzen uit alle bronnen blijft het label uit de geschiedenis het enige oordeel.
+            self.assertEqual(self.labels({"priceLabel": {"kind": kind}, "yearLow": {"status": "unknown"}}), [f"offers.label.{kind}", None])
+        self.assertEqual(self.labels({"priceLabel": {"kind": "lowest_ever"}, "yearLow": lowest}), ["offers.label.lowest_ever", None])
+        self.assertIsNone(self.labels({"priceLabel": {"kind": "lowest_ever"}, "yearLow": above})[0])
+
+
+@unittest.skipUnless(shutil.which("node"), "Node is not installed")
+class OfferFilterListsTest(unittest.TestCase):
+    """Verzoek van 2026-11-10: "de filters moeten veel beter dan ze nu zijn. voor merken wil ik een lijst met alle merken en een
+    zoekveld erboven. merk filters moeten +/- hebben voor include/exclude. daarnaast wil ik een infinite scroll", met erbij: "ik wil
+    de categorieen net als de merken ook links in het filtermenu" en "ik wil het aantal matchende producten er ook direct bij hebben
+    in die lijst. daarop gesorteerd"."""
+
+    OFFERS: list = [
+        {"id": "1", "brand": "Mutti", "category": "sauzen_conserven", "title": "Pizzasaus"},
+        {"id": "2", "brand": "Mutti", "category": "sauzen_conserven", "title": "Passata"},
+        {"id": "3", "brand": "Lenor", "category": "huishouden", "title": "Geurbooster"},
+        {"id": "4", "brand": "AH", "category": "vlees", "title": "Gehakt"},
+        {"id": "5", "brand": "AH", "category": "vlees", "title": "Kipfilet"},
+        {"id": "6", "brand": "AH", "category": "huishouden", "title": "Vaatwastabletten"},
+    ]
+
+    def run_js(self, body: str) -> dict:
+        names = ("offersPersonalOnly", "offersBase", "offersCategoryCounts")
+        facets = (ROOT / "static" / "offers_facets.js").read_text(encoding="utf-8")
+        script = f"""{test_offers_scan_js.PRELUDE}
+{chr(10).join(test_offers_scan_js.function_source(name) for name in names)}
+const OFFERS_FILTERS_KEY = 'ms-offers-filters';
+const saved = {{}};
+const localStorage = {{ getItem: (key) => saved[key] || null, setItem: (key, value) => {{ saved[key] = value; }} }};
+const categoryLabel = (id) => 'cat ' + id;
+const offerSearchText = (offer) => foldText(offer.title + ' ' + offer.brand);
+const mdiIcon = (path) => '<svg data-icon="' + path + '"></svg>'; const MDI_PLUS = 'plus'; const MDI_MINUS = 'minus';
+const $ = () => ({{ addEventListener: () => {{}} }});
+{test_order_views.FACETS}
+{facets}
+Object.assign(offersState, {{ offers: {json.dumps(self.OFFERS)}, search: '', goodOnly: false, personalOnly: false, personal: null }});
+const fresh = (extra) => {{ offersState.filters = {{ ...offersEmptyFilters(), ...extra }}; return offersState.filters; }};
+const ids = () => offersFilteredWithFamilies(offersBase()).map((offer) => offer.id);
+{body}"""
+        result = subprocess.run(["node", "-e", script], capture_output=True, text=True, timeout=30, check=False)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        return json.loads(result.stdout)
+
+    def test_2026_11_10_plus_shows_only_those_and_minus_always_hides(self):
+        found = self.run_js("""
+const out = {};
+fresh({ brands: ['Mutti', 'Lenor'] }); out.plus = ids();
+fresh({ brandsOut: ['AH'] }); out.minus = ids();
+fresh({ brands: ['AH'], categoriesOut: ['huishouden'] }); out.both = ids();
+fresh({ categories: ['vlees', 'huishouden'], brandsOut: ['Lenor'] }); out.categories = ids();
+fresh({ brands: ['Lenor'], brandsOut: ['Lenor'] }); out.minusWins = ids();
+out.chips = (fresh({ brands: ['Mutti'], brandsOut: ['Lenor'], categories: ['vlees'], categoriesOut: ['huishouden'] }), offersActiveFilterChips().map((chip) => [chip.key, chip.label]));
+console.log(JSON.stringify(out));
+""")
+        self.assertEqual(found["plus"], ["1", "2", "3"], "meerdere plussen: een van deze")
+        self.assertEqual(found["minus"], ["1", "2", "3"])
+        self.assertEqual(found["both"], ["4", "5"])
+        self.assertEqual(found["categories"], ["4", "5", "6"])
+        self.assertEqual(found["minusWins"], [])
+        self.assertEqual(found["chips"], [
+            ["cat:vlees", "cat vlees"], ["catOut:huishouden", 'offers.filters.excluded {"name":"cat huishouden"}'],
+            ["brand:Mutti", "Mutti"], ["brandOut:Lenor", 'offers.filters.excluded {"name":"Lenor"}'],
+        ])
+
+    def test_2026_11_10_the_lists_show_the_count_sorted_by_it_with_the_chosen_ones_on_top(self):
+        found = self.run_js("""
+const rows = (facet, search) => offerFacetRows(facet, facet === 'brand' ? offersBrandCounts(offersBase()) : offersCategoryCounts(offersBase()), offersFilters(), search).map((row) => [row.value, row.count, row.mode]);
+const out = {};
+fresh({}); out.brands = rows('brand'); out.categories = rows('category');
+fresh({ brandsOut: ['Lenor'], brands: ['Verdwenen'] }); out.active = rows('brand');
+fresh({ categories: ['vlees'] }); out.withCategory = rows('brand'); out.categoryKeepsItsOwnCounts = rows('category');
+fresh({}); out.search = rows('brand', 'mut'); out.none = rows('brand', 'zzz');
+offersState.search = 'gehakt'; out.pageSearch = rows('brand'); offersState.search = '';
+out.html = offerFacetRowHtml('category', { value: 'vlees', label: 'Vlees', count: 2, mode: 'out' });
+console.log(JSON.stringify(out));
+""")
+        self.assertEqual(found["brands"], [["AH", 3, ""], ["Mutti", 2, ""], ["Lenor", 1, ""]], "op aantal, meeste eerst")
+        self.assertEqual(found["categories"], [["huishouden", 2, ""], ["sauzen_conserven", 2, ""], ["vlees", 2, ""]])
+        self.assertEqual(found["active"], [["Lenor", 1, "out"], ["Verdwenen", 0, "in"], ["AH", 3, ""], ["Mutti", 2, ""]], "gekozen bovenaan, ook met 0")
+        self.assertEqual(found["withCategory"], [["AH", 2, ""]], "het aantal is wat er met de andere filters over is")
+        self.assertEqual(found["categoryKeepsItsOwnCounts"], [["vlees", 2, "in"], ["huishouden", 2, ""], ["sauzen_conserven", 2, ""]])
+        self.assertEqual(found["search"], [["Mutti", 2, ""]], "het zoekveld boven de merken")
+        self.assertEqual(found["none"], [])
+        self.assertEqual(found["pageSearch"], [["AH", 1, ""]], "het zoekveld van de pagina telt mee")
+        for marker in ('data-facet="category"', 'data-value="vlees"', 'data-mode="in" aria-pressed="false"', 'data-mode="out" aria-pressed="true"', "is-out", "offers.filters.include", "offers.filters.exclude", ">2</span>"):
+            self.assertIn(marker, found["html"], marker)
+
+    def test_2026_11_10_a_second_click_clears_and_saved_brand_filters_become_plus(self):
+        found = self.run_js("""
+const filters = fresh({});
+const steps = [];
+const state = () => [filters.brands.slice(), filters.brandsOut.slice()];
+offerFacetToggle(filters, 'brand', 'Mutti', 'in'); steps.push(state());
+offerFacetToggle(filters, 'brand', 'Mutti', 'out'); steps.push(state());
+offerFacetToggle(filters, 'brand', 'Mutti', 'out'); steps.push(state());
+saved['ms-offers-filters:ah'] = JSON.stringify({ brands: ['Unox'], minDiscount: 20 });
+const old = offersLoadFilters('ah');
+console.log(JSON.stringify({ steps, old: [old.brands, old.brandsOut, old.categories, old.categoriesOut, old.minDiscount] }));
+""")
+        self.assertEqual(found["steps"], [[["Mutti"], []], [[], ["Mutti"]], [[], []]])
+        self.assertEqual(found["old"], [["Unox"], [], [], [], 20])
+
+    def test_2026_11_10_the_list_loads_further_by_itself_and_only_adds_the_new_rows(self):
+        names = ("renderOfferGrid", "offersShowMore", "offersAutoMore")
+        script = f"""{test_offers_scan_js.PRELUDE}
+{chr(10).join(test_offers_scan_js.function_source(name) for name in names)}
+const OFFER_ROWS = 3; const OFFER_COMPACT_ROWS = 8; const OFFERS_MORE_AHEAD = 800;
+const all = Array.from({{ length: 60 }}, (_, index) => ({{ id: String(index) }}));
+const offersFiltered = () => all;
+const offerProductRow = (offer) => '<r' + offer.id + '>'; const offerRowHead = () => '<head>'; const offerColumns = () => 4;
+const writes = [];
+const grid = {{ classList: {{ toggle: () => {{}} }}, set innerHTML(html) {{ writes.push(['all', (html.match(/<r/g) || []).length]); }}, insertAdjacentHTML: (where, html) => writes.push(['add', (html.match(/<r/g) || []).length]) }};
+let top = 100; let visible = true;
+const button = {{ hidden: false, get offsetParent() {{ return visible ? {{}} : null; }}, getBoundingClientRect: () => ({{ top }}) }};
+const $ = (selector) => (selector === '#offers-more' ? button : grid);
+const window = {{ innerHeight: 900 }};
+let watched = 0; const offersWatchMore = () => {{ watched += 1; }};
+Object.assign(offersState, {{ view: 'compact', rows: OFFER_ROWS, shown: 0 }});
+renderOfferGrid();
+offersShowMore();
+const afterOne = {{ writes: writes.slice(), shown: offersState.shown, hidden: button.hidden, watched }};
+visible = false; offersAutoMore(); const closedPage = offersState.shown;
+visible = true; top = 5000; offersAutoMore(); const farAway = offersState.shown;
+top = 100; offersAutoMore();
+console.log(JSON.stringify({{ afterOne, closedPage, farAway, end: {{ shown: offersState.shown, hidden: button.hidden, writes: writes.length }} }}));"""
+        result = subprocess.run(["node", "-e", script], capture_output=True, text=True, timeout=30, check=False)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        found = json.loads(result.stdout)
+        self.assertEqual(found["afterOne"], {"writes": [["all", 24], ["add", 24]], "shown": 48, "hidden": False, "watched": 1}, "de tweede lading komt erbij, de eerste blijft staan")
+        self.assertEqual(found["closedPage"], 48, "een pagina die niet open staat laadt niets")
+        self.assertEqual(found["farAway"], 48, "het einde is nog ver: niets")
+        self.assertEqual(found["end"], {"shown": 60, "hidden": True, "writes": 3}, "bij het einde in de buurt tot de lijst op is")
+        template = (ROOT / "templates" / "index.html").read_text(encoding="utf-8")
+        self.assertIn('id="offers-filter-brand-search"', template)
+        self.assertIn('<ul class="offer-facet offer-facet--scroll" id="offers-filter-brands"></ul>', template)
+        css = (ROOT / "static" / "styles.css").read_text(encoding="utf-8")
+        self.assertIn("body:has(.panel.is-active #offers-items.is-active) .shell {\n    max-width: none;", css, "het overzicht is schermbreed")
+
+
+# 2026-11-10: "kijk over het hele systeem breed. ik wil dezelfde filters overal inzetten waar nuttig". Gekozen: een bestelling,
+# bestellingen doorzoeken, de prijsgeschiedenis en Aanbiedingen > Recepten. Overal dezelfde lijst (static/facets.js): per regel
+# een plus (alleen deze), een min (deze niet, dat wint) en het aantal, op dat aantal gesorteerd met de gekozen regels bovenaan.
+FACET_PANELS: tuple[str, ...] = ("order-facets", "purchase-facets", "offers-history-facets", "offers-course-facets")
+
+
+class FiltersEverywhereTest(unittest.TestCase):
+    def test_2026_11_10_every_page_has_the_panel_and_the_shared_list_loads_first(self):
+        html = (ROOT / "templates" / "index.html").read_text(encoding="utf-8")
+        for panel in FACET_PANELS:
+            self.assertEqual(len(re.findall(rf'<details class="facet-panel" id="{panel}" data-facet-panel="\w+"', html)), 1, panel)
+        scripts = re.findall(r"filename='([\w/]+\.js)'", html)
+        for later in ("offers_facets.js", "orders.js", "order_views.js", "offers.js", "offers_history.js"):
+            self.assertLess(scripts.index("facets.js"), scripts.index(later), later)
+
+    @unittest.skipUnless(shutil.which("node"), "Node is not installed")
+    def test_2026_11_10_an_order_filters_on_category_and_brand_and_counts_with_the_other_list(self):
+        found = test_order_views.OrderViewsNodeTest.run_js(self, """
+const lines = [line("vis", 1, 2, 0, { brand: "AH", title: "Zalm" }), line("vis", 1, 3, 0, { brand: "Fish Tales", title: "Tonijn" }),
+  line("zuivel_eieren", 1, 1, 0, { brand: "AH", title: "Melk" }), line("zuivel_eieren", 1, 1, 0, { brand: "", title: "Eieren" })];
+const sel = (shown = [], hidden = []) => ({ shown, hidden });
+const titles = (facets) => orderFilter(lines, [], facets).map((item) => item.title);
+const rows = orderFacetRows(lines, { category: sel(["vis"]), brand: sel() }, "");
+console.log(JSON.stringify({
+  plus: titles({ category: sel(["vis"]), brand: sel() }),
+  minus: titles({ category: sel(), brand: sel([], ["AH"]) }),
+  both: titles({ category: sel(["vis"]), brand: sel([], ["AH"]) }),
+  search: orderFilter(lines, ["zalm"], { category: sel([], ["vis"]), brand: sel() }).length,
+  categories: rows.category.map((row) => [row.value, row.count, row.mode]),
+  brands: rows.brand.map((row) => [row.value, row.count]),
+  found: orderFacetRows(lines, orderFacetsEmpty(), "fish").brand.map((row) => row.value),
+}));
+""")
+        self.assertEqual(found["plus"], ["Zalm", "Tonijn"])
+        self.assertEqual(found["minus"], ["Tonijn", "Eieren"], "een regel zonder merk valt niet weg met een min op een ander merk")
+        self.assertEqual((found["both"], found["search"]), (["Tonijn"], 0))
+        self.assertEqual(found["categories"], [["vis", 2, "in"], ["zuivel_eieren", 2, ""]], "de eigen keuze telt niet mee in de eigen lijst")
+        self.assertEqual(found["brands"], [["AH", 1], ["Fish Tales", 1]], "de merken tellen binnen de gekozen categorie")
+        self.assertEqual(found["found"], ["Fish Tales"], "het zoekveld boven de merken")
+
+    @unittest.skipUnless(shutil.which("node"), "Node is not installed")
+    def test_2026_11_10_the_purchase_search_narrows_to_the_found_products(self):
+        orders = test_order_views.ORDERS
+        script = f"""{test_order_views.FACETS}
+const ordersState = {{ query: "cola", products: {{ shown: [], hidden: ["Pepsi"] }}, hits: {{
+  products: [{{ product: "Coca-Cola", times: 5 }}, {{ product: "Pepsi", times: 2 }}],
+  occurrences: [{{ product: "Coca-Cola", id: "1", source: "bestelling" }}, {{ product: "Pepsi", id: "2", source: "bestelling" }},
+    {{ product: "Coca-Cola", id: "3", source: "kassabon" }}] }} }};
+{test_order_views.function_source("purchaseProductRows", orders)}
+{test_order_views.function_source("purchaseHits", orders)}
+const out = {{ rows: purchaseProductRows().map((row) => [row.value, row.count, row.mode]), minus: [...purchaseHits().keys()] }};
+ordersState.products = {{ shown: ["Pepsi"], hidden: [] }};
+out.plus = [...purchaseHits().keys()];
+console.log(JSON.stringify(out));"""
+        result = subprocess.run(["node", "-e", script], capture_output=True, text=True, timeout=30, check=False)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        found = json.loads(result.stdout)
+        self.assertEqual(found["rows"], [["Pepsi", 2, "out"], ["Coca-Cola", 5, ""]], "wat gekozen is staat bovenaan, daarna op aantal")
+        self.assertEqual((found["minus"], found["plus"]), (["order:1", "receipt:3"], ["order:2"]))
+
+
+class FiltersEverywhereHistoryTest(PricesCase):
+    PRODUCTS: tuple[tuple[str, str, str], ...] = (("1", "Unox Rookworst", "Unox"), ("2", "Unox Tomatensoep", "Unox"), ("3", "AH Halfvolle melk", "AH"))
+
+    async def filtered(self, **chosen):
+        return await prices.history("ah", "", 50, **chosen)
+
+    async def test_2026_11_10_the_price_history_filters_and_counts_brands_and_categories(self):
+        await prices.record("ah", [{"id": pid, "title": title, "price": 2.0, "unitSize": "500 g", "brand": brand} for pid, title, brand in self.PRODUCTS])
+        category = {pid: offer_categories.offer_category("ah", title) for pid, title, _ in self.PRODUCTS}
+        ids = lambda data: sorted(product["productId"] for product in data["products"])  # noqa: E731
+        plain = await self.filtered()
+        self.assertEqual((plain["total"], plain["facets"]["brands"]), (3, [{"value": "Unox", "count": 2}, {"value": "AH", "count": 1}]))
+        self.assertEqual(sum(row["count"] for row in plain["facets"]["categories"]), 3)
+        unox = await self.filtered(brands=["Unox"])
+        self.assertEqual((ids(unox), unox["total"]), (["1", "2"], 2))
+        self.assertEqual(unox["facets"]["brands"], plain["facets"]["brands"], "de eigen keuze telt niet mee in de eigen lijst")
+        self.assertEqual({row["value"] for row in unox["facets"]["categories"]}, {category["1"], category["2"]}, "de categorieen tellen binnen het merk")
+        self.assertEqual(ids(await self.filtered(brands_out=["Unox"])), ["3"])
+        self.assertEqual(ids(await self.filtered(brands=["Unox"], brands_out=["Unox"])), [], "de min wint")
+        self.assertEqual(ids(await self.filtered(categories=[category["3"]])), sorted(pid for pid in category if category[pid] == category["3"]))
+        self.assertEqual(ids(await self.filtered(categories_out=[category["3"]])), sorted(pid for pid in category if category[pid] != category["3"]))
+        pinned = await prices.history("ah", "", 50, pin="3", brands=["Unox"])
+        self.assertEqual(ids(pinned), ["1", "2", "3"], "het product uit het adres blijft staan")
+        self.assertEqual((await prices.history("ah", "", 50, product="3"))["facets"], {}, "de hover vraagt een product, zonder lijsten")
+        client = self.client_for(create_app())
+        reply = (await client.get("/api/prices/history?store=ah&brand=Unox&brand=AH&brand_out=AH")).get_json()
+        self.assertEqual(ids(reply), ["1", "2"])
+
+    def test_2026_11_10_the_brand_list_is_capped_but_keeps_what_is_chosen(self):
+        values = [f"merk{index:03d}" for index in range(prices.FACET_BRANDS + 5)]
+        chosen = prices._Choice.of([values[-1]], None)
+        rows = prices._facet_counts(values, chosen, prices.FACET_BRANDS)
+        self.assertEqual(len(rows), prices.FACET_BRANDS + 1)
+        self.assertEqual(rows[-1], {"value": values[-1], "count": 1})
+
+
+class FiltersEverywhereCoursesTest(test_offers.TempDataDirTest):
+    index = test_offers.SuggestionsTest.index
+    course_setup = test_offers.SuggestionsTest.course_setup
+
+    def test_2026_11_10_recipe_suggestions_take_courses_to_show_and_to_hide(self):
+        self.course_setup()
+        ids = lambda **chosen: sorted(recipe["id"] for recipe in run(offers.suggest("ah", **chosen))["recipes"])  # noqa: E731
+        self.assertEqual(ids(courses=["ontbijt", "overig"]), ["b", "c"])
+        self.assertEqual(ids(courses_out=["ontbijt"]), ["a", "c"])
+        self.assertEqual(ids(courses=["ontbijt"], courses_out=["ontbijt"]), [], "de min wint")
+        data = run(offers.suggest("ah", courses_out=["ontbijt"]))
+        self.assertEqual((data["total"], len(data["courses"])), (2, 3), "de aantallen per soort blijven die van alle voorstellen")
+        with self.assertRaises(ValueError):
+            run(offers.suggest("ah", courses=["pannenkoek"]))
+
+
+class TwoNumbersOneProductTest(PricesCase):
+    """2026-11-10: "dit kan niet kloppen: ik koop die soort brood regelmatig dus er zouden meer bestellingen moeten zijn. en het is
+    met regelmaat in de aanbieding" (AH Les pains triomphe heel, 1 keer gekocht in de popup).
+
+    AH voert het brood onder twee nummers: 230786 (waar de kassabon "LP TRIOMPHE" naar wijst) en 446408 (de webwinkel en de bonus).
+    Zelfde naam, merk en verpakking: een product. En de folder noemt de lijn "Alle AH Bakkersbrood Les Pains heel", met een woord
+    dat niet in de productnaam staat maar wel de categorie noemt.
+    """
+
+    NAME: str = "AH Les pains triomphe heel"
+
+    async def asyncSetUp(self) -> None:
+        for number, back in enumerate((40, 30, 20)):
+            self.ah_receipt(f"R{number}", f"{days(-back)}T12:00:00", (794881, "LP TRIOMPHE", 1, 2.39, 2.39))
+        with closing(db(ah_orders)) as conn, conn:
+            conn.execute(
+                "INSERT INTO ah_receipt_products (receipt_product_id, product_id, title, checked_at, brand, unit_size) "
+                "VALUES (794881, 230786, ?, 'x', 'AH', 'per stuk')", (self.NAME,)
+            )
+        await self.ah_order(101, "delivered", days(-10), order_item(446408, self.NAME, 2.39, "per stuk"))
+
+    async def test_2026_11_10_purchases_under_the_other_number_count_for_the_product(self) -> None:
+        found: dict = await prices.history("ah", "triomphe", 50, today=TODAY)
+        self.assertEqual([product["productId"] for product in found["products"]], ["446408"], "een rij, onder het nummer met de nieuwste gegevens")
+        self.assertEqual((found["total"], found["products"][0]["timesBought"]), (1, 4))
+        self.assertEqual([purchase["date"] for purchase in found["products"][0]["purchases"]], [days(-40), days(-30), days(-20), days(-10)])
+        for asked in ("446408", "230786"):  # de popup en een link vragen een nummer: dat nummer krijgen ze, met alle aankopen
+            product: dict = (await prices.history("ah", "", 5, today=TODAY, product=asked))["products"][0]
+            self.assertEqual((product["productId"], product["timesBought"]), (asked, 4))
+        self.assertEqual(await prices.bought_ids("ah", TODAY) & {"446408", "230786"}, {"446408", "230786"})
+
+    async def test_2026_11_10_an_old_order_with_the_name_in_singular_is_the_same_bread(self) -> None:
+        # "ook dan kan het niet kloppen. ik heb dit zowel in de winkel met een bon gekocht als online via een bestelling": de
+        # bevestigingsmails van 2022 noemen het "AH Les pain triomphe heel", een keer met "online" erachter.
+        with closing(db(price_import)) as conn, conn:
+            conn.executemany(
+                "INSERT INTO imported_purchases (store, order_ref, position, day, title, quantity, paid, regular, imported_at) "
+                "VALUES ('ah', ?, 1, ?, ?, 1, 2.39, 2.39, 'x')",
+                (("M1", "2022-05-31", "AH Les pain triomphe heel"), ("M2", "2022-12-14", "AH Les pain triomphe heel online"),
+                 ("M3", "2023-02-11", "AH Les pain triomphe blanc heel")),
+            )
+        found: dict = await prices.history("ah", "triomphe", 50, today=TODAY)
+        bought: dict[str, int] = {product["productId"]: product["timesBought"] for product in found["products"]}
+        self.assertEqual(bought, {"446408": 6, "import:ah les pain triomphe blanc heel": 1}, "het witte brood is een ander product")
+
+    async def test_2026_11_10_another_pack_with_the_same_name_stays_its_own_product(self) -> None:
+        await self.ah_order(102, "delivered", days(-5), order_item(999, self.NAME, 1.29, "400 g"))
+        found: dict = await prices.history("ah", "triomphe", 50, today=TODAY)
+        self.assertEqual(sorted(product["productId"] for product in found["products"]), ["446408", "999"])
+
+    def test_2026_11_10_a_leaflet_word_naming_the_category_may_be_missing_from_the_name(self) -> None:
+        index = line_offers.LineIndex([
+            ("folder:1", "Folder: Alle AH Bakkersbrood Les Pains heel"), ("folder:2", "Folder: Alle AH Bakkersbrood"),
+            ("folder:3", "Folder: AH Les Pains heel"), ("folder:4", "Folder: AH Bakkersbrood Les Pains half"),
+            ("folder:5", "Folder: Alle AH Bakkersbrood tijgerbrood heel"), ("folder:6", "Folder: AH Tijgerbrood heel"),
+        ])
+        bread: frozenset[str] = line_offers.category_words("brood_bakkerij")
+        self.assertEqual(bread, {"brood", "bakkerij"})
+        self.assertEqual(index.lines_for(["ah les pains triomphe heel ah"], (), bread), ["folder:1", "folder:3"])
+        self.assertEqual(index.lines_for(["ah les pains triomphe heel ah"]), ["folder:3"], "zonder categorie blijft de regel streng")
+        self.assertEqual(index.lines_for(["ah les pains triomphe heel ah"], (), line_offers.category_words("kaas_vleeswaren")), ["folder:3"])
+        self.assertEqual(line_offers.category_words("vis"), frozenset(), "een kort woord zegt te weinig")
+
+
+class OfferPerWeightTest(PricesCase):
+    # 2026-11-10: "daar klopt niets van, het is geen 90% korting". AH Greenfields Runder riblap, ca. 755 g, "per 100 GRAM voor
+    # 1.59": AH geeft 1,59 (de prijs per 100 gram) door als prijs van het product, naast 15,49 voor het hele pak.
+    LABEL = "per 100 GRAM voor \u20ac1.59"
+
+    def item(self, size):
+        return {"webshopId": 3994, "title": "AH Greenfields Runder riblap", "salesUnitSize": size, "currentPrice": 1.59, "priceBeforeBonus": 15.49,
+                "discountLabels": [{"defaultDescription": self.LABEL}]}
+
+    def test_2026_11_10_a_price_per_100_gram_becomes_the_price_of_the_pack(self):
+        product = ah._bonus_product(self.item("ca. 755 g"))
+        self.assertEqual((product["price"], product["priceBefore"]), (12.0, 15.49), "1,59 per 100 gram op 755 gram")
+        loose = ah._bonus_product(self.item("per stuk"))
+        self.assertEqual((loose["price"], loose["priceBefore"]), (1.59, None), "zonder gewicht geen gewone prijs van het pak ernaast")
+        plain = ah._bonus_product({**self.item("ca. 755 g"), "discountLabels": [{"defaultDescription": "voor 1.59"}]})
+        self.assertEqual((plain["price"], plain["priceBefore"]), (1.59, 15.49), "een gewone prijsverlaging blijft zoals AH hem noemt")
+        self.assertEqual(deals.parse_mechanic("2 voor 5,00")["type"], deals.X_FOR_Y)
+        self.assertEqual(deals.parse_mechanic("Per 100 gram")["type"], deals.UNKNOWN, "zonder bedrag is het geen prijs per gewicht")
+        self.assertEqual(deals.measure_priced("per kilo voor 9,99", "500 g", 9.99), 5.0)
+        self.assertIsNone(deals.measure_priced(self.LABEL, "ca. 755 g", 12.0), "een prijs die al van het pak is blijft staan")
+
+    async def test_2026_11_10_rows_stored_with_the_price_per_100_gram_are_repaired(self):
+        async with offers._connect() as conn:
+            await conn.execute("INSERT INTO offers (store, product_id, position, title, unit_size, price, price_before, promo_label) VALUES ('ah', '3994', 1, 'Riblap', 'ca. 755 g', 1.59, 15.49, ?)", (self.LABEL,))
+            for product_id, size, price in (("3994", "ca. 755 g", 1.59), ("4002", "per stuk", 1.59), ("3996", "ca. 700 g", 11.13)):
+                await conn.execute(
+                    "INSERT INTO offer_history (store, product_id, title, unit_size, price, price_before, promo_label, first_seen, last_seen) "
+                    "VALUES ('ah', ?, 'Vlees', ?, ?, 15.49, ?, '2026-11-10T04:04:41+00:00', '2026-11-10T04:04:41+00:00')", (product_id, size, price, self.LABEL))
+            await conn.commit()
+            await offers._repair_measure_prices(conn)
+            current = [row["price"] for row in await conn.execute_fetchall("SELECT price FROM offers")]
+            history = {row["product_id"]: row["price"] for row in await conn.execute_fetchall("SELECT product_id, price FROM offer_history")}
+        self.assertEqual(current, [12.0])
+        self.assertEqual(history, {"3994": 12.0, "4002": 1.59, "3996": 11.13})
+
+
+@unittest.skipUnless(shutil.which("node"), "Node is not installed")
+class OfferCartStepperTest(unittest.TestCase):
+    """Hetzelfde verzoek van 2026-11-10, het scherm: op de kaart het aantal dat al in het mandje zit, met min, een veld en plus."""
+
+    HARNESS: str = """
+const escapeHtml = (value) => String(value);
+const t = (key, params) => key + (params ? ' ' + JSON.stringify(params) : '');
+const mdiIcon = (path) => '<svg data-icon="' + path + '"></svg>'; const MDI_MINUS = 'minus'; const MDI_PLUS = 'plus';
+const state = { linkedStores: { picnic: false, crisp: true } };
+const document = { activeElement: null };
+const makeBox = (id) => { const input = { value: '', classList: { contains: () => true } }; const classes = new Set();
+  return { dataset: { cart: id }, hidden: true, input, classes, classList: { toggle: (name, on) => (on ? classes.add(name) : classes.delete(name)) }, querySelector: () => input }; };
+const boxes = [makeBox('111'), makeBox('222')];
+const messages = [];
+const message = (target, text) => messages.push(text);
+const $ = () => ({ querySelectorAll: () => boxes, addEventListener: () => {} });
+const offerById = (id) => ({ id, title: 'Product ' + id });
+const calls = []; let answers = [];
+const jsonFetch = (url, options) => { calls.push({ url, method: (options && options.method) || 'GET', body: options && options.body ? JSON.parse(options.body) : null });
+  const answer = answers.shift(); return answer instanceof Error ? Promise.reject(answer) : Promise.resolve(answer); };
+const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const shown = () => boxes.map((box) => [box.dataset.cart, box.hidden, box.input.value, box.classes.has('offer-cart--empty')]);
+"""
+
+    def run_js(self, body: str) -> dict:
+        source = (ROOT / "static" / "offers_cart.js").read_text(encoding="utf-8")
+        script = f"{self.HARNESS}\n{source}\n(async () => {{ {body} }})();"
+        result = subprocess.run(["node", "-e", script], capture_output=True, text=True, timeout=30, check=False)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        return json.loads(result.stdout)
+
+    def test_2026_11_10_the_card_shows_what_is_in_the_basket_and_three_clicks_are_one_request(self):
+        found = self.run_js("""
+const before = offerCartControl({ id: '111', title: 'Melk' });
+answers = [{ items: [{ id: 111, quantity: 2 }] }, { items: [{ id: '111', quantity: 2 }, { id: '222', quantity: 3 }] }];
+await loadOfferCart('ah');
+const loaded = shown();
+const html = offerCartControl({ id: '111', title: 'Melk' });
+setOfferCartQuantity('222', 1); setOfferCartQuantity('222', 2); setOfferCartQuantity('222', 3);
+const optimistic = shown();
+await wait(OFFER_CART_PAUSE + 80);
+console.log(JSON.stringify({ before, loaded, html, optimistic, calls, after: shown(), folder: offerCartControl({ id: 'folder:9', title: 'Alle Mutti' }) }));
+""")
+        self.assertIn(" hidden", found["before"], "geen knoppen tot het mandje gelezen is")
+        self.assertEqual(found["loaded"], [["111", False, "2", False], ["222", False, "0", True]])
+        self.assertIn('value="2"', found["html"])
+        self.assertNotIn(" hidden", found["html"])
+        for marker in ('data-cart="111"', 'data-cart-step="-1"', 'data-cart-step="1"', 'min="0"', "offers.cart.quantity", "list.qty_minus", "offers.cart.plus"):
+            self.assertIn(marker, found["html"], marker)
+        self.assertEqual(found["optimistic"][1], ["222", False, "3", False], "het aantal staat er meteen")
+        self.assertEqual(found["calls"], [
+            {"url": "/api/ah/cart", "method": "GET", "body": None},
+            {"url": "/api/ah/cart/items/222", "method": "PUT", "body": {"quantity": 3, "title": "Product 222"}},
+        ], "drie keer plus is een verzoek met het exacte aantal")
+        self.assertEqual(found["after"], [["111", False, "2", False], ["222", False, "3", False]])
+        self.assertEqual(found["folder"], "", "een folderactie voor een hele lijn is geen product")
+
+    def test_2026_11_10_zero_removes_a_refusal_shows_the_error_and_an_unlinked_store_has_no_buttons(self):
+        found = self.run_js("""
+answers = [{ items: [{ id: '111', quantity: 2 }] }, new Error('Er staat een bestelling open'), { items: [{ id: '111', quantity: 2 }] }];
+await loadOfferCart('ah');
+setOfferCartQuantity('111', 0);
+const emptied = shown()[0];
+await wait(OFFER_CART_PAUSE + 80);
+const reverted = shown()[0];
+const sent = calls.map((call) => [call.method, call.url, call.body && call.body.quantity]);
+setOfferCartQuantity('111', 250); const clamped = offerCartQuantity('111');
+await loadOfferCart('picnic');
+console.log(JSON.stringify({ emptied, reverted, sent, messages, clamped, picnic: shown(), available: ['ah', 'picnic', 'crisp', 'jumbo', 'lidl'].map(offerCartAvailable) }));
+""")
+        self.assertEqual(found["emptied"], ["111", False, "0", True], "op nul staat alleen de plus er nog")
+        self.assertEqual(found["sent"], [["GET", "/api/ah/cart", None], ["PUT", "/api/ah/cart/items/111", 0], ["GET", "/api/ah/cart", None]])
+        self.assertEqual(found["reverted"], ["111", False, "2", False], "na een weigering staat het aantal van de winkel er weer")
+        self.assertEqual(found["messages"], ["Er staat een bestelling open"])
+        self.assertEqual(found["clamped"], 99)
+        self.assertEqual([box[1] for box in found["picnic"]], [True, True], "een winkel zonder koppeling: geen knoppen")
+        self.assertEqual(found["available"], [True, False, True, False, False])
+
+
 class PackFamiliesTest(PricesCase):
     """Melding van 2026-11-09: "rundergehakt van 300gr, 500gr of 1000gr hebben vaak losse prijzen waarbij de 300gr in de aanbieding
     is, dat maakt het nog niet goedkoper dan de bulk 1000gr verpakking"."""
@@ -652,6 +1267,52 @@ class PackFamiliesTest(PricesCase):
         family = found["300"]["family"]
         self.assertEqual([(p["productId"], p["cheapest"]) for p in family["packs"]], [("300", False), ("1000", True)])
         self.assertEqual(found["300"]["verdict"]["cheaperPack"]["productId"], "1000", "de 300 g in de aanbieding is per kilo duurder dan de 1000 g")
+
+
+class ConditionalOfferPriceTest(PricesCase):
+    """Melding van 2026-11-09 bij Mutti Pizzasaus aromatica (2e halve prijs): "ik zie 2x een lagere prijs afgelopen jaar ook al
+    heb ik 'laagste prijs in een jaar' aangeklikt. er staat vandaag 2,49 euro in de grafiek". De kaart en het filter rekenden met
+    wat een stuk bij de actie kost (1,87), de prijsgeschiedenis in de popup met de gewone prijs die AH bij zo'n actie als prijs
+    noemt (2,49): als actieprijs van vandaag, als laagste actieprijs en als balk in de grafiek."""
+
+    def mutti(self) -> dict:
+        return {"id": "234871", "title": "Mutti Pizzasaus aromatica", "price": 2.49, "priceBefore": None, "promoLabel": "2e halve prijs",
+                "unitSize": "388 ml", "brand": "Mutti"}
+
+    async def test_2026_11_09_the_history_gives_what_a_piece_costs_with_the_offer(self):
+        await self.sync_offer(f"{TODAY}T05:00:00+00:00", self.mutti())
+        product = await self.product("234871")
+        episode = product["episodes"][0]
+        self.assertEqual((episode["price"], episode["perPiece"]), (2.49, 1.87), "de prijs van de winkel blijft, de stukprijs komt erbij")
+        self.assertEqual((product["lowestPrice"], product["highestPrice"]), (1.87, 1.87), "de laagste actieprijs is de stukprijs")
+        annotated = (await prices.annotate("ah", [self.mutti()], today=TODAY))[0]
+        self.assertEqual(annotated["unitPrice"], episode["perPiece"], "de kaart en de prijsgeschiedenis noemen dezelfde prijs")
+
+    async def test_2026_11_09_a_plain_discount_keeps_its_price(self):
+        await self.sync_offer(f"{TODAY}T05:00:00+00:00", offer("1", "AH Penne", 0.89, 1.19, "25% korting"))
+        product = await self.product("1")
+        self.assertEqual((product["episodes"][0]["perPiece"], product["lowestPrice"]), (0.89, 0.89))
+
+    @unittest.skipUnless(shutil.which("node"), "Node is not installed")
+    def test_2026_11_09_the_chart_and_the_popup_show_the_price_per_piece(self):
+        product = {
+            "store": "ah", "productId": "234871", "title": "Mutti Pizzasaus aromatica", "unitSize": "388 ml", "onOfferNow": True,
+            "episodes": [{"start": days(0), "end": days(6), "open": False, "price": 2.49, "perPiece": 1.87, "priceBefore": None, "promoLabel": "2e halve prijs"}],
+            "timesOnOffer": 1, "lowestPrice": 1.87, "regularPrice": 2.49, "regular": [{"from": days(-300), "to": days(0), "price": 2.49}],
+            "purchases": [{"date": days(-247), "price": 1.87, "quantity": 1, "source": "import", "ref": "1"}], "observed": [], "lineOffers": [],
+        }
+        shown = {"price": 2.49, "unitPrice": 1.87, "promoLabel": "2e halve prijs", "verdict": {"lowestRegular": 2.49}}
+        html = test_history_chart_js.HistoryChartTest().render(product, offer=shown)
+        bar = re.search(r'<g class="ohc-bar[^"]*"[^>]*><title>(.*?)</title><rect x="[\d.]+" y="([\d.]+)"', html["chart"])
+        paid = re.search(r'class="ohc-paid".*?<circle cx="[\d.]+" cy="([\d.]+)"', html["chart"])
+        head = re.search(r'<p class="ohc-head__price">(.*?)</p>', html["headOffer"])
+        assert bar and paid and head, html
+        self.assertIn("1,87", bar.group(1), "het hoverlabel noemt de stukprijs")
+        self.assertNotIn("2,49", bar.group(1))
+        # De balk van vandaag staat op de hoogte van de aankoop van 1,87: `y` is de bovenkant van de balk, `cy` het midden van het rondje.
+        self.assertLess(abs(float(bar.group(2)) - float(paid.group(1))), 12, "de balk van vandaag staat op 1,87, niet op 2,49")
+        self.assertRegex(html["detail"], r"<td>[^<]*1,87[^<]*</td><td>[^<]*2e halve prijs", "de tabel met periodes noemt de stukprijs")
+        self.assertRegex(head.group(1), r"<b>[^<]*1,87</b> <s>[^<]*2,49</s>", "de kop van de popup toont de prijs zoals de kaart")
 
 
 class SpeedTest(PricesCase):

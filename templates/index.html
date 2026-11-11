@@ -851,9 +851,13 @@
               <button class="icon-button offers-filters__close" id="offers-filters-close" type="button" aria-label="Sluiten" data-i18n-attr="aria-label:common.close">&times;</button>
             </div>
             <section class="offers-filters__section">
+              <h4 data-i18n="offers.categories">Categorieën</h4>
+              <ul class="offer-facet" id="offers-categories"></ul>
+            </section>
+            <section class="offers-filters__section">
               <h4 data-i18n="offers.filters.brand">Merk</h4>
-              <div class="offer-cats offer-cats--filters" id="offers-filter-brands"></div>
-              <button class="link-button" id="offers-filter-brands-more" type="button" hidden></button>
+              <input class="input offer-facet__search" id="offers-filter-brand-search" type="search" autocomplete="off" placeholder="Zoek een merk" aria-label="Zoek een merk" data-i18n-attr="placeholder:offers.filters.brand_search;aria-label:offers.filters.brand_search">
+              <ul class="offer-facet offer-facet--scroll" id="offers-filter-brands"></ul>
             </section>
             <section class="offers-filters__section">
               <label class="ohc-filter"><input type="checkbox" id="offers-filter-bought" role="switch"><span data-i18n="offers.filters.bought">Eerder gekocht</span></label>
@@ -904,7 +908,6 @@
               <button class="segmented__item segmented__item--icon" type="button" data-view="compact" aria-pressed="false" title="Compact" aria-label="Compact" data-i18n-attr="title:offers.view.compact;aria-label:offers.view.compact"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 5V19H20V5H3M7 7V9H5V7H7M5 13V11H7V13H5M5 15H7V17H5V15M18 17H9V15H18V17M18 13H9V11H18V13M18 9H9V7H18V9Z"/></svg></button>
             </div>
           </div>
-          <div id="offers-categories" class="offer-cats offer-cats--scroll" role="group" aria-label="Categorieën" data-i18n-attr="aria-label:offers.categories"></div>
           <div id="offers-active-filters" class="offer-cats offer-cats--active-filters" role="group" aria-label="Actieve filters" data-i18n-attr="aria-label:offers.filters.active" hidden></div>
           <div id="offers-loading" class="offers-loading" role="status" aria-live="polite" hidden></div>
           <div id="offers-products" class="product-grid product-grid--offers"></div>
@@ -939,7 +942,16 @@
             <p class="muted" id="offers-ai-status"></p>
             <button class="button button--secondary" id="offers-ai-run" type="button" hidden data-i18n="aireview.run">Recepten zoeken met AI</button>
           </div>
-          <div id="offers-courses" class="offer-cats" role="group" aria-label="Soort gerecht" data-i18n-attr="aria-label:offers.courses.label" hidden></div>
+          <details class="facet-panel" id="offers-course-facets" data-facet-panel="courses" hidden>
+            <summary><span data-i18n="offers.filters.title">Filters</span><span class="facet-panel__count"></span></summary>
+            <div class="facet-panel__body">
+              <section class="facet-panel__list">
+                <h4 data-i18n="offers.courses.label">Soort gerecht</h4>
+                <ul class="offer-facet" id="offers-courses"></ul>
+              </section>
+              <button class="link-button facet-panel__clear" type="button" data-facet-clear data-i18n="offers.filters.clear" hidden>Alles wissen</button>
+            </div>
+          </details>
           <p class="muted" id="offers-recipes-status"></p>
           <div id="offers-recipes-message"></div>
           <div id="offers-recipes" class="recipe-grid recipe-grid--compact"></div>
@@ -967,6 +979,21 @@
             </label>
             <button class="button button--secondary" type="button" id="offers-history-import" data-i18n="offers.import.open" hidden>Oude aankopen importeren</button>
           </div>
+          <details class="facet-panel" id="offers-history-facets" data-facet-panel="history" hidden>
+            <summary><span data-i18n="offers.filters.title">Filters</span><span class="facet-panel__count"></span></summary>
+            <div class="facet-panel__body">
+              <section class="facet-panel__list">
+                <h4 data-i18n="offers.categories">Categorieën</h4>
+                <ul class="offer-facet offer-facet--scroll" id="offers-history-categories"></ul>
+              </section>
+              <section class="facet-panel__list">
+                <h4 data-i18n="offers.filters.brand">Merk</h4>
+                <input class="input offer-facet__search" id="offers-history-brand-search" type="search" autocomplete="off" placeholder="Zoek een merk" aria-label="Zoek een merk" data-i18n-attr="placeholder:offers.filters.brand_search;aria-label:offers.filters.brand_search">
+                <ul class="offer-facet offer-facet--scroll" id="offers-history-brands"></ul>
+              </section>
+              <button class="link-button facet-panel__clear" type="button" data-facet-clear data-i18n="offers.filters.clear" hidden>Alles wissen</button>
+            </div>
+          </details>
           <p class="muted" id="offers-history-status"></p>
           <div id="offers-history-message"></div>
           <div id="offers-history-loading" class="offers-loading" role="status" aria-live="polite" hidden></div>
@@ -1138,6 +1165,16 @@
               <input class="input input--amount" id="ah-filter-max" type="number" min="0" step="0.01" inputmode="decimal" placeholder="tot" aria-label="Bedrag tot" data-i18n-attr="placeholder:orders.filter.max;aria-label:orders.filter.max_label">
             </div>
           </div>
+          <details class="facet-panel" id="purchase-facets" data-facet-panel="purchases" hidden>
+            <summary><span data-i18n="offers.filters.title">Filters</span><span class="facet-panel__count"></span></summary>
+            <div class="facet-panel__body">
+              <section class="facet-panel__list facet-panel__list--wide">
+                <h4 data-i18n="orders.facet.products">Gevonden producten</h4>
+                <ul class="offer-facet offer-facet--scroll" id="purchase-products"></ul>
+              </section>
+              <button class="link-button facet-panel__clear" type="button" data-facet-clear data-i18n="offers.filters.clear" hidden>Alles wissen</button>
+            </div>
+          </details>
           <div id="ah-orders-message"></div>
           <div id="ah-linking-notice" data-linking-message="#ah-orders-message"></div>
           <div class="purchase-bar" data-view-bar="purchase"></div>
@@ -1176,7 +1213,21 @@
               <svg class="searchbar__icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M9.5,3A6.5,6.5 0 0,1 16,9.5C16,11.11 15.41,12.59 14.44,13.73L14.71,14H15.5L20.5,19L19,20.5L14,15.5V14.71L13.73,14.44C12.59,15.41 11.11,16 9.5,16A6.5,6.5 0 0,1 3,9.5A6.5,6.5 0 0,1 9.5,3M9.5,5C7,5 5,7 5,9.5C5,12 7,14 9.5,14C12,14 14,12 14,9.5C14,7 12,5 9.5,5Z"/></svg>
               <input class="input" id="order-search" type="search" placeholder="Zoek in deze bestelling" autocomplete="off" enterkeyhint="search" data-i18n-attr="placeholder:orders.search_in">
             </label>
-            <div id="order-categories" class="offer-cats" role="group" aria-label="Categorieën" data-i18n-attr="aria-label:offers.categories"></div>
+            <details class="facet-panel" id="order-facets" data-facet-panel="order">
+              <summary><span data-i18n="offers.filters.title">Filters</span><span class="facet-panel__count"></span></summary>
+              <div class="facet-panel__body">
+                <section class="facet-panel__list">
+                  <h4 data-i18n="offers.categories">Categorieën</h4>
+                  <ul class="offer-facet offer-facet--scroll" id="order-categories"></ul>
+                </section>
+                <section class="facet-panel__list">
+                  <h4 data-i18n="offers.filters.brand">Merk</h4>
+                  <input class="input offer-facet__search" id="order-brand-search" type="search" autocomplete="off" placeholder="Zoek een merk" aria-label="Zoek een merk" data-i18n-attr="placeholder:offers.filters.brand_search;aria-label:offers.filters.brand_search">
+                  <ul class="offer-facet offer-facet--scroll" id="order-brands"></ul>
+                </section>
+                <button class="link-button facet-panel__clear" type="button" data-facet-clear data-i18n="offers.filters.clear" hidden>Alles wissen</button>
+              </div>
+            </details>
           </div>
           <div id="ah-order-items"></div>
         </div>
@@ -2358,6 +2409,7 @@
     <script src="{{ url_for('static', filename='recipe_view.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='cook_timers.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='categories.js', v=config.ASSET_VERSION) }}"></script>
+    <script src="{{ url_for('static', filename='facets.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='users.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='ai.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='orders.js', v=config.ASSET_VERSION) }}"></script>
@@ -2375,6 +2427,8 @@
     <script src="{{ url_for('static', filename='ah_planner.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='basket.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='offers.js', v=config.ASSET_VERSION) }}"></script>
+    <script src="{{ url_for('static', filename='offers_cart.js', v=config.ASSET_VERSION) }}"></script>
+    <script src="{{ url_for('static', filename='offers_facets.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='ai_review.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='offers_history.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='profile.js', v=config.ASSET_VERSION) }}"></script>

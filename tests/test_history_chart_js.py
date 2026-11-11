@@ -116,7 +116,14 @@ def salami() -> dict:
 
 @unittest.skipUnless(shutil.which("node"), "Node is not installed")
 class HistoryChartTest(unittest.TestCase):
-    def render(self, product: dict, range_: str | None = None) -> dict:
+    def render(
+        self, product: dict, range_: str | None = None, offer: dict | None = None
+    ) -> dict:
+        shown: dict = offer or {
+            "price": 3.65,
+            "priceBefore": 4.29,
+            "promoLabel": "Bonus Box 15% korting",
+        }
         source: str = (
             (ROOT / "static/offers_history.js")
             .read_text()
@@ -134,6 +141,7 @@ const $ = () => ({clientWidth: 640});
 const storeImage = (url) => url;
 const offerPerUnitText = () => '';
 const purchasePath = () => '';
+const facetSelection = () => ({shown: [], hidden: []});
 """
         script: str = (
             prelude
@@ -152,7 +160,7 @@ console.log(JSON.stringify({{
     purchases8: offerHistoryPurchasesTable(product, {{ limit: 8 }}),
     purchasesAll: offerHistoryPurchasesTable(product, {{}}),
     blockPopup: offerHistoryChartBlock(product, {{ width: 600, ranges: {{ "ah:514010": "1y" }} }}),
-    headOffer: offerHistoryHead(product, {{ compact: true, offer: {{ price: 3.65, priceBefore: 4.29, promoLabel: "Bonus Box 15% korting" }} }}),
+    headOffer: offerHistoryHead(product, {{ compact: true, offer: {json.dumps(shown)} }}),
 }}));
 """
         )
@@ -224,12 +232,17 @@ console.log(JSON.stringify({{
         for part in ("head", "stats", "block", "purchasesAll"):
             self.assertIn(found[part].strip(), found["detail"], part)
         self.assertIn('class="ohc-head ohc-head--compact"', found["headCompact"])
-        self.assertNotIn("data-compare", found["headCompact"], "de popup heeft geen vergelijkknop")
+        self.assertNotIn(
+            "data-compare", found["headCompact"], "de popup heeft geen vergelijkknop"
+        )
         self.assertTrue(found["stats"].startswith('<dl class="ohc-stats">'))
 
     def test_the_purchases_table_takes_a_limit_and_says_how_many_more(self) -> None:
         product: dict = salami()
-        product["purchases"] = [{**product["purchases"][0], "ref": str(n), "date": days(-n)} for n in range(1, 12)]
+        product["purchases"] = [
+            {**product["purchases"][0], "ref": str(n), "date": days(-n)}
+            for n in range(1, 12)
+        ]
         product["timesBought"] = 11
         found: dict = self.render(product)
         self.assertEqual(found["purchases8"].count("<tr><td>"), 8)
@@ -241,14 +254,20 @@ console.log(JSON.stringify({{
         found: dict = self.render(salami())
         self.assertIn('data-range="1y" aria-pressed="true"', found["blockPopup"])
         self.assertIn('data-ranges="popup"', found["blockPopup"])
-        self.assertNotIn('data-ranges="popup"', found["block"], "de pagina zelf leest offerHistory.ranges")
+        self.assertNotIn(
+            'data-ranges="popup"',
+            found["block"],
+            "de pagina zelf leest offerHistory.ranges",
+        )
 
     def test_the_compact_head_shows_the_offer_price_line(self) -> None:
         found: dict = self.render(salami())
         self.assertIn('class="ohc-head__price"', found["headOffer"])
         for part in ("€3,65", "<s>€4,29</s>", "Bonus Box 15% korting"):
             self.assertIn(part, found["headOffer"])
-        self.assertNotIn("ohc-head__price", found["headCompact"], "zonder aanbieding geen prijsregel")
+        self.assertNotIn(
+            "ohc-head__price", found["headCompact"], "zonder aanbieding geen prijsregel"
+        )
 
     def test_without_older_data_there_are_no_buttons(self) -> None:
         product: dict = salami()

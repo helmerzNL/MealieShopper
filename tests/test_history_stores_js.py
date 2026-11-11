@@ -33,7 +33,8 @@ const state = {linkedStores: {picnic: true, jumbo: true, crisp: false}, storeSta
 let offersFetch = null;
 const OFFERS_WEEK_START_WAIT = 10;
 const offersState = {store: 'ah'};
-const offerHistory = {query: '', selected: '', pinned: false, products: [], loadId: 0};
+const offerHistory = {query: '', selected: '', pinned: false, products: [], loadId: 0,
+  facets: {brand: {shown: [], hidden: []}, category: {shown: [], hidden: []}}};
 let activeSubtab = 'offers-items';
 let activePanel = 'recipes';
 const requests = [];
@@ -55,6 +56,9 @@ const renderOffers = () => {};
 const renderOffersLoading = () => {};
 const endOffersLoading = () => {};
 const showOfferRecipes = () => {};
+const loadOfferCart = () => {};
+const facetSelection = () => ({shown: [], hidden: []});
+const offerHistoryFacetsEmpty = () => ({brand: facetSelection(), category: facetSelection()});
 const message = () => {};
 const renderOfferHistory = () => {};
 const offerHistoryKey = product => `${product.store}:${product.productId}`;

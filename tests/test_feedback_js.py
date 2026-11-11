@@ -285,7 +285,7 @@ class OffersFeedbackTest(unittest.TestCase):
         self.assertIn('$("#offers-empty-clear").addEventListener("click", offersShowAll);', OFFERS_JS)
         parts = [
             "const OFFERS_GOOD_KEY = 'good';",
-            "const offersState = { search: 'kaas', category: 'vlees', filters: { bought: true }, goodOnly: true, personalOnly: true };",
+            "const offersState = { search: 'kaas', filters: { bought: true }, goodOnly: true, personalOnly: true };",
             "const offersEmptyFilters = () => ({ bought: false }); const calls = [];",
             "const offersSaveFind = () => calls.push('find');",
             "const offersSaveFilters = () => calls.push('save'); const offersRemember = (key, value) => calls.push(`${key}=${value}`);",
@@ -296,7 +296,7 @@ class OffersFeedbackTest(unittest.TestCase):
             "offersShowAll(); console.log(JSON.stringify({ offersState, calls, checked: field.checked }));",
         ]
         out = run_node(self, "\n".join(parts))
-        self.assertEqual(out["offersState"], {"search": "", "category": "all", "filters": {"bought": False}, "goodOnly": False, "personalOnly": False})
+        self.assertEqual(out["offersState"], {"search": "", "filters": {"bought": False}, "goodOnly": False, "personalOnly": False})
         self.assertEqual(out["calls"], ["find", "save", "good=0", "personal=false", "redraw", "focus"])
         self.assertFalse(out["checked"])
 
@@ -330,7 +330,7 @@ class StaticFeedbackTest(unittest.TestCase):
     def test_dialogs_use_the_visible_height_with_a_fallback(self):
         lines = CSS.split("\n")
         with_vh = [at for at, line in enumerate(lines) if re.match(r"\s*max-height: .*100vh", line)]
-        self.assertEqual(len(with_vh), 5)
+        self.assertEqual(len(with_vh), 6)
         for at in with_vh:
             self.assertEqual(lines[at + 1].split(";")[0], lines[at].split(";")[0].replace("100vh", "100dvh"), lines[at])
 

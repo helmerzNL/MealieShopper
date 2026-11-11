@@ -220,8 +220,8 @@ console.log(JSON.stringify(out));
         self.assertEqual(run_node(self, parts), ["123456", "123456", "", "", "200PAK", "s1001", "42", ""])
 
     def test_the_quantity_is_what_the_deal_asks(self):
-        parts = [function_source(OFFERS_JS, "offerCartQuantity"),
-                 "console.log(JSON.stringify([{}, { minQuantity: 1 }, { minQuantity: 2 }, { minQuantity: 3 }, { minQuantity: 2.5 }, { minQuantity: 40 }, { minQuantity: '2' }, null].map(offerCartQuantity)));"]
+        parts = [function_source(OFFERS_JS, "offerCartMinimum"),
+                 "console.log(JSON.stringify([{}, { minQuantity: 1 }, { minQuantity: 2 }, { minQuantity: 3 }, { minQuantity: 2.5 }, { minQuantity: 40 }, { minQuantity: '2' }, null].map(offerCartMinimum)));"]
         self.assertEqual(run_node(self, parts), [1, 1, 2, 3, 1, 1, 2, 1])
 
     def add(self, reply):
@@ -236,7 +236,7 @@ const setBusy = (button, on) => busy.push(on);
 """,
                  f"async function jsonFetch(path, options) {{ requests.push([path, JSON.parse(options.body)]); {reply} }}",
                  function_source(OFFERS_JS, "offerById"), function_source(OFFERS_JS, "offerStoreLinked"),
-                 function_source(OFFERS_JS, "offerCartId"), function_source(OFFERS_JS, "offerCartable"), function_source(OFFERS_JS, "offerCartQuantity"),
+                 function_source(OFFERS_JS, "offerCartId"), function_source(OFFERS_JS, "offerCartable"), function_source(OFFERS_JS, "offerCartMinimum"),
                  function_source(OFFERS_JS, "addOfferToCart"),
                  "addOfferToCart({ dataset: { offerCart: 's1001' } }).then(() => console.log(JSON.stringify({ requests, toasts, busy })));"]
         return run_node(self, parts)
@@ -259,35 +259,37 @@ const setBusy = (button, on) => busy.push(on);
         button = function_source(OFFERS_JS, "offerCartButton")
         self.assertIn('if (!offerCartable(offersState.store, offer)) return "";', button)
         self.assertIn('data-offer-cart="${escapeHtml(offer.id)}" title="${label}" aria-label="${label}"', button)
-        self.assertIn('${offerCartButton(offer, "offer-card__cart")}${compare}${history}', function_source(OFFERS_JS, "offerCardFoot"))
-        self.assertIn('<div class="offer-row__links">${offerCartButton(offer)}${compare}${chart}</div>', function_source(OFFERS_JS, "offerProductRow"))
+        self.assertIn('${offerCartSlot(offer, "offer-card__cart")}${compare}${history}', function_source(OFFERS_JS, "offerCardFoot"))
+        self.assertIn('<div class="offer-row__links">${offerCartSlot(offer)}${compare}${chart}', function_source(OFFERS_JS, "offerProductRow"))
         self.assertIn('const cart = event.target.closest("[data-offer-cart]");\n  if (cart) addOfferToCart(cart);', OFFERS_JS)
-        self.assertEqual(len(re.findall(r"grid-template-columns: [^;]*106px;", CSS)), 2, "ruimte voor drie iconen in de compacte regel")
+
+    def test_a_store_with_exact_quantities_gets_the_stepper_and_jumbo_keeps_the_button(self):
+        # De knop van 4.13.0 en min, aantal en plus (offers_cart.js) naast elkaar: Jumbo kent geen exact aantal.
+        parts = ['const offersState = { store: "" };',
+                 'const offerCartAvailable = (store) => ["ah", "picnic", "crisp"].includes(store);',
+                 'const offerCartControl = () => "stepper"; const offerCartButton = (offer, className) => `button:${className}`;',
+                 function_source(OFFERS_JS, "offerCartSlot"),
+                 'console.log(JSON.stringify(["ah", "picnic", "crisp", "jumbo"].map((store) => { offersState.store = store; return offerCartSlot({}, "x"); })));']
+        self.assertEqual(run_node(self, parts), ["stepper", "stepper", "stepper", "button:x"])
 
 
 @unittest.skipUnless(shutil.which("node"), "Node is niet geïnstalleerd")
 class FiltersStayTest(unittest.TestCase):
-    def test_the_search_and_category_of_offers_survive_a_reload(self):
+    def test_the_search_of_offers_survives_a_reload(self):
+        # De categorie stond hier tot 4.13.1 ook in. Sinds de lijsten met plus en min hoort ze bij de filters (offersSaveFilters).
         find = OFFERS_JS[OFFERS_JS.index('const OFFERS_FIND_KEY'):OFFERS_JS.index("offersState.search = typeof offersSavedFind()")]
-        parts = [SESSION, 'const offersState = { store: "ah", search: "", category: "all" };', find, r"""
+        parts = [SESSION, 'const offersState = { store: "ah", search: "" };', find, r"""
 const out = [];
-offersState.search = "kaas"; offersState.category = "zuivel"; offersSaveFind(); out.push(JSON.parse(stored["ms-offers-find"]));
-// Na het herladen: dezelfde winkel krijgt de categorie terug, één keer.
-offersState.category = "all"; offersRestoreCategory(); out.push(offersState.category);
-offersState.category = "all"; offersRestoreCategory(); out.push(offersState.category);
-// Een andere winkel niet.
-offersState.findRestored = false; offersState.store = "jumbo"; offersRestoreCategory(); out.push(offersState.category);
+offersState.search = "kaas"; offersSaveFind(); out.push(JSON.parse(stored["ms-offers-find"]));
 // Niets meer te bewaren: de sleutel is weg.
-offersState.search = ""; offersState.category = "all"; offersSaveFind(); out.push(Object.keys(stored));
+offersState.search = ""; offersSaveFind(); out.push(Object.keys(stored));
 // Kapotte opslag is geen fout.
 stored["ms-offers-find"] = "{kapot"; out.push(offersSavedFind());
 console.log(JSON.stringify(out));
 """]
-        self.assertEqual(run_node(self, parts),
-                         [{"search": "kaas", "store": "ah", "category": "zuivel"}, "zuivel", "all", "all", [], {}])
-        self.assertIn("if (data.supported) offersRestoreCategory();", function_source(OFFERS_JS, "renderOffers"))
-        for name in ("offersChooseCategory", "offersShowAll"):
-            self.assertIn("offersSaveFind();", function_source(OFFERS_JS, name))
+        self.assertEqual(run_node(self, parts), [{"search": "kaas", "store": "ah"}, [], {}])
+        self.assertNotIn("offersRestoreCategory", OFFERS_JS)
+        self.assertIn("offersSaveFind();", function_source(OFFERS_JS, "offersShowAll"))
         self.assertIn("offersState.search = event.target.value;\n  offersSaveFind();", OFFERS_JS)
 
     def test_the_filters_of_purchases_survive_a_reload(self):
