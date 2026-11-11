@@ -6,7 +6,7 @@ Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar
 
 ### Nieuw in 4.16.0
 
-Pull request: [#PRNUM](https://github.com/helmerzNL/MealieShopper/pull/PRNUM), van wolph.
+Pull request: [#317](https://github.com/helmerzNL/MealieShopper/pull/317), van wolph.
 
 *English summary: The offers page gets a basket control, filter lists and a lighter popup, and the Price history counts what a piece really costs. **Basket on every offer**: Albert Heijn, Picnic and Crisp show a minus, the quantity already in your basket and a plus, and a change is sent as an exact quantity. Jumbo cannot set an exact quantity and keeps the single basket button of 4.13.0. **Lists with plus and minus**: categories and brands are lists with a plus (only this one), a minus (hide this one) and a count, on the offers, on an order or receipt, in the purchase search, in the Price history and for the recipes with the offers. They replace the category chips of 4.13.0. The offers use the full width of the screen and the next ones load by themselves. **The popup on an offer** appears after 100 ms, lets the mouse through, shows the legend of the chart and has no buttons or links any more. **Prices**: an offer with a condition (second one half price) is counted per piece in the Price history, an offer "per 100 gram" is converted to the price of the pack instead of showing a 90% discount, two product numbers for the same product are one row, and a purchase from an old confirmation mail with the name in the singular joins its product.*
 
