@@ -34,7 +34,7 @@ from test_auth_password import PASSWORD, AuthPasswordTestCase
 import test_order_views  # idem: de Node-opbouw van order_views.js en de gedeelde keuzelijst
 from test_prices import PricesCase, offer
 
-from mealieshopper import ah, ah_orders, assets, auth, deals, image_cache, line_offers, offer_categories, offers, offers_schedule, price_archive_tidy, price_import, prices
+from mealieshopper import ah, ah_orders, assets, auth, deals, image_cache, line_offers, offer_categories, offer_ranking, offers, offers_schedule, price_archive_tidy, price_import, prices
 from mealieshopper.app import create_app
 
 ROOT: Path = Path(__file__).resolve().parents[1]
@@ -1580,6 +1580,35 @@ class LooseNamesSharedListTest(test_shared_links.SharedListCase):
             product = (await prices.history("ah", "", 50, today="2026-10-20", product="1234"))["products"][0]
         self.assertEqual((product["productId"], product["timesBought"]), ("1234", 4))
         self.assertEqual(sum(1 for p in product["purchases"] if p["source"] == "import"), 3)
+
+
+class SameDealAFewCentsApartTest(unittest.TestCase):
+    """2026-11-11: "dit lijkt me een afrondingsfout, dat mag genegeerd worden", bij drie broden van AH met 1+1 gratis voor 1,20
+    per stuk en het label "0,03 boven de laagste van het jaar (aug)". In augustus was het dezelfde actie: de folder gaf geen
+    prijs, dus de app rekende met de gewone prijs van de weken eromheen (2,34: 1,17 per stuk), nu met 2,39 (1,195). Een verschil
+    van een paar cent tussen twee berekende prijzen is geen duurdere aanbieding."""
+
+    TODAY = "2026-11-11"
+    POINTS = [("2020-01-06", 2.2, "offer"), ("2026-08-31", 1.17, "line"), ("2026-09-28", 1.75, "line"), ("2026-11-10", 2.39, "purchase")]
+
+    def test_the_same_deal_a_few_cents_higher_is_the_lowest_of_the_year(self) -> None:
+        for effective in (1.195, 1.2):
+            with self.subTest(effective):
+                found = offer_ranking.year_low(effective, self.POINTS, self.TODAY)
+                self.assertEqual((found["status"], found["above"], found["price"], found["month"]), ("lowest", 0.0, 1.17, "2026-08"))
+
+    def test_a_real_difference_still_counts(self) -> None:
+        found = offer_ranking.year_low(1.25, self.POINTS, self.TODAY)
+        self.assertEqual((found["status"], found["above"]), ("above", 0.08))
+
+    def test_the_margin_is_a_few_cents_at_most(self) -> None:
+        # 3 procent van 10 euro is 30 cent, en dat is geen afronding meer: de marge houdt op bij 5 cent.
+        points = [("2020-01-06", 12.0, "offer"), ("2026-08-31", 10.0, "offer")]
+        self.assertEqual(offer_ranking.year_low(10.05, points, self.TODAY)["status"], "lowest")
+        self.assertEqual(offer_ranking.year_low(10.06, points, self.TODAY)["status"], "above")
+        cheap = [("2020-01-06", 0.5, "offer"), ("2026-08-31", 0.39, "offer")]
+        self.assertEqual(offer_ranking.year_low(0.4, cheap, self.TODAY)["status"], "lowest")
+        self.assertEqual(offer_ranking.year_low(0.42, cheap, self.TODAY)["status"], "above")
 
 
 if __name__ == "__main__":
