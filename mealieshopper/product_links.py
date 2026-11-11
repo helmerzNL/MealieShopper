@@ -24,7 +24,7 @@ from typing import Any, NamedTuple
 
 import aiosqlite
 
-from . import ah_lists, auth, offers
+from . import auth, name_keys, offers
 from .i18n import tr
 
 STORES = offers.SHOP_STORES  # koppelen zoekt bij de winkel: Lidl en Aldi hebben geen webwinkel
@@ -73,11 +73,8 @@ def _now() -> str:
 
 def fold(value: Any) -> str:
     """Een naam om op te vergelijken: kleine letters, zonder accenten en met enkele spaties. "AH Ah zachte spinazie" in een
-    bevestigingsmail heeft het merk twee keer; dat telt als een keer. Dezelfde vouw als de koppeling op naam in `prices`."""
-    words = ah_lists._fold(value).split()
-    if len(words) > 1 and words[0] == words[1]:
-        words = words[1:]
-    return " ".join(words)
+    bevestigingsmail heeft het merk twee keer; dat telt als een keer. Zie `name_keys.fold`."""
+    return name_keys.fold(value)
 
 
 def article_key(value: Any) -> str | None:
