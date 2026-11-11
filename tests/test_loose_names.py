@@ -23,6 +23,7 @@ from mealieshopper import (
     ah,
     ah_orders,
     auth,
+    crisp,
     jumbo,
     loose_name_rules,
     loose_names,
@@ -697,6 +698,7 @@ class BrakeTest(LooseNamesCase):
             (jumbo.JumboBlocked("geweigerd", "403"), 403),
             (jumbo.JumboBlocked("geen JSON", "geen JSON terug / no JSON back"), None),
             (picnic.PicnicBlockedError("poort"), 403),
+            (crisp.CrispAuthError("Crisp weigerde de sessie"), 403),
             (RuntimeError("429: Too Many Requests"), 429),
             (RuntimeError("Crisp weigerde de sessie"), None),
             (ValueError("iets anders"), None),
@@ -1052,3 +1054,92 @@ class ChoiceTest(LooseNamesCase):
             "2999-01-01T00:00:00+00:00",
         )
 
+
+class RaceTest(LooseNamesCase):
+    """Wat er tijdens een zoekopdracht gebeurt: een andere zoeker bij AH krijgt een 403, of de gebruiker kiest al."""
+
+    async def test_a_403_of_another_ah_caller_while_queued_sends_nothing(self) -> None:
+        # De bonnenronde (of het zoeken in de Prijsgeschiedenis) houdt het slot van `ah_orders.polite` en krijgt een 403, terwijl
+        # de ronde van losse namen erachter wacht: daarna mag er geen verzoek meer naar AH.
+        self.bought("AH Eerste naam", 2, store="ah")
+        old: str = later(days=-100)
+        self.state("ah", "AH Eerste naam", old, "candidates", [item("1", "AH Iets")])
+        inside, release = asyncio.Event(), asyncio.Event()
+
+        async def other_caller() -> None:
+            async def call() -> Any:
+                inside.set()
+                await release.wait()
+                raise ah.AhHttpError("AH productzoekopdracht mislukt (403)", 403)
+
+            try:
+                await ah_orders.polite(call)
+            except ah.AhHttpError as error:
+                await ah_orders.pause(NOW, error.status)
+
+        other: asyncio.Task[None] = asyncio.create_task(other_caller())
+        await asyncio.wait_for(inside.wait(), 5)
+        queued: asyncio.Event = asyncio.Event()
+        polite = ah_orders.polite
+
+        async def queue(call: Callable[[], Awaitable[Any]]) -> Any:
+            queued.set()  # de ronde keek al naar de pauze en wacht nu op het slot van de ander
+            return await polite(call)
+
+        async def pace(seconds: float) -> None:
+            # Het tempo van `ah_orders._polite` echt laten lopen (hooguit een seconde): in die 1,5 seconde onder het slot zet de
+            # ander zijn pauze, want `ah_orders` pauzeert pas nadat het slot vrij is.
+            await asyncio.sleep(min(seconds, 1.0))
+
+        search = FakeSearch()
+        with mock.patch.object(ah_orders, "polite", queue), mock.patch.object(ah_orders, "_wait", pace):
+            loose: asyncio.Task[dict[str, Any]] = asyncio.create_task(loose_names.run_round("ah", NOW, search=search))
+            await asyncio.wait_for(queued.wait(), 5)
+            self.assertFalse(loose.done())
+            release.set()
+            await other
+            result: dict[str, Any] = await asyncio.wait_for(loose, 5)
+        self.assertEqual(search.calls, [], "geen verzoek na de 403 van de ander")
+        self.assertEqual((result["searches"], result["stopped"]), (0, "blocked"))
+        state = self.row("ah", "AH Eerste naam")
+        self.assertEqual((state["checked_at"], state["outcome"]), (old, "candidates"), "de oude stand")
+
+    async def test_a_rejection_during_the_search_gets_no_exact_link(self) -> None:
+        self.bought("Jumbo Pindakaas naturel", 2)
+        self.state("jumbo", "Jumbo Pindakaas naturel", later(days=-100), "candidates", [item("1", "Jumbo Iets")])
+        key: str = name_keys.key("Jumbo Pindakaas naturel")
+
+        async def rejected_meanwhile(query: str) -> None:
+            await loose_names.reject("jumbo", key)
+
+        search = FakeSearch({"Jumbo Pindakaas naturel": [item("1", "Jumbo Pindakaas Naturel")]}, before=rejected_meanwhile)
+        result: dict[str, Any] = await loose_names.run_round("jumbo", NOW, search=search)
+        self.assertEqual((result["searches"], result["exact"]), (1, 0))
+        self.assertEqual((await product_links.list_links("jumbo"))["links"], [], "afgewezen: geen koppeling")
+        self.assertEqual(self.row("jumbo", "Jumbo Pindakaas naturel")["outcome"], "rejected")
+
+    async def test_a_confirm_during_the_search_leaves_no_row(self) -> None:
+        self.bought("Jumbo Oude naam", 2)
+        chosen: dict[str, Any] | None = loose_name_rules.candidate("jumbo", item("1", "Jumbo Nieuwe naam"))
+        self.state("jumbo", "Jumbo Oude naam", later(days=-100), "candidates", [chosen])
+        key: str = name_keys.key("Jumbo Oude naam")
+
+        async def confirmed_meanwhile(query: str) -> None:
+            await loose_names.confirm("jumbo", key, "1")
+
+        search = FakeSearch({"Jumbo Oude naam": [item("2", "Jumbo Iets anders")]}, before=confirmed_meanwhile)
+        result: dict[str, Any] = await loose_names.run_round("jumbo", NOW, search=search)
+        self.assertEqual((result["searches"], result["candidates"]), (1, 0))
+        self.assertIsNone(self.row("jumbo", "Jumbo Oude naam"), "geen verouderde kaart")
+        links = (await product_links.list_links("jumbo"))["links"]
+        self.assertEqual([(link["productId"], link["origin"]) for link in links], [("1", "confirmed")])
+        self.assertEqual((await loose_names.page("jumbo"))["cards"], [])
+
+    async def test_crisp_refusing_the_session_pauses_crisp(self) -> None:
+        self.bought("Crisp Eerste naam", 2, store="crisp")
+        self.bought("Crisp Tweede naam", 1, store="crisp")
+        search = FakeSearch({"Crisp Eerste naam": crisp.CrispAuthError("Crisp weigerde de sessie")})
+        result: dict[str, Any] = await loose_names.run_round("crisp", NOW, search=search)
+        self.assertEqual((result["searches"], result["stopped"]), (1, "blocked"))
+        self.assertEqual(search.queries, ["Crisp Eerste naam"])
+        self.assertEqual(await loose_names.paused_until("crisp", NOW), later(hours=loose_names.BACKOFF_HOURS))

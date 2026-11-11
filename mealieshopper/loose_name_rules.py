@@ -12,7 +12,7 @@ import json
 import re
 from typing import Any
 
-from . import ah, jumbo, name_keys, picnic, product_links
+from . import ah, crisp, jumbo, name_keys, picnic, product_links
 
 # Een multipack: "6-pack" in de titel of "4 x 1,5 l" in de titel of de inhoud.
 MULTIPACK: re.Pattern[str] = re.compile(
@@ -143,14 +143,14 @@ def status_of(error: Exception) -> int | None:
 
     AH geeft `ah.AhHttpError.status`. Jumbo geeft `JumboBlocked` met de status in `where` ("403" of "429", of een tekst als er geen
     JSON terugkwam). Picnic geeft `PicnicBlockedError` bij een 403 van zijn poort. Bij elke andere status geven Jumbo, Picnic en
-    Crisp een RuntimeError die met "<status>:" begint. Crisp geeft bij 401 en 403 `CrispAuthError` zonder status: dat stopt de
-    ronde als gewone fout."""
+    Crisp een RuntimeError die met "<status>:" begint. Crisp geeft bij 401 en 403 `CrispAuthError` zonder status: dat telt als
+    403, dus ook Crisp krijgt de pauze."""
     if isinstance(error, ah.AhHttpError):
         return error.status
     if isinstance(error, jumbo.JumboBlocked):
         return int(error.where) if error.where.isdigit() else None
-    if isinstance(error, picnic.PicnicBlockedError):
-        return 403
+    if isinstance(error, (picnic.PicnicBlockedError, crisp.CrispAuthError)):
+        return 403  # Crisp geeft bij 401 en 403 dezelfde fout: liever 12 uur te lang wachten dan aandringen
     match: re.Match[str] | None = (
         _STATUS_TEXT.match(str(error)) if isinstance(error, RuntimeError) else None
     )

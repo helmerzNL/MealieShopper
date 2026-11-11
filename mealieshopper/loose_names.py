@@ -73,13 +73,25 @@ CREATE TABLE IF NOT EXISTS loose_names (
 );
 """
 
-# Een nieuwe uitkomst van de ronde. Een afwijzing die de gebruiker gaf terwijl de ronde de naam opzocht, blijft staan.
-_UPSERT_SQL: str = """
-INSERT INTO loose_names (store, key, name, checked_at, outcome, candidates, proposal) VALUES (?, ?, ?, ?, ?, ?, ?)
+# Een koppeling van een mens (`manual` of `confirmed`) op een van de schrijfwijzen van een naam. `{marks}` is een `?` per
+# schrijfwijze (`product_links.fold`), na de winkel.
+_HUMAN_LINK_SQL: str = (
+    "SELECT 1 FROM product_links WHERE store = ? AND kind = 'name' AND origin IN ('manual', 'confirmed') AND key IN ({marks})"
+)
+
+# Een nieuwe uitkomst van de ronde, in een opdracht: een afwijzing (`reject`) of een bevestiging (`confirm`) die de gebruiker gaf
+# terwijl de ronde de naam opzocht, blijft staan. Parameters: de zeven kolommen, dan de winkel en de schrijfwijzen van `{marks}`.
+_UPSERT_SQL: str = f"""
+INSERT INTO loose_names (store, key, name, checked_at, outcome, candidates, proposal) SELECT ?, ?, ?, ?, ?, ?, ?
+WHERE NOT EXISTS ({_HUMAN_LINK_SQL})
 ON CONFLICT (store, key) DO UPDATE SET name = excluded.name, checked_at = excluded.checked_at, outcome = excluded.outcome,
   candidates = excluded.candidates, proposal = excluded.proposal
 WHERE loose_names.outcome != 'rejected'
 """
+
+
+class _Paused(Exception):
+    """De winkel ging op pauze terwijl de zoekopdracht op zijn beurt wachtte (`_unless_paused`)."""
 
 
 @asynccontextmanager
@@ -88,7 +100,7 @@ async def _connect() -> AsyncIterator[aiosqlite.Connection]:
     await auth.ensure_db()
     async with auth.connect() as conn:
         await auth.ensure_schema(conn, "loose_names", SCHEMA)
-        yield conn
+        yield await product_links.ensure(conn)  # `_HUMAN_LINK_SQL` leest de koppelingen
 
 
 def _now() -> str:
@@ -180,8 +192,8 @@ async def _pause(store: str, now: str, status: int) -> str:
 
 async def _states(store: str) -> dict[str, aiosqlite.Row]:
     async with _connect() as conn:
-        rows = await conn.execute_fetchall(
-            "SELECT * FROM loose_names WHERE store = ?", (store,)
+        rows: list[aiosqlite.Row] = list(
+            await conn.execute_fetchall("SELECT * FROM loose_names WHERE store = ?", (store,))
         )
     return {row["key"]: row for row in rows}
 
@@ -218,33 +230,47 @@ async def due(store: str, now: str, limit: int) -> list[dict[str, Any]]:
     return _due(loose, await _states(store), now)[: max(0, limit)]
 
 
-async def _settle(
-    store: str, entry: dict[str, Any], products: list[Any], now: str
-) -> str:
-    """Bewaar de uitkomst van een zoekopdracht voor `entry` en geef hem terug. Een directe koppeling geldt voor elke schrijfwijze."""
-    outcome, kept = outcome_of(
-        entry["key"], entry["name"], candidates_of(store, products, CANDIDATES)
-    )
+def _folded(entry: dict[str, Any]) -> list[str]:
+    """De schrijfwijzen van een losse naam zoals een koppeling op naam ze bewaart (`product_links.fold`)."""
+    return [product_links.fold(spelling) for spelling in entry["spellings"]]
+
+
+async def _open_state(store: str, entry: dict[str, Any]) -> tuple[bool, str | None]:
+    """(staat de naam nog open, het bewaarde voorstel). Dicht is een naam die de gebruiker afwees of zelf koppelde terwijl de
+    ronde hem opzocht: die krijgt geen koppeling en geen nieuwe stand."""
+    folded: list[str] = _folded(entry)
+    async with _connect() as conn:
+        row: aiosqlite.Row | None = await auth.fetchone(
+            conn, "SELECT outcome, proposal FROM loose_names WHERE store = ? AND key = ?", (store, entry["key"])
+        )
+        human: aiosqlite.Row | None = await auth.fetchone(
+            conn, _HUMAN_LINK_SQL.format(marks=",".join("?" * len(folded))), (store, *folded)
+        )
+    rejected: bool = row is not None and row["outcome"] == "rejected"
+    return not rejected and human is None, row["proposal"] if row is not None else None
+
+
+async def _settle(store: str, entry: dict[str, Any], products: list[Any], now: str) -> str | None:
+    """Bewaar de uitkomst van een zoekopdracht voor `entry` en geef hem terug, of None als de naam intussen dicht is
+    (`_open_state`). Een directe koppeling geldt voor elke schrijfwijze."""
+    outcome: str
+    kept: list[dict[str, Any]]
+    outcome, kept = outcome_of(entry["key"], entry["name"], candidates_of(store, products, CANDIDATES))
+    still_open: bool
+    old_proposal: str | None
+    still_open, old_proposal = await _open_state(store, entry)
+    if not still_open:
+        return None
     if outcome == "exact":
         for spelling in entry["spellings"]:
             await product_links.save(store, spelling, kept[0], now=now, origin="exact")
+    folded: list[str] = _folded(entry)
+    values: tuple[Any, ...] = (
+        store, entry["key"], entry["name"], now, outcome, json.dumps(kept, ensure_ascii=False), kept_proposal(old_proposal, kept),
+        store, *folded,
+    )
     async with _connect() as conn:
-        row = await auth.fetchone(
-            conn,
-            "SELECT proposal FROM loose_names WHERE store = ? AND key = ?",
-            (store, entry["key"]),
-        )
-        proposal: str | None = kept_proposal(row["proposal"] if row else None, kept)
-        values = (
-            store,
-            entry["key"],
-            entry["name"],
-            now,
-            outcome,
-            json.dumps(kept, ensure_ascii=False),
-            proposal,
-        )
-        await conn.execute(_UPSERT_SQL, values)
+        await conn.execute(_UPSERT_SQL.format(marks=",".join("?" * len(folded))), values)
         await conn.commit()
     return outcome
 
@@ -261,12 +287,20 @@ def _default_search(store: str) -> Search:
     }[store]
 
 
-async def _search(store: str, search: Search, name: str) -> list[Any]:
+async def _unless_paused(store: str, search: Search, name: str, now: str) -> list[Any]:
+    """De zoekopdracht zelf, tenzij de winkel intussen op pauze staat (`_Paused`). Bij AH loopt dit onder het slot van
+    `ah_orders.polite`: kreeg een andere zoeker bij AH een 403 terwijl deze op zijn beurt wachtte, dan gaat er niets meer uit."""
+    if await paused_until(store, now):
+        raise _Paused()
+    return await search(name, CANDIDATES)
+
+
+async def _search(store: str, search: Search, name: str, now: str) -> list[Any]:
     """Een zoekopdracht, bij AH binnen het tempo en het uurbudget van `ah_orders.polite`. Een antwoord dat geen lijst is, is een fout."""
     if store == "ah":
-        found: Any = await ah_orders.polite(lambda: search(name, CANDIDATES))
+        found: Any = await ah_orders.polite(lambda: _unless_paused(store, search, name, now))
     else:
-        found = await search(name, CANDIDATES)
+        found = await _unless_paused(store, search, name, now)
     if not isinstance(found, list):
         raise TypeError(
             f"search_products gaf {type(found).__name__} in plaats van een lijst"
@@ -313,7 +347,9 @@ async def _look_up(
         if await paused_until(store, now):
             return "blocked"
         try:
-            products: list[Any] = await _search(store, search, entry["name"])
+            products: list[Any] = await _search(store, search, entry["name"], now)
+        except _Paused:  # er ging geen verzoek uit
+            return "blocked"
         except ah_orders.HourlyBudgetSpent:
             await _wait(BUDGET_WAIT_SECONDS)
             continue
@@ -321,7 +357,9 @@ async def _look_up(
             result["searches"] += 1
             return await _refused(store, error, now)
         result["searches"] += 1
-        result[await _settle(store, entry, products, now)] += 1
+        outcome: str | None = await _settle(store, entry, products, now)
+        if outcome is not None:
+            result[outcome] += 1
         return None
 
 
@@ -376,6 +414,8 @@ async def run_round(
 async def confirm(store: Any, key: Any, product_id: Any) -> dict[str, Any]:
     """Koppel een losse naam met een kaart aan een product, voor elke schrijfwijze, met herkomst `confirmed`. Geeft de koppeling
     (`product_links.link_json`) en haalt de rij weg. ValueError als de naam geen kaart (meer) heeft of de invoer niet klopt."""
+    key_store: str
+    text: str
     key_store, text = _identity(store, key)
     chosen_id: str = " ".join(str(product_id or "").split())[
         : product_links.MAX_ID_CHARS
@@ -409,6 +449,8 @@ async def confirm(store: Any, key: Any, product_id: Any) -> dict[str, Any]:
 
 
 async def _set_outcome(store: Any, key: Any, sql: str) -> bool:
+    key_store: str
+    text: str
     key_store, text = _identity(store, key)
     async with _connect() as conn:
         cursor: aiosqlite.Cursor = await conn.execute(sql, (key_store, text))
