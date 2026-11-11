@@ -297,6 +297,19 @@
       </div>
     </dialog>
 
+    <!-- De export van je eigen koppelingen voor een pull request (#loose-export, static/shared_links_export.js). -->
+    <dialog id="export-dialog" class="product-dialog export-dialog" aria-labelledby="export-dialog-title">
+      <div class="product-dialog__inner">
+        <h3 id="export-dialog-title" data-i18n="loose.export_title">Exporteer voor GitHub</h3>
+        <div id="export-dialog-body"></div>
+        <div id="export-dialog-message" role="status" aria-live="polite"></div>
+        <div class="product-dialog__actions">
+          <button class="button" type="button" id="export-download" disabled>Download</button>
+          <button class="button button--secondary" type="button" id="export-dialog-close" data-i18n="common.close">Sluiten</button>
+        </div>
+      </div>
+    </dialog>
+
     <dialog id="bulk-dialog" class="product-dialog bulk-dialog" aria-labelledby="bulk-dialog-title">
       <div class="product-dialog__inner">
         <div>
@@ -1151,7 +1164,7 @@
             <p class="muted" data-i18n="loose.intro_more">De app zoekt zulke namen 's nachts of op verzoek op bij de winkel. Een voorstel van de AI is alleen een voorgeselecteerde keuze: er wordt niets gekoppeld voordat je op Koppel gekozen product klikt.</p>
           </details>
           <div id="loose-header"></div>
-          <div id="loose-export-home" hidden><button class="button button--secondary" id="loose-export" type="button" data-i18n="loose.export">Exporteer voor GitHub</button></div>
+          <div id="loose-export-home" hidden><button class="button button--secondary" id="loose-export" type="button" disabled>Exporteer voor GitHub</button></div>
           <div id="loose-message"></div>
           <div id="loose-cards" class="loose-cards"></div>
           <p class="muted" id="loose-empty" hidden data-i18n="loose.empty">Er staan geen losse aankopen met voorstellen klaar.</p>
@@ -2452,6 +2465,7 @@
     <script src="{{ url_for('static', filename='crisp.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='product_links.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='loose_names.js', v=config.ASSET_VERSION) }}"></script>
+    <script src="{{ url_for('static', filename='shared_links_export.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='mealkits.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='ah_planner.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='basket.js', v=config.ASSET_VERSION) }}"></script>

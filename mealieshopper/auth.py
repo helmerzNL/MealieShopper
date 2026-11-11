@@ -1001,7 +1001,7 @@ def register_routes(app: Quart) -> None:
 # Alleen de beheerder: Mealie en Albert Heijn koppelen, gebruikers beheren en de serverinstellingen. Gewone gebruikers
 # zien de status ervan wel (/api/mealie/status, /api/ah/auth/status), maar kunnen niets wijzigen.
 ADMIN_PREFIXES = ("/api/users", "/api/server-settings", "/api/audit", "/api/update", "/api/system", "/api/backup", "/api/price-archive", "/api/mealie/auth", "/api/prices/import", "/api/ah/auth/", "/api/picnic/auth/", "/api/jumbo/auth/", "/api/crisp/auth/", "/api/loose-names")
-ADMIN_PATHS = {"/api/mealie/bulk-import/group", "/api/mealie/nutrition/backfill", "/api/offers/sync-all", "/api/offers/ai", "/api/offers/ai/test", "/api/offers/ai/review", "/api/offers/ai/search", "/api/offers/ai/search/plan", "/api/offers/ai/search/status", "/api/ah/auth", "/api/ah/explore", "/api/picnic/auth", "/api/picnic/explore", "/api/jumbo/auth", "/api/jumbo/explore", "/api/crisp/auth", "/api/crisp/explore"}
+ADMIN_PATHS = {"/api/mealie/bulk-import/group", "/api/mealie/nutrition/backfill", "/api/offers/sync-all", "/api/offers/ai", "/api/offers/ai/test", "/api/offers/ai/review", "/api/offers/ai/search", "/api/offers/ai/search/plan", "/api/offers/ai/search/status", "/api/ah/auth", "/api/ah/explore", "/api/picnic/auth", "/api/picnic/explore", "/api/jumbo/auth", "/api/jumbo/explore", "/api/crisp/auth", "/api/crisp/explore", "/api/shared-links/export"}
 ADMIN_EXCEPTIONS = {"/api/ah/auth/status", "/api/picnic/auth/status", "/api/jumbo/auth/status", "/api/crisp/auth/status"}
 
 

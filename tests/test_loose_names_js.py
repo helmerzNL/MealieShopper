@@ -549,3 +549,184 @@ const makeCard = (checked) => {
         self.assertEqual(out["before"], ["geen verbinding"])
         self.assertEqual(out["messages"], ["geen verbinding", "De AI keek naar 3 namen"], "geen wis na de melding van iets anders")
         self.assertIs(out["failed"], False)
+
+
+
+# ---- de export voor GitHub (static/shared_links_export.js)
+
+EXPORT = (STATIC / "shared_links_export.js").read_text(encoding="utf-8")
+
+EXPORT_FUNCTIONS: tuple[str, ...] = (
+    "exportCount",
+    "exportButtonLabel",
+    "exportDefaults",
+    "exportKeys",
+    "exportRequestBody",
+    "exportProduct",
+    "exportRowHtml",
+    "exportNewHtml",
+    "exportConflictsHtml",
+    "exportAmbiguousHtml",
+    "exportLinkHtml",
+    "exportStepsHtml",
+    "exportDialogHtml",
+    "exportFailure",
+    "exportSave",
+)
+
+EXPORT_PRELUDE: str = "\n".join(
+    [
+        "const t = (key, params = {}) => key + (Object.keys(params).length ? ' ' + JSON.stringify(params) : '');",
+        "const tn = (key, count, params = {}) => t(key + (count === 1 ? '.one' : '.other'), { count, ...params });",
+        "const escapeHtml = (v) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\"/g, '&quot;');",
+        "const storeDisplayName = (store) => 'Winkel ' + store;",
+        *[function_source(name, EXPORT) for name in EXPORT_FUNCTIONS],
+    ]
+)
+
+PENDING: str = """{
+  new: [
+    { key: '~appel', name: 'ah appel', productId: '1', title: 'AH Appel <b>', unitSize: '1 kg' },
+    { key: '~peer', name: 'ah peer', productId: '2', title: 'AH Peer', unitSize: '' },
+  ],
+  conflicts: [
+    { key: '~kers', name: 'ah kers', productId: '9', title: 'Nieuwe kers', unitSize: '250 g', sharedProductId: '3', sharedTitle: 'Oude kers' },
+  ],
+  ambiguous: [{ key: '~brood', names: ['AH Brood online', 'AH Broden'], productIds: ['5', '6'] }],
+  fileUrl: 'https://github.com/helmerzNL/MealieShopper/blob/beta/mealieshopper/shared_link_data/ah.json',
+}"""
+
+
+@unittest.skipUnless(shutil.which("node"), "Node is niet geinstalleerd")
+class SharedExportNodeTest(unittest.TestCase):
+    def run_json(self, scenario: str) -> object:
+        script: str = f"{EXPORT_PRELUDE}\nconst pending = {PENDING};\n{scenario}"
+        result = subprocess.run(
+            ["node", "-e", script],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        return json.loads(result.stdout)
+
+    def test_the_count_is_the_new_links_and_zero_without_them(self):
+        out = self.run_json(
+            "console.log(JSON.stringify({ n: exportCount(pending), none: exportCount({ new: [], conflicts: pending.conflicts }),"
+            " unknown: exportCount(null), label: exportButtonLabel(pending), fallback: exportButtonLabel(null) }));"
+        )
+        self.assertEqual((out["n"], out["none"], out["unknown"]), (2, 0, 0))
+        self.assertEqual(out["label"], 'loose.export_count {"count":2}')
+        self.assertEqual(out["fallback"], "loose.export")
+
+    def test_a_conflict_is_not_in_the_keys_of_the_request_by_default(self):
+        out = self.run_json(
+            "const defaults = exportDefaults(pending);"
+            "console.log(JSON.stringify({ defaults, keys: exportKeys(pending, defaults),"
+            " body: exportRequestBody('ah', pending, defaults),"
+            " ticked: exportKeys(pending, [...defaults, '~kers']) }));"
+        )
+        self.assertEqual(out["defaults"], ["~appel", "~peer"])
+        self.assertEqual(out["keys"], ["~appel", "~peer"])
+        self.assertEqual(out["body"], {"store": "ah", "keys": ["~appel", "~peer"]})
+        self.assertEqual(out["ticked"], ["~appel", "~peer", "~kers"])
+
+    def test_keys_that_are_not_pending_never_go_in_the_request(self):
+        out = self.run_json(
+            "console.log(JSON.stringify([exportKeys(pending, ['~onbekend', '~brood', '~peer']), exportKeys(pending, []), exportKeys(null, ['~peer'])]));"
+        )
+        self.assertEqual(out, [["~peer"], [], []])
+
+    def test_the_dialog_ticks_new_links_and_leaves_a_conflict_unticked_with_both_products(self):
+        html: str = self.run_json(
+            "console.log(JSON.stringify(exportDialogHtml(pending, 'ah')));"
+        )
+        boxes = re.findall(r'<input type="checkbox" data-export-key="([^"]+)"( checked)?>', html)
+        self.assertEqual(boxes, [("~appel", " checked"), ("~peer", " checked"), ("~kers", "")])
+        self.assertIn("loose.export_yours", html)
+        self.assertIn("Nieuwe kers", html)
+        self.assertIn("loose.export_theirs", html)
+        self.assertIn("Oude kers", html)
+        self.assertIn("loose.export_new.other", html)
+
+    def test_the_dialog_reports_the_names_that_are_left_out_and_why(self):
+        html: str = self.run_json("console.log(JSON.stringify(exportAmbiguousHtml(pending)));")
+        self.assertIn("loose.export_ambiguous_title", html)
+        self.assertIn("AH Brood online, AH Broden", html)
+
+    def test_outside_text_is_escaped(self):
+        html: str = self.run_json("console.log(JSON.stringify(exportDialogHtml(pending, 'ah')));")
+        self.assertIn("AH Appel &lt;b&gt;", html)
+        self.assertNotIn("<b>", html)
+        hostile: str = self.run_json(
+            "const bad = { new: [{ key: '\"><img src=x>', name: '<script>', productId: '1', title: '<i>', unitSize: '' }], conflicts: [], ambiguous: [],"
+            " fileUrl: 'javascript:alert(1)' };"
+            "console.log(JSON.stringify(exportDialogHtml(bad, 'ah')));"
+        )
+        self.assertNotIn("<script>", hostile)
+        self.assertNotIn("<img", hostile)
+        self.assertNotIn("javascript:", hostile, "alleen een https-adres wordt een link")
+        self.assertNotIn("<a ", hostile)
+
+    def test_the_link_opens_in_a_new_tab_with_noopener_and_the_steps_are_plain_text(self):
+        html: str = self.run_json("console.log(JSON.stringify(exportDialogHtml(pending, 'ah')));")
+        self.assertRegex(
+            html,
+            r'<a href="https://github\.com/helmerzNL/MealieShopper/blob/beta/mealieshopper/shared_link_data/ah\.json" target="_blank" rel="noopener">',
+        )
+        steps: str = re.search(r'<ol class="export-steps">(.*?)</ol>', html, re.DOTALL).group(1)
+        self.assertEqual(re.findall(r"<li>([^<]+)</li>", steps), ["loose.export_step1", "loose.export_step2", "loose.export_step3"])
+
+    def test_the_file_is_saved_through_a_temporary_url_that_is_revoked_after(self):
+        out = self.run_json(
+            "const log = [];"
+            "const link = { click() { log.push('click ' + this.download + ' ' + this.href); }, remove() { log.push('remove'); } };"
+            "const document = { createElement: () => link, body: { append() { log.push('append'); } } };"
+            "const URL = { createObjectURL: (blob) => { log.push('create'); return 'blob:x'; }, revokeObjectURL: (u) => log.push('revoke ' + u) };"
+            "const setTimeout = (fn) => { log.push('later'); fn(); };"
+            "exportSave({}, 'ah.json');"
+            "console.log(JSON.stringify(log));"
+        )
+        self.assertEqual(out, ["create", "append", "click ah.json blob:x", "remove", "later", "revoke blob:x"])
+
+    def test_the_servers_error_is_shown_and_a_reply_without_json_gets_a_plain_message(self):
+        out = self.run_json(
+            "(async () => {"
+            "  const withError = await exportFailure({ status: 400, json: async () => ({ error: 'Onbekende winkel' }) });"
+            "  const without = await exportFailure({ status: 502, json: async () => { throw new Error('geen json'); } });"
+            "  console.log(JSON.stringify({ withError, without }));"
+            "})();"
+        )
+        self.assertEqual(out["withError"], "Onbekende winkel")
+        self.assertIn("err.server", out["without"])
+
+
+class SharedExportMarkupTest(unittest.TestCase):
+    def test_the_dialog_follows_the_other_dialogs_and_the_script_loads_after_the_page(self):
+        self.assertRegex(HTML, r'<dialog id="export-dialog" class="product-dialog export-dialog" aria-labelledby="export-dialog-title">')
+        for element in ("export-dialog-body", "export-dialog-message", "export-download", "export-dialog-close"):
+            self.assertIn(f'id="{element}"', HTML, element)
+        scripts = re.findall(r"filename='([\w/]+\.js)'", HTML)
+        self.assertLess(scripts.index("loose_names.js"), scripts.index("shared_links_export.js"))
+        self.assertLess(scripts.index("shared_links_export.js"), scripts.index("router.js"))
+
+    def test_the_export_button_is_one_persistent_element_bound_once(self):
+        self.assertEqual(HTML.count('id="loose-export"'), 1)
+        self.assertEqual(EXPORT.count('$("#loose-export")'), 2, "een keer binden, een keer de tekst zetten")
+        self.assertEqual(EXPORT.count('button.addEventListener("click"'), 1)
+
+    def test_the_page_announces_its_state_to_the_export(self):
+        self.assertIn('looseAnnounce("ms:loose-loaded")', LOOSE)
+        self.assertIn('looseAnnounce("ms:loose-confirmed")', LOOSE)
+        self.assertIn('"ms:loose-loaded"', EXPORT)
+        self.assertIn('"ms:loose-confirmed"', EXPORT)
+        self.assertIn('"ms:product-links"', EXPORT)
+
+    def test_the_css_has_no_new_breakpoint_and_uses_the_radius_variables(self):
+        block: str = CSS[CSS.index(".export-dialog {"):]
+        self.assertNotIn("@media", block)
+        self.assertNotRegex(block, r"border-radius:\s*\d")
+        self.assertIn("overflow-wrap: break-word", block)
+        self.assertRegex(block, r"\.export-row input \{[^}]*grid-area")
+        self.assertRegex(block, r"\.export-row__body \{[^}]*grid-area")

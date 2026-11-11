@@ -12,7 +12,7 @@ import sqlite3
 import httpx
 from quart import Quart, Response, jsonify, redirect, render_template, request, send_file, send_from_directory
 
-from . import about, ah, ah_explore, ah_lists, ah_orders, ah_planner, ah_recipes, ai_match, ai_review, audit, auth_password, backup, cart_memory, crisp, crisp_orders, factory_reset, hellofresh, image_cache, jumbo, jumbo_explore, jumbo_lists, jumbo_orders, jumbo_recipes, loose_names, loose_names_ai, marleyspoon, mcp_http, mealie, mealie_images, offers, offers_schedule, onboarding, picnic, picnic_explore, picnic_orders, picnic_recipes, price_archive, price_import, prices, product_images, product_links, profile, push, recipe_bulk, recipe_nutrition, request_body, server_settings, shared_links, updates, users
+from . import about, ah, ah_explore, ah_lists, ah_orders, ah_planner, ah_recipes, ai_match, ai_review, audit, auth_password, backup, cart_memory, crisp, crisp_orders, factory_reset, hellofresh, image_cache, jumbo, jumbo_explore, jumbo_lists, jumbo_orders, jumbo_recipes, loose_names, loose_names_ai, marleyspoon, mcp_http, mealie, mealie_images, offers, offers_schedule, onboarding, picnic, picnic_explore, picnic_orders, picnic_recipes, price_archive, price_import, prices, product_images, product_links, profile, push, recipe_bulk, recipe_nutrition, request_body, server_settings, shared_links, shared_links_export, updates, users
 from . import auth, deals, http_client, tasks, urls
 from . import assets
 from .body_limits import DEFAULT_MAX_BODY, SizedRequest
@@ -940,6 +940,22 @@ def create_app() -> Quart:
             return {"changed": await shared_links.restore(body.get("store"), body.get("name"), body.get("productId"))}
 
         return await import_action(restore)
+
+    # De export van je eigen koppelingen voor een pull request (shared_links_export.py). Alleen de beheerder, op dit exacte pad
+    # (auth.ADMIN_PATHS): reject en restore hierboven blijven voor iedereen.
+    @app.get("/api/shared-links/export")
+    async def shared_links_export_pending():
+        return await import_action(lambda: shared_links_export.pending(request.args.get("store")))
+
+    @app.post("/api/shared-links/export")
+    async def shared_links_export_file():
+        body = await request_body.json_object()
+        try:
+            store: str = shared_links_export.store_of(body.get("store"))
+            text: str = await shared_links_export.merged(store, shared_links_export.keys_of(body.get("keys")))
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+        return Response(text, mimetype="application/json", headers={"Content-Disposition": f'attachment; filename="{store}.json"'})
 
     # De pagina "Losse aankopen" (loose_names.py). Alleen de beheerder: /api/loose-names staat in auth.ADMIN_PREFIXES, want de ronde
     # gebruikt het tempo van de winkels en de AI kost geld.

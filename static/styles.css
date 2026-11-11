@@ -11094,3 +11094,76 @@ html.is-standalone .user-menu__item--standalone:not([hidden]) {
     grid-area: 2 / 3;
   }
 }
+
+/* De export voor GitHub (shared_links_export.js): een lijst met een vinkje per koppeling. Geen eigen breekpunt: elk kind heeft zijn
+   eigen kolom (het vinkje en de tekst), lange namen breken op woordgrenzen. */
+.export-dialog {
+  width: min(560px, calc(100vw - 32px));
+}
+
+.export-dialog h4 {
+  margin: 0 0 6px;
+  overflow-wrap: break-word;
+}
+
+.export-section {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  margin-top: 14px;
+}
+
+.export-section p,
+.export-steps {
+  margin: 0;
+  overflow-wrap: break-word;
+}
+
+.export-steps {
+  padding-left: 20px;
+}
+
+.export-list {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.export-list li {
+  min-width: 0;
+}
+
+.export-row {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  padding: 8px;
+  cursor: pointer;
+}
+
+.export-row input {
+  grid-area: 1 / 1;
+  margin: 2px 0 0;
+}
+
+.export-row__body {
+  display: grid;
+  grid-area: 1 / 2;
+  gap: 2px;
+  min-width: 0;
+  overflow-wrap: break-word;
+}
+
+.export-row__body small {
+  color: var(--muted);
+  font-size: var(--text-sm);
+}
+
+.export-note {
+  overflow-wrap: break-word;
+}

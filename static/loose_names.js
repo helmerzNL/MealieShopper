@@ -255,6 +255,7 @@ async function loadLooseNames() {
     looseRenderAll();
     looseWatchMore();
     looseSchedulePoll();
+    looseAnnounce("ms:loose-loaded");
   } catch (error) {
     if (run !== looseState.run) return;
     looseState.loading = false;
@@ -433,7 +434,10 @@ async function looseConfirm(button) {
   if (!card || !picked) return;
   const key = card.dataset.looseCard;
   // Alleen de sleutel en het gekozen productnummer: de server weet welk product dat is.
-  await loosePost("confirm", { store: looseState.store, key, productId: picked.value }, button, () => looseDropCard(key));
+  await loosePost("confirm", { store: looseState.store, key, productId: picked.value }, button, () => {
+    looseDropCard(key);
+    looseAnnounce("ms:loose-confirmed"); // een eigen koppeling erbij: de teller van de export (shared_links_export.js) ververst
+  });
 }
 
 async function looseReject(button) {
@@ -457,6 +461,11 @@ async function looseAskAi(button) {
   if (!result) return;
   await loadLooseNames();
   looseMessage(t("loose.ai_done", { asked: result.asked || 0, proposed: result.proposed || 0, none: result.none || 0 }), "success");
+}
+
+// Meldt de pagina's stand aan wie meeluistert (shared_links_export.js), met de winkel erbij.
+function looseAnnounce(name) {
+  window.dispatchEvent(new CustomEvent(name, { detail: { store: looseState.store } }));
 }
 
 // De koppeldialoog van product_links.js meldt een gelukte koppeling met ms:product-links. De naam die we daar openden, is dan

@@ -54,6 +54,7 @@ SOURCES = {
     "appearance.js": (STATIC / "appearance.js").read_text(encoding="utf-8"),
     "shopping.js": (STATIC / "shopping.js").read_text(encoding="utf-8"),
     "loose_names.js": (STATIC / "loose_names.js").read_text(encoding="utf-8"),
+    "shared_links_export.js": (STATIC / "shared_links_export.js").read_text(encoding="utf-8"),
 }
 JS = "\n".join(SOURCES.values())
 ENTRY = re.compile(r'^  "([^"]+)": "((?:[^"\\]|\\.)*)",$', re.M)
