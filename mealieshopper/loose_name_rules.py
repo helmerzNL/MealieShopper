@@ -1,7 +1,8 @@
 """De regels van een zoekresultaat in de ronde van losse aankoopnamen (`loose_names`), zonder database en zonder winkel.
 
 - `candidate`: een resultaat van `search_products` van een winkel in een vorm voor alle winkels.
-- `outcome_of`: wat een zoekopdracht oplevert (`exact`, `candidates` of `missing`), met de kandidaten die blijven.
+- `outcome_of`: wat een zoekopdracht oplevert (`exact`, `candidates` of `missing`), met de kandidaten die blijven. `exact` is
+  alleen letterlijk hetzelfde product (`_literal`): dezelfde sleutel, dezelfde getallen en dezelfde soort verpakking.
 - `kept_proposal`: of een bestaand voorstel van de AI bij de nieuwe kandidaten blijft.
 - `status_of`: de HTTP-status van een fout van een winkel, om bij een 403 of 429 te stoppen en te pauzeren.
 """
@@ -19,6 +20,7 @@ MULTIPACK: re.Pattern[str] = re.compile(
     r"\b\d+\s*-\s*pack\b|\b\d+\s*x\s*\d", re.IGNORECASE
 )
 _STATUS_TEXT: re.Pattern[str] = re.compile(r"^(\d{3}):")
+_DIGITS: re.Pattern[str] = re.compile(r"\d+")
 
 
 def _text(value: Any, limit: int) -> str:
@@ -108,18 +110,33 @@ def _without_multipacks(name: str, found: list[dict[str, Any]]) -> list[dict[str
     return singles or found
 
 
+def _digits(text: str) -> list[str]:
+    """De getallen van een gevouwen naam op volgorde: "Coca-Cola Zero sugar 4 x 1,5 L" geeft ["4", "1", "5"]."""
+    return _DIGITS.findall(name_keys.fold(text))
+
+
+def _literal(name: str, found: dict[str, Any]) -> bool:
+    """Of een kandidaat met dezelfde sleutel letterlijk de losse naam `name` is. De sleutel laat getallen weg ("Melk 1 L" en
+    "Melk 2 L" hebben dezelfde), dus ook de getallen van de naam en de titel moeten gelijk zijn, en de naam en de kandidaat (titel
+    en inhoud) zijn allebei een multipack of allebei niet: bij AH staat "6 x 0,33 l" vaak alleen in de inhoud."""
+    return _digits(name) == _digits(found["title"]) and is_multipack(name) == is_multipack(
+        found["title"], found["unitSize"]
+    )
+
+
 def outcome_of(
     key: str, name: str, found: list[dict[str, Any]]
 ) -> tuple[str, list[dict[str, Any]]]:
     """De uitkomst van een zoekopdracht naar de losse naam `name` (sleutel `key`) en de kandidaten die blijven.
 
-    Precies een kandidaat met dezelfde sleutel (`name_keys.key` van de titel) is `exact`. Meer met dezelfde sleutel (verschillende
-    verpakkingen) zijn `candidates` met alleen die. Anders zijn alle kandidaten `candidates`, zonder multipacks
-    (`_without_multipacks`). Geen kandidaten is `missing`."""
+    Precies een kandidaat met dezelfde sleutel (`name_keys.key` van de titel) die letterlijk de naam is (`_literal`) is `exact`.
+    Een kandidaat met dezelfde sleutel die dat niet is, of meer met dezelfde sleutel (verschillende verpakkingen), zijn
+    `candidates` met alleen die. Anders zijn alle kandidaten `candidates`, zonder multipacks (`_without_multipacks`). Geen
+    kandidaten is `missing`."""
     if not found:
         return "missing", []
     same: list[dict[str, Any]] = [c for c in found if name_keys.key(c["title"]) == key]
-    if len(same) == 1:
+    if len(same) == 1 and _literal(name, same[0]):
         return "exact", same
     return "candidates", same or _without_multipacks(name, found)
 

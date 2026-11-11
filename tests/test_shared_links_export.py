@@ -313,10 +313,14 @@ class RoutesTest(ExportCase):
                 ).status_code,
                 expected,
             )
-        reject = await anna.post(
-            "/api/shared-links/reject",
-            json={"store": "ah", "name": "AH Appel", "productId": "1"},
-        )
+        apple: dict[str, SharedLink] = {
+            name_keys.key("AH Appel"): SharedLink("ah appel", "1", "AH Appel", "")
+        }
+        with mock.patch.object(shared_links, "load", return_value=apple):
+            reject = await anna.post(
+                "/api/shared-links/reject",
+                json={"store": "ah", "name": "AH Appel", "productId": "1"},
+            )
         self.assertEqual(reject.status_code, 200)
 
     async def test_routes_validate_the_input(self) -> None:

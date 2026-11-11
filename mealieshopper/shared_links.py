@@ -180,8 +180,19 @@ async def rejected(conn: aiosqlite.Connection, store: str) -> set[tuple[str, str
     return {(row["key"], row["product_id"]) for row in rows}
 
 
+def _in_file(store: str, key: str, product: str) -> None:
+    """ValueError als (sleutel, productnummer) geen koppeling uit het gedeelde bestand van `store` is (`load`). Zo bewaart Klopt niet
+    alleen een echte koppeling, en geen rij voor elke naam die iemand instuurt (elke rij maakt de catalogus opnieuw)."""
+    link: SharedLink | None = load(store).get(key)
+    if link is None or link.product_id != product:
+        raise ValueError(
+            tr("Deze koppeling staat niet in het gedeelde bestand.", "This link is not in the shared file.")
+        )
+
+
 def _identity(store: Any, name: Any, product_id: Any) -> tuple[str, str, str]:
-    """(winkel, sleutel, productnummer) uit een verzoek. ValueError met een leesbare melding bij een ongeldige invoer."""
+    """(winkel, sleutel, productnummer) uit een verzoek, van een koppeling uit het gedeelde bestand (`_in_file`). ValueError met een
+    leesbare melding bij een ongeldige invoer."""
     key_store: str = str(store or "").strip().lower()
     if key_store not in STORES:
         raise ValueError(tr("Onbekende winkel", "Unknown store"))
@@ -189,7 +200,9 @@ def _identity(store: Any, name: Any, product_id: Any) -> tuple[str, str, str]:
     product: str = " ".join(str(product_id or "").split())[:MAX_ID_CHARS]
     if not text or not product:
         raise ValueError(tr("Een naam en een productnummer zijn nodig", "A name and a product number are required"))
-    return key_store, name_keys.key(text), product
+    key: str = name_keys.key(text)
+    _in_file(key_store, key, product)
+    return key_store, key, product
 
 
 async def reject(store: Any, name: Any, product_id: Any) -> bool:

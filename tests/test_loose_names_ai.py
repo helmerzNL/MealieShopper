@@ -3,10 +3,14 @@
 Geen test spreekt een echte aanbieder aan: `ai_review._call` is vervangen door `FakeAi`, die elke aanroep onthoudt.
 """
 
+import asyncio
 import json
 import os
+import re
 import tempfile
+import unittest
 from contextlib import closing
+from pathlib import Path
 from typing import Any
 from unittest import mock
 
@@ -23,6 +27,7 @@ from mealieshopper import (
 )
 
 KEY: str = "sk-ant-api03-GEHEIM-0123456789abcdef"
+ROOT: Path = Path(__file__).resolve().parents[1]
 NOW: str = "2026-11-11T01:00:00+00:00"
 
 
@@ -337,6 +342,59 @@ class ProposeTest(LooseAiCase):
             await loose_names_ai.propose("jumbo")
         self.assertIsNone(self.proposal("pindakaas"))
 
+    async def test_a_loose_name_with_an_exact_row_is_asked_and_keeps_its_proposal(
+        self,
+    ) -> None:
+        # Eindreview van 2026-11-11 (I2): de koppeling van een rij `exact` is weggehaald, dus de naam is een kaart als elke andere.
+        await self.key()
+        self.name("pindakaas", [candidate("p1", "Pindakaas")], outcome="exact")
+        ai: FakeAi = FakeAi([{"choices": [choice(1, 1)]}])
+        result: dict[str, int] = await self.propose(ai)
+        self.assertEqual((result["asked"], result["proposed"]), (1, 1))
+        self.assertEqual(self.proposal("pindakaas")["productId"], "p1")
+
+    async def test_a_second_run_for_the_same_store_is_refused_and_sends_nothing(
+        self,
+    ) -> None:
+        # Eindreview van 2026-11-11 (I4): een tweede klik, of de AI-stap van de nachtelijke ronde, stuurde dezelfde kaarten nog eens.
+        await ai_review.save({"keys": {"anthropic": KEY}, "looseNightly": True})
+        self.name("pindakaas")
+        started: asyncio.Event = asyncio.Event()
+        release: asyncio.Event = asyncio.Event()
+        calls: list[str] = []
+
+        async def slow(*args: Any, **kwargs: Any) -> tuple[Any, int]:
+            calls.append(args[4])
+            started.set()
+            await release.wait()
+            return {"choices": []}, 5
+
+        with mock.patch.object(ai_review, "_call", slow):
+            first: asyncio.Task[dict[str, int]] = asyncio.create_task(
+                loose_names_ai.propose("jumbo")
+            )
+            await started.wait()
+            with self.assertRaises(ai_review.AiError) as raised:
+                await asyncio.wait_for(loose_names_ai.propose("jumbo", limit=100), 5)
+            self.assertIn("kijkt al", str(raised.exception))
+            with self.assertLogs(loose_names.log, level="WARNING"):
+                nightly: dict[str, Any] | None = await asyncio.wait_for(loose_names._proposals_of("jumbo"), 5)
+            self.assertEqual(nightly, {"error": str(raised.exception)}, "de nacht gaat door hetzelfde slot")
+            self.assertEqual((await loose_names_ai.propose("ah"))["asked"], 0, "een andere winkel mag wel")
+            self.assertEqual(len(calls), 1, "de tweede en de nacht stuurden niets")
+            release.set()
+            self.assertEqual((await first)["asked"], 1)
+        self.assertEqual(len(calls), 1)
+
+    async def test_the_guard_is_released_after_an_error(self) -> None:
+        await self.key()
+        self.name("pindakaas")
+        with self.assertRaisesRegex(ai_review.AiError, "stuk"):
+            await self.propose(FakeAi([ai_review.AiError("stuk")]))
+        ai: FakeAi = FakeAi([{"choices": [choice(1, 1)]}])
+        self.assertEqual((await self.propose(ai))["asked"], 1)
+        self.assertEqual(len(ai.calls), 1)
+
     async def test_payload_has_no_field_beyond_the_listed_ones(self) -> None:
         await self.key()
         self.name("pindakaas", times=3, paid=2.5)
@@ -379,6 +437,70 @@ class ProposeTest(LooseAiCase):
             "jumbo",
         ):
             self.assertNotIn(secret, raw)
+
+
+def i18n_text(language: str, key: str) -> str:
+    """De tekst van `key` in `static/i18n/<language>.js`."""
+    source: str = (ROOT / "static" / "i18n" / f"{language}.js").read_text(encoding="utf-8")
+    texts: dict[str, str] = dict(re.findall(r'^  "([^"]+)": "((?:[^"\\]|\\.)*)",$', source, re.M))
+    return texts[key]
+
+
+def template_text(key: str) -> str:
+    """De Nederlandse tekst van `key` in de template, die er staat tot de vertaling geladen is."""
+    html: str = (ROOT / "templates" / "index.html").read_text(encoding="utf-8")
+    found: re.Match[str] | None = re.search(rf'data-i18n="{re.escape(key)}">([^<]*)<', html)
+    assert found is not None, key
+    return found.group(1)
+
+
+class ConsentTextTest(unittest.TestCase):
+    """Eindreview van 2026-11-11 (I3): de tekst bij de instelling voor 's nachts noemt elk veld dat naar de AI gaat."""
+
+    # Per veld van `loose_names_ai._item` de woorden die in de Nederlandse en de Engelse tekst staan. None is een volgnummer in de
+    # opdracht, geen gegeven van de gebruiker. Krijgt `_item` een veld, dan faalt de test tot het hier en in de tekst staat.
+    FIELDS: dict[str, tuple[str, str] | None] = {
+        "id": None,
+        "name": ("oude productnaam", "old product name"),
+        "timesBought": ("hoe vaak", "how often"),
+        "years": ("in welke jaren", "in which years"),
+        "paidEach": ("laagste en hoogste prijs", "lowest and highest price"),
+        "candidates": ("de producten die de winkel bij die naam vond", "the products the store found for that name"),
+        "n": None,
+        "title": ("titel", "title"),
+        "brand": ("merk", "brand"),
+        "size": ("inhoud", "size"),
+        "price": ("en prijs)", "and price)"),
+    }
+    FORBIDDEN: tuple[str, ...] = (";", "\u2013", "\u2014", "\u2018", "\u2019", "\u201c", "\u201d", "\u2026")
+
+    def test_the_nightly_note_names_every_field_that_is_sent(self) -> None:
+        card: dict[str, Any] = {
+            "name": "pindakaas", "bought": 2, "firstYear": 2022, "lastYear": 2023, "paidMin": 1.0, "paidMax": 2.0,
+            "candidates": [candidate("p1", "Pindakaas")],
+        }
+        sent: dict[str, Any] = loose_names_ai._item(1, card)
+        fields: set[str] = set(sent) | {field for found in sent["candidates"] for field in found}
+        self.assertEqual(fields, set(self.FIELDS), "een nieuw veld hoort in de tekst bij de instelling en in deze lijst")
+        nl: str = i18n_text("nl", "aireview.loose_nightly_note")
+        en: str = i18n_text("en", "aireview.loose_nightly_note")
+        for field, words in self.FIELDS.items():
+            if words is not None:
+                self.assertIn(words[0], nl, field)
+                self.assertIn(words[1], en, field)
+        self.assertEqual(template_text("aireview.loose_nightly_note"), nl)
+        self.assertIn("Staat standaard uit.", nl)
+        self.assertIn("off by default", en)
+
+    def test_the_privacy_line_names_the_nightly_exception(self) -> None:
+        nl: str = i18n_text("nl", "aireview.privacy")
+        en: str = i18n_text("en", "aireview.privacy")
+        self.assertIn("vinkje voor losse aankopen", nl)
+        self.assertIn("tick box for loose purchases", en)
+        self.assertEqual(template_text("aireview.privacy"), nl)
+        for text in (nl, en, i18n_text("nl", "aireview.loose_nightly_note"), i18n_text("en", "aireview.loose_nightly_note")):
+            for mark in self.FORBIDDEN:
+                self.assertNotIn(mark, text)
 
 
 class NightlySettingTest(LooseAiCase):

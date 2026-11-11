@@ -206,6 +206,27 @@ class LooseNamesNodeTest(unittest.TestCase):
         self.assertRegex(out["running"], r'id="loose-run"[^>]* disabled>')
         self.assertIn("loose.proposals.one", out["one"])
 
+    def test_the_last_round_line_says_why_the_round_stopped(self):
+        # Eindreview van 2026-11-11 (M2): een ronde die stopte op een weigering, een fout of de tijdslimiet liet niets na.
+        out = self.run_json(
+            "const lines = (stopped, extra = {}) => looseStatusLines({ store: 'ah', running: false, toSearch: 0,"
+            " lastRound: { at: '2026-11-11T01:00:00', stores: { ah: { stopped, ...extra } } } });"
+            "console.log(JSON.stringify({"
+            " done: lines(null), blocked: lines('blocked'), error: lines('error'), budget: lines('budget'),"
+            " deadline: lines('deadline'), raised: lines('error', { error: 'stuk' }),"
+            " running: looseStatusLines({ store: 'ah', running: true, toSearch: 2, lastRound: { at: 'x', stores: { ah: { stopped: 'blocked' } } } }),"
+            "}));"
+        )
+        self.assertEqual(out["done"], ['loose.last_round {"when":"T:2026-11-11T01:00:00"}'])
+        for reason in ("blocked", "error", "budget", "deadline"):
+            self.assertEqual(out[reason], [f'loose.last_round_{reason} {{"when":"T:2026-11-11T01:00:00"}}'], reason)
+        self.assertEqual(
+            out["raised"],
+            ['loose.last_round {"when":"T:2026-11-11T01:00:00"}', 'loose.last_error {"error":"stuk"}'],
+            "een fout met tekst staat er al in zijn eigen regel",
+        )
+        self.assertFalse(any("last_round" in line for line in out["running"]))
+
     def test_lists_show_missing_with_search_and_rejected_with_restore(self):
         html = self.run_json(
             "console.log(JSON.stringify(looseListsHtml({ missing: [{ key: 'a', name: 'Aap', bought: 2 }],"
@@ -372,7 +393,7 @@ class LooseNamesMarkupTest(unittest.TestCase):
         self.assertNotRegex(block, r"border-radius: \d")
 
 
-LOOSE_ASYNC: tuple[str, ...] = ("loosePost", "looseWantsPoll", "looseTick")
+LOOSE_ASYNC: tuple[str, ...] = ("loosePost", "looseWantsPoll", "looseTick", "looseRun")
 
 
 @unittest.skipUnless(shutil.which("node"), "Node is niet geinstalleerd")
@@ -516,6 +537,20 @@ const makeCard = (checked) => {
         self.assertEqual(out["result"], {"started": True})
         self.assertIs(out["disabled"], False)
         self.assertEqual(out["fetches"], 1)
+
+    def test_fetch_now_that_starts_nothing_shows_the_reason_and_does_not_reload(self):
+        # Eindreview van 2026-11-11 (M3): liep er al een ronde (een andere winkel, of de AI-stap), dan leek de knop dood.
+        out = self.run_json(
+            "reply = () => Promise.resolve({ started: false, reason: 'Er loopt al een ronde.' });"
+            "await looseRun(headerButton());"
+            "const refused = { messages: [...log.messages], loaded: log.loaded };"
+            "reply = () => Promise.resolve({ started: true });"
+            "await looseRun(headerButton());"
+            "console.log(JSON.stringify({ refused, loaded: log.loaded }));"
+        )
+        self.assertIn("Er loopt al een ronde.", out["refused"]["messages"])
+        self.assertEqual(out["refused"]["loaded"], 0, "geen nieuwe lading: die zou de melding wissen")
+        self.assertEqual(out["loaded"], 1, "een gestarte ronde laadt de pagina zoals eerst")
 
     def test_the_after_step_runs_on_success_and_a_failing_one_unlocks_the_card_and_shows_the_error(self):
         out = self.run_json(

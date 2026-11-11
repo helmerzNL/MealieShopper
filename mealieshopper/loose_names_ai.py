@@ -23,6 +23,10 @@ log: logging.Logger = logging.getLogger(__name__)
 BATCH: int = 20
 MAX_REASON_CHARS: int = 120
 TOOL: str = "report_choices"
+CLICK_LIMIT: int = 100  # zoveel namen per klik op Vraag de AI om voorstellen: hooguit vijf groepen in een verzoek
+# De winkels waarvoor nu een `propose` loopt. Per winkel een tegelijk: een tweede klik of de AI-stap van de nachtelijke ronde
+# zou dezelfde kaarten nog eens sturen (en betalen). Een proces, een event loop, dus een gewone set.
+_RUNNING: set[str] = set()
 
 SYSTEM_PROMPT: str = (
     "You link a product name from an old Dutch supermarket order confirmation to the product the shop sells today. "
@@ -57,10 +61,11 @@ SCHEMA: dict[str, Any] = {
     "additionalProperties": False,
 }
 
-# Een voorstel bewaren kan alleen als de naam nog zijn kaart heeft met dezelfde kandidaten: intussen bevestigd, afgewezen of
-# opnieuw opgezocht door de ronde, dan klopt het nummer van de AI niet meer. Parameters: het voorstel, winkel, sleutel, kandidaten.
+# Een voorstel bewaren kan alleen als de naam nog zijn kaart heeft (`loose_names.CARD_OUTCOMES`) met dezelfde kandidaten: intussen
+# bevestigd, afgewezen of opnieuw opgezocht door de ronde, dan klopt het nummer van de AI niet meer. Parameters: het voorstel,
+# winkel, sleutel, kandidaten.
 _STORE_SQL: str = (
-    "UPDATE loose_names SET proposal = ? WHERE store = ? AND key = ? AND outcome = 'candidates' AND proposal IS NULL "
+    "UPDATE loose_names SET proposal = ? WHERE store = ? AND key = ? AND outcome IN ('candidates', 'exact') AND proposal IS NULL "
     "AND candidates = ?"
 )
 
@@ -106,7 +111,7 @@ async def _pending(store: str, limit: int | None) -> list[dict[str, Any]]:
         state: aiosqlite.Row | None = states.get(entry["key"])
         if (
             state is None
-            or state["outcome"] != "candidates"
+            or state["outcome"] not in loose_names.CARD_OUTCOMES
             or state["proposal"] is not None
         ):
             continue
@@ -188,8 +193,24 @@ async def propose(store: str, limit: int | None = None) -> dict[str, int]:
 
     Geeft {asked, proposed, none, tokens}: de gevraagde namen, de voorstellen met een product, de namen waarbij de AI 0 koos (ook
     bewaard, zodat de naam niet steeds opnieuw gevraagd wordt) en de gebruikte tokens. `ai_review.AiError` als er geen AI is
-    ingesteld of de aanbieder een fout geeft: de groepen daarvoor blijven bewaard."""
+    ingesteld, de aanbieder een fout geeft (de groepen daarvoor blijven bewaard) of er voor deze winkel al een `propose` loopt."""
     key_store: str = loose_names._store(store)
+    if key_store in _RUNNING:
+        raise ai_review.AiError(
+            tr(
+                "De AI kijkt al naar de losse aankopen van deze winkel. Wacht tot hij klaar is.",
+                "The AI is already looking at the loose purchases of this store. Wait until it has finished.",
+            )
+        )
+    _RUNNING.add(key_store)
+    try:
+        return await _propose(key_store, limit)
+    finally:
+        _RUNNING.discard(key_store)
+
+
+async def _propose(key_store: str, limit: int | None) -> dict[str, int]:
+    """Het werk van `propose`, binnen het slot per winkel."""
     provider: str = await ai_review.active_provider()
     if not provider:
         raise ai_review.AiError(

@@ -113,13 +113,22 @@ function looseCardHtml(card, store) {
     </article>`;
 }
 
+// De regels over de pauze, een lopende ronde en de laatste ronde. Die laatste zegt ook waarom de ronde van de winkel stopte
+// (`stopped` van loose_names.run_round). Een fout met een tekst (`error`) heeft zijn eigen regel, loose.last_error.
 function looseStatusLines(page) {
+  const stoppedKeys = {
+    blocked: "loose.last_round_blocked",
+    error: "loose.last_round_error",
+    budget: "loose.last_round_budget",
+    deadline: "loose.last_round_deadline",
+  };
   const lines = [];
   if (page.pausedUntil) lines.push(t("loose.paused", { when: formatSyncTime(page.pausedUntil) }));
   if (page.running) lines.push(t("loose.running", { count: page.toSearch }));
   const round = page.lastRound;
   const own = round?.stores?.[page.store];
-  if (round?.at && !page.running) lines.push(t("loose.last_round", { when: formatSyncTime(round.at) }));
+  const stopped = !own?.error && Object.hasOwn(stoppedKeys, own?.stopped ?? "") ? stoppedKeys[own.stopped] : "";
+  if (round?.at && !page.running) lines.push(t(stopped || "loose.last_round", { when: formatSyncTime(round.at) }));
   if (own?.error && !page.running) lines.push(t("loose.last_error", { error: own.error }));
   return lines;
 }
@@ -450,8 +459,13 @@ async function looseRestore(button) {
   if (key) await loosePost("restore", { store: looseState.store, key }, button, () => loadLooseNames());
 }
 
+// Liep er al een ronde (voor een andere winkel, of de AI-stap van de vorige), dan start er niets en zegt de server waarom. Dan
+// geen nieuwe lading: die zou de melding meteen wissen.
 async function looseRun(button) {
-  await loosePost("run", { store: looseState.store }, button, () => loadLooseNames());
+  await loosePost("run", { store: looseState.store }, button, (result) => {
+    if (result?.started === false) looseMessage(result.reason, "info");
+    else loadLooseNames();
+  });
 }
 
 async function looseAskAi(button) {

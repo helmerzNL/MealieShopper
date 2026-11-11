@@ -309,14 +309,31 @@ class RejectionRouteTest(SharedListCase):
     async def test_routes_change_and_validate(self):
         client = self.client_for(create_app())
         body = {"store": "ah", "name": "AH Doosjevol kersen", "productId": "1234"}
-        assert (await client.post("/api/shared-links/reject", json=body)).get_json() == {"changed": True}
-        assert (await client.post("/api/shared-links/reject", json=body)).get_json() == {"changed": False}
-        assert (await client.post("/api/shared-links/restore", json=body)).get_json() == {"changed": True}
-        for bad in ({**body, "store": "aldi"}, {**body, "store": "nope"}, {**body, "name": " "}, {**body, "productId": ""}, {"store": "ah"}):
-            for route in ("reject", "restore"):
-                response = await client.post(f"/api/shared-links/{route}", json=bad)
-                assert response.status_code == 400, (route, bad)
-                assert response.get_json()["error"]
+        with shared(CHERRIES):
+            assert (await client.post("/api/shared-links/reject", json=body)).get_json() == {"changed": True}
+            assert (await client.post("/api/shared-links/reject", json=body)).get_json() == {"changed": False}
+            assert (await client.post("/api/shared-links/restore", json=body)).get_json() == {"changed": True}
+            for bad in ({**body, "store": "aldi"}, {**body, "store": "nope"}, {**body, "name": " "}, {**body, "productId": ""}, {"store": "ah"}):
+                for route in ("reject", "restore"):
+                    response = await client.post(f"/api/shared-links/{route}", json=bad)
+                    assert response.status_code == 400, (route, bad)
+                    assert response.get_json()["error"]
+
+    async def test_only_a_link_from_the_shared_file_can_be_rejected_or_restored(self):
+        # Eindreview van 2026-11-11 (M4): elke naam en elk nummer werd bewaard, en elke rij maakt de catalogus opnieuw.
+        client = self.client_for(create_app())
+        with shared(CHERRIES):
+            for body in (
+                {"store": "ah", "name": "AH Doosjevol kersen", "productId": "9999"},
+                {"store": "ah", "name": "AH Iets anders", "productId": "1234"},
+                {"store": "jumbo", "name": "AH Doosjevol kersen", "productId": "1234"},
+            ):
+                for route in ("reject", "restore"):
+                    response = await client.post(f"/api/shared-links/{route}", json=body)
+                    assert response.status_code == 400, (route, body)
+                    assert "gedeelde bestand" in response.get_json()["error"], (route, body)
+        with closing(db(shared_links)) as conn:
+            assert conn.execute("SELECT COUNT(*) FROM shared_link_rejections").fetchone()[0] == 0
 
     def test_everyone_may_reject(self):
         assert not auth.admin_only("/api/shared-links/reject")

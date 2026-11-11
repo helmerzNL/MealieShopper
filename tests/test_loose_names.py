@@ -317,6 +317,77 @@ class ResultRulesTest(LooseNamesCase):
             "geen koppeling zonder een mens",
         )
 
+    async def no_link_for(
+        self, store: str, name: str, results: list[dict[str, Any]]
+    ) -> dict[str, Any]:
+        """Een ronde voor `name` met deze resultaten: een kaart (`candidates`) en geen koppeling. Geeft de rij."""
+        self.bought(name, store=store)
+        result = await loose_names.run_round(
+            store, NOW, search=FakeSearch({name: results})
+        )
+        self.assertEqual((result["exact"], result["candidates"]), (0, 1), name)
+        self.assertEqual((await product_links.list_links(store))["links"], [], name)
+        row = self.row(store, name)
+        self.assertEqual(row["outcome"], "candidates", name)
+        return row
+
+    async def test_another_size_with_the_same_key_is_a_card_not_a_link(self) -> None:
+        # Eindreview van 2026-11-11 (I1): de sleutel laat getallen weg, dus "1 L" en "2 L" hebben dezelfde sleutel.
+        row = await self.no_link_for(
+            "jumbo",
+            "Jumbo Halfvolle Melk 1 L",
+            [item("1", "Jumbo Halfvolle Melk 2 L", "2 l")],
+        )
+        self.assertEqual([c["productId"] for c in row["candidates"]], ["1"])
+
+    async def test_a_multipack_in_the_title_is_a_card_not_a_link(self) -> None:
+        await self.no_link_for(
+            "jumbo",
+            "Coca-Cola Zero sugar",
+            [item("1", "Coca-Cola Zero sugar 4 x 1,5 L", "4 x 1,5 l")],
+        )
+
+    async def test_a_multipack_in_the_unit_size_is_a_card_not_a_link(self) -> None:
+        # Bij AH staat de inhoud zelden in de titel: alleen `unitSize` zegt dat het een multipack is.
+        await self.no_link_for("ah", "AH Cola", [ah_item("1", "AH Cola", "6 x 0,33 l")])
+
+    async def test_an_ah_result_without_its_own_title_is_no_candidate(self) -> None:
+        # `ah._search_product_dict` geeft een resultaat zonder titel de zoekterm als titel. Dat is dezelfde sleutel als de losse
+        # naam, en zonder deze regel een koppeling op niets.
+        raw: dict[str, Any] = {
+            "products": [
+                {"webshopId": 7, "brand": "AH", "salesUnitSize": "1,5 l", "currentPrice": 1.5},
+                {"webshopId": 8, "title": "AH Cola zero", "brand": "AH", "salesUnitSize": "1,5 l", "currentPrice": 1.6},
+            ]
+        }
+        self.bought("AH Cola", store="ah")
+        with mock.patch.object(
+            ah, "_search_json", mock.AsyncMock(return_value=raw)
+        ) as search:
+            result = await loose_names.run_round("ah", NOW)
+        search.assert_awaited_once_with("AH Cola", ah.SEARCH_WINDOW)
+        self.assertEqual((result["exact"], result["candidates"]), (0, 1))
+        self.assertEqual((await product_links.list_links("ah"))["links"], [])
+        row = self.row("ah", "AH Cola")
+        self.assertEqual(
+            (row["outcome"], [c["productId"] for c in row["candidates"]]),
+            ("candidates", ["8"]),
+        )
+
+    async def test_the_same_name_with_the_same_numbers_is_still_an_exact_link(
+        self,
+    ) -> None:
+        self.bought("Jumbo Halfvolle Melk 1 L")
+        search = FakeSearch(
+            {"Jumbo Halfvolle Melk 1 L": [item("1", "Jumbo Halfvolle melk 1 l", "1 l")]}
+        )
+        result = await loose_names.run_round("jumbo", NOW, search=search)
+        self.assertEqual((result["exact"], result["candidates"]), (1, 0))
+        links = (await product_links.list_links("jumbo"))["links"]
+        self.assertEqual(
+            [(link["productId"], link["origin"]) for link in links], [("1", "exact")]
+        )
+
     async def test_renamed_name_keeps_up_to_ten_candidates_with_price_and_image(
         self,
     ) -> None:
@@ -912,6 +983,31 @@ class ChoiceTest(LooseNamesCase):
         )
         with self.assertRaises(ValueError):
             await loose_names.confirm("ah", card["key"], "2")
+
+    async def test_a_removed_exact_link_is_a_card_that_can_be_confirmed(
+        self,
+    ) -> None:
+        # Eindreview van 2026-11-11 (I2): na Ontkoppelen is de naam weer los terwijl zijn rij `exact` is. De rij houdt de kandidaat.
+        self.bought("Jumbo Pindakaas naturel", 2)
+        search = FakeSearch(
+            {"Jumbo Pindakaas naturel": [item("1", "Jumbo Pindakaas Naturel", "350 g")]}
+        )
+        await loose_names.run_round("jumbo", NOW, search=search)
+        self.assertEqual((await loose_names.page("jumbo"))["cards"], [])
+        self.assertTrue(
+            await product_links.remove(
+                "jumbo", "name", product_links.fold("Jumbo Pindakaas naturel")
+            )
+        )
+        page = await loose_names.page("jumbo")
+        self.assertEqual(
+            [(card["name"], [c["productId"] for c in card["candidates"]]) for card in page["cards"]],
+            [("Jumbo Pindakaas naturel", ["1"])],
+        )
+        self.assertEqual((page["total"], page["missing"], page["rejected"]), (1, [], []))
+        link = await loose_names.confirm("jumbo", page["cards"][0]["key"], "1")
+        self.assertEqual((link["productId"], link["origin"]), ("1", "confirmed"))
+        self.assertIsNone(self.row("jumbo", "Jumbo Pindakaas naturel"))
 
     async def test_confirm_and_reject_validate_their_input(self) -> None:
         for store, key in (
@@ -1524,7 +1620,7 @@ class RoutesTest(LooseNamesCase):
             (response.status_code, response.get_json()),
             (200, {"asked": 3, "proposed": 2, "none": 1, "tokens": 90}),
         )
-        propose.assert_awaited_once_with("jumbo")
+        propose.assert_awaited_once_with("jumbo", limit=100)
 
     async def test_run_starts_the_round_and_a_second_run_reports_false(self) -> None:
         release: asyncio.Event = asyncio.Event()
@@ -1545,10 +1641,12 @@ class RoutesTest(LooseNamesCase):
                 "/api/loose-names/run", json={"store": "jumbo"}
             )
             await asyncio.sleep(0)
-            self.assertEqual(
-                (first.get_json(), second.get_json()),
-                ({"started": True}, {"started": False}),
-            )
+            self.assertEqual(first.get_json(), {"started": True})
+            self.assertEqual(second.get_json()["started"], False)
+            self.assertIn("loopt al een ronde", second.get_json()["reason"], "eindreview van 2026-11-11 (M3)")
+            other = await self.admin.post("/api/loose-names/run", json={"store": "ah"})
+            self.assertEqual(other.get_json()["started"], False, "een andere winkel wacht ook")
+            self.assertIn("andere winkel", other.get_json()["reason"])
             self.assertTrue(
                 (await self.admin.get("/api/loose-names?store=jumbo")).get_json()[
                     "running"

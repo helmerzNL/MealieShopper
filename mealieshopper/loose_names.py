@@ -5,7 +5,9 @@ geen product hoort (`prices.loose_import_names`). De ronde zoekt zo'n naam op me
 winkel en bewaart de uitkomst per sleutel (`name_keys.key`) in `loose_names`. De regels van een zoekresultaat staan in
 `loose_name_rules`:
 
-- `exact`: precies een resultaat heeft dezelfde sleutel. Dat wordt meteen een koppeling met herkomst `exact` (`product_links.save`).
+- `exact`: precies een resultaat heeft dezelfde sleutel en is letterlijk dezelfde naam, met dezelfde getallen en verpakking
+  (`loose_name_rules.outcome_of`). Dat wordt meteen een koppeling met herkomst `exact` (`product_links.save`). Haalt de gebruiker
+  die koppeling weg, dan is de naam weer los en een kaart zoals bij `candidates`, en maakt de ronde hem niet opnieuw.
 - `candidates`: de resultaten om uit te kiezen, als kaart op de pagina. Bevestigen (`confirm`) maakt een koppeling met herkomst
   `confirmed` en haalt de rij weg: de koppeling staat dan in `product_links`.
 - `missing`: de winkel vond niets.
@@ -57,6 +59,9 @@ PAGE_SIZE: int = 30
 MAX_PAGE_SIZE: int = 100
 SETTING_LAST_ROUND: str = "loose_names_last_round"
 TASK_NAME: str = "loose-names"
+# De uitkomsten van een losse naam die als kaart op de pagina staan. Een losse naam met een rij `exact` had een directe
+# koppeling die de gebruiker weghaalde (Ontkoppelen): de rij houdt de kandidaat, dus het wordt een kaart (`_settle`).
+CARD_OUTCOMES: frozenset[str] = frozenset({"candidates", "exact"})
 
 SCHEMA: str = """
 -- De stand per losse aankoopnaam (loose_names.py): de sleutel van de naam (`name_keys.key`), de schrijfwijze die het vaakst in de
@@ -240,9 +245,11 @@ def _folded(entry: dict[str, Any]) -> list[str]:
     return [product_links.fold(spelling) for spelling in entry["spellings"]]
 
 
-async def _open_state(store: str, entry: dict[str, Any]) -> tuple[bool, str | None]:
-    """(staat de naam nog open, het bewaarde voorstel). Dicht is een naam die de gebruiker afwees of zelf koppelde terwijl de
-    ronde hem opzocht: die krijgt geen koppeling en geen nieuwe stand."""
+async def _open_state(
+    store: str, entry: dict[str, Any]
+) -> tuple[bool, str | None, str | None]:
+    """(staat de naam nog open, de bewaarde uitkomst, het bewaarde voorstel). Dicht is een naam die de gebruiker afwees of zelf
+    koppelde terwijl de ronde hem opzocht: die krijgt geen koppeling en geen nieuwe stand."""
     folded: list[str] = _folded(entry)
     async with _connect() as conn:
         row: aiosqlite.Row | None = await auth.fetchone(
@@ -252,20 +259,28 @@ async def _open_state(store: str, entry: dict[str, Any]) -> tuple[bool, str | No
             conn, _HUMAN_LINK_SQL.format(marks=",".join("?" * len(folded))), (store, *folded)
         )
     rejected: bool = row is not None and row["outcome"] == "rejected"
-    return not rejected and human is None, row["proposal"] if row is not None else None
+    return (
+        not rejected and human is None,
+        row["outcome"] if row is not None else None,
+        row["proposal"] if row is not None else None,
+    )
 
 
 async def _settle(store: str, entry: dict[str, Any], products: list[Any], now: str) -> str | None:
     """Bewaar de uitkomst van een zoekopdracht voor `entry` en geef hem terug, of None als de naam intussen dicht is
-    (`_open_state`). Een directe koppeling geldt voor elke schrijfwijze."""
+    (`_open_state`). Een directe koppeling geldt voor elke schrijfwijze. Was de naam al `exact` en is hij toch weer los, dan haalde
+    de gebruiker die koppeling weg: dan wordt het een kaart (`candidates`) en geen nieuwe koppeling."""
     outcome: str
     kept: list[dict[str, Any]]
     outcome, kept = outcome_of(entry["key"], entry["name"], candidates_of(store, products, CANDIDATES))
     still_open: bool
+    old_outcome: str | None
     old_proposal: str | None
-    still_open, old_proposal = await _open_state(store, entry)
+    still_open, old_outcome, old_proposal = await _open_state(store, entry)
     if not still_open:
         return None
+    if outcome == "exact" and old_outcome == "exact":
+        outcome = "candidates"
     if outcome == "exact":
         for spelling in entry["spellings"]:
             await product_links.save(store, spelling, kept[0], now=now, origin="exact")
@@ -283,9 +298,18 @@ async def _settle(store: str, entry: dict[str, Any], products: list[Any], now: s
 # --- de ronde -------------------------------------------------------------------------------------------------------------------
 
 
+async def _ah_search(name: str, limit: int) -> list[dict[str, Any]]:
+    """`ah.search_products` zonder de resultaten zonder eigen titel: hetzelfde verzoek en dezelfde volgorde. `ah._search_product_dict`
+    geeft zo'n resultaat de zoekterm als titel, en dan heeft het dezelfde sleutel als de losse naam: een directe koppeling op niets."""
+    found: Any = await ah._search_json(name, max(limit, ah.SEARCH_WINDOW))
+    ranked: list[dict[str, Any]] = ah.rank_search_results(name, found.get("products") or [])
+    titled: list[dict[str, Any]] = [item for item in ranked if item.get("title")]
+    return [ah._search_product_dict(item, name) for item in titled[: max(1, limit)]]
+
+
 def _default_search(store: str) -> Search:
     return {
-        "ah": ah.search_products,
+        "ah": _ah_search,
         "jumbo": jumbo.search_products,
         "picnic": picnic.search_products,
         "crisp": crisp.search_products,
@@ -432,7 +456,7 @@ async def confirm(store: Any, key: Any, product_id: Any) -> dict[str, Any]:
     state: aiosqlite.Row | None = (await _states(key_store)).get(text)
     if not chosen_id:
         raise ValueError(tr("Kies een product om te koppelen", "Choose a product to link"))
-    if entry is None or state is None or state["outcome"] != "candidates":
+    if entry is None or state is None or state["outcome"] not in CARD_OUTCOMES:
         raise ValueError(
             tr(
                 "Deze naam heeft geen voorstellen meer. Laad de pagina opnieuw.",
@@ -536,7 +560,7 @@ async def page(store: Any, offset: int = 0, limit: int = PAGE_SIZE) -> dict[str,
     cards: list[dict[str, Any]] = [
         _card(e, states[e["key"]])
         for e in loose
-        if e["key"] in states and states[e["key"]]["outcome"] == "candidates"
+        if e["key"] in states and states[e["key"]]["outcome"] in CARD_OUTCOMES
     ]
     return {
         "cards": cards[start : start + size],
@@ -612,6 +636,17 @@ def start(store: str | None, trigger: str) -> bool:
         return False
     tasks.spawn(TASK_NAME, run_all_stores(trigger, only=only))
     return True
+
+
+def busy_reason(store: str) -> str:
+    """Waarom `start` voor `store` niets startte, als leesbare melding voor de knop Nu ophalen. De taak `loose-names` loopt dan
+    nog: voor deze winkel (zijn slot is bezet), of voor een andere winkel of in de AI-stap na de ronde."""
+    if running(store):
+        return tr("Er loopt al een ronde voor deze winkel.", "A round for this store is already running.")
+    return tr(
+        "Er loopt al een ronde voor een andere winkel, of de AI kijkt nog naar de vorige ronde. Probeer het straks opnieuw.",
+        "A round for another store is still running, or the AI is still looking at the last round. Try again later.",
+    )
 
 
 async def overview(store: Any, offset: int = 0, limit: int = PAGE_SIZE) -> dict[str, Any]:

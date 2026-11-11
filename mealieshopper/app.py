@@ -983,7 +983,9 @@ def create_app() -> Quart:
 
         async def run() -> dict[str, Any]:
             store: str = loose_names._store(body.get("store"))
-            return {"started": loose_names.start(store, "manual")}
+            if loose_names.start(store, "manual"):
+                return {"started": True}
+            return {"started": False, "reason": loose_names.busy_reason(store)}
 
         return await import_action(run)
 
@@ -994,7 +996,7 @@ def create_app() -> Quart:
         async def propose() -> dict[str, Any]:
             store: str = loose_names._store(body.get("store"))
             try:
-                return await loose_names_ai.propose(store)
+                return await loose_names_ai.propose(store, limit=loose_names_ai.CLICK_LIMIT)
             except ai_review.AiError as exc:
                 raise ValueError(str(exc)) from exc
 

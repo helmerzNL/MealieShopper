@@ -314,12 +314,14 @@ class RoundTripTest(BackupCase):
         # Klopt niet (shared_links.py) is werk van de gebruiker: zonder de back-up wijst de gedeelde lijst na een herstel weer naar het oude product.
         self.assertIn("shared_link_rejections", backup.DATA_TABLES)
         await backup.ensure_schemas()
-        self.assertTrue(await shared_links.reject("ah", "AH Doosjevol kersen", "1234"))
-        response, data = await self.make()
-        self.assertEqual(response.status_code, 200)
-        self.wipe()
-        self.assertEqual((await self.restore(data))["status"], "done")
-        self.assertFalse(await shared_links.reject("ah", "AH Doosjevol kersen", "1234"), "de afwijzing was er al")
+        cherries = {shared_links.name_keys.key("AH Doosjevol kersen"): shared_links.SharedLink("ah doosjevol kersen", "1234", "AH Doosje met kersen", "250 g")}
+        with mock.patch.object(shared_links, "load", return_value=cherries):
+            self.assertTrue(await shared_links.reject("ah", "AH Doosjevol kersen", "1234"))
+            response, data = await self.make()
+            self.assertEqual(response.status_code, 200)
+            self.wipe()
+            self.assertEqual((await self.restore(data))["status"], "done")
+            self.assertFalse(await shared_links.reject("ah", "AH Doosjevol kersen", "1234"), "de afwijzing was er al")
 
     async def test_a_rejected_loose_name_comes_back_with_a_restore(self) -> None:
         # "Geen van deze" (loose_names.py) is werk van de gebruiker: zonder de back-up zou de ronde de naam na een herstel weer opzoeken.
