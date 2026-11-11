@@ -38,6 +38,7 @@ const MDI_MINUS = "M19,13H5V11H19V13Z";
 const MDI_LOADING = "M12,4V2A10,10 0 0,0 2,12H4A8,8 0 0,1 12,4Z";
 const MDI_CHECK_CIRCLE_OUTLINE = "M12 2C6.5 2 2 6.5 2 12S6.5 22 12 22 22 17.5 22 12 17.5 2 12 2M12 20C7.59 20 4 16.41 4 12S7.59 4 12 4 20 7.59 20 12 16.41 20 12 20M16.59 7.58L10 14.17L7.41 11.59L6 13L10 17L18 9L16.59 7.58Z";
 const MDI_IMAGE_OUTLINE = "M19,19H5V5H19M19,3H5A2,2 0 0,0 3,5V19A2,2 0 0,0 5,21H19A2,2 0 0,0 21,19V5A2,2 0 0,0 19,3M13.96,12.29L11.21,15.83L9.25,13.47L6.5,17H17.5L13.96,12.29Z";
+const MDI_CART_PLUS = "M11,9H13V6H16V4H13V1H11V4H8V6H11M7,18A2,2 0 0,0 5,20A2,2 0 0,0 7,22A2,2 0 0,0 9,20A2,2 0 0,0 7,18M17,18A2,2 0 0,0 15,20A2,2 0 0,0 17,22A2,2 0 0,0 19,20A2,2 0 0,0 17,18M7.17,14.75L7.2,14.63L8.1,13H15.55C16.3,13 16.96,12.59 17.3,11.97L21.16,4.96L19.42,4H19.41L18.31,6L15.55,11H8.53L8.4,10.73L6.16,6L5.21,4L4.27,2H1V4H3L6.6,11.59L5.25,14.04C5.09,14.32 5,14.65 5,15A2,2 0 0,0 7,17H19V15H7.42C7.29,15 7.17,14.89 7.17,14.75Z";
 const MDI_COMPARE_HORIZONTAL = "M9 14H2V16H9V19L13 15L9 11V14M15 13V10H22V8H15V5L11 9L15 13Z";
 const MDI_CHART_LINE = "M16,11.78L20.24,4.45L21.97,5.45L16.74,14.5L10.23,10.75L5.46,19H22V21H2V3H4V17.54L9.5,8L16,11.78Z";
 const MDI_STORE = "M12,18H6V14H12M21,14V12L20,7H4L3,12V14H4V20H14V14H18V20H20V14M20,4H4V6H20V4Z";
@@ -138,14 +139,48 @@ function escapeHtml(value) {
     .replaceAll("'", "&#039;");
 }
 
+// De sessie verliep terwijl de app open stond (een 401 op een gewone route): de inlogpoort komt over de pagina, met de reden
+// erbij. De pagina eronder blijft staan, dus na het inloggen ga je verder waar je was. Een keer tegelijk: tien verzoeken die
+// samen een 401 krijgen vragen de status maar een keer op.
+let sessionExpiredCheck = null;
+
+function sessionExpired() {
+  if (sessionExpiredCheck) return sessionExpiredCheck;
+  sessionExpiredCheck = (async () => {
+    try {
+      await refreshAuthStatus();
+      if (state.auth?.enabled && !state.auth?.authenticated) message("#auth-message", t("err.session_expired"), "info");
+    } catch {
+      // Geen verbinding of een serverfout: de melding van het verzoek zelf volstaat.
+    } finally {
+      sessionExpiredCheck = null;
+    }
+  })();
+  return sessionExpiredCheck;
+}
+
 async function jsonFetch(url, options = {}) {
-  const response = await fetch(url, { credentials: "same-origin", ...options });
+  let response;
+  try {
+    response = await fetch(url, { credentials: "same-origin", ...options });
+  } catch (error) {
+    // Een afgebroken verzoek (AbortController) is geen storing: wie het afbrak, handelt het zelf af.
+    if (error?.name === "AbortError") throw error;
+    // Geen netwerk of de server is weg: de browser geeft dan zijn eigen Engelse tekst ("Failed to fetch", "Load failed").
+    throw new Error(t("err.offline"));
+  }
+  // De routes onder /api/auth/ geven zelf een 401 bij een verkeerd wachtwoord of een verlopen kaartje: dat is geen verlopen sessie.
+  if (response.status === 401 && state.auth?.authenticated && state.auth?.enabled && !String(url).startsWith("/api/auth/")) {
+    sessionExpired();
+    throw new Error(t("err.session_expired"));
+  }
   let data;
   try {
     data = await response.json();
   } catch (error) {
+    // De tip over de reverse proxy en de container-logs is voor de beheerder; een gewone gebruiker kan er niets mee (sinds 4.12.0).
     const proxyHint =
-      response.status === 502 || response.status === 504
+      (response.status === 502 || response.status === 504) && !document.documentElement.classList.contains("is-regular-user")
         ? t("err.proxy_hint")
         : "";
     throw new Error(
@@ -160,8 +195,87 @@ async function jsonFetch(url, options = {}) {
   return data;
 }
 
+// Een melding in het vak `target`. Soorten: "error" (de standaard), "warning", "success" en "info" (neutraal: bezig, wachten,
+// een mededeling zonder oordeel). Een fout of waarschuwing is een `alert`, de rest een `status`: zo leest een schermlezer de
+// melding voor zonder dat elk van de vakken in de pagina zelf een rol hoeft te hebben.
+// Een vraag in een eigen venster (sinds 4.12.0), in plaats van window.confirm: in de huisstijl, in de taal van de app (de knoppen
+// van de browser volgden de taal van het toestel), en niet te onderdrukken in een geinstalleerde app. Geeft een belofte: waar bij
+// de bevestigknop, onwaar bij Annuleren, Escape of een tik naast het venster. `danger` kleurt de knop rood en zet de focus op
+// Annuleren: bij iets dat niet terug kan is de veilige keuze de standaard.
+function confirmDialog(text, { confirm = t("common.confirm"), cancel = t("common.cancel"), danger = false } = {}) {
+  const dialog = $("#confirm-dialog");
+  const yes = $("#confirm-dialog-yes");
+  const no = $("#confirm-dialog-no");
+  $("#confirm-dialog-text").textContent = text;
+  yes.textContent = confirm;
+  no.textContent = cancel;
+  yes.classList.toggle("button--danger", danger);
+  return new Promise((resolve) => {
+    let answer = false;
+    const onYes = () => {
+      answer = true;
+      dialog.close();
+    };
+    const onNo = () => dialog.close();
+    const onBackdrop = (event) => {
+      if (event.target === dialog) dialog.close();
+    };
+    const onClose = () => {
+      yes.removeEventListener("click", onYes);
+      no.removeEventListener("click", onNo);
+      dialog.removeEventListener("click", onBackdrop);
+      resolve(answer);
+    };
+    yes.addEventListener("click", onYes);
+    no.addEventListener("click", onNo);
+    dialog.addEventListener("click", onBackdrop);
+    dialog.addEventListener("close", onClose, { once: true });
+    dialog.showModal();
+    (danger ? no : yes).focus();
+  });
+}
+
+// Een laadtoestand met vaste ruimte (sinds 4.12.0): een draaiend icoon met tekst in een vak van 160 px, zodat de pagina niet
+// verspringt als de inhoud komt. Daarvoor stond er een regel grijze tekst, of niets.
+function loadingHtml(text = t("common.loading")) {
+  return `<div class="loading-box" role="status">${mdiIcon(MDI_LOADING, "loading-box__icon")}<span>${escapeHtml(text)}</span></div>`;
+}
+
+// Het weekmenu terwijl het laadt: zeven lege dagkaarten op de plek van de echte, zodat de boodschappenlijst eronder niet springt.
+function mealPlanSkeletonHtml(days) {
+  return days.map(() => '<article class="day-card day-card--skeleton" aria-hidden="true"><span></span><span></span><span></span></article>').join("");
+}
+
+// Een korte melding onderaan het scherm (sinds 4.12.0), voor wat geen eigen vak heeft: "Opgeslagen" na een schakelaar, of een
+// fout bij een knop in een menu. Een succes verdwijnt na vier seconden; een fout blijft staan tot je hem sluit.
+function toast(text, type = "success") {
+  const box = $("#toasts");
+  if (!box || !text) return;
+  const item = document.createElement("div");
+  item.className = `toast toast--${type}`;
+  item.setAttribute("role", type === "error" ? "alert" : "status");
+  const label = document.createElement("span");
+  label.textContent = text;
+  item.append(label);
+  if (type === "error") {
+    const close = document.createElement("button");
+    close.type = "button";
+    close.className = "toast__close";
+    close.textContent = t("common.close");
+    close.addEventListener("click", () => item.remove());
+    item.append(close);
+  } else {
+    setTimeout(() => item.remove(), 4000);
+  }
+  box.querySelectorAll(`.toast--${type}`).forEach((old) => {
+    if (old.textContent === item.textContent) old.remove(); // dezelfde melding stapelt niet
+  });
+  box.append(item);
+}
+
 function message(target, text, type = "error") {
-  $(target).innerHTML = text ? `<div class="message ${type}">${escapeHtml(text)}</div>` : "";
+  const role = type === "error" || type === "warning" ? "alert" : "status";
+  $(target).innerHTML = text ? `<div class="message ${type}" role="${role}">${escapeHtml(text)}</div>` : "";
 }
 
 function bufferToBase64url(buffer) {
@@ -252,6 +366,20 @@ function renderAuthState() {
   if (typeof renderInviteGate === "function") renderInviteGate();
   if (typeof applyRole === "function") applyRole();
   if (typeof renderUpdate === "function") renderUpdate();
+  syncAppInert();
+}
+
+// Staat het inlogscherm, een uitnodiging of de installatiehulp over de pagina, dan is de app erachter buiten bereik van Tab en
+// van een schermlezer (sinds 4.12.0). De installatiehulp noemde zich al een modaal venster, maar Tab liep de app erachter in.
+function syncAppInert() {
+  const covered = ["#auth-gate", "#invite-gate", "#onboarding"].some((selector) => {
+    const layer = document.querySelector(selector);
+    return Boolean(layer && !layer.hidden);
+  });
+  for (const selector of [".topbar", "main.shell"]) {
+    const part = document.querySelector(selector);
+    if (part) part.inert = covered;
+  }
 }
 
 function formatCredentialDate(value) {
@@ -333,7 +461,7 @@ async function refreshAuthStatus() {
 }
 
 async function registerPasskey({ username, credentialName, messageTarget, invite }) {
-  message(messageTarget, t("passkey.waiting"), "success");
+  message(messageTarget, t("passkey.waiting"), "info");
   const payload = await jsonFetch("/api/auth/register/options", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -377,7 +505,7 @@ async function addPasskey() {
 }
 
 async function deletePasskey(credentialId) {
-  if (!window.confirm(t("passkey.confirm_delete"))) return;
+  if (!(await confirmDialog(t("passkey.confirm_delete"), { danger: true, confirm: t("passkey.delete") }))) return;
   try {
     await jsonFetch(`/api/auth/credentials/${encodeURIComponent(credentialId)}`, { method: "DELETE" });
     message("#security-message", t("passkey.deleted"), "success");
@@ -388,7 +516,7 @@ async function deletePasskey(credentialId) {
 }
 
 async function loginWithPasskey() {
-  message("#auth-message", t("passkey.waiting"), "success");
+  message("#auth-message", t("passkey.waiting"), "info");
   const payload = await jsonFetch("/api/auth/login/options", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -406,7 +534,7 @@ async function loginWithPasskey() {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ credential: publicKeyCredentialToJSON(credential) }),
   });
-  message("#auth-message", "Ingelogd.", "success");
+  message("#auth-message", t("auth.logged_in"), "success");
   await refreshAuthStatus();
 }
 
@@ -539,6 +667,21 @@ function setPlanWeek(offset) {
   state.weekOffset = offset;
   updateWeekLabel();
   if (state.planAutoLoaded) loadMealPlan();
+}
+
+// De week in het adres (sinds 4.13.0): ?week=<eerste dag> zolang je een andere week dan de huidige bekijkt, zodat herladen, een
+// bladwijzer en Terug bij dezelfde week uitkomen. Deze week heeft geen parameter.
+function weekParam() {
+  return state.weekOffset ? getWeekBounds(state.weekOffset).start : "";
+}
+
+// Hoeveel weken een dag uit het adres van de huidige week af ligt. Geen geldige dag: 0, deze week. Hooguit twee jaar ver.
+function weekOffsetOf(day, today = new Date()) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(day || ""))) return 0;
+  const date = new Date(`${day}T12:00:00`);
+  if (Number.isNaN(date.getTime())) return 0;
+  const weeks = Math.round((weekStartOf(date) - weekStartOf(today)) / (7 * 24 * 60 * 60 * 1000));
+  return Math.max(-104, Math.min(104, weeks));
 }
 
 function formatDate(dateStr) {
@@ -885,40 +1028,20 @@ function renderMealPlan(entries) {
     )
     .join("");
 
-  const ingredients = aggregateIngredients(entries);
-  if (!entries.length) {
-    $("#ingredients-panel").innerHTML = "";
-    message("#planner-message", t("plan.none_planned"), "success");
-    return;
-  }
-  message("#planner-message", "");
-  $("#ingredients-panel").innerHTML = ingredients.length
-    ? `
-      <div class="box ingredients">
-        <h2>${escapeHtml(t("plan.all_ingredients", { count: I18N.formatNumber(ingredients.length) }))}</h2>
-        <ul>
-          ${ingredients.map((item) => `<li>${escapeHtml(item.display || item.food?.name || "-")}</li>`).join("")}
-        </ul>
-        <div class="toolbar ingredients__actions">
-          <span id="cart-store-slot"></span>
-          <label class="switch-row cart-organic" title="${escapeHtml(t("cart.organic_toggle_title"))}">
-            <input type="checkbox" id="cart-organic"${state.auth?.preferOrganic ? " checked" : ""}>
-            <span>${escapeHtml(t("cart.organic_toggle"))}</span>
-          </label>
-          <button class="button" id="add-cart">${escapeHtml(cartButtonLabel())}</button>
-        </div>
-      </div>
-    `
-    : "";
-  $("#add-cart")?.addEventListener("click", addToCart);
-  $("#cart-organic")?.addEventListener("change", (event) => savePreferOrganic(event.target));
-  renderStoreChoice();
+  // De boodschappenlijst (vinkjes, al in huis, de dagen) en de controlelijst van deze week: shopping.js.
+  renderShoppingList();
+  message("#planner-message", entries.length ? "" : t("plan.none_planned"), "info");
+  restoreCartReview();
 }
 
 // *Liever biologisch* (#218): per gebruiker bewaard in het profiel, zodat de schakelaar de volgende keer nog zo staat.
-async function savePreferOrganic(input) {
+async function savePreferOrganic(input, target = "#planner-message") {
   const wanted = input.checked;
   state.auth = { ...state.auth, preferOrganic: wanted };
+  // De schakelaar staat bij de boodschappenlijst en onder Voorkeuren (sinds 4.13.0): ze volgen elkaar.
+  for (const selector of ["#cart-organic", "#appearance-organic"]) {
+    if ($(selector)) $(selector).checked = wanted;
+  }
   try {
     const data = await jsonFetch("/api/profile/preferences", {
       method: "PUT",
@@ -926,9 +1049,10 @@ async function savePreferOrganic(input) {
       body: JSON.stringify({ preferOrganic: wanted }),
     });
     state.auth = { ...state.auth, preferOrganic: Boolean(data.preferOrganic) };
+    toast(t("common.saved"));
   } catch (error) {
     // Niet bewaard: de schakelaar geldt dan alleen nu, en de gebruiker ziet waarom.
-    message("#planner-message", t("cart.organic_save_failed", { error: error.message }), "error");
+    message(target, t("cart.organic_save_failed", { error: error.message }), "error");
   }
 }
 
@@ -1016,9 +1140,9 @@ async function loadMealPlan({ force = false } = {}) {
     return;
   }
   state.entries = null;
-  $("#meal-days").innerHTML = "";
+  $("#meal-days").innerHTML = mealPlanSkeletonHtml(week.days);
   $("#ingredients-panel").innerHTML = "";
-  message("#planner-message", t("plan.loading"), "success");
+  message("#planner-message", t("plan.loading"), "info");
   setBusy(button, true);
   try {
     const entries = await fetchMealPlan(week);
@@ -1308,7 +1432,7 @@ async function savePlanEntry(event) {
 
 async function deletePlanEntry() {
   const entry = planDialog.entry;
-  if (!entry || !window.confirm(t("plan.delete_confirm", { name: mealName(entry) }))) return;
+  if (!entry || !(await confirmDialog(t("plan.delete_confirm", { name: mealName(entry) }), { danger: true, confirm: t("plan.delete") }))) return;
   const button = $("#plan-delete");
   setBusy(button, true);
   try {
@@ -1362,13 +1486,18 @@ function dealText(deal) {
   return [deal.label || t("list.bonus"), day].filter(Boolean).join(" ");
 }
 
-function cartCandidateLabel(candidate) {
+// Wat de controlelijst van een product laat zien, naast zijn naam: de inhoud, de prijs, de prijs per kilo, liter of stuk, de
+// aanbieding, biologisch (#218) en waarom een vergelijkingsoptie erbij staat (#178): zelfde product of goedkoper per eenheid.
+function cartCandidateFacts(candidate) {
   const deal = candidate.deal ? dealText(candidate.deal) : "";
-  // De prijs per kilo, liter of stuk en waarom een vergelijkingsoptie erbij staat (#178): zelfde product of goedkoper per eenheid.
   const perUnit = candidate.unitPrice ? offerPerUnitText(candidate.unitPrice) : "";
   const why = [candidate.same ? t("offers.compare.same") : "", candidate.cheaper ? t("offers.compare.cheaper") : ""].filter(Boolean).join(", ");
-  const organic = candidate.organic ? t("cart.organic") : ""; // #218
-  return [candidate.title, candidate.unitSize, formatPrice(candidate.price), perUnit, deal, organic, why].filter(Boolean).join(" \u2013 ");
+  const organic = candidate.organic ? t("cart.organic") : "";
+  return [candidate.unitSize, formatPrice(candidate.price), perUnit, deal, organic, why].filter(Boolean);
+}
+
+function cartCandidateLabel(candidate) {
+  return [candidate.title, ...cartCandidateFacts(candidate)].filter(Boolean).join(" \u2013 ");
 }
 
 // De goedkoopste optie per eenheid van een regel, als die duidelijk (2%) goedkoper is dan de gekozen; anders -1.
@@ -1411,18 +1540,6 @@ function openProductPopup(url) {
   } else {
     window.open(url, "_blank", "noopener,noreferrer");
   }
-}
-
-function cartSelection(row, candidate, quantity) {
-  return {
-    query: row.query,
-    productId: candidate.productId,
-    quantity,
-    title: candidate.title,
-    price: candidate.price,
-    unitSize: candidate.unitSize,
-    image: candidate.image,
-  };
 }
 
 const STORES = {
@@ -1510,12 +1627,22 @@ function renderStoreChoice() {
     const menu = $("#cart-store-menu");
     if (menu) {
       bindSubtabMenu(menu);
-      $("#cart-store-list").addEventListener("click", (event) => {
+      $("#cart-store-list").addEventListener("click", async (event) => {
         const item = event.target.closest("[data-store]");
         if (!item) return;
+        // Een open controlelijst hoort bij de winkel waar hij voor gezocht is: zijn product-id's zeggen een andere winkel niets.
+        // Wisselen kan dus alleen door de lijst weg te doen, en dat vragen we eerst (cartReviewStore, sinds 4.10.4).
+        const reviewed = cartReviewStore();
+        if (reviewed && reviewed !== item.dataset.store) {
+          if (!(await confirmDialog(t("cart.switch_confirm", { from: STORES[reviewed].name, to: STORES[item.dataset.store].name })))) return;
+          discardCartReview();
+        }
         state.store = item.dataset.store;
         state.preferredStore = state.store;
+        // Het mandje volgt de winkel van het weekmenu (sinds 4.13.0): koos je hier Jumbo, dan opent Mandje ook Jumbo.
+        if (typeof basketState !== "undefined") basketState.store = state.store;
         try {
+          localStorage.setItem("ms-basket-store", state.store);
           localStorage.setItem("ms-store", state.store);
         } catch {
           // Zonder opslag onthoudt de pagina de keuze alleen tot je hem herlaadt.
@@ -1674,321 +1801,6 @@ try {
   // Geen opslag beschikbaar: AH blijft de standaard.
 }
 
-function showCartResult(data, notFound) {
-  const lines = (data.items || [])
-    .map((item) => {
-      const size = item.product.unitSize ? ` (${escapeHtml(item.product.unitSize)})` : "";
-      return `<li>${escapeHtml(item.quantity)}x ${escapeHtml(item.product.title)}${size}</li>`;
-    })
-    .join("");
-  // Picnic, Jumbo en Crisp melden zelf ook welke producten ze niet in het mandje kregen (of al op het lijstje stonden).
-  const names = state.store === "ah" ? notFound : [...notFound, ...(data.skippedItems || [])];
-  const missing = names.length
-    ? th("cart.missing", { count: names.length, names: names.join(", ") })
-    : "";
-  const ready = currentStore().ready;
-  $("#cart-result").innerHTML = `
-    <div class="message success">${th(ready, { added: data.added }).replace("{missing}", missing)}</div>
-    ${lines ? `<ul class="cart-lines">${lines}</ul>` : ""}
-  `;
-  // Picnic, Jumbo en Crisp vullen het echte mandje: laat zien waar je het kunt bekijken en aanpassen.
-  if (["picnic", "jumbo", "crisp"].includes(state.store)) {
-    $("#cart-result").insertAdjacentHTML(
-      "beforeend",
-      `<p><button class="button button--secondary" id="view-basket" type="button">${escapeHtml(t("basket.view"))}</button></p>`
-    );
-    $("#view-basket").addEventListener("click", () => openBasket(state.store));
-  }
-}
-
-async function submitCart(selection, notFound) {
-  const data = await jsonFetch(`/api/${currentStore().api}/cart`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ items: selection }),
-  });
-  showCartResult(data, notFound);
-}
-
-function reviewSearchHtml(row, extra) {
-  // Zoekveld bij een regel. Bij een niet gevonden regel staat het er direct; bij een gevonden regel klapt het uit
-  // onder "Zoek een ander product", voor als het voorgestelde product niet is wat je zoekt.
-  return `
-    <form class="review-search${extra ? " review-search--extra" : ""}"${extra ? " hidden" : ""}>
-      <input type="search" class="review-search-input" value="${escapeHtml(row.query)}" aria-label="${escapeHtml(t("cart.search_label"))}">
-      <button class="button button--secondary" type="submit">${escapeHtml(t("cart.search_button"))}</button>
-      <small class="review-search-status" role="status"></small>
-    </form>`;
-}
-
-function reviewThumbHtml(candidate) {
-  // De foto van het gekozen product, zodat je ziet wat er in het mandje komt; Picnic heeft geen productpagina, dus daar
-  // is dit de enige manier om het product te zien. Tikken opent hem in het groot (openReviewPhoto). De knop blijft
-  // altijd staan, zodat de kolommen gelijk blijven als er geen foto is of hij niet laadt; dan is hij uitgeschakeld.
-  // De productnaam staat al in de keuzelijst, dus alt is leeg en de knop zegt wat hij doet.
-  const label = escapeHtml(t("cart.photo_open", { title: candidate.title }));
-  const src = candidate.image ? ` src="${escapeHtml(storeImage(candidate.image))}"` : " hidden";
-  return `<button class="review-thumb" type="button" aria-label="${label}" title="${label}"${candidate.image ? "" : " disabled"}><img${src} alt="" width="56" height="56" loading="lazy"></button>`;
-}
-
-function showReviewThumb(button, candidate) {
-  const img = button.querySelector("img");
-  const label = t("cart.photo_open", { title: candidate.title });
-  button.disabled = !candidate.image;
-  button.setAttribute("aria-label", label);
-  button.title = label;
-  img.hidden = !candidate.image;
-  if (candidate.image) img.src = storeImage(candidate.image);
-  else img.removeAttribute("src");
-}
-
-function openReviewPhoto(candidate) {
-  // De foto in het groot. Het grote formaat (imageLarge) geven AH en Picnic mee; laadt dat niet, of is er geen, dan
-  // valt het venster terug op de gewone foto.
-  const image = $("#photo-dialog-image");
-  const large = candidate.imageLarge || candidate.image;
-  if (!large) return;
-  image.dataset.fallback = large !== candidate.image ? storeImage(candidate.image) : "";
-  image.hidden = false;
-  image.src = storeImage(large);
-  $("#photo-dialog-title").textContent = candidate.title;
-  $("#photo-dialog-meta").textContent = [candidate.unitSize, formatPrice(candidate.price)].filter(Boolean).join(" · ");
-  $("#photo-dialog").showModal();
-}
-
-function reviewRowHtml(row, index) {
-  if (!row.candidates.length) {
-    // Niet gevonden: de gebruiker zoekt zelf verder, bijvoorbeeld onder een andere naam (paksoi heet bij AH pak choi).
-    return `
-      <div class="review-row is-missing" data-row="${index}">
-        <input type="checkbox" disabled>
-        <div class="review-ingredient">
-          <strong>${escapeHtml(row.display)}</strong>
-          <small class="review-note">${escapeHtml(row.error || t("cart.not_found"))}</small>
-        </div>
-        ${reviewSearchHtml(row, false)}
-      </div>`;
-  }
-  const first = row.candidates[0];
-  return `
-    <div class="review-row${first.doubt ? " is-doubt" : ""}" data-row="${index}">
-      <input type="checkbox" class="review-include" checked aria-label="${escapeHtml(t("cart.include"))}">
-      <div class="review-ingredient">
-        <strong>${escapeHtml(row.display)}</strong>
-        <small class="review-note">${escapeHtml(first.doubt || "")}</small>
-        ${row.organicMissing ? `<small class="review-organic-missing">${escapeHtml(t("cart.organic_missing"))}</small>` : ""}
-        <small class="review-cheaper" role="status">${reviewCheaperHtml(row, 0)}</small>
-        <button class="link-button review-search-toggle" type="button" aria-expanded="false">${escapeHtml(t("cart.search_other"))}</button>
-      </div>
-      ${reviewThumbHtml(first)}
-      <select class="review-product" aria-label="${escapeHtml(t("cart.product"))}">
-        ${row.candidates
-          .map((candidate, at) => `<option value="${at}">${escapeHtml(cartCandidateLabel(candidate))}</option>`)
-          .join("")}
-      </select>
-      ${
-        first.url
-          ? `<a class="review-link" href="${escapeHtml(first.url)}" target="_blank" rel="noopener noreferrer" title="${escapeHtml(t("cart.view_title"))}">${escapeHtml(t("cart.view"))} ${ICON_EXTERNAL}</a>`
-          : '<span class="review-link"></span>'
-      }
-      <input class="review-qty" type="number" min="1" max="99" value="${first.packs}" aria-label="${escapeHtml(t("cart.packs"))}">
-      ${reviewSearchHtml(row, true)}
-    </div>`;
-}
-
-function renderCartReview(rows) {
-  const missingCount = rows.filter((row) => !row.candidates.length).length;
-  const doubts = rows.filter((row) => row.candidates.length && row.candidates[0].doubt).length;
-  $("#cart-result").innerHTML = `
-    <div class="box cart-review">
-      <h2>${escapeHtml(t("cart.review_title"))}</h2>
-      <p class="muted">${escapeHtml(doubts ? tn("cart.doubts", doubts) : t("cart.review_intro"))}</p>
-      ${missingCount ? `<p class="muted" id="review-missing-hint">${escapeHtml(tn("cart.missing_hint", missingCount))}</p>` : ""}
-      <div class="review-list">${rows.map((row, index) => reviewRowHtml(row, index)).join("")}</div>
-      <div class="cart-review__actions">
-        <button class="button" id="confirm-cart"></button>
-        <button class="button button--secondary" id="cancel-cart">${escapeHtml(t("common.cancel"))}</button>
-      </div>
-    </div>
-  `;
-
-  // De regels kunnen veranderen: een niet gevonden regel wordt na zoeken een gewone regel. Daarom steeds opnieuw zoeken.
-  const includable = () => [...document.querySelectorAll(".review-row[data-row]")].filter((el) => el.querySelector(".review-include"));
-  const updateConfirm = () => {
-    const count = includable().filter((el) => el.querySelector(".review-include").checked).length;
-    const button = $("#confirm-cart");
-    button.disabled = count === 0;
-    button.textContent = tn("cart.confirm", count);
-  };
-  const updateMissingHint = () => {
-    const left = rows.filter((row) => !row.candidates.length).length;
-    const hint = $("#review-missing-hint");
-    if (!hint) return;
-    hint.hidden = left === 0;
-    if (left) hint.textContent = tn("cart.missing_hint", left);
-  };
-
-  const bindRow = (el) => {
-    const row = rows[Number(el.dataset.row)];
-    el.querySelector(".review-search").addEventListener("submit", (event) => {
-      event.preventDefault();
-      searchRow(el, row);
-    });
-    if (!row.candidates.length) return;
-    const form = el.querySelector(".review-search");
-    const toggle = el.querySelector(".review-search-toggle");
-    toggle.addEventListener("click", () => {
-      form.hidden = !form.hidden;
-      toggle.setAttribute("aria-expanded", String(!form.hidden));
-      if (!form.hidden) el.querySelector(".review-search-input").focus();
-    });
-    const thumb = el.querySelector(".review-thumb");
-    const product = el.querySelector(".review-product");
-    // Laadt de foto niet, dan verbergen we hem (en halen we hem niet weg): een ander product kiezen gebruikt hem opnieuw.
-    thumb.querySelector("img").addEventListener("error", (event) => {
-      event.target.hidden = true;
-      thumb.disabled = true;
-    });
-    thumb.addEventListener("click", () => openReviewPhoto(row.candidates[Number(product.value)]));
-    product.addEventListener("change", (event) => {
-      const candidate = row.candidates[Number(event.target.value)];
-      showReviewThumb(thumb, candidate);
-      el.querySelector(".review-qty").value = candidate.packs;
-      const link = el.querySelector("a.review-link");
-      if (link && candidate.url) link.href = candidate.url;
-      el.querySelector(".review-note").textContent = candidate.doubt || "";
-      el.classList.toggle("is-doubt", Boolean(candidate.doubt));
-      el.querySelector(".review-cheaper").innerHTML = reviewCheaperHtml(row, Number(event.target.value));
-    });
-    // "Kies": de goedkoopste optie per eenheid kiezen, alsof je hem in de keuzelijst kiest (ook het aantal verpakkingen rekent mee).
-    el.querySelector(".review-cheaper").addEventListener("click", (event) => {
-      const pick = event.target.closest("[data-pick]");
-      if (!pick) return;
-      product.value = pick.dataset.pick;
-      product.dispatchEvent(new Event("change"));
-      product.focus();
-    });
-    el.querySelector(".review-include").addEventListener("change", updateConfirm);
-    el.querySelector("a.review-link")?.addEventListener("click", (event) => {
-      event.preventDefault();
-      openProductPopup(event.currentTarget.href);
-    });
-  };
-
-  // Zoekt één regel opnieuw met de zoekterm uit het veld, voor een niet gevonden regel en voor een gevonden regel
-  // waar je een ander product wilt. Alleen deze regel wordt vervangen, zodat wat je bij de andere regels hebt
-  // gekozen blijft staan. Vindt de zoekopdracht niets, dan houdt de regel zijn huidige producten.
-  async function searchRow(el, row) {
-    const input = el.querySelector(".review-search-input");
-    const button = el.querySelector(".review-search button");
-    const status = el.querySelector(".review-search-status");
-    const term = input.value.trim();
-    if (!term) return;
-    input.disabled = true;
-    button.disabled = true;
-    status.textContent = t("cart.searching");
-    try {
-      const preview = await jsonFetch(`/api/${currentStore().api}/cart/preview`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ items: [{ query: term, display: row.display, quantity: row.quantity ?? null, unit: row.unit ?? null }] }),
-      });
-      const found = (preview.items || [])[0];
-      if (found?.candidates?.length) {
-        row.query = term;
-        row.candidates = found.candidates;
-        delete row.error;
-        el.outerHTML = reviewRowHtml(row, Number(el.dataset.row));
-        bindRow(document.querySelector(`.review-row[data-row="${el.dataset.row}"]`));
-        updateMissingHint();
-        updateConfirm();
-        return;
-      }
-      status.textContent = found?.error || t("cart.search_none", { term });
-    } catch (error) {
-      status.textContent = error.message;
-    }
-    input.disabled = false;
-    button.disabled = false;
-    input.focus();
-  }
-
-  document.querySelectorAll(".review-row[data-row]").forEach(bindRow);
-  updateConfirm();
-
-  $("#cancel-cart").addEventListener("click", () => {
-    $("#cart-result").innerHTML = "";
-  });
-  $("#confirm-cart").addEventListener("click", async (event) => {
-    const button = event.currentTarget;
-    const selection = includable()
-      .filter((el) => el.querySelector(".review-include").checked)
-      .map((el) => {
-        const row = rows[Number(el.dataset.row)];
-        const candidate = row.candidates[Number(el.querySelector(".review-product").value)];
-        const quantity = Math.min(99, Math.max(1, parseInt(el.querySelector(".review-qty").value, 10) || 1));
-        return cartSelection(row, candidate, quantity);
-      });
-    if (!selection.length) return;
-    button.disabled = true;
-    button.textContent = t("cart.adding");
-    try {
-      await submitCart(
-        selection,
-        rows.filter((row) => !row.candidates.length).map((row) => row.display)
-      );
-    } catch (error) {
-      $("#cart-result").insertAdjacentHTML(
-        "afterbegin",
-        `<div class="message error">${escapeHtml(error.message)}</div>`
-      );
-      // De knop staat in de balk onderaan; de melding staat boven de lijst en moet dus in beeld komen.
-      $("#cart-result .message.error").scrollIntoView({ block: "center" });
-      updateConfirm();
-    }
-  });
-}
-
-async function addToCart() {
-  const ingredients = aggregateIngredients(state.entries);
-  if (!ingredients.length) return;
-  const button = $("#add-cart");
-  button.disabled = true;
-  button.textContent = t("cart.searching");
-  $("#cart-result").innerHTML = "";
-  try {
-    const preview = await jsonFetch(`/api/${currentStore().api}/cart/preview`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        // Vergelijk de verpakkingen: na het voorgestelde product alleen hetzelfde product of wat per eenheid goedkoper is.
-        compare: true,
-        // Liever biologisch (#218): eerst een biologisch product van dezelfde soort, als de winkel het heeft.
-        organic: Boolean(state.auth?.preferOrganic),
-        items: ingredients.map((ingredient) => ({
-          query: ingredient.food?.name || ingredient.display,
-          display: ingredient.display || ingredient.food?.name || "",
-          // Het aantal verpakkingen rekent de server uit met de verpakkingsgrootte van AH.
-          quantity: ingredient.quantity ?? null,
-          unit: ingredient.unit?.name || ingredient.unit?.abbreviation || null,
-        })),
-      }),
-    });
-    const rows = preview.items || [];
-    // Het mandje gaat nooit zonder controle vol: ook zonder twijfel toont de lijst eerst wat erin komt.
-    if (!rows.some((row) => row.candidates.length)) {
-      $("#cart-result").innerHTML = `<div class="message error">${escapeHtml(t("cart.none_found"))}</div>`;
-    } else {
-      renderCartReview(rows);
-    }
-  } catch (error) {
-    $("#cart-result").innerHTML = `<div class="message error">${escapeHtml(error.message)}</div>`;
-  } finally {
-    button.disabled = false;
-    button.textContent = cartButtonLabel();
-  }
-}
-
 // De titel van een receptkaart, overal gelijk (sinds 4.8.0). Met een recept om te openen (`open` is `winkel:id`) is de titel een
 // knop die met zijn ::after de hele kaart beslaat: een tik op de kaart opent het recept in MealieShopper (openStoreRecipe, via
 // data-store-open zoals eerst de knop Bekijken). Zonder recept-id een gewone titel.
@@ -2071,7 +1883,7 @@ async function importUrl(url, button = null) {
     });
     return { ok: true, html: importedMessage(data) };
   } catch (error) {
-    return { ok: false, html: error.message };
+    return { ok: false, html: escapeHtml(error.message) }; // de tekst komt van de server of van Mealie: nooit als HTML
   } finally {
     if (button) {
       button.disabled = false;
@@ -2110,10 +1922,26 @@ for (const store of Object.keys(LINK_FOLDS)) {
   });
 }
 
+// Naar het koppelblok van Mealie of een winkel onder Instellingen, Koppelen: uitgeklapt, in beeld en met de focus op de kop.
+// Tot 4.10.4 opende de knop Instellingen bovenaan, met het blok ergens verderop onder de hulpmiddelen.
+function openLinkBlock(store) {
+  openSettings();
+  state.storeFold[store] = true;
+  applyStoreFold(store, false);
+  const toggle = $(`#${LINK_FOLDS[store]}-toggle`);
+  if (!toggle || isRegularUser()) return;
+  requestAnimationFrame(() => {
+    toggle.scrollIntoView({ block: "center" });
+    toggle.focus({ preventScroll: true });
+  });
+}
+
 async function refreshAhStatus() {
   if (!$("#ah-status")) return;
   try {
     const data = await jsonFetch("/api/ah/auth/status");
+    state.ahConnected = Boolean(data.connected); // het weekmenu vraagt het na voordat het een controlelijst maakt (addToCart)
+    if ($("#ah-unlink")) $("#ah-unlink").hidden = !data.connected;
     renderLinkStatus("#ah-status", STORES.ah.name, data.connected ? "linked" : "unlinked");
     applyStoreFold("ah", Boolean(data.connected));
   } catch (error) {
@@ -2148,6 +1976,9 @@ function applyWeekStart(weekStart) {
   const day = Number.isInteger(weekStart.day) && weekStart.day >= 0 && weekStart.day <= 6 ? weekStart.day : 1;
   if (day === state.firstDayOfWeek) return false;
   state.firstDayOfWeek = day;
+  // De week uit het adres is geteld met de oude eerste dag: opnieuw tellen, anders schuift een week die op zondag begint er een op.
+  const params = new URLSearchParams(window.location.search);
+  if (params.get("week") && typeof routerApplyWeek === "function") state.weekOffset = weekOffsetOf(params.get("week"));
   updateWeekLabel();
   if (typeof offersWeekStartChanged === "function") offersWeekStartChanged();
   return true;
@@ -2287,7 +2118,7 @@ function weekStartSettled() {
 }
 
 async function checkMealieConnection() {
-  message("#mealie-status", t("mealie.checking"), "success");
+  message("#mealie-status", t("mealie.checking"), "info");
   try {
     renderMealieStatus(await jsonFetch("/api/mealie/status?verify=1"), { verified: true });
   } catch (error) {
@@ -2323,6 +2154,30 @@ async function linkMealie(event) {
   }
 }
 
+// Ontkoppelen vraagt eerst (sinds 4.10.4): het was één klik, terwijl opnieuw koppelen bij Mealie een nieuw token vraagt en bij
+// Jumbo een computer met een console. De knop is bezig tot het antwoord er is, dus twee keer klikken doet niets.
+async function unlinkWithConfirm(button, name, unlink) {
+  if (!(await confirmDialog(t("links.unlink_confirm", { name }), { danger: true, confirm: t("links.unlink") }))) return;
+  setBusy(button, true);
+  try {
+    await unlink();
+  } finally {
+    setBusy(button, false);
+  }
+}
+
+// Albert Heijn ontkoppelen (sinds 4.13.0; de andere winkels konden het al). Staat het token ook in de omgevingsvariabele
+// AH_REFRESH_TOKEN, dan blijft de app daarmee gekoppeld en zegt de melding wat de beheerder moet doen.
+async function unlinkAh() {
+  try {
+    const data = await jsonFetch("/api/ah/auth/logout", { method: "POST", body: "{}" });
+    await refreshAhStatus();
+    message("#token-message", data.fromEnvironment ? t("ah.unlink_environment") : t("ah.unlinked"), data.fromEnvironment ? "warning" : "success");
+  } catch (error) {
+    message("#token-message", error.message);
+  }
+}
+
 async function unlinkMealie() {
   try {
     const data = await jsonFetch("/api/mealie/auth/logout", { method: "POST", body: "{}" });
@@ -2335,7 +2190,7 @@ async function unlinkMealie() {
 }
 
 async function checkAhConnection() {
-  message("#ah-status", t("ah.checking"), "success");
+  message("#ah-status", t("ah.checking"), "info");
   try {
     const data = await jsonFetch("/api/ah/auth/status?verify=1");
     if (data.connected) {
@@ -2758,7 +2613,7 @@ async function resetOpenAhList() {
   const button = $("#reset-ah-list");
   const edited = (state.ahOpenList?.items || []).filter((item) => item.edited).length;
   // Terugzetten gooit je aanpassingen weg; eerst bevestigen.
-  if (!window.confirm(tn("list.reset_confirm", edited))) return;
+  if (!(await confirmDialog(tn("list.reset_confirm", edited), { danger: true }))) return;
   setBusy(button, true);
   message("#ah-list-items-message", "");
   try {
@@ -2929,6 +2784,9 @@ function showPanel(panelId, tab = null) {
   $(`#${panelId}`).classList.add("is-active");
   // Zoals een native tabbalk: een andere tab begint bovenaan.
   window.scrollTo({ top: 0 });
+  // De focus gaat mee naar het nieuwe scherm (sinds 4.13.0), zodat Tab daar verdergaat en een schermlezer het scherm aankondigt.
+  // Niet bij het openen van de app of bij Terug: daar zet de router de focus en de plek zelf (router.js).
+  if (typeof router !== "undefined" && router.started && !router.applying) document.querySelector("#main")?.focus({ preventScroll: true });
   if (panelId === "ah-items") itemsFollowPreferred();
   if (panelId === "ah-items" && !state.ahRecipesLoaded) loadSavedRecipes({ cachedOnly: true });
   if (panelId === "about" && !state.aboutLoaded) loadAbout();
@@ -3012,6 +2870,21 @@ $("#items-store-list").addEventListener("click", (event) => {
   switchItemsStore(item.dataset.store);
 });
 
+// Een subtabbalk die op een telefoon horizontaal scrolt, laat zien dat er meer staat (sinds 4.13.0): de rand vervaagt aan de
+// kant waar nog tabbladen buiten beeld staan (has-more-start, has-more-end in styles.css). Zonder die aanwijzing zag je bij
+// Instellingen en Winkels niet dat de balk doorliep.
+function subtabsEdges(bar) {
+  const room = bar.scrollWidth - bar.clientWidth;
+  bar.classList.toggle("has-more-start", room > 2 && bar.scrollLeft > 2);
+  bar.classList.toggle("has-more-end", room > 2 && bar.scrollLeft < room - 2);
+}
+
+document.querySelectorAll(".subtabs").forEach((bar) => {
+  bar.addEventListener("scroll", () => subtabsEdges(bar), { passive: true });
+  // Ook als de balk in beeld komt (een ander scherm) of van breedte verandert (draaien, een andere taal).
+  if (typeof ResizeObserver === "function") new ResizeObserver(() => subtabsEdges(bar)).observe(bar);
+});
+
 // Het tabblad dat bij het laden open staat (is-active in de markup) krijgt ook aria-current; daarna zet de klik hieronder het.
 document.querySelectorAll(".subtab.is-active[data-subtab]").forEach((subtab) => subtab.setAttribute("aria-current", "page"));
 document.querySelectorAll(".subtab[data-subtab], .subtab-menu__item[data-subtab]").forEach((subtab) => {
@@ -3030,6 +2903,7 @@ document.querySelectorAll(".subtab[data-subtab], .subtab-menu__item[data-subtab]
     // Op een telefoon is de balk één regel die horizontaal scrolt: het gekozen tabblad in beeld (App-Guidance, web-app-design.md).
     const bar = subtab.closest(".subtabs");
     if (bar && bar.scrollWidth > bar.clientWidth) subtab.scrollIntoView({ block: "nearest", inline: "center" });
+    if (bar) subtabsEdges(bar);
     const menu = subtab.closest(".subtab-menu");
     if (menu) {
       menu.querySelector(".subtab-menu__toggle").classList.add("is-active");
@@ -3127,21 +3001,17 @@ function openSettings(subtab = "settings-link") {
   openSubtab("settings", isRegularUser() ? "settings-appearance" : subtab);
 }
 
-$("#this-week").addEventListener("click", () => {
-  state.weekOffset = 0;
+// Een andere week in het weekmenu: de week staat daarna in het adres, zonder een stap in de geschiedenis per week.
+function changePlanWeek(offset) {
+  state.weekOffset = offset;
   updateWeekLabel();
   loadMealPlan();
-});
-$("#prev-week").addEventListener("click", () => {
-  state.weekOffset -= 1;
-  updateWeekLabel();
-  loadMealPlan();
-});
-$("#next-week").addEventListener("click", () => {
-  state.weekOffset += 1;
-  updateWeekLabel();
-  loadMealPlan();
-});
+  if (typeof routerSync === "function") routerSync({ replace: true });
+}
+
+$("#this-week").addEventListener("click", () => changePlanWeek(0));
+$("#prev-week").addEventListener("click", () => changePlanWeek(state.weekOffset - 1));
+$("#next-week").addEventListener("click", () => changePlanWeek(state.weekOffset + 1));
 $("#load-plan").addEventListener("click", () => loadMealPlan({ force: true }));
 $("#meal-days").addEventListener("click", (event) => {
   const add = event.target.closest("[data-plan-add]");
@@ -3248,7 +3118,7 @@ $("#plan-recipe-chosen").addEventListener("change", (event) => {
 $("#import-form").addEventListener("submit", async (event) => {
   event.preventDefault();
   const result = await importUrl($("#import-url").value.trim());
-  $("#import-message").innerHTML = `<div class="message ${result.ok ? "success" : "error"}">${result.html}</div>`;
+  $("#import-message").innerHTML = `<div class="message ${result.ok ? "success" : "error"}" role="${result.ok ? "status" : "alert"}">${result.html}</div>`;
 });
 $("#verify-token").addEventListener("click", async () => {
   const token = $("#token-input").value.trim();
@@ -3269,15 +3139,12 @@ $("#verify-token").addEventListener("click", async () => {
 $("#check-ah").addEventListener("click", checkAhConnection);
 $("#mealie-form").addEventListener("submit", linkMealie);
 $("#check-mealie").addEventListener("click", checkMealieConnection);
-$("#mealie-unlink").addEventListener("click", unlinkMealie);
+$("#mealie-unlink").addEventListener("click", (event) => unlinkWithConfirm(event.currentTarget, "Mealie", unlinkMealie));
+$("#ah-unlink").addEventListener("click", (event) => unlinkWithConfirm(event.currentTarget, STORES.ah.name, unlinkAh));
 $("#mealie-week-start").addEventListener("change", saveWeekStart);
 $("#mealie-nutrition-start").addEventListener("click", startNutritionBackfill);
 $("#mealie-nutrition-stop").addEventListener("click", stopNutritionBackfill);
-$("#open-mealie-setup").addEventListener("click", () => {
-  openSettings();
-  state.storeFold.mealie = true;
-  applyStoreFold("mealie", false);
-});
+$("#open-mealie-setup").addEventListener("click", () => openLinkBlock("mealie"));
 $("#load-ah-lists").addEventListener("click", loadAhFavoriteLists);
 $("#sync-all-ah-lists").addEventListener("click", syncAllAhLists);
 $("#load-ah-recipes").addEventListener("click", () => loadSavedRecipes({ refresh: true }));
@@ -3334,9 +3201,19 @@ $("#mfa-cancel").addEventListener("click", cancelMfa);
 $("#mfa-recovery-toggle").addEventListener("click", toggleRecoveryInput);
 $("#login-passkey").addEventListener("click", handlePasskeyLogin);
 $("#add-passkey").addEventListener("click", addPasskey);
-$("#auth-logout").addEventListener("click", async () => {
-  await jsonFetch("/api/auth/logout", { method: "POST", body: "{}" });
-  await refreshAuthStatus();
+$("#auth-logout").addEventListener("click", async (event) => {
+  // Mislukt het uitloggen (geen verbinding), dan zeggen we dat: op een gedeeld toestel mag je niet denken dat je weg bent.
+  const button = event.currentTarget;
+  button.disabled = true;
+  try {
+    if (typeof cookPushForget === "function") await cookPushForget(); // de meldingen van de kooktimers stoppen (cook_timers.js)
+    await jsonFetch("/api/auth/logout", { method: "POST", body: "{}" });
+    await refreshAuthStatus();
+  } catch (error) {
+    toast(t("auth.logout_failed", { error: error.message }), "error");
+  } finally {
+    button.disabled = false;
+  }
 });
 
 const params = new URLSearchParams(window.location.search);

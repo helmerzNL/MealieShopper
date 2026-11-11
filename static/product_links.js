@@ -63,7 +63,7 @@ async function searchProductLink() {
   const run = ++productLinks.run;
   productLinks.results = [];
   $("#link-dialog-list").innerHTML = "";
-  message("#link-dialog-message", t("links.searching"), "success");
+  message("#link-dialog-message", t("links.searching"), "info");
   try {
     const data = await jsonFetch(`/api/product-links/search?${new URLSearchParams({ store: line.store, q: query })}`);
     if (run !== productLinks.run) return; // een nieuwere zoekopdracht is al onderweg

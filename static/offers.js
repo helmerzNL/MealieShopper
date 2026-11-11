@@ -39,6 +39,32 @@ try {
   // Zonder opslag staan de schakelaars uit en is de volgorde die van de winkel.
 }
 
+// Wat je zocht blijft staan (sinds 4.13.0): de zoektekst staat in sessionStorage, zodat herladen en Terug uit de
+// prijsgeschiedenis haar houden. Per tabblad van de browser, en weg als je het sluit. De categorieën horen sinds de lijsten met
+// plus en min bij de filters (offersSaveFilters).
+const OFFERS_FIND_KEY = "ms-offers-find";
+
+function offersSavedFind() {
+  try {
+    const saved = JSON.parse(window.sessionStorage.getItem(OFFERS_FIND_KEY) || "null");
+    return saved && typeof saved === "object" ? saved : {};
+  } catch {
+    return {};
+  }
+}
+
+function offersSaveFind() {
+  try {
+    const find = { search: offersState.search, store: offersState.store };
+    if (!find.search) window.sessionStorage.removeItem(OFFERS_FIND_KEY);
+    else window.sessionStorage.setItem(OFFERS_FIND_KEY, JSON.stringify(find));
+  } catch {
+    // Zonder opslag geldt de keuze tot je de pagina herlaadt.
+  }
+}
+
+offersState.search = typeof offersSavedFind().search === "string" ? offersSavedFind().search : "";
+
 function offersRemember(key, value) {
   try {
     localStorage.setItem(key, value);
@@ -420,6 +446,7 @@ function offersChangeWeek(step) {
   if (offset === state.weekOffset) return;
   setPlanWeek(offset);
   showOffers();
+  if (typeof routerSync === "function") routerSync({ replace: true }); // de week in het adres (app.js, weekParam)
 }
 
 // De winkels die op Aanbiedingen te kiezen zijn. In de prijsgeschiedenis zijn dat ze allemaal: daar staan ook prijzen uit
@@ -624,6 +651,71 @@ function offerPriceLabelHtml(offer) {
   return label ? `<span class="${label.cls}"${label.title ? ` title="${escapeHtml(label.title)}"` : ""}>${escapeHtml(label.text)}</span>` : "";
 }
 
+// Een aanbieding in je mandje met een knop (sinds 4.13.0), bij een winkel zonder min, aantal en plus (offerCartSlot). Alleen bij een winkel met een mandje die gekoppeld is, en alleen bij een echt
+// product van de webwinkel: de Bonus Box als geheel (bonusbox-...) en een folderregel zonder product hebben geen productnummer
+// dat het mandje kent. Albert Heijn en Crisp kennen alleen nummers.
+function offerStoreLinked(store) {
+  return store === "ah" ? state.ahConnected === true : Boolean(state.linkedStores?.[store]);
+}
+
+// Het productnummer zoals het mandje van de winkel het kent, of "" als de aanbieding er geen heeft. Albert Heijn schrijft een
+// product op de site als wi123456; het mandje wil alleen het getal.
+function offerCartId(store, offer) {
+  const id = String(offer?.id ?? "").trim();
+  if (!id || id.startsWith("bonusbox-")) return "";
+  if (store === "ah") return /^(?:wi)?\d+$/.test(id) ? id.replace(/^wi/, "") : "";
+  if (store === "crisp") return /^\d+$/.test(id) ? id : "";
+  return id;
+}
+
+function offerCartable(store, offer, linked = offerStoreLinked(store)) {
+  return Object.hasOwn(STORES, store) && linked && Boolean(offerCartId(store, offer));
+}
+
+// Zoveel gaan er in het mandje: het aantal dat de actie vraagt (2 voor 3 euro: twee), anders één.
+function offerCartMinimum(offer) {
+  const min = Number(offer?.minQuantity);
+  return Number.isInteger(min) && min > 1 && min <= 12 ? min : 1;
+}
+
+function offerCartButton(offer, className = "") {
+  if (!offerCartable(offersState.store, offer)) return "";
+  const label = escapeHtml(t("offers.cart.add", { store: storeDisplayName(offersState.store) }));
+  return `<button class="icon-button${className ? ` ${className}` : ""}" type="button" data-offer-cart="${escapeHtml(offer.id)}" title="${label}" aria-label="${label}">${mdiIcon(MDI_CART_PLUS)}</button>`;
+}
+
+// Zet de aanbieding in het mandje van de winkel (nooit een bestelling) en meldt het met een toast. De route is die van de
+// controlelijst (/api/<winkel>/cart) met het product-id erbij, dus zonder zoeken; zonder `remember`, want dit is geen keuze bij een
+// ingrediënt.
+async function addOfferToCart(button) {
+  const store = offersState.store;
+  const offer = offerById(button.dataset.offerCart);
+  if (!offer || !offerCartable(store, offer)) return;
+  const quantity = offerCartMinimum(offer);
+  setBusy(button, true);
+  try {
+    const data = await jsonFetch(`/api/${STORES[store].api}/cart`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        items: [{ query: offer.title, productId: offerCartId(store, offer), quantity, title: offer.title, price: offer.price || 0, unitSize: offer.unitSize || null }],
+      }),
+    });
+    if (!data.added) throw new Error(t("offers.cart.failed", { store: storeDisplayName(store) }));
+    toast(tn("offers.cart.added", quantity, { title: offer.title, store: storeDisplayName(store) }));
+  } catch (error) {
+    toast(error.message, "error");
+  } finally {
+    setBusy(button, false);
+  }
+}
+
+// Het mandje bij een aanbieding: waar de winkel een exact aantal kent, min, aantal en plus (offers_cart.js). Jumbo kent dat
+// niet en houdt de knop die de aanbieding erin zet.
+function offerCartSlot(offer, className = "") {
+  return offerCartAvailable(offersState.store) ? offerCartControl(offer) : offerCartButton(offer, className);
+}
+
 // De titel van een aanbieding: de link naar haar prijsgeschiedenis. Naar de winkel gaat het winkelicoon (offerStoreLink).
 function offerTitleLink(offer) {
   return `<a class="offer-card__link" href="${escapeHtml(priceHistoryPath(offersState.store, offer.title, offer.id))}" data-route><strong>${escapeHtml(offer.title)}</strong></a>`;
@@ -646,7 +738,7 @@ function offerCardFoot(offer) {
     ? `<button class="icon-button offer-card__compare" type="button" data-compare="${escapeHtml(offer.id)}" title="${compareLabel}" aria-label="${compareLabel}">${mdiIcon(MDI_COMPARE_HORIZONTAL)}</button>`
     : "";
   const history = `<a class="icon-button offer-card__history" href="${escapeHtml(priceHistoryPath(offersState.store, offer.title, offer.id))}" data-route title="${historyLabel}" aria-label="${historyLabel}">${mdiIcon(MDI_CHART_LINE)}</a>`;
-  return `<div class="offer-card__foot">${offerCartControl(offer)}${compare}${history}${offerStoreLink(offer)}</div>`;
+  return `<div class="offer-card__foot">${offerCartSlot(offer, "offer-card__cart")}${compare}${history}${offerStoreLink(offer)}</div>`;
 }
 
 // Het plaatje van een aanbieding met de badge en het prijslabel erop (of kaal, in de compacte rij). Zonder plaatje een leeg vlak
@@ -726,7 +818,7 @@ function offerProductRow(offer) {
       <span class="offer-row__price">${offerPriceHtml(offer)}</span>
       <small class="offer-row__unit">${escapeHtml(perUnit)}</small>
       <span class="offer-row__history">${history}</span>
-      <div class="offer-row__links">${offerCartControl(offer)}${compare}${chart}${offerStoreLink(offer)}</div>
+      <div class="offer-row__links">${offerCartSlot(offer)}${compare}${chart}${offerStoreLink(offer)}</div>
     </article>`;
 }
 
@@ -819,6 +911,7 @@ function offerPopupHtml(offer, product, packs, activeId = null, { preview = fals
     : `<p class="muted offer-popup__loading">${escapeHtml(t(product === false ? "offers.popup.none" : "offers.popup.loading"))}</p>`;
   return `<div class="offer-popup__inner">
       ${offerHistoryHead(shown, { compact: true, offer, links: !preview })}
+      ${offer.badge ? `<p class="muted offer-popup__verdict">${escapeHtml(offerBadgeTitle(offer))}</p>` : ""}
       ${buttons}
       ${body}
       ${preview ? "" : `<p class="offer-popup__foot"><a href="${escapeHtml(priceHistoryPath(store, shown.title, shown.productId))}" data-route>${escapeHtml(t("offers.popup.full_history"))}</a></p>`}
@@ -1010,6 +1103,26 @@ function renderOfferGrid({ append = false } = {}) {
   offersState.shown = Math.min(units.length, limit);
   $("#offers-more").hidden = units.length <= limit;
   if (!append) offersWatchMore();
+  // Weggefilterd tot nul (sinds 4.10.4): een leeg raster zegt niets, dus staat het er, met de weg terug. Niet als de winkel
+  // deze week geen aanbiedingen heeft: dat zegt de statusregel erboven al.
+  const empty = $("#offers-empty");
+  if (empty) empty.hidden = Boolean(units.length) || !offersState.offers.length;
+}
+
+// "Alles tonen" onder een leeg raster: het zoekveld, de categorie, de filters en de twee schakelaars terug naar alles.
+function offersShowAll() {
+  offersState.search = "";
+  offersSaveFind();
+  offersState.filters = offersEmptyFilters();
+  offersSaveFilters();
+  offersState.goodOnly = false;
+  offersRemember(OFFERS_GOOD_KEY, "0");
+  if (offersState.personalOnly) {
+    $("#offers-personal-only").checked = false;
+    offersTogglePersonal(false);
+  }
+  offersRedraw();
+  $("#offers-search").focus();
 }
 
 // "Geldig ma 26 okt t/m zo 1 nov": de looptijd die de meeste aanbiedingen delen, of niets als de winkel er geen geeft.
@@ -1223,6 +1336,7 @@ function renderOffersLoading(storeName = storeDisplayName(offersState.store)) {
   $("#offers-products").innerHTML = "";
   $("#offers-products").setAttribute("aria-busy", "true");
   $("#offers-more").hidden = true;
+  if ($("#offers-empty")) $("#offers-empty").hidden = true;
   const box = $("#offers-loading");
   box.innerHTML = `${mdiIcon(MDI_LOADING, "offers-loading__icon")}<span>${escapeHtml(t("offers.loading", { store: storeName }))}</span>`;
   box.hidden = false;
@@ -1452,6 +1566,8 @@ $("#offers-more").addEventListener("click", offersShowMore);
 $("#offers-products").addEventListener("click", (event) => {
   const button = event.target.closest("[data-compare]");
   if (button) openPackCompare(offersState.store, button.dataset.compare);
+  const cart = event.target.closest("[data-offer-cart]");
+  if (cart) addOfferToCart(cart);
 });
 $("#offers-recipes").addEventListener("click", (event) => {
   const button = event.target.closest(".offer-match, .offer-flag");
@@ -1488,10 +1604,20 @@ $("#offers-course-facets").addEventListener("click", async (event) => {
   if (click) facetRefocus($("#offers-courses"), click);
 });
 $("#offers-personal-only").addEventListener("change", (event) => offersTogglePersonal(event.target.checked));
+// Typen tekent de lijst niet bij elke toets opnieuw (sinds 4.10.4): elke keer rekende de pagina vier keer over alle
+// aanbiedingen van de week. Na 250 ms stilte, zoals het zoekveld van de Prijsgeschiedenis en van de aankopen.
+const OFFERS_INPUT_WAIT = 250;
+let offersInputTimer = 0;
+function offersRedrawSoon(redraw = offersRedraw) {
+  clearTimeout(offersInputTimer);
+  offersInputTimer = setTimeout(redraw, OFFERS_INPUT_WAIT);
+}
 $("#offers-search").addEventListener("input", (event) => {
   offersState.search = event.target.value;
-  offersRedraw();
+  offersSaveFind();
+  offersRedrawSoon();
 });
+$("#offers-empty-clear").addEventListener("click", offersShowAll);
 $("#offers-good-only").addEventListener("change", (event) => {
   offersState.goodOnly = event.target.checked;
   offersRemember(OFFERS_GOOD_KEY, offersState.goodOnly ? "1" : "0");
@@ -1511,13 +1637,16 @@ for (const [id, key] of [["#offers-filter-bought", "bought"], ["#offers-filter-y
   });
 }
 $("#offers-filter-discount").addEventListener("input", (event) => {
-  offersFilters().minDiscount = Math.max(0, Math.min(75, Number(event.target.value) || 0));
-  offersFilterChanged();
+  const filters = offersFilters();
+  filters.minDiscount = Math.max(0, Math.min(75, Number(event.target.value) || 0));
+  // Het getal naast de schuif volgt meteen; de lijst pas als de schuif even stilstaat.
+  $("#offers-filter-discount-out").textContent = filters.minDiscount > 0 ? t("offers.filters.min_discount_value", { percent: I18N.formatNumber(filters.minDiscount) }) : t("offers.filters.min_discount_any");
+  offersRedrawSoon(offersFilterChanged);
 });
 $("#offers-filter-unit-price").addEventListener("input", (event) => {
   const value = Number(String(event.target.value).replace(",", "."));
   offersFilters().maxUnitPrice.value = event.target.value.trim() && Number.isFinite(value) && value > 0 ? value : null;
-  offersFilterChanged();
+  offersRedrawSoon(offersFilterChanged);
 });
 $("#offers-filter-unit").addEventListener("change", (event) => {
   offersFilters().maxUnitPrice.unit = event.target.value;
@@ -1746,10 +1875,26 @@ async function loadOffersSyncStatus() {
   }
 }
 
+const OFFERS_SYNC_POLL_MS = 3000;
+
 async function offersSyncAll() {
   const button = $("#offers-sync-all");
   message("#offers-sync-message", "");
   setBusy(button, true, t("offers.sync.running"));
+  // Het ophalen is één lang verzoek voor alle winkels. Intussen vraagt de pagina de stand op (sinds 4.12.0): de regel per winkel
+  // springt bij zodra die winkel klaar is, en de melding telt mee. Een statusvraag die mislukt is geen fout van het ophalen.
+  const before = Object.fromEntries(OFFERS_STORES.map((store) => [store, offersSync.status?.stores?.[store]?.syncedAt || ""]));
+  const progress = setInterval(async () => {
+    try {
+      offersSync.status = await jsonFetch("/api/offers/status");
+    } catch {
+      return;
+    }
+    if (!button.classList.contains("is-busy")) return; // intussen klaar: de eindmelding staat er al
+    renderOffersSync();
+    const done = OFFERS_STORES.filter((store) => (offersSync.status.stores?.[store]?.syncedAt || "") !== before[store]).length;
+    message("#offers-sync-message", t("offers.sync.progress", { done: I18N.formatNumber(done), total: I18N.formatNumber(OFFERS_STORES.length) }), "info");
+  }, OFFERS_SYNC_POLL_MS);
   try {
     offersSync.result = await jsonFetch("/api/offers/sync-all", { method: "POST" });
     await loadOffersSyncStatus();
@@ -1759,6 +1904,7 @@ async function offersSyncAll() {
   } catch (error) {
     message("#offers-sync-message", error.message);
   } finally {
+    clearInterval(progress);
     setBusy(button, false, t("offers.sync.running"));
   }
 }

@@ -52,6 +52,7 @@ const t = (key) => key;
 const tn = (key, count) => `${key}:${count}`;
 const escapeHtml = (value) => String(value);
 function setBusy() {}
+function loadingHtml(text) { return `<p>${text}</p>`; } // de laadtoestand met vaste ruimte (app.js, sinds 4.12.0)
 function renderBasketStoreChoice() {}
 const ordersState = { basket: null };
 const basketState = { store: "ah" };

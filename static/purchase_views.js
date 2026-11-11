@@ -122,7 +122,7 @@ function viewBarMarkup(prefix, spec) {
     .join("");
   const sortMenu = spec.sorts.length ? viewSortMenu(prefix, spec.sorts) : "";
   const optionsMenu = spec.sizes || spec.options.length ? viewOptionsMenu(prefix, spec) : "";
-  return `<p class="muted purchase-status" id="${viewStatusId(prefix)}"></p><div class="purchase-bar__tools"><div class="segmented" id="${prefix}-view-switch" role="group" aria-label="${escapeHtml(t("orders.view.label"))}">${views}</div>${sortMenu}${optionsMenu}</div>`;
+  return `<p class="muted purchase-status" id="${viewStatusId(prefix)}" role="status"></p><div class="purchase-bar__tools"><div class="segmented" id="${prefix}-view-switch" role="group" aria-label="${escapeHtml(t("orders.view.label"))}">${views}</div>${sortMenu}${optionsMenu}</div>`;
 }
 
 // De richting waarin een sorteersleutel begint, uit de spec van de balk. Zonder richting aflopend.
@@ -251,8 +251,22 @@ function purchaseBarSpec() {
   };
 }
 
+// Op een telefoon is Kaarten de standaard (sinds 4.13.0): de tabel met zes kolommen past daar niet. Alleen zolang je zelf geen
+// weergave koos; daarna geldt je keuze, ook op een telefoon.
+function purchaseViewDefault(stored, narrow) {
+  return stored === null && narrow ? "cards" : null;
+}
+
 function purchaseViewLoad() {
   purchaseView.load();
+  let stored = null;
+  try {
+    stored = localStorage.getItem("ms-purchases-view");
+  } catch {
+    // zonder opslag: de standaard van het scherm
+  }
+  const view = purchaseViewDefault(stored, Boolean(globalThis.matchMedia?.("(max-width: 640px)").matches));
+  if (view) purchaseView.view = view;
 }
 
 // Sorteren: datum (open bestellingen bovenaan bij aflopend, hun bezorgdag ligt in de toekomst), bedrag of aantal producten.

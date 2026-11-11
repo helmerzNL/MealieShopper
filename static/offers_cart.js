@@ -37,7 +37,7 @@ function offerCartControl(offer) {
   return `<div class="qty offer-cart${quantity ? "" : " offer-cart--empty"}" data-cart="${escapeHtml(id)}"${offerCart.ready ? "" : " hidden"}>
       <button type="button" class="qty__step" data-cart-step="-1" aria-label="${label("list.qty_minus")}">${mdiIcon(MDI_MINUS)}</button>
       <input class="qty__input" type="number" inputmode="numeric" min="0" max="${OFFER_CART_MAX}" step="1" value="${quantity}" aria-label="${label("offers.cart.quantity")}">
-      <button type="button" class="qty__step" data-cart-step="1" aria-label="${label("offers.cart.add")}" title="${label("offers.cart.add")}">${mdiIcon(MDI_PLUS)}</button>
+      <button type="button" class="qty__step" data-cart-step="1" aria-label="${label("offers.cart.plus")}" title="${label("offers.cart.plus")}">${mdiIcon(MDI_PLUS)}</button>
     </div>`;
 }
 

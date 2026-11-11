@@ -77,6 +77,7 @@
   --btn-shadow-hover: 0 2px 8px rgba(16, 82, 53, 0.32), inset 0 1px 0 rgba(255, 255, 255, 0.16);
   --ring: rgba(23, 107, 69, 0.2);
   --border-strong: #c0ccc5;
+  --control-border: #89958e; /* rand van een invoerveld: 3,1 : 1 op wit (App-Guidance vraagt 3 : 1 voor randen van bediening) */
   --placeholder: #66756c; /* 4,8 : 1 op wit */
   --topbar-glass: rgba(255, 255, 255, 0.9);
   --page-glow: rgba(23, 107, 69, 0.07);
@@ -152,6 +153,7 @@
   --btn-shadow-hover: 0 2px 10px rgba(76, 195, 138, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.3);
   --ring: rgba(76, 195, 138, 0.28);
   --border-strong: #3d5247;
+  --control-border: #5b7065; /* 3,1 : 1 op het donkere vlak */
   --placeholder: #8a9c91;
   --topbar-glass: rgba(15, 22, 19, 0.9);
   --page-glow: rgba(76, 195, 138, 0.08);
@@ -167,6 +169,7 @@
   --muted: #a6a8ab;
   --border: #343638;
   --border-strong: #47494c;
+  --control-border: #686a6d; /* 3,1 : 1 op donkergrijs */
   --placeholder: #8f9194;
 
   --tabbar-rgb: 27, 28, 30;
@@ -501,6 +504,23 @@ h2 {
   .subtabs:has(.subtab-menu__toggle[aria-expanded="true"]) {
     overflow: visible;
   }
+
+  /* Er staat meer (sinds 4.13.0): de rand vervaagt aan de kant waar nog tabbladen buiten beeld staan. De klassen zet app.js
+     (subtabsEdges) bij het scrollen. Niet met de winkelkeuze open: een masker zou de lijst eronder afknippen. */
+  .subtabs.has-more-end:not(:has(.subtab-menu__toggle[aria-expanded="true"])) {
+    -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 36px), transparent);
+    mask-image: linear-gradient(to right, #000 calc(100% - 36px), transparent);
+  }
+
+  .subtabs.has-more-start:not(:has(.subtab-menu__toggle[aria-expanded="true"])) {
+    -webkit-mask-image: linear-gradient(to left, #000 calc(100% - 36px), transparent);
+    mask-image: linear-gradient(to left, #000 calc(100% - 36px), transparent);
+  }
+
+  .subtabs.has-more-start.has-more-end:not(:has(.subtab-menu__toggle[aria-expanded="true"])) {
+    -webkit-mask-image: linear-gradient(to right, transparent, #000 36px, #000 calc(100% - 36px), transparent);
+    mask-image: linear-gradient(to right, transparent, #000 36px, #000 calc(100% - 36px), transparent);
+  }
 }
 
 /* De titel van een scherm (sinds 4.7.0). Bij Weekmenu en Recepten zoeken staat hij er alleen als het zijmenu de
@@ -551,10 +571,12 @@ h2 {
   color: var(--muted);
 }
 
-.tab:hover:not(.is-active),
-.subtab:hover:not(.is-active) {
-  background: var(--selection);
-  color: var(--primary-strong);
+@media (hover: hover) {
+  .tab:hover:not(.is-active),
+  .subtab:hover:not(.is-active) {
+    background: var(--selection);
+    color: var(--primary-strong);
+  }
 }
 
 .tab.is-active {
@@ -660,10 +682,16 @@ h2 {
 }
 
 /* De winkelkeuze in Winkels kiest iets in plaats van een pagina te openen: lichte vulling in plaats van de actieve kleur. */
-.subtab-menu__toggle--select,
-.subtab-menu__toggle--select:hover {
+.subtab-menu__toggle--select {
   background: var(--selection);
   color: var(--primary-strong);
+}
+
+@media (hover: hover) {
+  .subtab-menu__toggle--select:hover {
+    background: var(--selection);
+    color: var(--primary-strong);
+  }
 }
 
 .subtab-menu__chevron {
@@ -715,10 +743,16 @@ h2 {
   cursor: pointer;
 }
 
-.subtab-menu__item:hover,
 .subtab-menu__item.is-active {
   background: var(--selection);
   color: var(--primary-strong);
+}
+
+@media (hover: hover) {
+  .subtab-menu__item:hover {
+    background: var(--selection);
+    color: var(--primary-strong);
+  }
 }
 
 /* Navigatie is een echte link (router.js): Ctrl+klik en de middelste knop openen een nieuw tabblad. Zelfde uiterlijk als de knoppen. */
@@ -854,10 +888,12 @@ a.subtab-menu__item[hidden] {
   box-shadow: var(--btn-shadow);
 }
 
-.button:hover,
-.icon-button:hover {
-  background: var(--primary-strong);
-  box-shadow: var(--btn-shadow-hover);
+@media (hover: hover) {
+  .button:hover,
+  .icon-button:hover {
+    background: var(--primary-strong);
+    box-shadow: var(--btn-shadow-hover);
+  }
 }
 
 .button:active:not(:disabled),
@@ -880,12 +916,14 @@ a.subtab-menu__item[hidden] {
   box-shadow: var(--shadow-xs);
 }
 
-.button--secondary:hover,
-.icon-button:hover {
-  border-color: var(--border-strong);
-  background: var(--selection);
-  color: var(--primary-strong);
-  box-shadow: var(--shadow-sm);
+@media (hover: hover) {
+  .button--secondary:hover,
+  .icon-button:hover {
+    border-color: var(--border-strong);
+    background: var(--selection);
+    color: var(--primary-strong);
+    box-shadow: var(--shadow-sm);
+  }
 }
 
 .icon-button {
@@ -917,7 +955,7 @@ a.subtab-menu__item[hidden] {
 .input,
 .textarea {
   width: 100%;
-  border: 1px solid var(--border);
+  border: 1px solid var(--control-border);
   border-radius: var(--radius-control);
   background: var(--surface);
   color: var(--text);
@@ -933,10 +971,12 @@ a.subtab-menu__item[hidden] {
   opacity: 1;
 }
 
-.input:hover:not(:focus-visible),
-.textarea:hover:not(:focus-visible),
-.store-select:hover:not(:focus-visible) {
-  border-color: var(--border-strong);
+@media (hover: hover) {
+  .input:hover:not(:focus-visible),
+  .textarea:hover:not(:focus-visible),
+  .store-select:hover:not(:focus-visible) {
+    border-color: var(--muted);
+  }
 }
 
 .input {
@@ -1041,6 +1081,13 @@ a.subtab-menu__item[hidden] {
   background: var(--warning-bg);
   color: var(--warning-text);
   box-shadow: inset 4px 0 0 var(--warning-border);
+}
+
+/* Neutraal: bezig, wachten, of een mededeling zonder oordeel (sinds 4.10.4). Geen groen: "Laden..." is geen succes. */
+.message.info {
+  background: var(--surface-muted);
+  color: var(--text);
+  box-shadow: inset 4px 0 0 var(--muted);
 }
 
 .message.warning code {
@@ -1210,6 +1257,125 @@ a.subtab-menu__item[hidden] {
   padding-left: 18px;
 }
 
+/* De boodschappenlijst onder het weekmenu (shopping.js, 4.11.0): een aanvinklijst met per regel een huisje voor "altijd in huis",
+   de dagen waarvoor je boodschappen doet als chips erboven, en wat in huis is ingeklapt eronder. Regels van 44 px. */
+/* De knop Boodschappen en het zoeken springen naar deze koppen: onder de balk die bovenaan blijft staan, niet erachter. */
+#shop-title,
+#cart-review-title {
+  scroll-margin-top: 96px;
+}
+
+.shop-days {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.shop-days__label {
+  margin-right: 4px;
+  color: var(--muted);
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+
+.shop-days__note,
+.shop-hint {
+  margin: 8px 0 0;
+  font-size: var(--text-sm);
+}
+
+.ingredients .shop-list {
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 0 16px;
+  margin-top: 10px;
+  padding: 0;
+  list-style: none;
+}
+
+.shop-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.shop-item__label {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  min-height: 44px;
+  cursor: pointer;
+}
+
+.shop-item__label input {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  margin: 0;
+  accent-color: var(--primary);
+}
+
+.shop-item__label span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* Niet mee deze week: doorgestreept en gedempt, dus niet alleen aan het vinkje te zien. */
+.shop-item.is-off .shop-item__label span {
+  color: var(--muted);
+  text-decoration: line-through;
+}
+
+.shop-item__pantry {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.shop-item__pantry svg {
+  width: 22px;
+  height: 22px;
+  fill: currentColor;
+}
+
+/* In huis: het gevulde huisje in de accentkleur (het icoon wisselt mee, dus niet alleen de kleur). */
+.shop-item__pantry[aria-pressed="true"] {
+  color: var(--primary);
+}
+
+@media (hover: hover) {
+  .shop-item__pantry:hover {
+    background: var(--selection);
+    color: var(--primary-strong);
+  }
+}
+
+.shop-pantry {
+  margin-top: 10px;
+  border-top: 1px solid var(--border);
+}
+
+/* display: list-item houdt het driehoekje van de browser, zodat je ziet dat het blok open en dicht kan. */
+.shop-pantry > summary {
+  display: list-item;
+  padding: 11px 0;
+  font-weight: 600;
+  cursor: pointer;
+}
+
 .recipe-card {
   display: flex;
   flex-direction: column;
@@ -1217,9 +1383,11 @@ a.subtab-menu__item[hidden] {
   transition: transform 0.2s var(--ease), box-shadow 0.2s var(--ease), border-color 0.2s var(--ease);
 }
 
-.recipe-card:hover {
-  border-color: var(--border-strong);
-  box-shadow: var(--shadow-md);
+@media (hover: hover) {
+  .recipe-card:hover {
+    border-color: var(--border-strong);
+    box-shadow: var(--shadow-md);
+  }
 }
 
 /* Het oplichten van kaarten alleen met een muis: op een scherm blijft het na een tik anders hangen. */
@@ -1246,11 +1414,16 @@ a.subtab-menu__item[hidden] {
     transition: none;
   }
 
-  .recipe-card:hover,
-  .list-card:hover,
   .button:active:not(:disabled),
   .icon-button:active:not(:disabled) {
     transform: none;
+  }
+
+  @media (hover: hover) {
+    .recipe-card:hover,
+    .list-card:hover {
+      transform: none;
+    }
   }
 }
 
@@ -1467,10 +1640,12 @@ code {
   transition: border-color 0.15s var(--ease), background-color 0.15s var(--ease), box-shadow 0.2s var(--ease);
 }
 
-a.product-card:hover {
-  border-color: var(--primary);
-  background: var(--selection);
-  box-shadow: var(--shadow-sm);
+@media (hover: hover) {
+  a.product-card:hover {
+    border-color: var(--primary);
+    background: var(--selection);
+    box-shadow: var(--shadow-sm);
+  }
 }
 
 .product-card img {
@@ -1541,8 +1716,10 @@ a.product-card strong {
   cursor: pointer;
 }
 
-.offer-match:hover {
-  text-decoration: underline;
+@media (hover: hover) {
+  .offer-match:hover {
+    text-decoration: underline;
+  }
 }
 
 /* De kleine vlag naast een gekoppeld product: meld dat de koppeling niet klopt. */
@@ -1559,8 +1736,10 @@ a.product-card strong {
   border-radius: var(--radius-sm);
 }
 
-.offer-flag:hover {
-  color: var(--danger);
+@media (hover: hover) {
+  .offer-flag:hover {
+    color: var(--danger);
+  }
 }
 
 .offer-flag:focus-visible {
@@ -1591,6 +1770,7 @@ html:has(dialog[open]) {
 .product-dialog {
   width: min(480px, calc(100vw - 32px));
   max-height: calc(100vh - 32px);
+  max-height: calc(100dvh - 32px); /* iOS: de zichtbare hoogte, zonder de werkbalk van Safari */
   overflow: auto;
   overscroll-behavior: contain;
   border: 1px solid var(--border);
@@ -1599,6 +1779,171 @@ html:has(dialog[open]) {
   background: var(--surface);
   color: var(--text);
   box-shadow: 0 24px 80px rgba(var(--shadow-ink), 0.3);
+}
+
+/* Naar de inhoud (sinds 4.12.0): de eerste Tab-stop van de pagina, alleen te zien met de focus erop. Slaat de kop en het menu over. */
+.skip-link {
+  position: fixed;
+  z-index: 100;
+  top: 8px;
+  left: 8px;
+  padding: 10px 14px;
+  border-radius: var(--radius-control);
+  background: var(--primary);
+  color: var(--on-primary);
+  font-weight: 600;
+  text-decoration: none;
+  transform: translateY(-200%);
+}
+
+.skip-link:focus {
+  transform: none;
+}
+
+/* De inhoud krijgt de focus na een schermwissel en na Naar de inhoud, zodat Tab daar verdergaat (app.js, router.js). Het is
+   geen bediening: een focusrand om de hele pagina zegt niets. */
+#main:focus {
+  outline: none;
+}
+
+/* De regel onder een veld (de wachtwoordregels, sinds 4.12.0): klein en gedempt, direct onder het veld waar hij bij hoort. */
+.field__hint {
+  display: block;
+  margin-top: 4px;
+  font-size: var(--text-sm);
+}
+
+/* Een veld met zijn label ervoor op één regel (de naam van een nieuwe passkey). */
+.field--inline {
+  display: flex;
+  flex: 1 1 220px;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  margin: 0;
+}
+
+.field--inline .input {
+  flex: 1 1 160px;
+}
+
+/* Een laadtoestand met vaste ruimte (loadingHtml in app.js, sinds 4.12.0), zoals .offers-loading bij de aanbiedingen. */
+.loading-box {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  min-height: 160px;
+  color: var(--muted);
+}
+
+.loading-box__icon {
+  flex: none;
+  width: 28px;
+  height: 28px;
+  fill: currentColor;
+  animation: spin 1s linear infinite;
+}
+
+/* Het weekmenu terwijl het laadt: lege kaarten met grijze balken waar de foto en de naam komen. Stil, zonder glans. */
+.day-card--skeleton {
+  display: grid;
+  align-content: start;
+  gap: 12px;
+  min-height: 150px;
+  padding: 16px;
+}
+
+.day-card--skeleton span {
+  display: block;
+  height: 14px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-muted);
+}
+
+.day-card--skeleton span:first-child {
+  width: 35%;
+}
+
+.day-card--skeleton span:nth-child(2) {
+  width: 80%;
+  height: 44px;
+}
+
+.day-card--skeleton span:last-child {
+  width: 55%;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .loading-box__icon {
+    animation: none;
+  }
+}
+
+/* Een vraag (confirmDialog in app.js, sinds 4.12.0): de tekst, en de knoppen rechts met de bevestiging als laatste. */
+.confirm-dialog {
+  width: min(420px, calc(100vw - 32px));
+}
+
+.confirm-dialog__text {
+  margin: 0;
+  font-size: var(--text-base);
+  line-height: 1.5;
+}
+
+/* Korte meldingen (toast in app.js): onderaan in het midden, boven de menubalk van de geinstalleerde app. */
+.toasts {
+  position: fixed;
+  z-index: 60;
+  right: 16px;
+  bottom: max(16px, env(safe-area-inset-bottom));
+  left: 16px;
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  pointer-events: none;
+}
+
+.toast {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  max-width: min(520px, 100%);
+  padding: 10px 14px;
+  border: 1px solid var(--success-border);
+  border-radius: var(--radius-card);
+  background: var(--success-bg);
+  color: var(--success-text);
+  box-shadow: var(--shadow-md);
+  font-size: var(--text-ui);
+  font-weight: 600;
+  pointer-events: auto;
+  animation: rise-in 0.2s var(--ease);
+}
+
+.toast--error {
+  border-color: var(--danger-border);
+  background: var(--danger-bg);
+  color: var(--danger);
+}
+
+.toast__close {
+  flex: none;
+  min-height: 32px;
+  padding: 0 10px;
+  border: 1px solid currentColor;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .toast {
+    animation: none;
+  }
 }
 
 .product-dialog::backdrop {
@@ -1687,6 +2032,7 @@ html:has(dialog[open]) {
   width: 100%;
   aspect-ratio: 1;
   max-height: max(160px, calc(100vh - 220px));
+  max-height: max(160px, calc(100dvh - 220px)); /* iOS: de zichtbare hoogte, zonder de werkbalk van Safari */
   border-radius: var(--radius-control);
   object-fit: contain;
   background: #fff;
@@ -1699,9 +2045,14 @@ html:has(dialog[open]) {
     transition: none;
   }
 
-  .review-thumb:not(:disabled):hover,
   .review-thumb:not(:disabled):active {
     transform: none;
+  }
+
+  @media (hover: hover) {
+    .review-thumb:not(:disabled):hover {
+      transform: none;
+    }
   }
 }
 
@@ -1782,8 +2133,10 @@ html:has(dialog[open]) {
   text-decoration: none;
 }
 
-a.product-card__main:hover strong {
-  text-decoration: underline;
+@media (hover: hover) {
+  a.product-card__main:hover strong {
+    text-decoration: underline;
+  }
 }
 
 .product-card--list.is-edited {
@@ -1817,9 +2170,11 @@ a.product-card__main:hover strong {
   cursor: pointer;
 }
 
-.qty__step:hover {
-  background: var(--selection);
-  color: var(--primary-strong);
+@media (hover: hover) {
+  .qty__step:hover {
+    background: var(--selection);
+    color: var(--primary-strong);
+  }
 }
 
 .qty__step svg {
@@ -1832,7 +2187,7 @@ a.product-card__main:hover strong {
   width: 52px;
   height: 36px;
   padding: 0 4px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--control-border);
   border-radius: var(--radius-control);
   background: var(--surface);
   color: var(--text);
@@ -1943,6 +2298,7 @@ a.product-card__main:hover strong {
 
 .cook__columns {
   display: grid;
+  grid-template-columns: minmax(0, 1fr); /* issue #309: een lang woord (een link, een samenstelling) maakt de kolom niet breder dan het venster */
   gap: 24px;
   margin-top: 20px;
 }
@@ -2016,7 +2372,7 @@ a.product-card__main:hover strong {
 
 .cook-ingredient__text {
   min-width: 0;
-  overflow-wrap: break-word;
+  overflow-wrap: anywhere;
   transition: color 150ms var(--ease);
 }
 
@@ -2327,7 +2683,7 @@ html.no-calories .plan-servings__kcal {
   font-size: var(--text-lg);
   line-height: 1.6;
   white-space: pre-line;
-  overflow-wrap: break-word;
+  overflow-wrap: anywhere;
   transition: color 200ms var(--ease);
 }
 
@@ -2368,6 +2724,7 @@ html.no-calories .plan-servings__kcal {
     position: sticky;
     top: var(--cook-sticky-top);
     max-height: calc(100vh - var(--cook-sticky-top) - var(--cook-sticky-room));
+    max-height: calc(100dvh - var(--cook-sticky-top) - var(--cook-sticky-room)); /* iOS: de zichtbare hoogte, zonder de werkbalk van Safari */
     overflow-y: auto;
     overscroll-behavior: contain;
   }
@@ -2536,7 +2893,7 @@ details.help > p {
    breed (vanaf 900 px): alles op één regel, van ingrediënt naar product. */
 .review-row {
   display: grid;
-  grid-template-columns: auto 56px minmax(0, 1fr) 72px;
+  grid-template-columns: auto 56px minmax(0, 1fr) auto;
   grid-template-areas:
     "include thumb ingredient ingredient"
     "product product product product"
@@ -2576,16 +2933,16 @@ details.help > p {
 
 .review-row .review-qty {
   grid-area: qty;
-  width: 72px;
 }
 
-.review-row .review-search--extra {
+/* De opties van een regel (Wijzig): onder de regel, over de volle breedte. */
+.review-row .review-options {
   grid-column: 1 / -1;
 }
 
 @container (min-width: 520px) {
   .review-row {
-    grid-template-columns: auto 56px minmax(0, 1fr) 72px;
+    grid-template-columns: auto 56px minmax(0, 1fr) auto;
     grid-template-areas:
       "include thumb ingredient link"
       "include thumb product qty";
@@ -2596,14 +2953,14 @@ details.help > p {
     justify-self: end;
   }
 
-  .review-row .review-search--extra {
+  .review-row .review-options {
     grid-column: 3 / -1;
   }
 }
 
 @container (min-width: 900px) {
   .review-row {
-    grid-template-columns: auto 56px minmax(0, 1fr) minmax(0, 1.4fr) auto 72px;
+    grid-template-columns: auto 56px minmax(0, 1fr) minmax(0, 1.4fr) auto auto;
     grid-template-areas: "include thumb ingredient product link qty";
   }
 
@@ -2671,16 +3028,35 @@ details.help > p {
   box-shadow: var(--shadow-md);
 }
 
+/* Het geschatte totaal links in de balk met Toevoegen en Annuleren (sinds 4.11.0). Voor de regel van de telefoon hieronder, die het op een eigen regel zet. */
+.cart-review__total {
+  flex: 1 1 0;
+  min-width: 7em;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.cart-review__total:empty {
+  display: none;
+}
+
 /* Op een telefoon naast elkaar: de toevoegknop neemt de ruimte, zodat de balk laag blijft. */
 @media (max-width: 640px) {
   .cart-review__actions {
-    flex-wrap: nowrap;
     margin-inline: -12px;
     padding: 8px;
   }
 
+  /* Het totaal op een eigen regel boven de knoppen: naast elkaar brak de tekst van de toevoegknop in vier regels. */
+  .cart-review__total {
+    flex: 1 0 100%;
+    margin: 0 4px;
+    font-size: var(--text-md);
+  }
+
   .cart-review__actions #confirm-cart {
-    flex: 1 1 auto;
+    flex: 1 1 0;
+    min-width: 0;
   }
 }
 
@@ -2699,10 +3075,6 @@ details.help > p {
   display: none;
 }
 
-.review-search--extra {
-  grid-column: 1 / -1;
-}
-
 .review-search-status {
   flex-basis: 100%;
   color: var(--muted);
@@ -2713,22 +3085,11 @@ details.help > p {
   display: none;
 }
 
-/* .review-row erbij: .link-button (44 px hoog) staat verderop en zou anders winnen. Een losse tekstlink van 24 px met ruimte
-   eromheen (WCAG 2.5.8); "Kies" staat in de zin en mag zo hoog zijn als de regel. */
-.review-row .review-search-toggle {
-  display: block;
-  min-height: 24px;
-  margin-top: 4px;
-  padding: 0;
-  font-size: var(--text-sm);
-  text-align: left;
-}
-
 .review-search-input {
   flex: 1;
   min-width: 0;
   min-height: var(--control-height);
-  border: 1px solid var(--border);
+  border: 1px solid var(--control-border);
   border-radius: var(--radius-control);
   background: var(--surface);
   color: var(--text);
@@ -2776,20 +3137,200 @@ details.help > p {
   accent-color: var(--primary);
 }
 
-.review-row .review-product,
-.review-row .review-qty {
+/* Het gekozen product (sinds 4.11.0 een knop in plaats van een keuzelijst van het systeem, die op een telefoon de lange regel
+   afkapte): de naam en daaronder inhoud, prijs en prijs per eenheid. Tikken klapt de opties uit. */
+.review-row .review-product {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-width: 0;
   min-height: var(--control-height);
   border: 1px solid var(--border);
   border-radius: var(--radius-control);
   background: var(--surface);
   color: var(--text);
   font: inherit;
-  font-size: var(--text-base);
-  padding: 0 8px;
+  font-size: var(--text-ui);
+  padding: 6px 10px;
+  text-align: left;
+  cursor: pointer;
+  box-shadow: var(--shadow-xs);
 }
 
-.review-row .review-product {
-  width: 100%;
+.review-row .review-product[aria-expanded="true"] {
+  border-color: var(--primary);
+}
+
+.review-chosen__text {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.review-chosen__text strong,
+.review-chosen__text small,
+.review-option__text strong,
+.review-option__text small {
+  display: block;
+  overflow-wrap: anywhere;
+}
+
+.review-chosen__text small,
+.review-option__text small {
+  margin-top: 1px;
+  color: var(--muted);
+  font-size: var(--text-sm);
+  font-weight: 400;
+}
+
+.review-chosen__change {
+  flex: none;
+  color: var(--primary);
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+
+/* Het aantal verpakkingen: de -/+-knop van de lijstjes, hier 44 px omdat je de lijst ook staand in de keuken naloopt. */
+.review-qty .qty__step,
+.review-qty .qty__input {
+  width: 44px;
+  height: 44px;
+}
+
+.review-options {
+  display: grid;
+  gap: 10px;
+  padding-top: 4px;
+}
+
+.review-options__list {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.review-option {
+  display: grid;
+  grid-template-columns: auto 40px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  min-height: 52px;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--surface);
+  cursor: pointer;
+}
+
+.review-option.is-chosen {
+  border-color: var(--primary);
+  background: var(--selection);
+}
+
+.review-option input {
+  width: 20px;
+  height: 20px;
+  margin: 0;
+  accent-color: var(--primary);
+}
+
+.review-option__image {
+  display: block;
+  width: 40px;
+  height: 40px;
+  border-radius: var(--radius-sm);
+  object-fit: contain;
+  background: #fff;
+}
+
+span.review-option__image {
+  background: var(--surface-muted);
+}
+
+/* Eerder gekozen (cart_memory): een label met de knop om het te vergeten. */
+.review-remembered {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  margin-top: 3px;
+  font-size: var(--text-sm);
+}
+
+.review-remembered__tag {
+  padding: 1px 8px;
+  border: 1px solid var(--selection-border);
+  border-radius: var(--radius-pill);
+  background: var(--selection);
+  color: var(--primary-strong);
+  font-weight: 600;
+}
+
+.review-row .review-remembered .link-button {
+  min-height: 24px;
+  padding: 0;
+  font-size: var(--text-sm);
+}
+
+/* Een regel die nog gezocht wordt. */
+.review-row.is-pending {
+  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-areas: "include ingredient";
+  border-style: dashed;
+  color: var(--muted);
+}
+
+.review-pending__icon {
+  grid-area: include;
+  width: 20px;
+  height: 20px;
+  fill: currentColor;
+  animation: spin 1s linear infinite;
+}
+
+.review-row.is-pending .review-note {
+  color: var(--muted);
+}
+
+/* De groepen van de controlelijst: wat je moet nakijken, wat in orde is en wat nog gezocht wordt. */
+.review-group {
+  margin-top: 18px;
+}
+
+.review-group[hidden] {
+  display: none;
+}
+
+.review-group h3 {
+  margin: 0;
+  font-size: var(--text-base);
+}
+
+.review-group .review-list {
+  margin-top: 8px;
+}
+
+.review-progress {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  margin-top: 12px;
+  padding: 8px 12px;
+  border-radius: var(--radius-control);
+  background: var(--surface-muted);
+  font-weight: 600;
+}
+
+.review-progress[hidden] {
+  display: none;
+}
+
+.review-progress .button {
+  margin-left: auto;
 }
 
 /* De foto van het gekozen product; zelfde tegel als bij .product-card. Een knop: tikken toont hem groot (#photo-dialog). */
@@ -2838,7 +3379,7 @@ details.help > p {
 
 .store-select {
   min-height: var(--control-height);
-  border: 1px solid var(--border);
+  border: 1px solid var(--control-border);
   border-radius: var(--radius-control);
   background: var(--surface);
   color: var(--text);
@@ -2874,8 +3415,10 @@ select.input {
   text-decoration: none;
 }
 
-.review-link:hover {
-  text-decoration: underline;
+@media (hover: hover) {
+  .review-link:hover {
+    text-decoration: underline;
+  }
 }
 
 @media (max-width: 640px) {
@@ -3208,13 +3751,14 @@ html:has(#cook-mode[open]) {
 .cook-mode__stage {
   display: flex;
   flex-direction: column;
-  justify-content: center;
   gap: 20px;
   width: 100%;
   max-width: 52rem;
   min-height: 0;
   margin: 0 auto;
-  padding: 24px max(20px, env(safe-area-inset-right)) 24px max(20px, env(safe-area-inset-left));
+  /* Onderaan ruimte voor de zwevende timers (cook_timers.js zet --cook-timers-room), zodat er niets van de stap achter valt. */
+  padding: 24px max(20px, env(safe-area-inset-right)) calc(24px + var(--cook-timers-room, 0px)) max(20px, env(safe-area-inset-left));
+  scroll-padding-bottom: var(--cook-timers-room, 0px);
   overflow-y: auto;
   overscroll-behavior: contain;
   touch-action: pan-y;
@@ -3249,7 +3793,7 @@ html:has(#cook-mode[open]) {
   font-size: clamp(22px, 1.2rem + 1.5vw, 34px);
   line-height: 1.45;
   white-space: pre-line;
-  overflow-wrap: break-word;
+  overflow-wrap: anywhere;
   transition: color 200ms var(--ease);
 }
 
@@ -3331,6 +3875,290 @@ html:has(#cook-mode[open]) {
   }
 }
 
+/* De stap staat midden in het vlak met marges in plaats van justify-content: center. Is de stap met zijn ingrediënten en
+   timers hoger dan het vlak, dan scrolt alles, ook de bovenkant (met center viel die buiten de scroll; issue #309). */
+.cook-mode__stage > :first-child {
+  margin-top: auto;
+}
+
+.cook-mode__stage > :last-child {
+  margin-bottom: auto;
+}
+
+/* ---- Ingrediënten bij een stap (issue #309). In de lijst met stappen kort onder de tekst, in de kookmodus met vinkjes. */
+.cook .cook-step__uses {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 0;
+  max-width: 68ch;
+  margin: 8px 0 0;
+  color: var(--muted);
+  font-size: var(--text-md);
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.cook-step__use b {
+  color: var(--text);
+  font-weight: 700;
+}
+
+.cook-mode__uses {
+  display: grid;
+  gap: 4px;
+  padding: 12px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+}
+
+.cook-mode__uses-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+}
+
+.cook-mode .cook-mode__uses-title {
+  margin: 0;
+  font-size: var(--text-base);
+}
+
+.cook-mode__auto {
+  color: var(--muted);
+  font-size: var(--text-sm);
+}
+
+.cook-mode__link {
+  min-height: 40px;
+  margin-left: auto;
+  padding: 0 12px;
+  font-size: var(--text-md);
+}
+
+.cook-mode__uses-none {
+  margin: 0;
+}
+
+.cook-mode__uses-list .cook-ingredient label {
+  padding: 8px 4px;
+  font-size: var(--text-lg);
+}
+
+.cook-link fieldset {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.cook-link legend {
+  margin-bottom: 4px;
+  font-weight: 700;
+}
+
+.cook-link__items {
+  display: grid;
+}
+
+.cook-link__section {
+  margin: 10px 0 2px;
+  color: var(--muted);
+  font-size: var(--text-sm);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.cook-link__item {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  min-height: 44px;
+  padding: 10px 4px;
+  font-size: var(--text-base);
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+
+.cook-link__item input {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  margin: 1px 0 0;
+  accent-color: var(--primary);
+}
+
+.cook-link__item + .cook-link__item {
+  border-top: 1px solid var(--border);
+}
+
+.cook-link__hint {
+  margin: 8px 0;
+  font-size: var(--text-sm);
+}
+
+.cook-link__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* ---- Timers. De knopjes onder de stap, en het formulier voor een eigen tijd. */
+.cook-mode__timer-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.cook-mode__timer {
+  min-height: 44px;
+  padding: 0 14px;
+  font-variant-numeric: tabular-nums;
+}
+
+.cook-timer-new {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.cook-timer-new input {
+  width: 5.5em;
+  min-height: 44px;
+  font-size: var(--text-base); /* iOS zoomt niet in bij 16px */
+  font-variant-numeric: tabular-nums;
+}
+
+/* De zwevende timers: rechtsonder, smal, boven de menubalk of in de kookmodus boven Vorige en Volgende. Een timer die
+   afgaat is rood en pulseert; in te klappen tot de kop met het aantal. */
+.cook-timers {
+  position: fixed;
+  z-index: 61;
+  right: max(12px, env(safe-area-inset-right));
+  bottom: max(16px, env(safe-area-inset-bottom));
+  display: grid;
+  justify-items: end;
+  gap: 6px;
+  width: min(300px, calc(100vw - 24px));
+  pointer-events: none;
+}
+
+.cook-timers.cook-timers--cook-mode {
+  position: absolute;
+  bottom: calc(88px + max(12px, env(safe-area-inset-bottom)));
+}
+
+.cook-timers > * {
+  pointer-events: auto;
+}
+
+.cook-timers__toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 36px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: var(--shadow-md);
+  font: inherit;
+  font-size: var(--text-sm);
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.cook-timers .mdi {
+  width: 18px;
+  height: 18px;
+  fill: currentColor;
+  flex: none;
+}
+
+.cook-timers__toggle[aria-expanded="true"] .cook-timers__chevron {
+  transform: rotate(180deg);
+}
+
+.cook-timers__list {
+  display: grid;
+  gap: 6px;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.cook-timer {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 2px 2px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+  box-shadow: var(--shadow-md);
+}
+
+.cook-timer__info {
+  display: grid;
+  flex: 1;
+  min-width: 0;
+}
+
+.cook-timer__name {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: var(--text-xs);
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cook-timer__clock {
+  font-size: var(--text-lg);
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.2;
+}
+
+.cook-timers .cook-timer__button {
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border-color: transparent;
+  background: transparent;
+}
+
+.cook-timers__next {
+  font-variant-numeric: tabular-nums;
+}
+
+.cook-timer.is-paused .cook-timer__clock {
+  color: var(--muted);
+}
+
+.cook-timer.is-ringing {
+  border-color: var(--danger-border);
+  background: var(--danger-bg);
+  color: var(--danger);
+  animation: cook-timer-ring 1s ease-in-out infinite;
+}
+
+.cook-timer.is-ringing .cook-timer__name {
+  color: var(--danger);
+}
+
+@keyframes cook-timer-ring {
+  50% {
+    box-shadow: 0 0 0 6px var(--danger-border);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .cook__meter i,
   .cook-step,
@@ -3339,6 +4167,10 @@ html:has(#cook-mode[open]) {
   .cook .cook-step__text,
   .cook-mode .cook-mode__text {
     transition: none;
+  }
+
+  .cook-timer.is-ringing {
+    animation: none;
   }
 }
 
@@ -3714,9 +4546,11 @@ button.plan-recipe:focus-visible {
   transition: border-color 0.15s var(--ease), box-shadow 0.2s var(--ease), transform 0.2s var(--ease);
 }
 
-.list-card:hover {
-  border-color: var(--primary);
-  box-shadow: var(--shadow-md);
+@media (hover: hover) {
+  .list-card:hover {
+    border-color: var(--primary);
+    box-shadow: var(--shadow-md);
+  }
 }
 
 .list-card__open {
@@ -3734,8 +4568,10 @@ button.plan-recipe:focus-visible {
   cursor: pointer;
 }
 
-.list-card__open:hover {
-  background: var(--selection);
+@media (hover: hover) {
+  .list-card__open:hover {
+    background: var(--selection);
+  }
 }
 
 .list-card__open strong {
@@ -3801,8 +4637,10 @@ button.plan-recipe:focus-visible {
   fill: currentColor;
 }
 
-.list-card__action:hover:not(:disabled) {
-  color: var(--danger);
+@media (hover: hover) {
+  .list-card__action:hover:not(:disabled) {
+    color: var(--danger);
+  }
 }
 
 /* Oude aankopen importeren bij Bestellingen: de knop met dezelfde archiefdoos als op de kaarten. */
@@ -3935,6 +4773,13 @@ button.plan-recipe:focus-visible {
   }
 }
 
+/* Hetzelfde voor het icoon bij een regel van de controlelijst die nog gezocht wordt. */
+@media (prefers-reduced-motion: reduce) {
+  .review-pending__icon {
+    animation: none;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   #offers-ai-run .ai-run__icon {
     animation: none;
@@ -3972,8 +4817,10 @@ a.button {
   cursor: pointer;
 }
 
-.link-button:hover {
-  color: var(--primary-strong);
+@media (hover: hover) {
+  .link-button:hover {
+    color: var(--primary-strong);
+  }
 }
 
 .check {
@@ -4592,8 +5439,10 @@ body.has-onboarding {
   cursor: pointer;
 }
 
-.theme-toggle:hover {
-  color: var(--primary);
+@media (hover: hover) {
+  .theme-toggle:hover {
+    color: var(--primary);
+  }
 }
 
 .theme-toggle__icon {
@@ -4629,8 +5478,10 @@ body.has-onboarding {
   transition: color 0.15s var(--ease), background-color 0.15s var(--ease), border-color 0.15s var(--ease);
 }
 
-.lang-switch__button:hover {
-  color: var(--primary-strong);
+@media (hover: hover) {
+  .lang-switch__button:hover {
+    color: var(--primary-strong);
+  }
 }
 
 /* De gekozen taal: het selectievlak met zijn rand, zoals een actief segment; de kleur is niet het enige signaal (aria-pressed). */
@@ -4693,6 +5544,16 @@ html.is-standalone body {
   /* De balk van In bulk importeren boven de menubalk. */
   html.has-tabbar .bulk-bar {
     bottom: calc(var(--tabbar-h) + 14px + env(safe-area-inset-bottom));
+  }
+
+  /* Korte meldingen (toast) boven de menubalk. */
+  html.has-tabbar .toasts {
+    bottom: calc(var(--tabbar-h) + 22px + env(safe-area-inset-bottom));
+  }
+
+  /* De kooktimers buiten de kookmodus ook boven de menubalk. */
+  html.has-tabbar .cook-timers:not(.cook-timers--cook-mode) {
+    bottom: calc(var(--tabbar-h) + 22px + env(safe-area-inset-bottom));
   }
 
   /* En die met Toevoegen en Annuleren onder de controlelijst van het mandje. */
@@ -4765,8 +5626,18 @@ html.is-standalone body {
     display: block;
   }
 
+  /* Het lange label is in de balk niet te zien, maar blijft de naam van de tab voor een schermlezer: het korte label eronder
+     heeft aria-hidden. Tot 4.10.4 stond hier display: none en had een tab in de balk geen naam (zoals .visually-hidden). */
   html.has-tabbar .tab-text {
-    display: none;
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+    border: 0;
   }
 
   html.has-tabbar .tab-short {
@@ -4777,9 +5648,11 @@ html.is-standalone body {
     white-space: nowrap;
   }
 
-  html.has-tabbar .tab:hover:not(.is-active) {
-    background: transparent;
-    color: var(--tabbar-ink);
+  @media (hover: hover) {
+    html.has-tabbar .tab:hover:not(.is-active) {
+      background: transparent;
+      color: var(--tabbar-ink);
+    }
   }
 
   html.has-tabbar .tab:active {
@@ -4837,8 +5710,10 @@ html.is-standalone body {
     transition: background-color 0.2s ease;
   }
 
-  html.has-tabbar[data-nav="android"] .tab:hover:not(.is-active) {
-    color: var(--muted);
+  @media (hover: hover) {
+    html.has-tabbar[data-nav="android"] .tab:hover:not(.is-active) {
+      color: var(--muted);
+    }
   }
 
   html.has-tabbar[data-nav="android"] .tab:active {
@@ -5195,10 +6070,16 @@ html.is-standalone body {
   cursor: pointer;
 }
 
-.link-item:hover,
 .link-item:focus-visible {
   border-color: var(--primary);
   background: var(--selection);
+}
+
+@media (hover: hover) {
+  .link-item:hover {
+    border-color: var(--primary);
+    background: var(--selection);
+  }
 }
 
 .link-item.is-self {
@@ -5572,8 +6453,10 @@ html.is-standalone body {
   text-decoration: none;
 }
 
-.cat-line__name a:hover {
-  text-decoration: underline;
+@media (hover: hover) {
+  .cat-line__name a:hover {
+    text-decoration: underline;
+  }
 }
 
 .cat-line__meta {
@@ -5879,6 +6762,16 @@ html.is-standalone body {
 }
 
 /* Overzicht: rijen met een strook foto's links en de details rechts; de streep in de kleur van de soort aan de linkerrand. */
+/* Meer aankopen (sinds 4.13.0): de knop onder de lijst, in het midden, zoals Meer bij de aanbiedingen. */
+.purchase-more {
+  margin: 16px 0 0;
+  text-align: center;
+}
+
+.purchase-more:has([hidden]) {
+  display: none;
+}
+
 .purchase-overview {
   display: flex;
   flex-direction: column;
@@ -6089,8 +6982,10 @@ html.is-standalone body {
   cursor: pointer;
 }
 
-.purchase-table__row:hover {
-  background: var(--selection);
+@media (hover: hover) {
+  .purchase-table__row:hover {
+    background: var(--selection);
+  }
 }
 
 .purchase-table__row:last-child td {
@@ -6189,8 +7084,10 @@ html.is-standalone body {
   color: var(--danger);
 }
 
-.button--danger:hover {
-  border-color: var(--danger);
+@media (hover: hover) {
+  .button--danger:hover {
+    border-color: var(--danger);
+  }
 }
 
 .reset-form {
@@ -6471,10 +7368,12 @@ html.is-standalone body {
   transition: background-color 0.15s var(--ease), border-color 0.15s var(--ease), box-shadow 0.2s var(--ease);
 }
 
-.user-menu__button:hover {
-  border-color: var(--border-strong);
-  background: var(--selection);
-  box-shadow: var(--shadow-sm);
+@media (hover: hover) {
+  .user-menu__button:hover {
+    border-color: var(--border-strong);
+    background: var(--selection);
+    box-shadow: var(--shadow-sm);
+  }
 }
 
 .user-menu__name {
@@ -6563,14 +7462,26 @@ html.is-standalone body {
   text-align: left;
 }
 
-.user-menu__item:hover,
 .user-menu__item:focus-visible {
   background: var(--selection);
 }
 
+@media (hover: hover) {
+  .user-menu__item:hover {
+    background: var(--selection);
+  }
+}
+
 .user-menu__item[hidden],
-.user-menu__item--small {
+.user-menu__item--small,
+.user-menu__item--standalone {
   display: none;
+}
+
+/* Vernieuwen staat alleen in de geïnstalleerde app (sinds 4.13.0): die heeft geen knop van de browser, en omlaag slepen
+   ververst er niet. */
+html.is-standalone .user-menu__item--standalone:not([hidden]) {
+  display: flex;
 }
 
 .user-menu__icon {
@@ -6581,9 +7492,14 @@ html.is-standalone body {
   color: var(--muted);
 }
 
-.user-menu__item:hover .user-menu__icon,
 .user-menu__item:focus-visible .user-menu__icon {
   color: inherit;
+}
+
+@media (hover: hover) {
+  .user-menu__item:hover .user-menu__icon {
+    color: inherit;
+  }
 }
 
 /* Het bolletje voor een update staat achter Instellingen, niet in de hoek van het menu. */
@@ -6741,9 +7657,11 @@ html.is-standalone body {
     cursor: pointer;
   }
 
-  .tabs__toggle:hover {
-    background: var(--selection);
-    color: var(--primary-strong);
+  @media (hover: hover) {
+    .tabs__toggle:hover {
+      background: var(--selection);
+      color: var(--primary-strong);
+    }
   }
 
   .tabs__toggle-icon {
@@ -6809,9 +7727,11 @@ html.is-standalone body {
     text-decoration: none;
   }
 
-  .tab-tree__item:hover {
-    background: var(--selection);
-    color: var(--primary-strong);
+  @media (hover: hover) {
+    .tab-tree__item:hover {
+      background: var(--selection);
+      color: var(--primary-strong);
+    }
   }
 
   /* Het open subtab: een bolletje voor de naam, de kleur van het actieve onderdeel. */
@@ -6971,8 +7891,10 @@ html.is-standalone body {
   color: var(--muted);
 }
 
-.ohc-item:hover:not(.is-active) {
-  background: var(--selection);
+@media (hover: hover) {
+  .ohc-item:hover:not(.is-active) {
+    background: var(--selection);
+  }
 }
 
 .ohc-item.is-active {
@@ -7100,11 +8022,16 @@ html.is-standalone body {
   fill: var(--primary);
 }
 
-.ohc-bar:hover rect,
-.ohc-bar:hover path,
 .ohc-bar:focus rect,
 .ohc-bar:focus path {
   fill: var(--primary-strong);
+}
+
+@media (hover: hover) {
+  .ohc-bar:hover rect,
+  .ohc-bar:hover path {
+    fill: var(--primary-strong);
+  }
 }
 
 .ohc-bar:focus {
@@ -7126,9 +8053,14 @@ html.is-standalone body {
   outline: none;
 }
 
-.ohc-step:focus-visible .ohc-regular,
-.ohc-step:hover .ohc-regular {
+.ohc-step:focus-visible .ohc-regular {
   stroke: var(--text);
+}
+
+@media (hover: hover) {
+  .ohc-step:hover .ohc-regular {
+    stroke: var(--text);
+  }
 }
 
 /* Een folderactie voor de hele lijn (uit het folderarchief): een streepje onderaan, zonder prijs. */
@@ -7141,9 +8073,14 @@ html.is-standalone body {
   opacity: 0.85;
 }
 
-.ohc-line:hover rect,
 .ohc-line:focus rect {
   fill: var(--text);
+}
+
+@media (hover: hover) {
+  .ohc-line:hover rect {
+    fill: var(--text);
+  }
 }
 
 .ohc-line:focus {
@@ -7157,9 +8094,14 @@ html.is-standalone body {
   stroke-width: 2;
 }
 
-.ohc-paid:hover circle,
 .ohc-paid:focus circle {
   fill: var(--text);
+}
+
+@media (hover: hover) {
+  .ohc-paid:hover circle {
+    fill: var(--text);
+  }
 }
 
 .ohc-paid:focus {
@@ -7173,10 +8115,16 @@ html.is-standalone body {
   stroke-width: 1;
 }
 
-.ohc-observed:hover path,
 .ohc-observed:focus path {
   stroke: var(--text);
   stroke-width: 2;
+}
+
+@media (hover: hover) {
+  .ohc-observed:hover path {
+    stroke: var(--text);
+    stroke-width: 2;
+  }
 }
 
 .ohc-observed:focus {
@@ -7414,10 +8362,12 @@ html.is-standalone body {
   -webkit-tap-highlight-color: transparent;
 }
 
-.offer-chip:hover:not(.is-active) {
-  border-color: var(--border-strong);
-  background: var(--selection);
-  color: var(--primary-strong);
+@media (hover: hover) {
+  .offer-chip:hover:not(.is-active) {
+    border-color: var(--border-strong);
+    background: var(--selection);
+    color: var(--primary-strong);
+  }
 }
 
 .offer-chip.is-active {
@@ -7709,9 +8659,14 @@ html.is-standalone body {
   color: var(--primary);
 }
 
-.offer-card .offer-card__link:hover strong,
 .offer-card .offer-card__link:focus-visible strong {
   text-decoration: underline;
+}
+
+@media (hover: hover) {
+  .offer-card .offer-card__link:hover strong {
+    text-decoration: underline;
+  }
 }
 
 .offer-card .offer-card__per-unit {
@@ -7886,6 +8841,7 @@ html.is-standalone body {
   width: 640px;
   max-width: calc(100vw - 32px);
   max-height: calc(100vh - 32px);
+  max-height: calc(100dvh - 32px); /* iOS: de zichtbare hoogte, zonder de werkbalk van Safari */
   overflow: auto;
   overscroll-behavior: contain;
   padding: 16px;
@@ -7920,6 +8876,12 @@ html.is-standalone body {
 
 .offer-popup__loading {
   margin: 14px 0;
+}
+
+/* De uitleg van de kortingsbadge (sinds 4.12.0): op de kaart staat hij alleen in een tooltip, die er op een aanraakscherm niet is. */
+.offer-popup__verdict {
+  margin: 6px 0 0;
+  font-size: var(--text-sm);
 }
 
 .offer-popup__foot {
@@ -7957,6 +8919,7 @@ html.is-standalone body {
   z-index: 60;
   max-width: calc(100vw - 32px);
   max-height: calc(100vh - 32px);
+  max-height: calc(100dvh - 32px); /* iOS: de zichtbare hoogte, zonder de werkbalk van Safari */
   overflow: auto;
   overscroll-behavior: contain;
   background: var(--surface);
@@ -8162,8 +9125,10 @@ html.is-standalone body {
   color: var(--muted);
 }
 
-.offer-card__foot .icon-button:hover {
-  color: var(--primary-strong);
+@media (hover: hover) {
+  .offer-card__foot .icon-button:hover {
+    color: var(--primary-strong);
+  }
 }
 
 /* Telefoon, twee kaarten naast elkaar (~135 px): het mandje op een eigen regel boven de iconen, die samen de breedte delen. */
@@ -8229,6 +9194,7 @@ html.is-standalone body {
   position: sticky;
   top: 88px;
   max-height: calc(100vh - 104px);
+  max-height: calc(100dvh - 104px); /* iOS: de zichtbare hoogte, zonder de werkbalk van Safari */
   overflow-y: auto;
   overscroll-behavior: contain;
   display: flex;
@@ -8362,8 +9328,10 @@ html.is-standalone body {
   cursor: pointer;
 }
 
-.offer-facet__row:hover {
-  background: var(--surface-muted);
+@media (hover: hover) {
+  .offer-facet__row:hover {
+    background: var(--surface-muted);
+  }
 }
 
 .offer-facet__step {
@@ -8387,9 +9355,11 @@ html.is-standalone body {
   fill: currentColor;
 }
 
-.offer-facet__step:hover {
-  border-color: var(--primary);
-  color: var(--primary-strong);
+@media (hover: hover) {
+  .offer-facet__step:hover {
+    border-color: var(--primary);
+    color: var(--primary-strong);
+  }
 }
 
 .offer-facet__step--in[aria-pressed="true"] {
@@ -8720,10 +9690,12 @@ html.is-standalone body {
   box-shadow: none;
 }
 
-.offer-row__links .icon-button:hover {
-  background: var(--surface-muted);
-  color: var(--primary-strong);
-  box-shadow: none;
+@media (hover: hover) {
+  .offer-row__links .icon-button:hover {
+    background: var(--surface-muted);
+    color: var(--primary-strong);
+    box-shadow: none;
+  }
 }
 
 .offer-row__links .icon-button svg {
@@ -9030,12 +10002,18 @@ html.is-standalone body {
   transition: color 0.15s var(--ease), text-decoration-color 0.15s var(--ease);
 }
 
-.compare-item__body a:hover,
 .compare-item__body a:focus-visible,
-.product-card strong a:hover,
 .product-card strong a:focus-visible {
   color: var(--primary);
   text-decoration-color: currentColor;
+}
+
+@media (hover: hover) {
+  .compare-item__body a:hover,
+  .product-card strong a:hover {
+    color: var(--primary);
+    text-decoration-color: currentColor;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -9376,8 +10354,10 @@ html.is-standalone body {
   pointer-events: none;
 }
 
-.appearance-option:hover {
-  border-color: var(--primary);
+@media (hover: hover) {
+  .appearance-option:hover {
+    border-color: var(--primary);
+  }
 }
 
 .appearance-option:has(input:checked) {
@@ -9583,8 +10563,10 @@ html.is-standalone body {
     transition: none;
   }
 
-  .appearance-swatch:hover {
-    transform: none;
+  @media (hover: hover) {
+    .appearance-swatch:hover {
+      transform: none;
+    }
   }
 }
 
@@ -9796,4 +10778,86 @@ html.is-standalone body {
   .switch::before {
     transition: none;
   }
+}
+
+/* Tikvlakken van 44 px op een aanraakscherm (sinds 4.12.0). De kleine knoppen (min en plus, het potlood en de plus in het
+   weekmenu, verwijderen bij een aankoop, de iconen in de compacte aanbiedingenlijst) houden hun maat, zodat de regels niet
+   hoger worden; hun tikvlak is groter, met een onzichtbaar vlak eromheen. Met een muis verandert er niets. */
+@media (pointer: coarse) {
+  .qty__step,
+  .day-card__add--compact,
+  .product-card .product-link,
+  .purchase-table__action,
+  .offer-row__links .icon-button {
+    position: relative;
+  }
+
+  .qty__step::after,
+  .meal__edit::after,
+  .day-card__add--compact::after,
+  .product-card .product-link::after,
+  .purchase-card__action::after,
+  .purchase-overview__action::after,
+  .purchase-table__action::after,
+  .offer-row__links .icon-button::after,
+  .list-card__action::after {
+    content: "";
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 44px;
+    height: 44px;
+    transform: translate(-50%, -50%);
+  }
+
+  .ohc-range-button,
+  details.help > summary,
+  .user-menu__item {
+    min-height: 44px;
+  }
+}
+
+/* De installatiehulp: welke winkels gebruik je? (sinds 4.13.0). Een regel per winkel, het hele vlak is het vinkje. */
+.ob-stores {
+  display: grid;
+  gap: 8px;
+  margin: 14px 0;
+  padding: 0;
+  border: 0;
+}
+
+.ob-store {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+  min-height: 56px;
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+  cursor: pointer;
+}
+
+.ob-store:has(input:checked) {
+  border-color: var(--primary);
+  background: var(--selection);
+}
+
+.ob-store input {
+  width: 20px;
+  height: 20px;
+  margin: 0;
+  accent-color: var(--primary);
+}
+
+.ob-store strong,
+.ob-store small {
+  display: block;
+}
+
+.ob-store small {
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: var(--text-sm);
 }

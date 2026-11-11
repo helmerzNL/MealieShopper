@@ -63,6 +63,8 @@ const message = () => {};
 const renderOfferHistory = () => {};
 const offerHistoryKey = product => `${product.store}:${product.productId}`;
 const priceImportShowButton = () => {};
+const weekOffsetOf = () => 0;
+const weekParam = () => '';
 const setSubtabMenu = () => {};
 function element(selector) {
   if (!elements.has(selector)) elements.set(selector, {value: '', checked: false, hidden: false, innerHTML: '', dataset: {},

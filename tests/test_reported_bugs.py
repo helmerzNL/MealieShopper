@@ -18,6 +18,8 @@ from datetime import date, timedelta
 from pathlib import Path
 from unittest import mock
 
+import jwt
+
 from helpers import AppTestCase, db, returned, run, sent_json, served  # helpers zet ook het pad naar de app
 import httpx
 
@@ -26,6 +28,7 @@ import test_history_chart_js  # als module, voor de Node-opbouw van offers_histo
 import test_history_stores_js  # als module: anders draait pytest die tests hier nog een keer
 import test_offers  # idem: de opzet van de receptvoorstellen
 import test_offers_scan_js  # idem: de Node-opbouw van offers.js
+from test_auth_password import PASSWORD, AuthPasswordTestCase
 import test_order_views  # idem: de Node-opbouw van order_views.js en de gedeelde keuzelijst
 from test_prices import PricesCase, offer
 
@@ -475,6 +478,7 @@ class JsonBodyTest(AppTestCase):
         "/api/backup/uploads/<token>/stage": 404,
         "/api/price-archive/uploads/<token>": 404,
         "/api/price-archive/uploads/<token>/stage": 404,
+        "/api/auth/logout": 200,  # leest alleen de cookie (om de sessie in te trekken), geen body
         "/api/price-archive/export": 200,  # leest alleen queryparameters
         "/api/picnic/explore": 200,  # leest alleen queryparameters
         "/mcp": 404,  # JSON-RPC, en zonder OAuth-instelling niet beschikbaar
@@ -509,6 +513,79 @@ class JsonBodyTest(AppTestCase):
                 if response.status_code != expected:
                     wrong.append(f"{method} {rule.rule} -> {response.status_code} (verwacht {expected})")
         self.assertEqual(wrong, [], "\n".join(wrong))
+
+
+class SessionLifetimeTest(AuthPasswordTestCase):
+    """Melding van 2026-11-09: "het systeem logt me regelmatig uit, zorg ervoor dat ik langdurig ingelogd kan blijven". De sessie
+    (de cookie `ms_session`) liep na 24 uur af, ongeacht gebruik. Nu duurt hij 90 dagen (`MEALIESHOPPER_SESSION_DAYS`) en zet
+    elke aanvraag met een sessie van meer dan een dag oud een verse cookie, zodat wie de app gebruikt ingelogd blijft."""
+
+    NINETY_DAYS = 90 * 24 * 60 * 60
+
+    def session_token(self, response):
+        cookies = " ".join(response.headers.getlist("Set-Cookie"))
+        found = re.search(r"ms_session=([^;]+)", cookies)
+        return (found.group(1) if found else None), cookies
+
+    async def test_2026_11_09_a_session_lasts_ninety_days_and_is_renewed_on_use(self):
+        token, cookie = self.session_token(await self.setup_password())
+        self.assertIn(f"Max-Age={self.NINETY_DAYS}", cookie)
+        claims = jwt.decode(token, options={"verify_signature": False})
+        self.assertEqual(claims["exp"] - claims["iat"], self.NINETY_DAYS)
+        # Vandaag ingelogd: een gewone aanvraag zet geen nieuwe cookie.
+        fresh = await self.client.get("/api/auth/status")
+        self.assertTrue(fresh.get_json()["authenticated"])
+        self.assertEqual(self.session_token(fresh), (None, ""))
+        # Een sessie van twee dagen oud: de aanvraag krijgt een verse cookie met opnieuw 90 dagen, voor dezelfde gebruiker.
+        old = jwt.encode({**claims, "iat": claims["iat"] - 2 * 86400, "exp": claims["exp"] - 2 * 86400}, await auth.signing_secret(), algorithm="HS256")
+        client = self.new_client()
+        renewed = await client.get("/api/auth/status", headers={"Cookie": f"ms_session={old}"})
+        self.assertTrue(renewed.get_json()["authenticated"])
+        new_token, new_cookie = self.session_token(renewed)
+        self.assertIn(f"Max-Age={self.NINETY_DAYS}", new_cookie)
+        self.assertIn("HttpOnly", new_cookie)
+        new_claims = jwt.decode(new_token, options={"verify_signature": False})
+        self.assertEqual((new_claims["sub"], new_claims["ep"]), (claims["sub"], claims["ep"]))
+        self.assertGreaterEqual(new_claims["iat"], claims["iat"])
+        # Een Bearer-token (AI-apps) krijgt geen cookie, en uitloggen wist de cookie zonder er een nieuwe overheen te zetten.
+        bearer = await client.get("/api/auth/status", headers={"Authorization": f"Bearer {old}"})
+        self.assertEqual(self.session_token(bearer), (None, ""))
+        out = await client.post("/api/auth/logout", headers={"Cookie": f"ms_session={old}"})
+        self.assertEqual(out.status_code, 200)
+        cookies = out.headers.getlist("Set-Cookie")
+        self.assertEqual(len(cookies), 1, cookies)
+        self.assertIn("ms_session=;", cookies[0])
+
+
+    async def test_2026_11_09_logout_revokes_the_session_and_renewal_keeps_what_was_checked(self):
+        # Uit de beveiligingsreview van de fix: de verlenging neemt de sessieteller uit de gecontroleerde cookie mee (niet de
+        # nieuwste uit de database), houdt dezelfde sessie-id en inlogtijd, stopt een jaar na de inlog, en uitloggen trekt de
+        # sessie serverzijde in, ook de verlengde cookies van dezelfde sessie.
+        token, _ = self.session_token(await self.setup_password())
+        claims = jwt.decode(token, options={"verify_signature": False})
+        self.assertEqual(claims["auth_time"], claims["iat"])
+        self.assertEqual(len(claims["sid"]), 32)
+        secret = await auth.signing_secret()
+        old = jwt.encode({**claims, "iat": claims["iat"] - 2 * 86400, "exp": claims["exp"] - 2 * 86400}, secret, algorithm="HS256")
+        client = self.new_client()
+        with mock.patch.object(auth, "session_epoch", mock.AsyncMock(return_value=99)):
+            renewed = await client.get("/api/auth/status", headers={"Cookie": f"ms_session={old}"})
+        new_token, _ = self.session_token(renewed)
+        new_claims = jwt.decode(new_token, options={"verify_signature": False})
+        self.assertEqual((new_claims["ep"], new_claims["sid"], new_claims["auth_time"]), (claims["ep"], claims["sid"], claims["auth_time"]))
+        # Een jaar na de inlog: de sessie geldt nog tot hij verloopt, maar wordt niet meer verlengd.
+        aged_token = jwt.encode({**claims, "iat": claims["iat"] - 2 * 86400, "exp": claims["exp"] - 2 * 86400, "auth_time": claims["iat"] - 400 * 86400}, secret, algorithm="HS256")
+        aged = await client.get("/api/auth/status", headers={"Cookie": f"ms_session={aged_token}"})
+        self.assertTrue(aged.get_json()["authenticated"])
+        self.assertEqual(self.session_token(aged), (None, ""))
+        # Uitloggen met de oude cookie: daarna zijn de oude en de verlengde cookie allebei ongeldig, een andere sessie niet.
+        other_token, _ = self.session_token(await self.post("/api/auth/password/login", {"username": "admin", "password": PASSWORD}, self.new_client()))
+        self.assertEqual((await client.post("/api/auth/logout", headers={"Cookie": f"ms_session={old}"})).status_code, 200)
+        for name, cookie in (("oud", old), ("verlengd", new_token)):
+            with self.subTest(name):
+                self.assertEqual((await client.get("/api/mealplan?start=a&end=b", headers={"Cookie": f"ms_session={cookie}"})).status_code, 401)
+                self.assertFalse((await client.get("/api/auth/status", headers={"Cookie": f"ms_session={cookie}"})).get_json()["authenticated"])
+        self.assertTrue((await client.get("/api/auth/status", headers={"Cookie": f"ms_session={other_token}"})).get_json()["authenticated"])
 
 
 class RecipeImportUrlTest(AppTestCase):
@@ -1148,7 +1225,7 @@ console.log(JSON.stringify({ before, loaded, html, optimistic, calls, after: sho
         self.assertEqual(found["loaded"], [["111", False, "2", False], ["222", False, "0", True]])
         self.assertIn('value="2"', found["html"])
         self.assertNotIn(" hidden", found["html"])
-        for marker in ('data-cart="111"', 'data-cart-step="-1"', 'data-cart-step="1"', 'min="0"', "offers.cart.quantity", "list.qty_minus", "offers.cart.add"):
+        for marker in ('data-cart="111"', 'data-cart-step="-1"', 'data-cart-step="1"', 'min="0"', "offers.cart.quantity", "list.qty_minus", "offers.cart.plus"):
             self.assertIn(marker, found["html"], marker)
         self.assertEqual(found["optimistic"][1], ["222", False, "3", False], "het aantal staat er meteen")
         self.assertEqual(found["calls"], [
@@ -1431,6 +1508,7 @@ const assigned = []; const applied = [];
 const window = {location: {origin: "http://localhost", pathname: "/offers", search: "", assign: (href) => assigned.push(href)},
   addEventListener: () => {}};
 const history = {pushState: () => {}};
+function routerRememberScroll() {}
 function routerApply(href) { applied.push(href); }
 function setInterval() {}
 """
@@ -1454,6 +1532,35 @@ console.log(JSON.stringify({assigned, applied}));
                 "applied": ["http://localhost/offers/history?product=1"],
             },
         )
+
+
+
+class CookingIngredientsFitOnAPhoneTest(unittest.TestCase):
+    """2026-11-10, issue #309: "zorg dat de huidige lijst met ingredienten ook leesbaar is op mobiele schermen (hij valt nu half
+    buiten beeld)". Eén regel met een lang woord (een link, een lange samenstelling) maakte de kolom van de kookweergave breder
+    dan het venster, en daarmee de hele lijst: op een telefoon viel de rechterhelft weg, ook in het receptvenster van het weekmenu."""
+
+    CSS = (ROOT / "static" / "styles.css").read_text(encoding="utf-8")
+
+    def rule(self, selector: str) -> str:
+        found = re.search(rf"^{re.escape(selector)} \{{(.*?)\}}", self.CSS, re.S | re.M)
+        assert found, selector
+        return found.group(1)
+
+    def test_the_column_never_gets_wider_than_the_window(self) -> None:
+        self.assertIn("grid-template-columns: minmax(0, 1fr)", self.rule(".cook__columns"))
+
+    def test_long_words_wrap_anywhere(self) -> None:
+        for selector in (".cook-ingredient__text", ".cook .cook-step__text", ".cook-mode .cook-mode__text"):
+            with self.subTest(selector):
+                self.assertIn("overflow-wrap: anywhere", self.rule(selector), "break-word laat de minimale breedte van de kolom staan")
+
+    def test_a_long_step_scrolls_from_the_top(self) -> None:
+        # Met justify-content: center viel de bovenkant van een lange stap (met zijn ingrediënten en timers) buiten de scroll.
+        stage = self.rule(".cook-mode__stage")
+        self.assertNotIn("justify-content: center", stage)
+        self.assertIn("overflow-y: auto", stage)
+        self.assertIn("margin-top: auto", self.rule(".cook-mode__stage > :first-child"))
 
 
 if __name__ == "__main__":

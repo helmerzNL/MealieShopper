@@ -61,6 +61,7 @@ function routerSync() {}
 function showPanel() {}
 function routerTab() {}
 function routerOpenSubtab() {}
+function routerApplyWeek() {}
 const offerHistory = {};
 const $ = () => ({ value: "" });
 function link(store, picked = true) { state.linkedStores[store] = picked; state.storeStatusKnown[store] = true; }

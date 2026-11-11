@@ -56,6 +56,7 @@ async function appearanceSave(change, { previous = null, target = "#appearance-m
       showCalories: data.showCalories,
       preferredStore: data.preferredStore,
     };
+    toast(t("common.saved")); // de keuze was al te zien; nu weet je ook dat hij bewaard is (sinds 4.12.0)
   } catch (error) {
     if (previous) {
       THEME.apply(previous);
@@ -227,6 +228,7 @@ async function appearanceSavePlanner(key, value) {
 
 function renderAppearance() {
   renderAppearanceStore();
+  if ($("#appearance-organic")) $("#appearance-organic").checked = Boolean(state.auth?.preferOrganic);
   renderAppearancePlanner();
   // De taal is een keuze van deze browser (static/i18n.js), niet van het profiel; de rondjes volgen wat er nu aan staat.
   document.querySelectorAll('input[name="appearance-lang"]').forEach((input) => {
@@ -304,6 +306,7 @@ $("#appearance-store").addEventListener("change", (event) => {
   if (event.target.name === "appearance-store") appearanceSaveStore(event.target.value);
 });
 
+$("#appearance-organic").addEventListener("change", (event) => savePreferOrganic(event.target, "#appearance-organic-message"));
 $("#appearance-planner-combine").addEventListener("change", (event) => appearanceSavePlanner("plannerCombine", event.target.checked));
 $("#appearance-planner-split-meals").addEventListener("change", (event) => appearanceSavePlanner("plannerSplitMeals", event.target.checked));
 // Een getal buiten 1 tot en met 8 (of geen getal) wordt niet bewaard: het veld springt terug naar wat er stond.

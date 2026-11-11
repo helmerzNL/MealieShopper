@@ -281,8 +281,8 @@ class ResetWarningTest(AppTestCase):
         source = (Path(__file__).resolve().parent.parent / "static" / "app.js").read_text(encoding="utf-8")
         body = source[source.index("async function resetOpenAhList()"):]
         body = body[:body.index("\n}\n")]
-        self.assertIn('window.confirm(tn("list.reset_confirm", edited))', body)
-        self.assertLess(body.index("window.confirm"), body.index("/reset"))  # eerst vragen, dan terugzetten
+        self.assertIn('await confirmDialog(tn("list.reset_confirm", edited), { danger: true })', body)
+        self.assertLess(body.index("confirmDialog"), body.index("/reset"))  # eerst vragen, dan terugzetten
 
 
 class QuantityRoutesTest(AhListsTestCase):

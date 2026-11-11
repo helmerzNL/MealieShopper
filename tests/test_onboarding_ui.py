@@ -1,5 +1,8 @@
+import json
 import os
 import re
+import shutil
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -67,10 +70,40 @@ NL = dictionary("nl")
 
 
 class ScriptTest(AppTestCase):
-    def test_six_steps_in_the_asked_order(self):
-        ids = re.findall(r'\{ id: "(\w+)" \}', OB_JS)
-        self.assertEqual(ids, ["auth", "mealie", "ah", "jumbo", "picnic", "done"])
-        self.assertEqual([NL[f"ob.step.{i}"] for i in ids], ["Beveiliging", "Mealie", "Albert Heijn", "Jumbo", "Picnic", "Klaar"])
+    def test_the_steps_follow_the_chosen_stores(self):
+        # Sinds 4.13.0: beveiliging, Mealie, de winkelkeuze, een stap per gekozen winkel (in vaste volgorde) en Klaar.
+        if not shutil.which("node"):
+            self.skipTest("Node is niet geïnstalleerd")
+        source = "\n".join(re.search(rf"^(?:const {name} = [^\n]*;|function {name}\(.*?^}})$", OB_JS, re.S | re.M).group(0) for name in ("OB_STORE_STEPS", "obSteps", "obNeighbour"))
+        script = source + """
+        const ob = { stores: null };
+        const ids = (stores) => obSteps(stores).map((step) => step.id);
+        console.log(JSON.stringify({
+          none: ids(null), empty: ids([]), picnic: ids(["picnic", "crisp"]), all: ids(["picnic", "ah", "jumbo", "crisp"]),
+          next: [obNeighbour("mealie", 1, ["jumbo"]), obNeighbour("stores", 1, ["jumbo"]), obNeighbour("jumbo", 1, ["jumbo"]), obNeighbour("stores", 1, [])],
+          back: [obNeighbour("jumbo", -1, ["jumbo"]), obNeighbour("done", -1, ["ah", "picnic"]), obNeighbour("auth", -1, [])],
+        }));
+        """
+        result = subprocess.run(["node", "-e", script], capture_output=True, text=True, timeout=30, check=False)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        out = json.loads(result.stdout.strip().splitlines()[-1])
+        self.assertEqual(out["none"], ["auth", "mealie", "stores", "done"])
+        self.assertEqual(out["empty"], ["auth", "mealie", "stores", "done"])
+        self.assertEqual(out["picnic"], ["auth", "mealie", "stores", "picnic", "done"], "Crisp heeft geen eigen stap")
+        self.assertEqual(out["all"], ["auth", "mealie", "stores", "ah", "jumbo", "picnic", "done"])
+        self.assertEqual(out["next"], ["stores", "jumbo", "done", "done"])
+        self.assertEqual(out["back"], ["stores", "picnic", "auth"])
+        for step in ("auth", "mealie", "stores", "ah", "jumbo", "picnic", "done"):
+            self.assertIn(f"ob.step.{step}", NL)
+            self.assertIn(f"ob.title.{step}", NL)
+
+    def test_the_last_step_shows_the_chosen_stores_crisp_and_a_first_task(self):
+        done = re.search(r"^async function renderObDone\(.*?^}$", OB_JS, re.S | re.M).group(0)
+        self.assertIn("const chosen = ob.stores || OB_STORE_STEPS;", done, "een hulp van voor 4.13.0 toont de drie van voorheen")
+        self.assertIn('data-ob-action="link-crisp"', done)
+        self.assertIn('t(mealie.configured ? "ob.done.first_meal" : "ob.done.open")', done)
+        self.assertIn('"link-crisp": () => finishOnboarding({ then: () => openLinkBlock("crisp") })', OB_JS)
+        self.assertIn("Crisp", NL["ob.welcome"])
 
     def test_security_step_follows_the_domain_rule(self):
         for needle in ("status.passkeyAvailable", "go-passkey", "go-password", "go-open", "passkeyUnavailableReason"):
@@ -114,9 +147,11 @@ class ScriptTest(AppTestCase):
                        '"/api/picnic/auth/2fa/request"', '"/api/picnic/auth/2fa/verify"', "twoFactorRequired", "twoFactorPending",
                        'id="ob-picnic-next"', 'id="ob-picnic-skip"', "refreshJumboStatus", "refreshPicnicStatus"):
             self.assertIn(needle, OB_JS, needle)
-        # De volgorde van de knoppen: AH > Jumbo > Picnic > klaar, en de samenvatting kan naar elke stap terug.
-        for target, action in (("ah", "go-jumbo"), ("jumbo", "go-picnic"), ("picnic", "go-done")):
-            self.assertIn(f'id="ob-{target}-next" data-ob-action="{action}"', OB_JS, target)
+        # Sinds 4.13.0 hangt de volgende stap af van de gekozen winkels: de knoppen heten next en back, en de samenvatting kan
+        # naar elke gekozen stap terug.
+        for target in ("mealie", "ah", "jumbo", "picnic"):
+            self.assertIn(f'id="ob-{target}-next" data-ob-action="next"', OB_JS, target)
+            self.assertIn(f'id="ob-{target}-skip" data-ob-action="next"', OB_JS, target)
         for action in ("go-jumbo", "go-picnic"):
             self.assertIn(f'data-ob-action="{action}">${{escapeHtml(t("ob.done.link_', OB_JS, action)
 

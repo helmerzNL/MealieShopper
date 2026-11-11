@@ -61,11 +61,12 @@ function routerCurrentPath() {
   const sub = routerSlug(ROUTE_SUBTABS[root], routerActiveSubtab(panel));
   if (panel === "offers") {
     const store = offersState.store ? offersStoreParam(offersState.store) : "";
-    if (sub !== "history") return offersPath(sub, { store });
+    if (sub !== "history") return offersPath(sub, { store, week: weekParam() });
     const product = (offerHistory.selected || "").split(":").slice(1).join(":");
     return offersPath(sub, { store, q: offerHistory.query || "", product: offerHistory.pinned ? product : "" });
   }
-  return `/${root}${sub ? `/${sub}` : ""}`;
+  // Het weekmenu draagt de week in het adres, zolang het niet de huidige is (weekParam in app.js).
+  return `/${root}${sub ? `/${sub}` : ""}${root === "recipes" && !sub ? routerQuery({ week: weekParam() }) : ""}`;
 }
 
 // ---- adres bijwerken na een wissel van scherm
@@ -75,13 +76,64 @@ function routerSync({ replace = false } = {}) {
   const path = routerCurrentPath();
   const now = window.location.pathname + window.location.search;
   if (path !== now && !(now === "/" && path === "/recipes")) {
+    if (!replace) routerRememberScroll();
     history[replace ? "replaceState" : "pushState"]({ ms: true }, "", path);
   }
   routerRefreshLinks();
 }
 
+// Terug naar je plek (sinds 4.13.0). Voor je een scherm verlaat, bewaart de router waar je stond in de stap van de geschiedenis
+// (history.state.scroll); bij Terug of Vooruit zet hij die plek terug. Een lijst laadt soms nog: dan is de pagina eerst te kort,
+// dus proberen we het een paar keer, tot de pagina lang genoeg is of je zelf scrolt.
+function routerRememberScroll() {
+  history.replaceState({ ...(history.state || {}), ms: true, scroll: Math.round(window.scrollY) }, "");
+}
+
+const ROUTER_SCROLL_TRIES = [0, 120, 400, 900, 1600];
+let routerScrollTimers = [];
+
+function routerRestoreScroll(top) {
+  routerScrollTimers.forEach(clearTimeout);
+  routerScrollTimers = [];
+  if (!(top > 0)) return;
+  const stop = () => {
+    routerScrollTimers.forEach(clearTimeout);
+    routerScrollTimers = [];
+    window.removeEventListener("wheel", stop);
+    window.removeEventListener("touchstart", stop);
+  };
+  window.addEventListener("wheel", stop, { passive: true, once: true });
+  window.addEventListener("touchstart", stop, { passive: true, once: true });
+  routerScrollTimers = ROUTER_SCROLL_TRIES.map((wait) =>
+    setTimeout(() => {
+      window.scrollTo({ top });
+      if (Math.abs(window.scrollY - top) < 2) stop(); // de pagina is lang genoeg: klaar
+    }, wait)
+  );
+}
+
+// De week uit het adres (?week=2026-11-16) in het weekmenu en bij Aanbiedingen; zonder parameter is het deze week.
+function routerApplyWeek(params) {
+  const offset = weekOffsetOf(params.get("week") || "");
+  if (offset !== (state.weekOffset || 0)) setPlanWeek(offset);
+}
+
+// De titel van het tabblad volgt het scherm (sinds 4.10.4): "Weekmenu \u00b7 Recepten \u00b7 MealieShopper". Daarvoor heette elk
+// scherm MealieShopper, in de tabbladen, in de geschiedenis van de browser en voor een schermlezer. Eerst het open subtabblad,
+// dan het onderdeel: de actieve tab van het hoofdmenu, of de kop van een scherm uit het menu Meer (Instellingen, Profiel, Over).
+function routerTitle() {
+  const text = (node) => String(node?.textContent || "").trim();
+  const panel = document.querySelector(".panel.is-active");
+  const sub = text(panel?.querySelector?.(".subtabs .subtab.is-active:not(.subtab-menu__toggle)"));
+  const section = text(document.querySelector(".tabs .tab.is-active[data-tab] .tab-text")) || text(panel?.querySelector?.("h2"));
+  const parts = [sub, section].filter((part, at, all) => part && all.indexOf(part) === at);
+  if (parts.some((part) => part.includes("MealieShopper"))) return parts.find((part) => part.includes("MealieShopper")); // Over MealieShopper
+  return [...parts, "MealieShopper"].join(" \u00b7 ");
+}
+
 // De links in de subtabbalken hangen af van de gekozen winkel; dit houdt ze gelijk met wat een klik zou openen.
 function routerRefreshLinks() {
+  document.title = routerTitle();
   const itemsStore = state.itemsStore || "ah";
   document.querySelectorAll("#ah-items .subtab[data-subtab]").forEach((link) => {
     const section = routerSlug(STORE_SECTIONS[itemsStore], link.dataset.subtab);
@@ -158,6 +210,7 @@ function routerApplyOffers(sub, params) {
     $("#offers-history-search").value = params.get("q") || "";
     offerHistory.pin = params.get("product") || "";
   }
+  if (sub !== "history") routerApplyWeek(params);
   showPanel("offers", routerTab("offers"));
   routerOpenSubtab(ROUTE_SUBTABS.offers[sub] || "offers-items");
   if (offersState.chosen) {
@@ -201,6 +254,7 @@ function routerApply(href) {
       }
       showPanel(panel, highlighted);
       if (subtab) routerOpenSubtab(subtab);
+      if (root === "recipes" && !parts[1]) routerApplyWeek(url.searchParams);
     }
   } finally {
     router.applying--;
@@ -214,7 +268,10 @@ function routerNavigate(href) {
     window.location.assign(url.pathname + url.search); // nieuwe scripts: de hele pagina opnieuw
     return;
   }
-  if (url.pathname + url.search !== window.location.pathname + window.location.search) history.pushState({ ms: true }, "", url.pathname + url.search);
+  if (url.pathname + url.search !== window.location.pathname + window.location.search) {
+    routerRememberScroll();
+    history.pushState({ ms: true }, "", url.pathname + url.search);
+  }
   routerApply(url.href);
 }
 
@@ -259,7 +316,11 @@ window.addEventListener("popstate", () => {
     window.location.reload(); // het adres is al dat van de stap terug: de nieuwe scripts openen het
     return;
   }
-  if (router.started) routerApply(window.location.href);
+  if (!router.started) return;
+  routerApply(window.location.href);
+  // Terug of Vooruit: de focus op het scherm, en de plek waar je stond.
+  document.querySelector("#main")?.focus({ preventScroll: true });
+  routerRestoreScroll(Number(history.state?.scroll) || 0);
 });
 
 // ---- een tabblad van voor een nieuwe versie
@@ -293,3 +354,8 @@ document.addEventListener("visibilitychange", () => {
 });
 window.addEventListener("focus", routerCheckAssets);
 setInterval(routerCheckAssets, ROUTER_ASSET_INTERVAL);
+
+// Een andere taal: de titel van het tabblad volgt de vertaalde naam van het scherm.
+window.addEventListener("ms:languagechange", () => {
+  if (router.started) document.title = routerTitle();
+});

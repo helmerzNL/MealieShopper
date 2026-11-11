@@ -108,7 +108,7 @@ class TabbarMarkupTest(AppTestCase):
         media = media[:media.index("\n}\n")]
         self.assertIn('.tabs .tab[data-tab="basket"] {\n    display: none;', media)
         self.assertIn(".user-menu__item--small:not([hidden]) {\n    display: flex;", media)
-        self.assertRegex(CSS, r"\.user-menu__item\[hidden\],\s*\.user-menu__item--small\s*{\s*display: none;",
+        self.assertRegex(CSS, r"\.user-menu__item\[hidden\],\s*\.user-menu__item--small,\s*\.user-menu__item--standalone\s*{\s*display: none;",
                          "op een groot scherm staat Mandje niet in het menu")
 
     def test_icons_are_material_design_icons_with_the_text_colour(self):

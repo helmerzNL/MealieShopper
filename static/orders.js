@@ -138,6 +138,54 @@ function receiptDay(receipt) {
 // De filters werken in de browser op de lijst die er al staat: een paar honderd rijen, in een keer getekend, zonder herladen.
 const purchaseFilters = { orders: true, receipts: true, min: "", max: "" };
 
+// De lijst in delen (sinds 4.13.0): eerst de eerste honderd aankopen, met Meer aankopen de volgende honderd. Een paar jaar aan
+// bonnen in één keer tekenen kostte op een telefoon merkbaar tijd. De filters, het zoeken en de telling gaan over de hele lijst.
+const PURCHASE_PAGE = 100;
+let purchaseLimit = PURCHASE_PAGE;
+
+function purchasePage(visible, limit = purchaseLimit) {
+  return { shown: visible.slice(0, limit), rest: Math.max(0, visible.length - limit) };
+}
+
+// De filters blijven staan (sinds 4.13.0): de soorten, het bedrag en de zoektekst staan in sessionStorage, zodat herladen en Terug
+// uit een bestelling ze houden. Per tabblad van de browser; de zoektekst hoort bij één winkel.
+const PURCHASE_FILTERS_KEY = "ms-purchase-filters";
+
+function purchaseFiltersSaved() {
+  try {
+    const saved = JSON.parse(window.sessionStorage.getItem(PURCHASE_FILTERS_KEY) || "null");
+    return saved && typeof saved === "object" ? saved : {};
+  } catch {
+    return {};
+  }
+}
+
+function purchaseFiltersSave() {
+  try {
+    window.sessionStorage.setItem(PURCHASE_FILTERS_KEY, JSON.stringify({ ...purchaseFilters, query: ordersState.query, store: state.itemsStore }));
+  } catch {
+    // Zonder opslag gelden de filters tot je de pagina herlaadt.
+  }
+}
+
+// De bewaarde soorten en bedragen in de filters; geeft terug wat er gold, voor de velden van het formulier.
+function purchaseFiltersApply(saved, filters = purchaseFilters) {
+  for (const key of ["orders", "receipts"]) if (typeof saved[key] === "boolean") filters[key] = saved[key];
+  for (const key of ["min", "max"]) if (typeof saved[key] === "string" && saved[key].length <= 12) filters[key] = saved[key];
+  return filters;
+}
+
+// De bewaarde zoektekst, één keer, na de eerste lijst van dezelfde winkel: de app zoekt dan opnieuw.
+let purchaseQueryRestored = false;
+function purchaseQueryRestore(saved = purchaseFiltersSaved()) {
+  if (purchaseQueryRestored) return;
+  purchaseQueryRestored = true;
+  if (typeof saved.query !== "string" || !saved.query.trim() || saved.store !== state.itemsStore || ordersState.query) return;
+  ordersState.query = saved.query.slice(0, 100);
+  $("#ah-purchase-filter").value = ordersState.query;
+  searchPurchases();
+}
+
 function purchaseRows() {
   const store = ordersStore();
   // Een bestelling uit je account zonder producten waarvan de ingelezen versie er is, staat er niet nog een keer (#229).
@@ -248,7 +296,10 @@ function renderOrders() {
   else if (!visible.length) empty = query ? th("orders.search_none", { query }) : escapeHtml(t("orders.filter_none"));
   ordersState.empty = empty;
   renderPurchaseFacets();
-  renderPurchaseView(visible, hits);
+  const page = purchasePage(visible);
+  renderPurchaseView(page.shown, hits);
+  const more = $("#ah-purchase-more");
+  if (more) more.hidden = !page.rest;
   const notes = [rows.length ? t("orders.shown", { shown: I18N.formatNumber(visible.length), total: I18N.formatNumber(rows.length) }) : ""];
   if (hits) notes.push(t("orders.search_summary", { products: I18N.formatNumber(ordersState.hits.products.filter((item) => facetPasses(ordersState.products, item.product)).length), total: I18N.formatNumber(hits.size) }));
   if (hits && ordersState.hits.unsearched) notes.push(tn("orders.search_unsearched", ordersState.hits.unsearched));
@@ -302,7 +353,8 @@ window.addEventListener("resize", () => {
 });
 
 async function loadOrders() {
-  message("#ah-orders-message", "");
+  // De eerste keer staat er nog geen lijst: dan zegt de pagina dat ze laadt, in plaats van leeg te blijven (sinds 4.12.0).
+  message("#ah-orders-message", ordersState.loaded ? "" : t("common.loading"), "info");
   purchaseDetailCache.clear(); // de hovervensters (popover.js) halen de details opnieuw op
   const store = state.itemsStore;
   try {
@@ -312,7 +364,9 @@ async function loadOrders() {
       const importedOrders = await imported;
       if (store !== state.itemsStore) return; // de winkel is intussen gewisseld
       Object.assign(ordersState, { orders: orders.orders, imported: importedOrders, ordersSyncedAt: orders.syncedAt, loaded: true });
+      message("#ah-orders-message", "");
       renderOrders();
+      purchaseQueryRestore();
       linkingNoticeRefresh(); // bij Jumbo blijft de melding van AH leeg (linkingRender)
       return;
     }
@@ -322,7 +376,9 @@ async function loadOrders() {
     const importedOrders = await imported;
     if (store !== state.itemsStore) return;
     Object.assign(ordersState, { orders: orders.orders, imported: importedOrders, ordersSyncedAt: orders.syncedAt });
+    message("#ah-orders-message", "");
     renderOrders();
+    purchaseQueryRestore();
     linkingNoticeRefresh(); // de pauze van AH, het uurbudget en wat er nog te koppelen is (linking.js), boven de lijst
   } catch (error) {
     message("#ah-orders-message", `${t("orders.load_failed")} ${error.message}`);
@@ -397,6 +453,8 @@ async function searchPurchases() {
 
 $("#ah-purchase-filter").addEventListener("input", (event) => {
   ordersState.query = event.target.value;
+  purchaseLimit = PURCHASE_PAGE;
+  purchaseFiltersSave();
   ordersState.hits = null;
   ordersState.products = facetSelection(); // een andere zoekterm vindt andere producten
   purchaseSeq++;
@@ -421,15 +479,29 @@ $("#purchase-facets").addEventListener("click", (event) => {
 for (const [id, key] of [["ah-filter-orders", "orders"], ["ah-filter-receipts", "receipts"]]) {
   $(`#${id}`).addEventListener("change", (event) => {
     purchaseFilters[key] = event.target.checked;
+    purchaseLimit = PURCHASE_PAGE;
+    purchaseFiltersSave();
     if (ordersState.loaded) renderOrders();
   });
 }
 for (const [id, key] of [["ah-filter-min", "min"], ["ah-filter-max", "max"]]) {
   $(`#${id}`).addEventListener("input", (event) => {
     purchaseFilters[key] = event.target.value;
+    purchaseLimit = PURCHASE_PAGE;
+    purchaseFiltersSave();
     if (ordersState.loaded) renderOrders();
   });
 }
+$("#ah-purchase-more").addEventListener("click", () => {
+  purchaseLimit += PURCHASE_PAGE;
+  renderOrders();
+});
+// De filters van voor het herladen, in de filters en in de velden erboven.
+purchaseFiltersApply(purchaseFiltersSaved());
+$("#ah-filter-orders").checked = purchaseFilters.orders;
+$("#ah-filter-receipts").checked = purchaseFilters.receipts;
+$("#ah-filter-min").value = purchaseFilters.min;
+$("#ah-filter-max").value = purchaseFilters.max;
 
 // ---- een kassabon: als bonnetje zoals op papier (receiptPaper, de weergave Bon van de bestelpagina in order_views.js). De andere
 // weergaven tonen de regels met de namen en foto's van de webwinkel, met de bonusregels eronder (receiptBonusSummary).
@@ -751,7 +823,7 @@ function importedOrdersChanged(store) {
 
 // De hele ingelezen bestelling weg, na een bevestiging. De melding komt pas na het opnieuw laden: dat wist eerst de oude melding.
 async function deleteImportedOrder(store, ref, button) {
-  if (!window.confirm(t("orders.imported.delete_confirm", { date: button.dataset.title || ref }))) return;
+  if (!(await confirmDialog(t("orders.imported.delete_confirm", { date: button.dataset.title || ref }), { danger: true }))) return;
   const box = store === "picnic" || store === "crisp" ? `#${store}-orders-message` : "#ah-orders-message";
   button.disabled = true;
   try {
@@ -829,6 +901,7 @@ $("#explore-copy").addEventListener("click", async (event) => {
 function resetOrders() {
   Object.assign(ordersState, { basket: null, orders: [], imported: [], receipts: [], ordersSyncedAt: null, receiptsSyncedAt: null, query: "", hits: null, loaded: false });
   purchaseSeq++;
+  purchaseLimit = PURCHASE_PAGE;
   $("#ah-purchase-filter").value = "";
   showPurchaseOverview({ sync: false });
   message("#ah-orders-message", "");

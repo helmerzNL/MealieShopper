@@ -2,6 +2,272 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub; een stabiele release krijgt de teksten van alle versies sinds de vorige stabiele release.
 
+## v4.16.0
+
+### Nieuw in 4.16.0
+
+Pull request: [#317](https://github.com/helmerzNL/MealieShopper/pull/317), van wolph.
+
+*English summary: The offers page gets a basket control, filter lists and a lighter popup, and the Price history counts what a piece really costs. **Basket on every offer**: Albert Heijn, Picnic and Crisp show a minus, the quantity already in your basket and a plus, and a change is sent as an exact quantity. Jumbo cannot set an exact quantity and keeps the single basket button of 4.13.0. **Lists with plus and minus**: categories and brands are lists with a plus (only this one), a minus (hide this one) and a count, on the offers, on an order or receipt, in the purchase search, in the Price history and for the recipes with the offers. They replace the category chips of 4.13.0. The offers use the full width of the screen and the next ones load by themselves. **The popup on an offer** appears after 100 ms, lets the mouse through, shows the legend of the chart and has no buttons or links any more. **Prices**: an offer with a condition (second one half price) is counted per piece in the Price history, an offer "per 100 gram" is converted to the price of the pack instead of showing a 90% discount, two product numbers for the same product are one row, and a purchase from an old confirmation mail with the name in the singular joins its product.*
+
+Het werk aan de aanbiedingen en de Prijsgeschiedenis dat op de installatie van wolph al draaide, samengevoegd met 4.15.0.
+
+**Aanbiedingen**
+
+- **Het mandje bij een aanbieding.** Op elke kaart en in elke compacte rij staan een min, het aantal dat al in het mandje van de winkel zit en een plus. Een wijziging gaat als exact aantal naar de winkel, 0 haalt het product weg. Bij Albert Heijn is het mandje de boodschappenlijst, Picnic en Crisp gebruiken hun eigen mandje. Jumbo kent geen exact aantal en houdt de mandknop van 4.13.0.
+- **Categorieën en merken als lijst.** De filterzijbalk heeft een lijst met alle categorieën en een lijst met alle merken, met een zoekveld boven de merken. Per regel een plus (alleen deze tonen), een min (verbergen, dat wint) en het aantal aanbiedingen, daarop gesorteerd met de gekozen regels bovenaan. De chips met categorieën boven de producten uit 4.13.0 zijn daarmee weg. *Alles tonen* bij een lege uitkomst en de onthouden zoekopdracht blijven.
+- **Schermbreed en vanzelf verder.** Het overzicht gebruikt de hele schermbreedte, de zijbalk loopt mee, en de volgende aanbiedingen komen er vanzelf bij als het einde van de lijst in de buurt komt. De knop *Meer tonen* is weg.
+- **De popup bij een aanbieding.** Hij komt na 100 ms (40 ms als er al een open is) en haalt de geschiedenis op zodra de muis op de kaart komt. De muis gaat erdoorheen, zodat de kaart eronder reageert. De knoppen en links staan er daarom niet meer in, de kop noemt de verpakking en de legenda van de grafiek staat eronder. Het venster op een aanraakscherm houdt alles, en met het toetsenbord blijft de wachttijd 400 ms.
+- **Naar de prijsgeschiedenis.** De foto en de titel van een aanbieding openen de prijsgeschiedenis. Naar de winkel gaat een eigen winkelicoon onderaan de kaart en in de compacte rij.
+- **De laagste prijs een keer.** Naast *Laagste prijs in een jaar* stond ook *Laagste in 12 mnd*. Dat tweede label is weg, en *Laagste prijs ooit* vervangt de regel van het jaar.
+- **Een aanbieding per 100 gram.** Albert Heijn geeft bij *per 100 GRAM voor 1.59* de prijs per 100 gram door als prijs van het product, naast de gewone prijs van het hele pak. Dat gaf 90% korting. De app rekent de prijs nu om naar de inhoud van het pak en herstelt bij het starten de rijen die al zo waren opgeslagen. Zonder leesbare inhoud blijft de prijs per gewicht staan, zonder gewone prijs ernaast.
+
+**Prijsgeschiedenis**
+
+- **De stukprijs bij een actie met een voorwaarde.** Bij *2e halve prijs* of *1+1 gratis* noemt Albert Heijn de gewone prijs als prijs. De grafiek, de tabel, de kerncijfers en de kop van de popup rekenen nu met wat een stuk kost, net als de kaart al deed.
+- **Twee productnummers, een product.** Albert Heijn voert sommige producten onder een nummer op de kassabon en een ander in de webwinkel. Producten met dezelfde naam, hetzelfde merk en dezelfde verpakking zijn nu een rij, met de aankopen en de gewone prijzen van elk nummer.
+- **Een folderactie die de categorie noemt.** *Alle AH Bakkersbrood Les Pains heel* hoort nu bij het brood: een woord dat de categorie noemt, mag in de productnaam ontbreken als de andere woorden er staan.
+- **De naam in enkelvoud.** Een ingelezen aankoop of bonregel hoort ook bij een product als de woorden in enkelvoud gelijk zijn en er maar een product met die woorden is (*Les pain* in een mail van 2022, *Les pains* in de winkel van nu).
+- **Filteren op merk en categorie.** De lijsten met plus en min staan ook hier. De server filtert en telt over alle gevonden producten, met hooguit 500 merken.
+
+**Bestellingen, kassabonnen en recepten**
+
+- **Dezelfde lijsten.** Een bestelling of bon filtert op categorie en merk, het zoeken in de aankopen toont de gevonden producten als lijst, en de recepten bij de aanbiedingen kiezen meer dan een soort gerecht en kunnen soorten verbergen. De lijst staat los in `static/facets.js`.
+
+**Samengevoegd met beta**
+
+- De mandknop van 4.13.0 en de knoppen met min en plus doen hetzelfde werk. Een winkel die een exact aantal aanneemt, krijgt de knoppen, Jumbo de mandknop (`offerCartSlot`).
+- De functie die het minimum van een actie uitrekent, heet nu `offerCartMinimum`. De naam `offerCartQuantity` is van het aantal in het mandje.
+
+## v4.15.0
+
+### Nieuw in 4.15.0
+
+Pull request: [#314](https://github.com/helmerzNL/MealieShopper/pull/314). Issue: [#311](https://github.com/helmerzNL/MealieShopper/issues/311).
+
+*English summary: A cooking timer now also rings when the phone is locked or the app has been in the background for a long time. Until now the alarm and the notification came from the page itself, and a locked phone pauses the web app. Now the app tells the server its running timers with their remaining time whenever you start, pause, resume or stop one, and at 0 the server sends the notification with **Web Push**, through the browser's push service, also when the app is paused or closed. If the app is still running when a timer ends, it reports it itself and no second notification follows. The message is encrypted for the browser (RFC 8291) and signed (VAPID, RFC 8292) with `http-ece` and `py-vapid`, the two libraries pywebpush is built on; the server only sends to the push services of Google, Apple, Mozilla and Microsoft. There is nothing to configure: it works over HTTPS once notifications are allowed, on an iPhone only in the installed app (iOS 16.4 or newer). The server now needs outbound HTTPS to those push services. Logging out, deleting a user and the factory reset remove the push subscriptions; they and the server's key are not in the backup. Checked against Google's real push service: our signed message is accepted (201), one with another key refused (403).*
+
+- **Een kooktimer gaat ook af met een vergrendelde telefoon.** Sinds 4.14.0 piept een timer bij 0 en komt er een systeemmelding, maar alleen zolang de app draait: een vergrendelde telefoon, of een app die lang op de achtergrond staat, pauzeert haar. Nu stuurt de server de melding, met Web Push, ook als de app gepauzeerd of gesloten is. Een tik op de melding opent de app.
+  - **Timers op de server.** Starten, pauzeren, verder laten lopen en stoppen gaan naast localStorage ook naar de server: de app stuurt al haar lopende timers met hun resttijd (`PUT /api/cook/timers`), en de server rekent de eindtijd uit met zijn eigen klok (die van de telefoon kan anders lopen). Een gepauzeerde of gestopte timer staat er dan niet meer in en krijgt geen push. Een achtergrondtaak slaapt tot de eerstvolgende eindtijd en verstuurt dan; meer workers sturen samen één push (wie de timer eerst pakt).
+  - **Geen dubbele melding.** De server wacht twee seconden na de eindtijd. Draait de app nog, dan gaat de timer in de app af en haalt de app hem meteen bij de server weg. Is de app in beeld, dan toont de service worker geen melding (de app piept zelf); staat de melding er al, dan vervangt de push hem zonder opnieuw te trillen. Omgekeerd toont de app geen tweede melding als de push er al was.
+  - **Abonnement per toestel.** De app vraagt een push-abonnement aan via de service worker die er al was (`static/cook_sw.js`, die nu ook een `push`-handler heeft, nog steeds zonder fetch-handler of cache) en stuurt het mee met de timers. Het hoort bij de gebruiker en bij de sessie waarmee het binnenkwam. In de melding staan alleen de timer, het recept en de stap, en het pad van de pagina.
+  - **Alleen push-diensten.** De server stuurt alleen naar `fcm.googleapis.com` en `android.googleapis.com` (en `jmt17.google.com`, dat Chromium zonder de sleutels van Google gebruikt), `push.services.mozilla.com`, `push.apple.com` en `notify.windows.com` (met hun subdomeinen), over https op poort 443, zonder doorverwijzingen te volgen. Een ander adres weigert hij (400): de app kan zo niet worden gebruikt om iets op je eigen netwerk aan te spreken.
+  - **De VAPID-sleutel.** De server maakt hem één keer aan en bewaart hem versleuteld in `app_settings` (`PUSH_VAPID_PRIVATE_KEY`), zoals de koppelingen. Na de fabrieksinstellingen is er een nieuwe; de app ziet dat aan de sleutel en vraagt dan een nieuw abonnement aan.
+  - **Opruimen.** Een abonnement dat de push-dienst weigert (404, 410, of 403: gemaakt met een andere sleutel), haalt de server weg. Uitloggen haalt de abonnementen van die sessie weg (en de app meldt zich af bij de push-dienst), net als een gebruiker verwijderen en de fabrieksinstellingen. Een sessie die niet meer geldt (overal uitgelogd, een nieuw wachtwoord), krijgt geen push meer. Een tijdelijke fout (geen verbinding, 429, 5xx) probeert de server nog twee keer, na 5 en 10 seconden; een timer die al meer dan tien minuten voorbij is (de server stond uit), krijgt geen push meer.
+  - **Zonder push** (geen HTTPS, geen toestemming, een incognito- of privévenster, een iPhone buiten de geïnstalleerde app) werkt alles zoals in 4.14.0.
+- **Over** en de README's noemen Web Push, `py-vapid` en `http-ece`.
+
+### Netwerk in 4.15.0
+
+- De server heeft nu uitgaand HTTPS-verkeer (poort 443) nodig naar de push-dienst van de browsers die je gebruikt: `fcm.googleapis.com` (Chrome, Edge op Android, Samsung Internet, Opera, Brave), `web.push.apple.com` (Safari en iPhone), `updates.push.services.mozilla.com` (Firefox) en `*.notify.windows.com` (Edge op Windows). Zonder dat werkt alles zoals in 4.14.0. Een proxy voor uitgaand verkeer (`HTTPS_PROXY`) telt mee. Er komt geen instelling bij; de Compose- en `.env`-bestanden blijven gelijk.
+
+### Database en back-up in 4.15.0
+
+- Twee nieuwe tabellen: `push_subscriptions` (een abonnement per browser) en `cook_timers` (de lopende timers per abonnement). Ze staan bewust in `backup.EXCLUDED_TABLES`: een abonnement hoort bij één browser en bij de VAPID-sleutel van deze installatie, die ook niet in de back-up zit. Na het terugzetten op een andere installatie vraagt de app bij de volgende timer vanzelf een nieuw abonnement aan.
+
+### Afhankelijkheden in 4.15.0
+
+- `py-vapid` 1.9.6 (MPL-2.0) en `http-ece` 1.2.1 (MIT), van web-push-libs: het ondertekenen en het versleutelen, de standaard (RFC 8292 en RFC 8291) uit een bestaande open-sourcebibliotheek. pywebpush draait op dezelfde twee, maar brengt requests en aiohttp mee; de app verstuurt met haar eigen HTTPX-client.
+
+### Tests in 4.15.0
+
+- `tests/test_cook_push.py`: welke adressen de server aanneemt (alleen push-diensten), de sleutels van een abonnement, de timers (resttijd, marge, rare invoer), de VAPID-sleutel (één per installatie, versleuteld, ook als twee aanvragen tegelijk komen), het versleutelen en ondertekenen (echt ontsleuteld met `http_ece` en gecontroleerd met `py_vapid`), versturen, opnieuw proberen en opruimen, twee workers, de achtergrondtaak, de routes, en dat uitloggen, een verlopen sessie en een verwijderde gebruiker de abonnementen meenemen.
+- `tests/test_cook_timers.py`: welke timers de app naar de server stuurt, het abonnement met de sleutel van de server (en een nieuw na de fabrieksinstellingen), wijzigingen tijdens een verzoek, het afmelden bij uitloggen, en de `push`-handler van de service worker (in beeld geen melding, nooit een tweede, alleen een pad op de app).
+- `tests/test_backup.py`: de nieuwe tabellen en de VAPID-sleutel zitten niet in de back-up.
+
+## v4.14.0
+
+### Nieuw in 4.14.0
+
+Pull request: [#310](https://github.com/helmerzNL/MealieShopper/pull/310). Issue: [#309](https://github.com/helmerzNL/MealieShopper/issues/309).
+
+*English summary: Cooking mode gets the ingredients of each step and timers. **Ingredients for a step**: under each step are the ingredients that belong to it, with their amount (in cooking mode with ticks, in step with the full list). For a recipe from Mealie they come from Mealie's own links between steps and ingredients (`ingredientReferences`); without links, and for store recipes, the app finds them in the text of the step ("chop the onion" finds "1 red onion, chopped"), marked as found automatically. For a recipe from Mealie, **Link** in cooking mode lets you tick the ingredients of a step and saves them straight to Mealie. **Timers**: a step that mentions a time ("10-12 minutes", "1 hour and 15 minutes", "een kwartier") gets a button with that time, and **Timer** sets your own; up to eight run at once, float at the bottom right above Previous and Next, survive another step, closing cooking mode and a reload, and can be paused, stopped and folded away. At 0 the app beeps (Web Audio, no sound file), a phone vibrates and, when the app is not in view, a system notification appears (through a small service worker that only shows notifications). **Fixed**: one ingredient with a long word (a link, a long compound) made the cooking view wider than the window, so half of the ingredient list fell off a phone screen, also in the week menu's recipe window.*
+
+- **Ingrediënten bij een stap.** Onder elke stap staan de ingrediënten die erbij horen, met hun hoeveelheid: in de lijst met stappen kort onder de tekst, in de kookmodus in een eigen vak met vinkjes (gelijk met de lijst van alle ingrediënten, `data-cook-tick`).
+  - **Uit Mealie:** Mealie kan zelf ingrediënten aan een stap koppelen (*Link ingredients*); elk ingrediënt heeft een `referenceId` en een stap noemt de zijne in `ingredientReferences`. `mealie.recipe_detail` geeft die nu mee (`ref` bij een ingrediënt, `stepIds` en `stepRefs` naast de stappen), en het weekmenu had ze al in `recipeDetail`. Een stap met koppelingen toont precies die ingrediënten, ook als de tekst ze niet noemt.
+  - **Automatisch gevonden:** zonder koppelingen, en bij een recept van een winkel, zoekt `cookMatchStep` (static/recipe_view.js) de ingrediënten in de tekst van de stap: het laatste woord van een regel voor een komma of haakje (*2 tenen knoflook, fijngehakt* is knoflook), zonder hoeveelheid en eenheid, met meervoud en verkleinwoord gelijk (uien en ui, tomaten en tomaat, eieren en ei) en een samenstelling die op het woord eindigt (olijfolie bij olie, rundergehakt bij gehakt). Niet op het begin: *tomaat* is geen *tomatenblokjes*. Er staat dan *automatisch gevonden* bij.
+  - **Koppelen:** bij een recept uit Mealie staat in de kookmodus de knop **Koppelen**. Die opent een lijst van alle ingrediënten, met wat er nu bij staat al aangevinkt; **Opslaan** schrijft de koppelingen meteen naar Mealie (`PUT /api/mealie/recipes/<slug>/steps/<stap-id>/ingredients`, die met een `PATCH` alle stappen terugstuurt met alleen bij deze stap andere `ingredientReferences`). Een stap of ingrediënt dat er intussen niet meer is, geeft een 400 met de vraag het recept opnieuw te openen; Esc sluit eerst het formulier. Hetzelfde recept elders in de pagina (het weekmenu en Recepten zoeken) toont de nieuwe koppelingen meteen.
+- **Timers in de kookmodus.** Noemt een stap een tijd, dan staat er een knop met die tijd onder: *10-12 minuten* geeft 10 minuten (liever te vroeg kijken dan te laat), *1 uur en 15 minuten* één timer van 1 u 15 min, en ook *een kwartier*, *anderhalf uur*, *30 sec*, *2u* en Engelse tijden. Hooguit drie knoppen per stap, en **Timer** zet een eigen tijd in minuten.
+  - Tot acht timers tegelijk. Ze zweven rechtsonder (`#cook-timers`): in de kookmodus boven **Vorige** en **Volgende**, daarbuiten boven de menubalk, en in een open venster binnen dat venster. Elke timer toont de stap en de resttijd, met pauzeren en stoppen; **Timers (n)** klapt ze in tot de eerstvolgende tijd. De stap houdt onderaan ruimte vrij, zodat er niets achter de timers valt.
+  - Een timer loopt door bij een andere stap, als de kookmodus sluit en als de pagina opnieuw laadt: de eindtijd staat in localStorage (`ms-cook-timers`). Een timer die afliep terwijl de pagina dicht was, gaat bij het openen alsnog af (tot tien minuten erna).
+  - **Het alarm:** bij 0 wordt de timer rood en pulseert hij, piept de app (Web Audio, zonder geluidsbestand) en trilt een telefoon, tot je stopt; het piepen stopt na twee minuten. Staat de app niet in beeld, dan komt er een systeemmelding. Toestemming vraagt de browser bij de eerste timer. Op Android en in de geïnstalleerde app kan alleen een service worker een melding tonen: `static/cook_sw.js` doet niets anders (geen fetch-handler, geen cache) en brengt de app in beeld bij een tik op de melding. Een vergrendelde telefoon kan de app pauzeren; met **Scherm aan laten** blijft ze actief.
+
+### Opgelost in 4.14.0
+
+- **De ingrediëntenlijst viel op een telefoon half buiten beeld** (issue #309). Eén regel met een lang woord (een link, een lange samenstelling) maakte de kolom van de kookweergave breder dan het venster, en daarmee de hele lijst, ook in het receptvenster van het weekmenu. De kolom is nu `minmax(0, 1fr)` en lange woorden breken af (`overflow-wrap: anywhere`), bij de ingrediënten en de stappen. Een lange stap in de kookmodus scrolt nu ook vanaf de bovenkant: met `justify-content: center` viel die buiten de scroll.
+
+### Tests in 4.14.0
+
+- `tests/test_cook_step_links.py`: de koppelingen in het detail (`ref`, `stepIds`, `stepRefs`), dat het weekmenu ze bij het omrekenen houdt, en het opslaan (alle stappen terug, alleen één stap anders, onbekende stap of onbekend ingrediënt geeft een 400 zonder iets naar Mealie te sturen, rare invoer, een weigering van Mealie).
+- `tests/test_recipe_view.py`: de koppelingen in het model, het automatisch vinden (een tabel met Nederlandse en Engelse stappen), de stammen, opslaan voor elke weergave van hetzelfde recept, de ingrediënten onder een stap en het formulier.
+- `tests/test_cook_timers.py`: tijden uit een stap, de klok, meer timers tegelijk, pauzeren en afgaan, het maximum, bewaren en herladen (ook zonder opslag), de weergave en de knopjes, en de service worker zonder fetch-handler.
+- In `tests/test_reported_bugs.py` de melding uit issue #309 (de lijst buiten beeld op een telefoon).
+
+## v4.13.1
+
+### Verbeterd in 4.13.1
+
+Pull request: [#308](https://github.com/helmerzNL/MealieShopper/pull/308), van wolph.
+
+*English summary: Three fixes for the Price history, all from one report about a product that was listed three times. **Imported purchases join the right product**: the names used to link a purchase without a product id now also come from an order that is still open and from the receipt links of Albert Heijn, and when two products share exactly the same name (a 2-piece pack and a 500 gram bag of the same pepper) the regular price of the purchase picks the nearest one. **The daily run also fetches your orders and receipts** from every linked store (Albert Heijn, Jumbo, Picnic and Crisp), so a delivered order no longer stays "open" until you press the sync button. **A product the app only knows from a receipt shows its size and brand**: the receipt link now stores them, and the round that fetches photos for old links fills them in.*
+
+Drie fixes voor de Prijsgeschiedenis, alle drie uit een melding over een product dat er drie keer in stond (*AH Sweet Palermo rode puntpaprika*).
+
+**Prijsgeschiedenis**
+
+- **Een ingelezen aankoop hoort bij het goede product.** Een aankoop uit een bevestigingsmail heeft alleen een naam. De namen waarmee de app zo'n aankoop koppelt, komen nu ook uit een bestelling die nog open staat en uit de bonkoppelingen van Albert Heijn. Eerst bleef de aankoop als eigen rij naast het product staan als de app het product alleen daarvan kende.
+- **Twee producten met dezelfde naam.** Verkoopt de winkel twee artikelen met precies dezelfde naam (dezelfde puntpaprika per 2 stuks en als zak van 500 gram), dan kiest de gewone prijs van de aankoop het product met de dichtstbijzijnde prijs. Ligt geen prijs in de buurt (meer dan anderhalf keer zo veel of zo weinig), of ligt het eerste product met die naam bijna even dichtbij, dan blijft de aankoop daar.
+- **De inhoud van een product van de kassabon.** Een product dat de app alleen van je kassabon kent, toonde geen inhoud en geen merk. De bonkoppeling bewaart ze nu naast de naam en de foto, en de ronde die foto's bij oude koppelingen ophaalt, haalt ze erbij, de producten van je eigen bonnen eerst. De Prijsgeschiedenis toont daardoor *2 stuks* en de prijs per stuk, de bestelpagina toont ze bij een ingelezen aankoop, en zoeken met een maat (*puntpaprika 2 stuks*) vindt het product.
+
+**Bestellingen en kassabonnen**
+
+- **Vanzelf bijgewerkt.** De dagelijkse run die de aanbiedingen ophaalt, haalt nu ook je bestellingen op bij elke gekoppelde winkel (Albert Heijn, Jumbo, Picnic en Crisp), en bij Albert Heijn je kassabonnen. Eerst kwamen ze alleen binnen met de synchroniseerknop op de bestelpagina: een bezorgde bestelling bleef zonder die knop op *open* staan en haar producten ontbraken in de Prijsgeschiedenis. Een winkel die het niet doet, houdt de rest niet tegen. De uitkomst staat onder `purchases` in de laatste run.
+
+**Database**
+
+- `ah_receipt_products` krijgt de kolommen `brand` en `unit_size`. Ze komen er bij de eerste start vanzelf bij en zitten in de back-up.
+
+**Tests**
+
+- `tests/test_reported_bugs.py`: de drie meldingen van 2026-11-10 (`SameNameTwoProductsTest`, `OrdersSyncedNightlyTest`, `ReceiptLinkedPackSizeTest`). `tests/test_purchase_sync.py`: de nachtelijke synchronisatie per winkel.
+
+## v4.13.0
+
+### Nieuw in 4.13.0
+
+Pull request: [#306](https://github.com/helmerzNL/MealieShopper/pull/306).
+
+*English summary: The fourth and last round of the user-experience review ([docs/onderzoek-gebruikerservaring.md](docs/onderzoek-gebruikerservaring.md), in Dutch): finding your way. The **week is in the address** (`/recipes?week=2026-11-16`, and the same for Offers), so a reload, a bookmark and Back open the same week. **Back returns you to your place** in a list, and after a screen change the focus is on the content. An offer has an **Add to basket** button (linked stores with a basket, real webshop products only; the quantity the deal asks for). The **setup guide asks which stores you use** and only shows a step for those, names Crisp, and ends with *Plan your first meal*. **Albert Heijn can be unlinked** (`POST /api/ah/auth/logout`), like the other stores. *Prefer organic* is also under Preferences, the blocks under Settings, Link are in the order you need them, the store you choose in the week menu is also the store of the Basket tab, the search text and filters of Offers and purchases survive a reload, the purchase list shows the first hundred with *More purchases* and defaults to cards on a phone, a sub-tab bar that scrolls on a phone fades where there is more, the installed app has *Refresh* in the More menu and shortcuts to Week menu, Offers and Basket. Unlinking Albert Heijn and adding an offer to a basket were tested against simulated stores only, not against the real store APIs. Not done, on purpose: renaming the Recipes tab, a service worker, and zooming in the installed app.*
+
+De vierde en laatste ronde van de doorlichting van de gebruikerservaring: **wegwijs**.
+
+**Navigatie**
+
+- **De week in het adres.** Bekijk je een andere week dan de huidige, dan staat de eerste dag van die week in het adres: `/recipes?week=2026-11-16`, en bij Aanbiedingen `/offers?week=2026-11-16`. Herladen, een bladwijzer en Terug openen dezelfde week; eerst begon je na herladen altijd bij deze week. Bladeren door de weken vervangt het adres en maakt geen stap in de geschiedenis per week. Onzin in het adres is deze week; verder dan twee jaar gaat het niet.
+- **Terug naar je plek.** Ga je van een lange lijst naar een ander scherm en met Terug weer terug, dan sta je op de plek waar je was. De app bewaart die plek in de stap van de geschiedenis en zet haar terug zodra de lijst er staat; scrol je zelf, dan stopt dat.
+- **De focus gaat mee.** Na een schermwissel en na Terug staat de focus op de inhoud van het scherm, zodat de Tab-toets daar verdergaat en een schermlezer het scherm aankondigt. Eerst bleef de focus op het menu staan.
+- **Eén winkelkeuze.** Kies je in het weekmenu een winkel voor je boodschappen, dan opent **Mandje** daarna ook met die winkel.
+- **Een subtabbalk laat zien dat er meer is.** Op een telefoon is zo'n balk één regel die je opzij veegt; de rand vervaagt nu aan de kant waar nog tabbladen buiten beeld staan (Instellingen, Winkels).
+- **Vernieuwen in de geïnstalleerde app.** In het menu **Meer** staat *Vernieuwen*, alleen in de geïnstalleerde app: die heeft geen knop van de browser, en omlaag slepen ververst er niet.
+- **Snelkoppelingen.** Houd het icoon van de geïnstalleerde app ingedrukt voor Weekmenu, Aanbiedingen en Mandje (`shortcuts` in het manifest).
+
+**Eerste start**
+
+- **Welke winkels gebruik je?** De installatiehulp liet iedereen langs Albert Heijn, Jumbo en Picnic lopen, en noemde Crisp niet. Na Mealie vraagt hij nu welke winkels je gebruikt (Albert Heijn, Jumbo, Picnic, Crisp); alleen die krijgen een stap. Bij elke winkel staat hoe het koppelen gaat: Albert Heijn en Jumbo vragen een computer, Picnic kan ook op een telefoon. De keuze blijft staan als je de pagina herlaadt.
+- **Crisp in de hulp.** Vinkte je Crisp aan, dan biedt de laatste stap **Crisp koppelen** aan: die rondt de hulp af en opent het blok Crisp onder Instellingen, Koppelen.
+- **Een eerste taak.** De laatste stap toont alleen de winkels die je koos. Is Mealie gekoppeld, dan heet de knop **Plan je eerste maaltijd** en opent hij het weekmenu.
+
+**Instellingen en koppelen**
+
+- **Albert Heijn ontkoppelen.** Bij Jumbo, Picnic en Crisp kon dat al, bij Albert Heijn niet. De knop **Ontkoppelen** in het blok Albert Heijn (alleen de beheerder, na een vraag) wist de bewaarde token (`POST /api/ah/auth/logout`). Staat de token ook in de omgevingsvariabele `AH_REFRESH_TOKEN`, dan koppelt die de app bij de volgende start opnieuw; de melding zegt dat.
+- **Liever biologisch bij Voorkeuren.** Dezelfde schakelaar als bij de boodschappenlijst staat nu ook onder Instellingen, Voorkeuren, Supermarkt; de twee lopen gelijk.
+- **De volgorde van Koppelen.** Eerst Mealie en de winkels (Albert Heijn, Jumbo, Picnic, Crisp), daarna de hulpmiddelen: producten koppelen, aanbiedingen ophalen en de AI-beoordeling. Eerst stonden de hulpmiddelen boven de koppelingen die ze nodig hebben.
+
+**Aanbiedingen en aankopen**
+
+- **Een aanbieding in je mandje.** Op elke aanbieding staat een winkelwagentje met een plus (*In mandje bij Albert Heijn*), in de kaarten en in de compacte lijst. Een tik zet het product in het mandje van die winkel, nooit in een bestelling, en een toast zegt wat er is toegevoegd. Vraagt de actie een aantal (*2 voor 3*), dan gaat dat aantal erin. Alleen bij een gekoppelde winkel met een mandje en bij een echt product van de webwinkel: niet bij Lidl en Aldi, niet bij de Bonus Box als geheel.
+- **Zoeken en filters blijven staan.** De zoektekst en de categorie van Aanbiedingen, en de soorten, het bedrag en de zoektekst van de aankopen blijven staan als je de pagina herlaadt of terugkomt uit een detailscherm (`sessionStorage`, dus per tabblad van de browser).
+- **Aankopen in delen.** De lijst toont de eerste honderd aankopen, met **Meer aankopen** voor de volgende honderd; een paar jaar aan bonnen in één keer tekenen kostte op een telefoon merkbaar tijd. De filters, het zoeken en de telling gaan over alle aankopen.
+- **Kaarten op een telefoon.** Bij de aankopen is Kaarten daar de standaard, zolang je zelf geen weergave koos; de tabel met zes kolommen past er niet.
+
+**Verder**
+
+- **Niet getest tegen een echte winkel:** Albert Heijn ontkoppelen en een aanbieding in het mandje zijn getest met nagebootste antwoorden, niet tegen de echte routes van de winkels. De knop *In mandje* gebruikt dezelfde route als de controlelijst van het weekmenu.
+- **Bewust niet gedaan:** de tab *Recepten* een andere naam geven (dat raakt de huisstijl, alle schermafbeeldingen en het menu, en is een keuze van de eigenaar), een service worker voor gebruik zonder verbinding (`docs/huisstijl.md` zegt dat er bewust geen offlinefunctie is) en zoomen in de geïnstalleerde app (blijft uit, zoals de huisstijl beschrijft).
+- **Handleiding en README** (NL en EN): de installatiehulp met de winkelkeuze, het adres met de week en terug naar je plek, *In mandje*, de filters, aankopen in delen, de volgorde van Koppelen, Albert Heijn ontkoppelen, *Vernieuwen* en de snelkoppelingen. Nieuwe schermafbeelding `ob-stores`; `ob-done`, `settings-stores`, `offers` en `offers-compact` zijn opnieuw gemaakt.
+- **Tests:** `tests/test_wayfinding.py` (de route voor Albert Heijn ontkoppelen, ook met de token in de omgeving; in Node: de week uit het adres met een week die op zondag begint en de wisseling van de klok, de plek bewaren en terugzetten, de regels en het verzoek van *In mandje*, de filters in `sessionStorage`, de aankopen in delen, de vervagende subtabbalk; en verder het manifest en het menu), en `tests/test_onboarding_ui.py` en `tests/test_link_menu.py` voor de installatiehulp en de volgorde van Koppelen.
+
+## v4.12.0
+
+### Verbeterd in 4.12.0
+
+Pull request: [#305](https://github.com/helmerzNL/MealieShopper/pull/305).
+
+*English summary: The third round of the user-experience review ([docs/onderzoek-gebruikerservaring.md](docs/onderzoek-gebruikerservaring.md), in Dutch): feedback and controls in one style. Every question now uses the app's own dialog instead of the browser's `confirm` (14 places): in the app's language, with a button that says what it does, red and with the focus on Cancel when it cannot be undone. A toast says *Saved* after a preference and stays for an error. Loading reserves room (a spinner box, skeleton day cards in the week menu), so the page no longer jumps. Fetching all offers shows how many stores are done; the AI recipe search keeps polling after a network hiccup. Seven fields get an accessible name and the password rules stand at the fields. Hover styles only apply with a mouse, small controls get a 44 px touch area, field borders reach 3:1, the price chart is one tab stop with arrow keys, the app behind the sign-in screen or the setup wizard is inert, and there is a skip link. Texts: Crisp is named with the other stores, the server's remaining English errors are translated, empty lists say what to do next.*
+
+De derde ronde van de doorlichting van de gebruikerservaring: **terugkoppeling en bediening in één stijl**.
+
+- **Vragen in een eigen venster.** Veertien vragen (een maaltijd verwijderen, een mandje legen, ontkoppelen, de controlelijst weggooien, wisselen van winkel, een gebruiker of passkey verwijderen, het auditlog wissen, de fabrieksreset, de AI-zoekronde) gingen via `window.confirm`. Dat venster volgde de taal van het toestel in plaats van die van de app, viel buiten de huisstijl en kan in een geïnstalleerde app worden onderdrukt. Nu staat de vraag in een eigen venster (`confirmDialog`): de knop zegt wat hij doet (*Verwijderen*, *Ontkoppelen*, *Lijst weggooien*), bij iets dat niet terug kan is hij rood en staat de focus op *Annuleren*. Escape en een tik naast het venster zijn nee.
+- **Opgeslagen.** Een keuze onder Voorkeuren en de schakelaar *Liever biologisch* werden stil bewaard; je wist niet of het gelukt was. Nu verschijnt onderaan kort *Opgeslagen* (een toast). Mislukt uitloggen staat daar ook, en blijft staan tot je het sluit.
+- **Laden met vaste ruimte.** Het mandje, een recept dat opent en de bestellingenlijst toonden een regel grijze tekst of niets, en de pagina versprong als de inhoud kwam. Nu staat er een draaiend icoon met tekst in een vak van 160 px, en het weekmenu toont zeven lege dagkaarten terwijl het laadt. De bestellingenlijst zegt de eerste keer dat ze laadt. *Mandje laden...* stond ook bij de maaltijdboxen en bij een recept; daar staat nu *Laden...*.
+- **Alle aanbiedingen ophalen laat zien hoe ver het is.** De knop onder Koppelen is één lang verzoek voor alle winkels. Intussen vraagt de pagina de stand op: de regel per winkel springt bij zodra die winkel klaar is, met *Bezig: 3 van 6 winkels bijgewerkt*.
+- **De AI-receptzoeker blijft de ronde volgen.** Na één mislukte statusvraag meldde de pagina een fout, terwijl de ronde op de server doorliep. Nu vraagt ze opnieuw, zoals de back-up en de bulkimport; pas na tien missers op rij geeft ze het op.
+- **Formulieren.** Zeven velden hadden alleen een placeholder en dus geen naam voor een schermlezer (Recepten zoeken, importeren via URL, de regel uit de console bij AH en Jumbo, de naam bij een uitnodiging, het zoekveld van het auditlog, de naam van een nieuwe passkey); ze hebben nu een naam of een zichtbaar label. De wachtwoordregel (*Minstens 10 tekens*) staat bij het veld bij een uitnodiging en bij wachtwoord wijzigen, en *Minstens 8 tekens* bij het wachtwoord van een back-up; daarvoor las je de regel pas in de foutmelding.
+- **Hover alleen met een muis.** 45 `:hover`-regels golden ook op een aanraakscherm, waar een knop na een tik groen bleef. Ze staan nu in `@media (hover: hover)`.
+- **Tikvlakken van 44 px.** De kleine knoppen (min en plus bij een lijstje, het potlood en de plus in het weekmenu, verwijderen bij een aankoop, de iconen in de compacte aanbiedingenlijst) krijgen op een aanraakscherm een tikvlak van 44 px; ze zien er hetzelfde uit. De periodeknoppen van de grafiek, *Hoe werkt dit?* en de regels van het menu zijn daar 44 px hoog.
+- **Randen van invoervelden.** De rand van een veld haalde 1,4 : 1 tegen het vlak; de richtlijn van App-Guidance vraagt 3 : 1 voor randen van bediening. Velden gebruiken nu `--control-border` (3,1 : 1 in licht, donker en donkergrijs). **Dit is te zien:** de randen van invoervelden zijn donkerder. Kaarten en scheidingslijnen houden `--border`.
+- **De prijsgrafiek met het toetsenbord.** Elke balk en stip was een eigen Tab-stop, tientallen per grafiek, en een schermlezer kon ze niet lezen omdat de grafiek zelf een afbeelding heette. De grafiek is nu één Tab-stop; de pijltjestoetsen lopen de punten langs en elk punt heeft een naam.
+- **De uitleg van de kortingsbadge** stond alleen in een tooltip, die er op een aanraakscherm niet is. Hij staat nu ook in de popup en het venster van de aanbieding.
+- **Achter een overlay is de app buiten bereik.** Staat het inlogscherm, een uitnodiging of de installatiehulp over de pagina, dan is de app erachter `inert`; Tab liep er eerst gewoon in.
+- **Naar de inhoud.** De eerste Tab-stop van de pagina slaat de kop en het menu over. Het aantal aanbiedingen en aankopen na een filter wordt voorgelezen.
+- **Teksten.** Crisp ontbrak in vier opsommingen van winkels (fabrieksreset, back-up, auditlog). *Verversen* is overal *Vernieuwen*, en een beletselteken is drie punten, zoals in de andere teksten. Lege lijsten zeggen wat je kunt doen (*Geen lijstjes gevonden. Maak een lijstje in de app van de winkel en kies daarna Laden.*). De vijftien Engelse foutmeldingen van de inlogroutes zijn vertaald. De tip over de reverse proxy en de container-logs bij een 502 of 504 krijgt alleen de beheerder nog.
+- **Niet gedaan in deze ronde:** de AI-zoekronde kan nog niet worden gestopt (dat vraagt een route op de server), en `formatPrice` geeft nog niets terug bij € 0 (op meer plekken is een lege prijs "onbekend").
+- **Huisstijl en handleiding** (NL en EN): vragen en toasts, laden, hover, tikvlakken en randen in `docs/huisstijl.md`; *Opgeslagen* bij Voorkeuren en de grafiek met het toetsenbord in de handleiding.
+- **Tests:** `tests/test_controls_js.py` (in Node: het venster met ja, nee, Escape en een tik ernaast, de focus bij een gevaarlijke vraag, geen `window.confirm` of `alert` meer in de scripts, de toast, laden met vaste ruimte, de pijltjestoetsen van de grafiek, `inert` achter een overlay; en verder: geen `:hover` buiten `@media (hover: hover)`, tikvlakken, het randcontrast berekend per thema, de link naar de inhoud, een naam bij elk veld, de wachtwoordregel gelijk aan de server, geen Engelse fout in de inlogroutes, Crisp in de opsommingen).
+
+## v4.11.0
+
+### Nieuw in 4.11.0
+
+Pull request: [#304](https://github.com/helmerzNL/MealieShopper/pull/304).
+
+*English summary: The second round of the user-experience review ([docs/onderzoek-gebruikerservaring.md](docs/onderzoek-gebruikerservaring.md), in Dutch): the app remembers your week. The ingredient list under the week menu is now a **shopping list** you tick: choose which days you shop for (in the current week the days that are over no longer count by default: **new behaviour**), untick what you do not need, and use the house to put what you always have at home under **Already at home**, per user; that is no longer searched at the store. The **check list** searches in groups of six with a progress line and Stop, puts what you have to check at the top, shows an **estimated total**, and survives a reload or paging to another week. The product is no longer a system drop-down with one long line: the chosen product is a button, **Change** unfolds the options with photos, and the number of packs has `−` and `+`. A product you chose yourself instead of the first one (or searched for) is **remembered** per user, store and ingredient once it is in your basket, and comes first next time as **Chosen before**; **Stop remembering** forgets it. A **Shopping** button next to the week jumps to the list. New tables `cart_choices` and `pantry_items`, both in the backup. Not tested against a real store.*
+
+De tweede ronde van de doorlichting van de gebruikerservaring: **de app onthoudt je week**. Tot nu toe zocht de controlelijst elke week opnieuw, verving je elke week hetzelfde product en vinkte je elke week zout en olie uit.
+
+- **De boodschappenlijst is een aanvinklijst.** Onder het weekmenu stond een platte lijst *Alle ingrediënten*; alles ging de zoekronde in. Nu heet hij **Boodschappen** en heeft elke regel een vinkje: haal het weg bij wat je deze week niet nodig hebt. De kop telt mee (*Boodschappen (14 van 20)*). Niet mee is doorgestreept, dus niet alleen aan het vinkje te zien. De regels zijn 44 px hoog.
+- **Al in huis.** Met het huisje naast een regel zet je iets bij **Al in huis**. Dat onthoudt MealieShopper per gebruiker (`pantry_items`, `GET` en `POST /api/pantry`): het staat voortaan uitgevinkt in een eigen, ingeklapt blok onder de lijst en wordt niet meer bij de winkel gezocht. Vink het daar aan om het deze week toch te kopen; nog een tik op het huisje haalt het uit de voorraadkast. De naam is die van het ingrediënt in Mealie; bij een ingrediënt dat Mealie niet ontleedde is het de hele regel.
+- **Kiezen voor welke dagen.** Boven de lijst staan de dagen met een maaltijd als knoppen (*Boodschappen voor*). **Nieuw gedrag:** in de lopende week tellen de dagen die voorbij zijn standaard niet mee, met de regel *2 maaltijden van eerdere dagen tellen niet mee; tik een dag aan om hem toch mee te nemen*. In een andere week, en als alles al voorbij is, tellen alle dagen. De dagen en de vinkjes gelden per week en blijven staan tot je het tabblad sluit.
+- **De knop Boodschappen naast de week** springt naar de lijst; die stond onder zeven dagkaarten.
+- **MealieShopper onthoudt het product dat je koos.** Kies je in de controlelijst een ander product dan het eerste, of zoek je er zelf een, dan gaat dat als `remember` mee bij het toevoegen en bewaart de server het per gebruiker, winkel en ingrediënt (`cart_choices`, module `mealieshopper/cart_memory.py`), nadat het in je mandje staat. Een product dat de winkel weigerde wordt niet onthouden. De volgende controlelijst zet het vooraan met **Eerder gekozen** (`remembered`); zit het niet tussen de zoekresultaten, dan zoekt de server één keer op de bewaarde titel. Het gewone voorstel blijft bij de opties staan, en je eigen keuze gaat voor *Liever biologisch*. Bestaat het product niet meer, dan staat het gewone voorstel er met *Je eerdere keuze … is niet gevonden* (`rememberedMissing`). **Niet meer onthouden** vergeet de keuze (`POST /api/cart/choices/forget`). Zocht je onder een andere naam, dan hoort de keuze bij het ingrediënt, niet bij je zoekterm.
+- **De controlelijst laat zien hoe ver hij is.** Het zoeken gaat in groepen van zes (gelijk aan de zes regels die de server tegelijk doet); elke groep staat meteen in de lijst, met *12 van 25 gezocht* erboven en **Stop**. Wat bij Stop of een fout halverwege nog niet gezocht is, staat er als *Nog niet gezocht* met een zoekveld, met de fout één keer boven de lijst; mislukt het zoeken meteen (geen verbinding, de winkel weigert), dan staat er alleen die ene melding. Toevoegen kan pas als het zoeken klaar is. Alleen wat aangevinkt is op de boodschappenlijst wordt gezocht.
+- **Wat je moet nakijken staat bovenaan.** Twijfelregels, niet gevonden regels en een eerdere keuze die er niet meer is staan onder *Even nakijken (N)*, de rest onder *In orde (N)*. Een regel verspringt niet van groep als je een ander product kiest.
+- **Een geschat totaal** in de balk onderaan: prijs maal verpakkingen van wat aangevinkt is, zonder acties zoals 2 voor de prijs van 1. Op een telefoon staat het op een eigen regel boven de knoppen.
+- **Het product kiezen zonder de keuzelijst van het systeem.** Die toonde één lange regel tekst, op een telefoon afgekapt. Het gekozen product is nu een knop met naam, inhoud, prijs en prijs per eenheid; **Wijzig** klapt de opties uit als keuzerondjes met foto, en daaronder het zoekveld (voorheen *Zoek een ander product*); **Klaar** klapt ze in. Bij een twijfelregel met meer opties staan ze meteen open. Het aantal verpakkingen heeft de `−` en `+` van de lijstjes, 44 px hoog.
+- **De controlelijst blijft staan.** Herladen, een week bladeren en terugkomen, of het weekmenu synchroniseren wiste de lijst met al je keuzes. Hij staat nu in `sessionStorage` (tot twaalf uur, per tabblad) en komt terug met je keuzes, aantallen en vinkjes; hij verdwijnt als je toevoegt of annuleert.
+- **Back-up en gebruikers.** `cart_choices` en `pantry_items` zitten in de back-up (`backup.DATA_TABLES`, de telling *Onthouden productkeuzes en voorraadkast*); rijen van een gebruiker die op de installatie niet bestaat gaan niet terug, zoals bij de profielen (`backup.USER_TABLES`). Een verwijderde gebruiker neemt zijn keuzes en zijn voorraadkast mee.
+- **Onder de motorkap.** De boodschappenlijst en de controlelijst staan in een eigen script, `static/shopping.js`; `static/app.js` houdt het weekmenu. De teksten *Alle ingrediënten*, *Zoek een ander product*, *Product* en *Geen producten gevonden voor de ingrediënten* zijn weg.
+- **Handleiding en README** (NL en EN): de boodschappenlijst, het onthouden en de nieuwe controlelijst bij *Weekmenu naar je mandje*, een regel in de functielijst, en nieuwe schermafbeeldingen van het weekmenu en de controlelijst.
+- **Niet getest tegen een echte winkel:** op de plek waar dit gebouwd is, is geen winkel gekoppeld. De routes en het onthouden zijn getest met nagebootste zoekresultaten, de schermen in Chromium op 390 en 1280 px met een nagebootste winkel.
+- **Tests:** `tests/test_cart_memory.py` (de sleutel, een keuze per gebruiker en winkel, vervangen en vergeten, onvolledige regels, de voorraadkast en haar grens, een verwijderde gebruiker, de routes, alleen onthouden wat je zelf koos en wat de winkel aannam, het voorstel met een onthouden product uit de resultaten of op titel gezocht, een product dat weg is, een keuze bij een andere winkel, een geheugen dat niet te lezen is), `tests/test_shopping_js.py` (in Node: de dagen en de standaard, wat in huis is, de groepen, het totaal, wat er naar het mandje gaat en wat onthouden wordt, bewaren en terugzetten, de regel als HTML zonder keuzelijst, tikvlakken van 44 px), `tests/test_backup.py` (beide tabellen heen en terug, een gebruiker die niet bestaat) en `tests/test_feedback_js.py` bijgewerkt voor het nieuwe script.
+
+## v4.10.4
+
+### Verbeterd in 4.10.4
+
+Pull request: [#304](https://github.com/helmerzNL/MealieShopper/pull/304).
+
+*English summary: The first round of a user-experience review of the whole app ([docs/onderzoek-gebruikerservaring.md](docs/onderzoek-gebruikerservaring.md), in Dutch): dead ends and errors. When a session expires while the app is open (4.10.3 made it last 90 days and renew with use), the sign-in screen now comes over the page instead of the word "Unauthorized" in every box; after signing in you continue where you were. Without a connection you get a translated message instead of the browser's "Failed to fetch". Fixed: switching store while the check list is open sent the product ids of the old store to the new one; the list now belongs to its store and switching asks first, as does Cancel. An unlinked Albert Heijn is said before the search, not after walking through the list; every store gets View basket after adding. Unlinking Mealie, Jumbo, Picnic or Crisp asks first; signing out can no longer fail silently. Messages are read out by a screen reader and "Loading..." is no longer a green success message. The tabs of the bottom bar have a name for a screen reader again. Every screen has its own page title. A link pasted into the Find recipes field is imported into Mealie. Offers filtered down to nothing say so, with Show all; typing in the offers search redraws after 250 ms instead of on every key. Dialogs use the visible height on iOS.*
+
+De eerste ronde van een doorlichting van de gebruikerservaring van de hele app: **vastlopers en fouten**. Het onderzoek, met alle bevindingen en de rondes die nog volgen, staat in [docs/onderzoek-gebruikerservaring.md](docs/onderzoek-gebruikerservaring.md).
+
+- **Een verlopen sessie opent het inlogscherm.** Sinds 4.10.3 duurt een sessie 90 dagen en verlengt ze bij gebruik ([#303](https://github.com/helmerzNL/MealieShopper/pull/303)); dit gaat over het moment dat ze toch afloopt, of dat je elders bent uitgelogd. Verliep de sessie terwijl de app open stond, dan stond bij elke actie het woord *Unauthorized* in een rood vak en moest je zelf bedenken dat herladen hielp. Nu herkent `jsonFetch` de 401, komt het inlogscherm over de pagina met *Je sessie is verlopen. Log opnieuw in; daarna ga je verder waar je was.*, en blijft de pagina eronder staan. De server geeft de 401 in je taal (*Je bent niet ingelogd. Log opnieuw in.*).
+- **Geen verbinding.** In plaats van de tekst van de browser (*Failed to fetch*, *Load failed*) staat er *Geen verbinding met MealieShopper. Controleer je netwerk en probeer het opnieuw.*
+- **Fout gerepareerd: wisselen van winkel met een open controlelijst.** Koos je een andere winkel terwijl de controlelijst open stond, dan gingen de product-id's van de oude winkel naar de nieuwe. De controlelijst hoort nu bij de winkel waar hij is gezocht: zoeken en toevoegen vanuit de lijst gaan altijd daarheen, en wisselen vraagt eerst of de lijst weg mag. **Annuleren** vraagt het ook. Een tweede mislukte poging stapelt geen foutvakken meer.
+- **Albert Heijn niet gekoppeld: dat hoor je vooraf.** Albert Heijn staat altijd in de winkelkeuze, en zoeken werkt zonder koppeling; toevoegen niet. Dat bleek pas na het nalopen van de hele controlelijst. Nu staat het bij de knop, met **Albert Heijn koppelen** ernaast (een gewone gebruiker leest dat de beheerder moet koppelen). Die knop, en **Mealie koppelen** boven het weekmenu, opent het blok onder Instellingen, Koppelen uitgeklapt, in beeld en met de focus erop; daarvoor opende Instellingen bovenaan.
+- **Mandje bekijken bij elke winkel.** Na het toevoegen ontbrak de knop bij Albert Heijn.
+- **Ontkoppelen vraagt eerst, uitloggen mislukt niet stil.** Ontkoppelen van Mealie, Jumbo, Picnic of Crisp was één klik, terwijl opnieuw koppelen bij Mealie een nieuw token vraagt en bij Jumbo een computer met een console. De knop is bezig tot het antwoord er is. Mislukt uitloggen, dan staat dat er; op een gedeeld toestel dacht je anders dat je weg was.
+- **Meldingen worden voorgelezen, en *Laden...* is geen succes meer.** De meeste meldingsvakken hadden geen rol, dus een schermlezer zei niets bij een fout of bij opslaan; `message()` geeft de melding nu zelf `role="alert"` (fout, waarschuwing) of `role="status"`. Er is een neutrale soort (`info`) met een eigen stijl voor *Laden...*, *Wachten op je passkey* en *Controleren...*; die stonden in een groene succesmelding.
+- **Fout gerepareerd: de tabs van de onderste menubalk hadden geen naam.** In de geïnstalleerde app op een telefoon was het lange label verborgen met `display: none` en had het korte label `aria-hidden`: een schermlezer las vijf tabs zonder naam. Het lange label is nu alleen visueel verborgen.
+- **Elk scherm heeft een eigen titel.** Het tabblad van de browser, de geschiedenis en een schermlezer zagen overal *MealieShopper*. Nu staat er *Weekmenu · Recepten · MealieShopper*, *Koppelen · Instellingen · MealieShopper*, *Mandje · MealieShopper*, in je taal.
+- **Een link plakken in Recepten zoeken importeert het recept.** *Recept importeren via URL* staat niet meer in het menu en had alleen nog het adres `/import`. Plak je een link (`https://...`) in het zoekveld, dan importeert **Zoeken** dat recept in Mealie en biedt het **Inplannen** aan. De placeholder van het veld zegt het. Een foutmelding van de import gaat niet meer als HTML de pagina in.
+- **Aanbiedingen: een lege lijst zegt waarom.** Filterde of zocht je tot er niets over was, dan bleef het rooster leeg. Nu staat er *Geen aanbiedingen met deze filters en zoekterm.* met **Alles tonen** (zoekveld, categorie, filters en de twee schakelaars terug). Typen in het zoekveld, in *Prijs per eenheid, hooguit* en slepen aan de kortingsschuif tekent de lijst na 250 ms stilte, in plaats van bij elke toets vier keer over alle aanbiedingen te rekenen.
+- **Vensters op iOS.** De vensters waren begrensd met `100vh`; in Safari op iOS kon de onderkant, met de knop **Sluiten**, achter de werkbalk vallen. Ze gebruiken nu `100dvh`, met `100vh` als terugval.
+- **Handleiding** (NL en EN): de verlopen sessie bij Beveiliging, de controlelijst die bij een winkel hoort bij *Weekmenu naar je mandje*, en een link importeren bij *Recepten zoeken en importeren*.
+- **Niet gecontroleerd tegen een echte winkel:** de controlelijst is nagelopen met nagebootste antwoorden; op deze plek is geen winkel gekoppeld.
+- **Tests:** `tests/test_feedback_js.py` (in Node: de 401 die het inlogscherm één keer opent, de 401 van een inlogroute die dat niet doet, geen verbinding, een afgebroken verzoek, de rol per soort melding, de controlelijst die naar zijn eigen winkel gaat, de vraag bij wisselen en annuleren, Albert Heijn niet gekoppeld, de vertraging van het zoekveld, *Alles tonen*, een link in het zoekveld, de titel per scherm, de naam van de tabs, `100dvh`) en in `tests/test_auth.py` de vertaalde 401.
+## v4.10.3
+
+### Opgelost in 4.10.3
+
+Pull request: [#303](https://github.com/helmerzNL/MealieShopper/pull/303), van wolph.
+
+*English summary: You stay logged in. The session cookie expired after 24 hours no matter how often you used the app, so everyone logged in again every day. A session now lasts 90 days (`MEALIESHOPPER_SESSION_DAYS`), and every request with a session older than a day sets a fresh cookie, so whoever keeps using the app stays logged in. Logging out now revokes the session on the server (the cookie and every renewal of it), a new password and the reset still end every session at once, a renewal carries the epoch, session id and login time of the cookie that was checked, nothing is renewed a year after the login, a Bearer token (AI apps) gets no cookie, and a session from before this version keeps working until it expires.*
+
+- **Je blijft ingelogd.** Melding van 2026-11-09: "het systeem logt me regelmatig uit". De sessiecookie `ms_session` verliep na 24 uur, hoe vaak je de app ook gebruikte, dus iedereen logde elke dag opnieuw in. Een sessie duurt nu 90 dagen (`MEALIESHOPPER_SESSION_DAYS`, zie de README), en elke aanvraag met een sessie van meer dan een dag oud zet een verse cookie met opnieuw de volle duur. Wie de app blijft gebruiken blijft dus ingelogd, wie 90 dagen wegblijft logt opnieuw in. Een nieuw wachtwoord en de reset uit de README beeindigen nog steeds elke sessie meteen (de sessieteller), een Bearer-token van een AI-app krijgt geen cookie, en een sessie van voor deze versie blijft geldig tot hij verloopt.
+- **Uitloggen trekt de sessie in.** Tot nu toe wiste uitloggen alleen de cookie en bleef het token zelf geldig tot het verliep. Nu heeft elke sessie een id (`sid`, hetzelfde bij elke verlenging) en zet uitloggen dat id in een tabel `revoked_sessions` (niet in de back-up, net als de andere inloggegevens): de uitgelogde cookie en elke verlenging ervan zijn daarna een 401, andere sessies van dezelfde gebruiker niet. Een verlenging draagt de sessieteller, het id en de inlogtijd van de gecontroleerde cookie, nooit een nieuwere teller uit de database. Een jaar na de inlog (`auth_time`) wordt niet meer verlengd, dan log je hoe dan ook opnieuw in.
+- **Tests:** `tests/test_auth.py` (de duur en de omgevingsvariabele) en in `tests/test_reported_bugs.py` de melding van 2026-11-09 (90 dagen, verlenging na een dag, geen cookie bij een Bearer-token, uitloggen wist en trekt in, de verlenging houdt de gecontroleerde teller, na een jaar geen verlenging).
+
 ## v4.10.2
 
 ### Verbeterd in 4.10.2
@@ -27,6 +293,12 @@ Pull request: [#300](https://github.com/helmerzNL/MealieShopper/pull/300).
 
 - **Database: indexen op wat de app telkens opzoekt, en het schema een keer per proces.** Een doorlichting van alle 1083 verschillende queries die de testsuite stuurt (`EXPLAIN QUERY PLAN` op een kopie van een productiedatabase) gaf tabellen zonder enige index op de kolommen waarop de nachtelijke rondes en het dashboard zoeken. Nu staan er indexen op `ah_receipt_products.product_id` (ook een deelindex op de producten zonder foto), `ah_receipt_items.product_id`, `ah_order_items.product_id` en `jumbo_order_items.product_id`, deelindexen op de bonnen en bestellingen die nog details missen (`details_synced = 0`, `items_synced = 0`), `audit_log.ts` (het opruimen), `offers (store, product_id)` (de prijsgeschiedenis per product), `price_observations (store, day)` (de prijzen per periode) en de user- en client-kolommen van `oauth_tokens`, `oauth_codes`, `passkey_credentials` en `mfa_recovery_codes`. De index `image_cache_todo` op `fetched_at` gebruikte geen enkele query en is vervangen door een deelindex op de afbeeldingen die nog opgehaald moeten worden (`path IS NULL`, 1700 van de 2106 rijen in productie). `prices._pinned` en `purchase_lines.times_before` vergelijken `product_id` zonder `CAST`, zodat de index werkt. Elke module maakte haar tabellen en migraties bij elke verbinding opnieuw (`CREATE TABLE IF NOT EXISTS`, `PRAGMA table_info`, ongeveer 0,7 milliseconde per verzoek). `auth.ensure_schema` doet dat nu een keer per proces en database, en een fabrieksreset vergeet het weer. De `INSERT OR REPLACE` en `INSERT OR IGNORE` van SQLite zijn `INSERT ... ON CONFLICT DO UPDATE` en `DO NOTHING`, dezelfde vorm als Postgres kent, met het oog op een database-server als alternatief.
 - **Tests:** `tests/test_db_schema.py` (de 24 indexen, de plannen van 15 hete queries, het schema een keer per proces en opnieuw na een fabrieksreset).
+
+## v4.10.0
+
+### Nieuw in 4.10.0
+
+Pull request: [#297](https://github.com/helmerzNL/MealieShopper/pull/297).
 
 *English summary: recipes and menus that **To week menu** (Stores, Albert Heijn, Week planner) makes from loose AH products now get servings and nutrition values. A new setting **Servings per recipe** under Settings, Preferences, Supermarket (2 by default, 1 to 8) sets the servings; the nutrition values are per person: the AH nutrition table of each product (per 100 g or ml, read with the anonymous token from the AH app's GraphQL, `product.tradeItem.nutritions`) times its whole pack, added up and divided by the servings. Only when that is known for all products in the recipe: a product without a nutrition table or with a pack in pieces leaves the recipe without nutrition values, so there are never too low totals in Mealie. Recipes that were already in Mealie do not change. The AH explorer gets a check that shows the shape of a product's nutrition table. Not tested against the live AH API.*
 
@@ -59,12 +331,6 @@ Pull request: [#300](https://github.com/helmerzNL/MealieShopper/pull/300).
   - `plannerServings` in het profiel
   - het getalveld in Voorkeuren
   - de controle in de verkenner
-
-## v4.10.0
-
-### Nieuw in 4.10.0
-
-Pull request: [#297](https://github.com/helmerzNL/MealieShopper/pull/297).
 
 ## v4.9.0
 

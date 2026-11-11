@@ -256,7 +256,7 @@ $("#audit-list").addEventListener(
 );
 
 async function clearAudit() {
-  if (!window.confirm(t("audit.clear_confirm"))) return;
+  if (!(await confirmDialog(t("audit.clear_confirm"), { danger: true }))) return;
   try {
     const data = await jsonFetch("/api/audit", { method: "DELETE" });
     auditState.open.clear();
