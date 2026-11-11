@@ -7,8 +7,8 @@ zelf telt niet mee: die is wat we vergelijken.
 
 Een punt is `(dag, prijs per stuk, bron)`. `year_low` geeft per aanbieding:
 
-* `status`: `lowest` als de actieprijs van nu op of onder de laagste van de afgelopen 365 dagen ligt (binnen een halve cent),
-  `above` als hij erboven ligt, `unknown` zonder prijs van nu, zonder punt in het jaar of met een dekking korter dan een jaar.
+* `status`: `lowest` als de actieprijs van nu op of onder de laagste van de afgelopen 365 dagen ligt, of er zo weinig boven
+  dat het dezelfde prijs is (`_same_price`: 3 procent, hooguit 5 cent), `above` als hij erboven ligt, `unknown` zonder prijs van nu, zonder punt in het jaar of met een dekking korter dan een jaar.
 * `price`, `month` en `source`: de laagste prijs in het jaar, de maand waarin hij het laatst gold en waar hij vandaan kwam.
 * `coveredSince`: de oudste dag waarop een bron iets van het product weet. Pas vanaf 365 dagen dekking is "laagste in een jaar"
   een uitspraak en geen toeval van een app die het product drie weken volgt.
@@ -22,6 +22,12 @@ from typing import Any
 
 YEAR_DAYS: int = 365
 HALF_CENT: float = 0.005
+# Dezelfde actie geeft niet elke keer dezelfde stukprijs: "1+1 gratis" zonder prijs in de folder rekent met de gewone prijs van
+# de weken eromheen (2,34: 1,17), de aanbieding van nu met die van vandaag (2,39: 1,195). Zo'n verschil is afronding, geen
+# duurdere aanbieding. Hooguit 3 procent, en nooit meer dan 5 cent: 3 procent van 10 euro is wel een ander bedrag.
+NEAR_LOW: float = 0.03
+NEAR_LOW_MAX: float = 0.05
+_FLOAT_SLACK: float = 1e-9
 
 Point = tuple[str, float, str]
 
@@ -35,6 +41,12 @@ def _empty() -> dict[str, Any]:
         "coveredSince": None,
         "above": None,
     }
+
+
+def _same_price(effective: float, lowest: float) -> bool:
+    """Of de prijs van nu op of onder de laagste ligt, of er zo weinig boven dat het dezelfde prijs is (zie `NEAR_LOW`)."""
+    margin: float = max(HALF_CENT, min(lowest * NEAR_LOW, NEAR_LOW_MAX))
+    return effective <= lowest + margin + _FLOAT_SLACK
 
 
 def year_low(
@@ -61,7 +73,7 @@ def year_low(
         key=lambda point: point[0],
     )
     result.update(price=round(lowest, 2), month=last[0][:7], source=last[2])
-    if effective <= lowest + HALF_CENT:
+    if _same_price(effective, lowest):
         result.update(status="lowest", above=0.0)
     else:
         result.update(status="above", above=round(effective - lowest, 2))
