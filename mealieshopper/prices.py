@@ -28,6 +28,7 @@ import logging
 import math
 import re
 import weakref
+from collections import Counter
 from collections.abc import AsyncIterator, Awaitable
 from contextlib import asynccontextmanager
 from datetime import date, datetime, timedelta, timezone
@@ -675,6 +676,36 @@ async def link_names(store: str, names: Iterable[str]) -> dict[str, dict[str, An
             known = {**{key: value for key, value in saved.items() if value}, **known, "shared": True}
         found[name] = {"productId": product_id, **known}
     return found
+
+
+def _loose_name(key: str, rows: list[dict[str, Any]]) -> dict[str, Any]:
+    """Een losse naam van `loose_import_names` uit zijn ingelezen aankopen (rijen van de catalogus)."""
+    spellings: Counter[str] = Counter(" ".join(str(row["title"]).split()) for row in rows)
+    years: list[int] = [int(str(row["day"])[:4]) for row in rows]
+    paid: list[float] = [value for row in rows if (value := _number(row["paid"])) is not None]
+    return {
+        "key": key, "name": sorted(spellings.items(), key=lambda pair: (-pair[1], pair[0]))[0][0], "bought": len(rows),
+        "firstYear": min(years), "lastYear": max(years), "paidMin": min(paid) if paid else None, "paidMax": max(paid) if paid else None,
+        "spellings": sorted(spellings),
+    }
+
+
+async def loose_import_names(store: str) -> list[dict[str, Any]]:
+    """De losse namen uit de bevestigingsmails van een winkel, voor de zoekronde (`loose_names`): de ingelezen aankopen die na je
+    eigen koppeling, het gedeelde bestand en de naamherkenning (`_link_receipt_rows`) bij geen product horen, dus met een
+    `product_id` dat met `import:` begint.
+
+    Per sleutel (`name_keys.key`) een dict {key, name, bought, firstYear, lastYear, paidMin, paidMax, spellings}, de vaakst gekochte
+    eerst. `bought` telt de aankopen, `paidMin` en `paidMax` zijn de prijs per stuk (None zonder prijs), `name` is de schrijfwijze
+    die het vaakst in de mail stond en `spellings` zijn ze allemaal (een eigen koppeling geldt per gevouwen naam, `product_links`)."""
+    async with _connect() as conn:
+        catalogue: _Catalogue = await _catalogue(conn, store, _now()[:10])
+    groups: dict[str, list[dict[str, Any]]] = {}
+    for row in catalogue.receipts:
+        if row["source"] == "import" and str(row["product_id"]).startswith("import:"):
+            groups.setdefault(name_keys.key(row["title"]), []).append(row)
+    found: list[dict[str, Any]] = [_loose_name(key, rows) for key, rows in groups.items()]
+    return sorted(found, key=lambda entry: (-entry["bought"], entry["name"]))
 
 
 LINK_SEARCH_LIMIT = 10  # zoveel producten toont het venster Koppelen per zoekopdracht

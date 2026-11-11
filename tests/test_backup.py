@@ -20,7 +20,7 @@ from werkzeug.exceptions import RequestTimeout
 
 os.environ["PASSKEY_AUTH_ENABLED"] = "false"
 
-from mealieshopper import audit, auth, auth_password, backup, factory_reset, image_cache, mealie, mealie_images, oauth, price_archive, prices, profile, push, recipe_nutrition, shared_links, tasks, uploads  # noqa: E402
+from mealieshopper import audit, auth, auth_password, backup, factory_reset, image_cache, loose_names, mealie, mealie_images, oauth, price_archive, prices, profile, push, recipe_nutrition, shared_links, tasks, uploads  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
 from helpers import AppClient, db, ReadResponse, run_aside  # noqa: E402
 
@@ -320,6 +320,22 @@ class RoundTripTest(BackupCase):
         self.wipe()
         self.assertEqual((await self.restore(data))["status"], "done")
         self.assertFalse(await shared_links.reject("ah", "AH Doosjevol kersen", "1234"), "de afwijzing was er al")
+
+    async def test_a_rejected_loose_name_comes_back_with_a_restore(self) -> None:
+        # "Geen van deze" (loose_names.py) is werk van de gebruiker: zonder de back-up zou de ronde de naam na een herstel weer opzoeken.
+        self.assertIn("loose_names", backup.DATA_TABLES)
+        with closing(self.connect()) as conn, conn:
+            conn.execute(
+                "INSERT INTO loose_names (store, key, name, checked_at, outcome, candidates, proposal) "
+                "VALUES ('jumbo', '~kersen', 'Jumbo Kersen', '2026-11-11T01:00:00+00:00', 'candidates', '[]', NULL)"
+            )
+        self.assertTrue(await loose_names.reject("jumbo", "~kersen"))
+        response, data = await self.make()
+        self.assertEqual(response.status_code, 200)
+        self.wipe()
+        self.assertEqual((await self.restore(data))["status"], "done")
+        self.assertFalse(await loose_names.reject("jumbo", "~kersen"), "de afwijzing was er al")
+        self.assertTrue(await loose_names.restore("jumbo", "~kersen"))
 
     async def test_everything_comes_back_with_its_links(self) -> None:
         self.seed()
