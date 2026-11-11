@@ -209,6 +209,36 @@ Older orders from your confirmation emails can be read in here with **Import old
 
 <img src="screenshots/en/receipt-search.png" alt="Searching by product: the receipts it is on, with the matching lines" width="900">
 
+### Stores: loose purchases
+
+A **loose purchase** is a line from an imported confirmation email (**Import old purchases**) that does not belong to a product, usually because the store renamed the product or no longer sells it. Such a line counts as a loose product in the Price history, so the old purchases of something you have bought for years are missing there. The **Loose purchases** page helps you link them to a product after all. You find it per store (Albert Heijn, Picnic, Jumbo and Crisp) under **Stores**, as a subtab next to the lists and orders. Only the administrator sees it.
+
+**Which link applies.** For a loose name your own link wins first, then the shared list (below), then the name matching of MealieShopper. Your own choice always takes precedence.
+
+**The nightly round.** After the nightly offers run, MealieShopper looks the loose names up at the stores you have linked, the most bought first. That is at most 100 searches per store per round, with the ten best results per search, and it only looks a name up again after 90 days. A name you rejected with **None of these** is never looked up again. At Albert Heijn every search goes through the same brake as the linking of receipt lines: at most 120 searches per hour, and twelve hours of nothing after a 403 or 429 from AH, shared by both. The other stores get the same pace (1.5 seconds between searches) and, after a 403 or 429, a pause of their own of twelve hours. The round stops for a store at the first error from that store, and the page then says until when it is paused. **Fetch now** on the page starts the same round for that store at once, with the same limits.
+
+**What the round finds.** If exactly one result has the same name as the loose purchase, MealieShopper links it at once, without a click. Such a link is not included in the export. Otherwise a **card** appears on the page with the name, how often and in which years you bought it, what you paid and the products of the store to choose from. **Link chosen product** makes the link, **Search yourself** opens **Link a product** and **None of these** puts the name under **Rejected**, where **Restore** frees it again. If the store found nothing, the name is in the list **Not found at the store**.
+
+**The AI makes suggestions (optional, off by default).** With an API key (see *AI: searching recipes for the offers*) an AI can preselect a product on each card, and mark the pack size as uncertain. This is off, also after an update, because it costs money at the provider and sends data to them. If you tick **Let the AI make suggestions for loose purchases overnight** under **Settings, Link, AI review of matches**, a request follows at the end of the round. If it is off and there is a key, the page has the button **Ask the AI for suggestions**, which does the same for the cards without a suggestion, only when you press it. Each request sends the provider groups of 20 names, and per name only:
+
+- the old product name from your email
+- how often you bought it
+- the lowest and the highest price you paid per piece
+- the first and the last year you bought it
+- per candidate from the store a sequence number in the list, the title, the brand, the size and the price
+
+No product numbers, photos, order numbers, order moments, addresses or account details are sent. What the AI chooses is only a preselected choice: MealieShopper links nothing unless you click **Link chosen product**.
+
+**The shared list.** Whoever has linked an old name to the right product once has solved it for everyone at the same store. So every version of MealieShopper has, per store, a file with links from old names to products (`mealieshopper/shared_link_data/<store>.json`). A name in that file is linked without a search and without a click. In the **Link a product** window such a line shows *Linked through the shared list*, with the button **Not right**. That switches the link off for that product on your installation, so the name is loose again and enters the round. If a later version of the file corrects the name to another product, that new link does apply. Your own links and your **Not right** stay after an update and go into the backup, as does the state of the loose names.
+
+**Sharing your links through a pull request.** What you linked yourself or confirmed on a card, you can offer to the project. The app sends nothing to GitHub itself: you make the file, and you propose the change.
+
+1. Choose **Export for GitHub** on the page. The window shows your own links for that store that are not in the file yet, and **Download** saves the new file of that store (`<store>.json`).
+2. Open the file on GitHub with the link in the window and replace its contents with the file you downloaded.
+3. Propose the change as a pull request to the `beta` branch.
+
+Each link has four fields in the file: `name` (the old name), `productId`, `title` and `unitSize`. No prices, dates or quantities from your purchases. A name that is already in the file with another product appears in the window under **Differs from the file** and is only included if you tick it. Names that look alike but are linked to different products are listed under **Left out** until you link them to the same product. A link that MealieShopper made itself because the name matched exactly is not included.
+
 ### Stores: Picnic
 
 Choose **Picnic** in the store menu; three tabs appear. **Recipes** shows your recipes from the Picnic app (*Saved*, *Order again* and the *Cookbook*) as cards; tapping a card shows the ingredients and the method, and `Plan` puts the recipe in your week menu (and in Mealie). In Mealie the recipe arrives with its ingredients, method, photo, servings and time, with the link to Picnic as its source. If a Picnic recipe reached Mealie without ingredients and method before version 3.8.1, delete it there and put it in Mealie again: otherwise `Plan` uses the empty recipe that is already there.

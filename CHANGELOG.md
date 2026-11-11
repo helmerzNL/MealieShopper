@@ -2,6 +2,28 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub; een stabiele release krijgt de teksten van alle versies sinds de vorige stabiele release.
 
+## v4.17.0
+
+### Nieuw in 4.17.0
+
+*English summary: Loose purchases (old product names from your confirmation emails that belong to no product) can now be linked in bulk, with a list shared through the repository. **Page**: under Stores, per store (Albert Heijn, Picnic, Jumbo, Crisp), administrator only, with a card per name and the store's products to choose from. **Nightly round and Fetch now**: at most 100 searches per store per round, a name is looked up again after 90 days, and at Albert Heijn every search goes through the same brake and pause as receipt linking. **Shared list**: a file per store in the app, with a Not right button that stays after an update. **Origin of a link**: own, confirmed or exact. **AI suggestions**: a new setting, off by default, that preselects a product on a card and never links without a click. **Export**: your own links as a file for a pull request that you make yourself, the app sends nothing to GitHub. **Backup**: the new tables `shared_link_rejections` and `loose_names`, and the new column `origin` on `product_links`. **Fixed**: a block at Albert Heijn now sets the pause at once for every caller.*
+
+- **De pagina Losse aankopen.** Een losse aankoop is een regel uit een bevestigingsmail die bij geen product hoort. Onder **Winkels** staat per winkel (Albert Heijn, Picnic, Jumbo en Crisp) een subtab **Losse aankopen**, alleen voor de beheerder. Per naam een kaart met hoe vaak en in welke jaren je het kocht, wat je betaalde en de producten van de winkel. **Koppel gekozen product** maakt de koppeling, **Zoek zelf** opent het koppelvenster en **Geen van deze** zet de naam bij Afgewezen, waar **Terugzetten** hem vrijgeeft. Een naam waar de winkel niets voor vond staat in een eigen lijst.
+- **De nachtelijke ronde en Nu ophalen.** Na de nachtelijke run zoekt de app de losse namen op bij elke gekoppelde winkel, de vaakst gekochte eerst. Per winkel hooguit 100 zoekopdrachten per ronde, een naam wordt na 90 dagen opnieuw opgezocht, en de ronde stopt voor een winkel bij de eerste fout van die winkel. Bij AH gaat elke zoekopdracht door dezelfde rem en pauze als het koppelen van kassabonregels (hooguit 120 per uur, twaalf uur stil na een 403 of 429). De andere winkels krijgen hetzelfde tempo en een eigen pauze van twaalf uur. Precies één resultaat met dezelfde naam wordt meteen gekoppeld. **Nu ophalen** start de ronde voor die winkel op verzoek.
+- **De gedeelde lijst.** Elke versie van de app heeft per winkel een bestand met koppelingen van oude namen aan producten (`mealieshopper/shared_link_data/<winkel>.json`). Een naam uit dat bestand is gekoppeld zonder zoekopdracht en zonder klik. In het koppelvenster staat *Gekoppeld via de gedeelde lijst* met de knop **Klopt niet**, die de koppeling voor dat product op jouw installatie uitzet. De volgorde is: je eigen koppeling, de gedeelde lijst, de naamherkenning. De bestanden zijn bij deze versie nog leeg.
+- **De herkomst van een koppeling.** Een koppeling onthoudt of je hem zelf maakte, op een kaart bevestigde, of dat de naam letterlijk klopt (`exact`). Een koppeling met herkomst `exact` overschrijft een eigen of bevestigde koppeling nooit.
+- **Voorstellen van de AI.** Nieuwe instelling onder **Instellingen, Koppelen, AI-beoordeling van koppelingen**: *Laat de AI 's nachts voorstellen doen voor losse aankopen*. Hij staat uit, ook na de update voor wie al een sleutel heeft. Staat hij aan, dan gaan aan het eind van de ronde groepen van 20 namen naar de aanbieder, per naam alleen de oude naam, hoe vaak je hem kocht, de laagste en hoogste prijs per stuk, het eerste en het laatste jaar en per kandidaat een volgnummer, de titel, het merk, de inhoud en de prijs. Staat hij uit en is er een sleutel, dan doet de knop **Vraag de AI om voorstellen** hetzelfde voor de kaarten zonder voorstel. Het voorstel is alleen een voorgeselecteerde keuze: er wordt niets gekoppeld zonder klik.
+- **Exporteren voor een pull request.** **Exporteer voor GitHub** op de pagina maakt het bestand van de winkel met je eigen en bevestigde koppelingen erbij, met per koppeling alleen `name`, `productId`, `title` en `unitSize`. Je downloadt het bestand, vervangt de inhoud op GitHub en stelt zelf een pull request naar `beta` voor: de app stuurt niets naar GitHub. Koppelingen met herkomst `exact` gaan niet mee. Een naam die al met een ander product in het bestand staat komt onder *Wijkt af van het bestand* en gaat alleen mee als je hem aanvinkt.
+
+### Opgelost in 4.17.0
+
+- Een 403 of 429 van AH zet de pauze nu meteen, nog onder de rem, voor elke aanroeper. Een wachtende zoeker (het koppelen van kassabonnen of de ronde voor losse namen) stuurt daardoor geen verzoek meer achter een blokkade aan.
+
+### Database en back-up in 4.17.0
+
+- Twee nieuwe tabellen, beide in `backup.DATA_TABLES`: `shared_link_rejections` (je **Klopt niet**) en `loose_names` (de stand per losse naam, waaronder je afwijzingen).
+- De tabel `product_links` krijgt de kolom `origin` (`manual`, `confirmed` of `exact`, standaard `manual`). Bestaande koppelingen worden `manual`. Een eigen koppeling en een **Klopt niet** blijven staan bij een update van de app.
+
 ## v4.16.0
 
 ### Nieuw in 4.16.0

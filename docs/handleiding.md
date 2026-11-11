@@ -209,6 +209,36 @@ Oudere bestellingen uit je bevestigingsmails lees je hier in met **Oude aankopen
 
 <img src="screenshots/nl/receipt-search.png" alt="Zoeken op product: de kassabonnen waarop het staat, met de passende regels" width="900">
 
+### Winkels: losse aankopen
+
+Een **losse aankoop** is een regel uit een ingelezen bevestigingsmail (**Oude aankopen importeren**) die bij geen product hoort, meestal omdat de winkel het product hernoemd heeft of niet meer verkoopt. Zo'n regel telt in de Prijsgeschiedenis als los product, dus de oude aankopen van wat je al jaren koopt missen daar. De pagina **Losse aankopen** helpt ze alsnog aan een product te koppelen. Je vindt haar per winkel (Albert Heijn, Picnic, Jumbo en Crisp) onder **Winkels**, als subtab naast de lijstjes en bestellingen. Alleen de beheerder ziet haar.
+
+**Welke koppeling geldt.** Bij een losse naam wint eerst je eigen koppeling, dan de gedeelde lijst (hieronder) en dan de naamherkenning van MealieShopper. Een eigen keuze gaat dus altijd voor.
+
+**De nachtelijke ronde.** Na de nachtelijke run van de aanbiedingen zoekt MealieShopper de losse namen op bij de winkels die je gekoppeld hebt, de vaakst gekochte eerst. Per winkel zijn dat hooguit 100 zoekopdrachten per ronde, met de tien beste resultaten per zoekopdracht, en een naam zoekt hij pas na 90 dagen opnieuw op. Een naam die je afwees met **Geen van deze** zoekt hij nooit meer op. Bij Albert Heijn gaat elke zoekopdracht door dezelfde rem als het koppelen van kassabonregels: hooguit 120 zoekopdrachten per uur, en na een 403 of 429 van AH twaalf uur niets, voor beide samen. De andere winkels krijgen hetzelfde tempo (1,5 seconde tussen zoekopdrachten) en na een 403 of 429 een eigen pauze van twaalf uur. De ronde stopt voor een winkel bij de eerste fout van die winkel, en de pagina noemt dan tot wanneer hij gepauzeerd is. **Nu ophalen** op de pagina start dezelfde ronde voor die winkel meteen, met dezelfde grenzen.
+
+**Wat de ronde vindt.** Heeft precies één resultaat dezelfde naam als de losse aankoop, dan koppelt MealieShopper die meteen, zonder klik. Zo'n koppeling gaat niet mee in de export. Anders komt er een **kaart** op de pagina met de naam, hoe vaak en in welke jaren je het kocht, wat je ervoor betaalde en de producten van de winkel om uit te kiezen. **Koppel gekozen product** maakt de koppeling, **Zoek zelf** opent **Product koppelen** en **Geen van deze** zet de naam bij **Afgewezen**, waar **Terugzetten** hem weer vrijgeeft. Vond de winkel niets, dan staat de naam in de lijst **Niet gevonden bij de winkel**.
+
+**De AI stelt voor (optioneel, standaard uit).** Met een API-sleutel (zie *AI: recepten zoeken bij de aanbiedingen*) kan een AI bij elke kaart een product voorselecteren, en aangeven dat de verpakking onzeker is. Dat staat uit, ook na een update, omdat het geld kost bij de aanbieder en gegevens naar hem stuurt. Zet je onder **Instellingen, Koppelen, AI-beoordeling van koppelingen** het vinkje **Laat de AI 's nachts voorstellen doen voor losse aankopen** aan, dan volgt aan het eind van de ronde een aanvraag. Staat het uit en is er een sleutel, dan heeft de pagina de knop **Vraag de AI om voorstellen**, die hetzelfde doet voor de kaarten zonder voorstel, alleen als jij hem indrukt. Per aanvraag gaan er groepen van 20 namen naar de aanbieder, en per naam alleen:
+
+- de oude productnaam uit je mail
+- hoe vaak je hem kocht
+- de laagste en de hoogste prijs die je per stuk betaalde
+- het eerste en het laatste jaar waarin je hem kocht
+- per kandidaat van de winkel een volgnummer in de lijst, de titel, het merk, de inhoud en de prijs
+
+Er gaan geen productnummers, foto's, bestelnummers, bestelmomenten, adressen of accountgegevens mee. Wat de AI kiest, is alleen een voorgeselecteerde keuze: MealieShopper koppelt niets zonder dat jij op **Koppel gekozen product** klikt.
+
+**De gedeelde lijst.** Wie een oude naam eenmaal aan het juiste product heeft gekoppeld, heeft dat voor iedereen bij dezelfde winkel opgelost. Daarom heeft elke versie van MealieShopper per winkel een bestand met koppelingen van oude namen aan producten (`mealieshopper/shared_link_data/<winkel>.json`). Een naam uit dat bestand is gekoppeld zonder zoekopdracht en zonder klik. In het venster **Product koppelen** staat bij zo'n regel *Gekoppeld via de gedeelde lijst*, met de knop **Klopt niet**. Die zet de koppeling voor dat product uit op jouw installatie, de naam is dan weer los en komt in de ronde. Verbetert een latere versie van het bestand de naam naar een ander product, dan geldt die nieuwe koppeling wel. Je eigen koppelingen en je **Klopt niet** blijven staan na een update en gaan mee in de back-up, net als de stand van de losse namen.
+
+**Je koppelingen delen via een pull request.** Wat je zelf koppelde of op een kaart bevestigde, kun je aan het project aanbieden. De app stuurt zelf niets naar GitHub: je maakt het bestand, en jij stelt de wijziging voor.
+
+1. Kies op de pagina **Exporteer voor GitHub**. Het venster toont je eigen koppelingen voor die winkel die nog niet in het bestand staan, en **Download** bewaart het nieuwe bestand van die winkel (`<winkel>.json`).
+2. Open het bestand op GitHub met de link in het venster en vervang de inhoud door het bestand dat je downloadde.
+3. Stel de wijziging voor als pull request naar de branch `beta`.
+
+Per koppeling staan er vier velden in het bestand: `name` (de oude naam), `productId`, `title` en `unitSize`. Geen prijzen, datums of aantallen uit je aankopen. Een naam die al met een ander product in het bestand staat, komt in het venster onder **Wijkt af van het bestand** en gaat alleen mee als je hem aanvinkt. Namen die op elkaar lijken maar aan verschillende producten gekoppeld zijn, staan onder **Niet meegenomen** tot je ze aan hetzelfde product koppelt. Een koppeling die MealieShopper zelf maakte omdat de naam letterlijk klopte, gaat niet mee.
+
 ### Winkels: Picnic
 
 Kies in het winkelmenu **Picnic**; dan staan er drie tabs. **Recepten** toont je recepten uit de Picnic-app (*Bewaard*, *Opnieuw bestellen* en het *Kookboek*) als kaarten; een tik op een kaart toont de ingrediënten en de bereiding, en `Inplannen` zet het recept in je weekmenu (en in Mealie). In Mealie komt het recept met de ingrediënten, de bereiding, de foto, het aantal porties en de tijd; als bron staat de link naar Picnic erbij. Kwam een Picnic-recept vóór versie 3.8.1 zonder ingrediënten en bereiding in Mealie, verwijder het daar dan en zet het opnieuw in Mealie: `Inplannen` gebruikt anders het lege recept dat er al staat.
