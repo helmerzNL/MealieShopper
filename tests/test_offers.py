@@ -1062,7 +1062,7 @@ class OffersTabMarkupTest(AppTestCase):
         self.assertEqual(section.count('data-offers-week="-1"'), 2)
         self.assertIn('id="offers-later-show"', section)
         self.assertIn("&week=${encodeURIComponent(week)}", script, "de aanbiedingen worden per week opgehaald")
-        self.assertIn("const week = `&week=${encodeURIComponent(offersWeek().start)}`;", script, "de receptvoorstellen ook")
+        self.assertIn("new URLSearchParams({ store: offersState.store, week: offersWeek().start })", script, "de receptvoorstellen ook")
         self.assertIn("const key = `${store}|${week}`;", script, "de cache houdt de weken uit elkaar")
         self.assertIn("return Math.max(0, state.weekOffset);", script, "dezelfde week als het weekmenu, en nooit een eerdere dan deze")
         self.assertIn("setPlanWeek(offset);", script, "een andere week hier zet het weekmenu op dezelfde week")
@@ -1079,10 +1079,10 @@ class OffersTabMarkupTest(AppTestCase):
         positions = [panel.index(marker) for marker in order]
         self.assertEqual(positions, sorted(positions), "kop, uitleg, soortfilter, status, recepten")
         script = (root / "static" / "offers.js").read_text(encoding="utf-8")
-        self.assertIn("&course=", script, "de gekozen soort gaat mee naar de server")
-        self.assertIn('"#offers-courses").addEventListener("click"', script)
+        self.assertIn('params.append("course_in", course)', script, "de gekozen soorten gaan mee naar de server")
+        self.assertIn('"#offers-course-facets").addEventListener("click"', script)
         switch = script[script.index("function offersSwitchStore("):script.index("// De voorwaarden van een aanbieding")]
-        self.assertIn("offersState.course = \"all\";\n  showOffers();", switch, "een andere winkel zet het filter terug op alles")
+        self.assertIn("offersState.courses = facetSelection();\n  showOffers();", switch, "een andere winkel zet het filter terug op alles")
 
     def test_a_matched_product_opens_a_dialog_with_a_link_to_the_store(self):
         import re

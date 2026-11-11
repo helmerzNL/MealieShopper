@@ -587,6 +587,23 @@ def create_app() -> Quart:
     async def ah_basket_sync():
         return await ah_sync(ah_orders.sync_basket, tr("Mandje ophalen mislukt", "Fetching the basket failed"))
 
+    @app.get("/api/ah/cart")
+    async def ah_cart_get():
+        # Het mandje vers van AH, per product het aantal: voor de aantallen bij de aanbiedingen. Zelfde vorm als Picnic en Crisp.
+        return await ah_sync(ah_orders.sync_cart, tr("Mandje ophalen mislukt", "Fetching the basket failed"))
+
+    @app.put("/api/ah/cart/items/<product_id>")
+    async def ah_cart_set_quantity(product_id: str):
+        # Een exact aantal in het AH-mandje (de boodschappenlijst); 0 haalt het product weg. Plaatst nooit een bestelling.
+        body = await request_body.json_object()
+        try:
+            return jsonify(await ah_orders.set_cart_quantity(product_id, body.get("quantity"), body.get("title")))
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+        except Exception as exc:  # noqa: BLE001 - AH is onofficieel; geef de fout door
+            app.logger.exception("AH cart quantity error")
+            return jsonify({"error": str(exc) or tr("Mandje bijwerken mislukt", "Updating the basket failed")}), 424
+
     @app.get("/api/ah/orders")
     async def ah_orders_list():
         return jsonify(await ah_orders.list_orders(summary=True))
@@ -779,7 +796,10 @@ def create_app() -> Quart:
             # ah_orders.resolve_receipt_names).
             lambda: prices.history(request.args.get("store") or None, request.args.get("q") or "", request.args.get("limit") or 50, bought=bought,
                                    lookup=ah_orders.resolve_receipt_names, product=request.args.get("product") or None,
-                                   pin=request.args.get("pin") or None),
+                                   pin=request.args.get("pin") or None,
+                                   # De keuzelijsten: ?brand=Unox&brand=AH (alleen deze), ?brand_out= (verbergen), en zo ook category.
+                                   brands=request.args.getlist("brand"), brands_out=request.args.getlist("brand_out"),
+                                   categories=request.args.getlist("category"), categories_out=request.args.getlist("category_out")),
             tr("Prijsgeschiedenis laden mislukt", "Loading the price history failed"),
         )
 
@@ -923,7 +943,8 @@ def create_app() -> Quart:
     @app.get("/api/offers/recipes")
     async def offers_recipes():
         return await offers_action(
-            lambda: offers.suggest(request.args.get("store") or "ah", course=request.args.get("course"), week=offers_week()),
+            lambda: offers.suggest(request.args.get("store") or "ah", course=request.args.get("course"), week=offers_week(),
+                                   courses=request.args.getlist("course_in"), courses_out=request.args.getlist("course_out")),
             tr("Receptvoorstellen laden mislukt", "Loading the recipe suggestions failed"),
         )
 

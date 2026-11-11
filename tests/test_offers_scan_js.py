@@ -40,7 +40,7 @@ def const_source(name):
 
 
 PRELUDE = "\n".join(
-    [const_source(name) for name in ("OFFER_UNIT_ORDER", "OFFER_LABEL_ORDER", "OFFERS_OFTEN_PER_YEAR", "offersDimmedIds", "OFFER_POPUP_WIDTH", "OFFER_POPUP_PURCHASES", "offerPopup")]
+    [const_source(name) for name in ("OFFER_UNIT_ORDER", "OFFER_LABEL_ORDER", "OFFERS_OFTEN_PER_YEAR", "offersDimmedIds", "OFFER_POPUP_WIDTH", "OFFER_POPUP_PURCHASES", "OFFER_POPUP_DELAY", "OFFER_POPUP_SWITCH", "offerPopup")]
     + [
         function_source(name)
         for name in (
@@ -90,9 +90,12 @@ PRELUDE = "\n".join(
         "const foldText = (value) => String(value).toLowerCase();",
         "const matchesWords = (text, query) => query.toLowerCase().split(/\\s+/).every((word) => text.includes(word));",
         "const I18N = { formatNumber: String };",
-        "const offerHistoryHead = (product, options) => '<div class=\"ohc-head\" data-offer-price=\"' + (options && options.offer ? options.offer.price : '') + '\">' + product.title + '</div>';",
+        "const offerHistoryHead = (product, options) => '<div class=\"ohc-head\" data-links=\"' + (!options || options.links !== false) + '\" data-offer-price=\"' + (options && options.offer ? options.offer.price : '') + '\">' + product.title + '</div>';",
         "const offerHistoryStats = () => '<dl class=\"ohc-stats\"></dl>';",
-        "const offerHistoryChartBlock = (product, options) => '<div class=\"ohc-block\" data-ranges=\"' + (options && options.ranges && options.ranges === offerPopup.ranges ? 'popup' : '') + '\"></div>';",
+        "const offerHistoryChartBlock = (product, options) => '<div class=\"ohc-block\" data-buttons=\"' + (!options || options.buttons !== false) + '\" data-ranges=\"' + (options && options.ranges && options.ranges === offerPopup.ranges ? 'popup' : '') + '\"></div>';",
+        "const offerHistoryLegend = () => '<ul class=\"ohc-legend\"></ul>';",
+        "const offerCartControl = (offer) => '<div class=\"offer-cart\" data-cart=\"' + offer.id + '\"></div>';",
+        "const offerCartSlot = (offer) => offerCartControl(offer);",
         "const offerHistoryPurchasesTable = (product) => (product.purchases || []).length ? '<table class=\"ohc-table\"></table>' : '';",
         "const priceHistoryPath = (store, title, id) => '/offers/history?product=' + id;",
         "const offerDateText = (day) => String(day);",
@@ -229,7 +232,7 @@ class OffersScanNodeTest(unittest.TestCase):
 
     FILTER_OFFER = {"id": "1", "brand": "Dr. Oetker", "title": "Pizza", "bought": True, "badge": {"percent": 25}, "unitPricePer": {"value": 9.36, "unit": "kg"},
                     "yearLow": {"status": "lowest"}, "verdict": {"timesThisYear": 3}, "personal": False, "family": {"key": "f1", "packs": []}}
-    EMPTY_FILTERS = {"brands": [], "bought": False, "minDiscount": 0, "maxUnitPrice": {"value": None, "unit": "kg"}, "yearLow": False, "rare": False}
+    EMPTY_FILTERS = {"brands": [], "brandsOut": [], "categories": [], "categoriesOut": [], "bought": False, "minDiscount": 0, "maxUnitPrice": {"value": None, "unit": "kg"}, "yearLow": False, "rare": False}
 
     def match(self, offer, filters):
         return self.run_js(f"console.log(JSON.stringify(offersFilterMatch({json.dumps(offer)}, {json.dumps(filters)})));")

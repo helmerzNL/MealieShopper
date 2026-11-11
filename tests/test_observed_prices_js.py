@@ -23,6 +23,7 @@ const $ = () => ({clientWidth: 640});
 const storeImage = (url) => url;
 const offerPerUnitText = () => '';
 const purchasePath = () => '';
+const facetSelection = () => ({shown: [], hidden: []});
 """
         script: str = prelude + source + "\nconst product = " + json.dumps(product) + ";\n" + """
 console.log(JSON.stringify({

@@ -289,7 +289,7 @@ class BonusBoxSwitchTest(AppTestCase):
     def test_the_switch_sits_above_the_categories_and_is_remembered(self):
         section = self.html[self.html.index('<div id="offers-items"'):self.html.index('<div id="offers-suggestions"')]
         self.assertIn('<input type="checkbox" id="offers-personal-only" role="switch">', section)
-        self.assertLess(section.index('id="offers-personal"'), section.index('id="offers-categories"'))
+        self.assertLess(section.index('id="offers-categories"'), section.index('id="offers-personal"'), "beide in de filterzijbalk")
         self.assertIn('data-i18n="offers.personal.switch"', section)
         self.assertIn('localStorage.setItem(OFFERS_PERSONAL_KEY, on ? "1" : "0")', self.script)
         self.assertIn('$("#offers-personal-only").addEventListener("change"', self.script)
@@ -297,11 +297,13 @@ class BonusBoxSwitchTest(AppTestCase):
 
     @unittest.skipUnless(shutil.which("node"), "Node is niet geïnstalleerd")
     def test_the_switch_filters_the_offers_and_their_categories(self):
-        functions = "\n".join(function_source(self.script, name) for name in ("offersPersonalOnly", "offersFiltered", "offersShownCategories", "offerPersonalBadge"))
+        functions = "\n".join(function_source(self.script, name) for name in ("offersPersonalOnly", "offersBase", "offersFiltered", "offersCategoryCounts", "offerPersonalBadge"))
         program = f"""
 const t = (key) => key;
 const escapeHtml = (value) => String(value);
 const offersFilteredWithFamilies = (list) => list; // de zijbalkfilters hebben hun eigen tests (test_offers_scan_js.py)
+const offersFilters = () => ({{}}); const offersFilterMatch = () => true;
+const offersShownCategories = () => offersCategoryCounts(offersBase());
 const offersState = {{
   personalOnly: false, personal: {{ supported: true }}, search: "", goodOnly: false,
   offers: [
@@ -325,9 +327,9 @@ console.log(JSON.stringify(result));
         output = subprocess.run(["node", "-e", program], capture_output=True, text=True, check=True).stdout
         result = json.loads(output)
         self.assertEqual(result["all"], ["9", "8", "1", "2"])
-        self.assertEqual(result["allCats"], [{"id": "zuivel_eieren", "count": 2}, {"id": "vlees", "count": 1}, {"id": "dranken", "count": 1}])
+        self.assertEqual(result["allCats"], [{"id": "zuivel_eieren", "count": 2}, {"id": "dranken", "count": 1}, {"id": "vlees", "count": 1}])
         self.assertEqual(result["box"], ["9", "8"])
-        self.assertEqual(result["boxCats"], [{"id": "zuivel_eieren", "count": 1}, {"id": "dranken", "count": 1}])
+        self.assertEqual(result["boxCats"], [{"id": "dranken", "count": 1}, {"id": "zuivel_eieren", "count": 1}], "op aantal, dan op naam")
         self.assertIn("offer-card__personal--on", result["badges"][0])
         self.assertIn("offers.personal.badge_on", result["badges"][0])
         self.assertIn("offer-card__personal--off", result["badges"][1])

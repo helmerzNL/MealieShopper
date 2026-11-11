@@ -7289,6 +7289,12 @@ html.is-standalone .user-menu__item--standalone:not([hidden]) {
     max-width: 1360px;
   }
 
+  /* Het overzicht van de aanbiedingen gebruikt het hele scherm: meer kaarten naast elkaar naast de filterzijbalk. */
+  body:has(.panel.is-active #offers-items.is-active) .topbar__inner,
+  body:has(.panel.is-active #offers-items.is-active) .shell {
+    max-width: none;
+  }
+
   .shell {
     display: grid;
     grid-template-columns: auto minmax(0, 1fr);
@@ -8095,27 +8101,6 @@ html.is-standalone .user-menu__item--standalone:not([hidden]) {
   opacity: 0.8;
 }
 
-/* Op een telefoon is de rij categorieën één regel die opzij scrolt: eerst stonden er tien regels chips voor het eerste product. */
-@media (max-width: 640px) {
-  .offer-cats--scroll {
-    flex-wrap: nowrap;
-    margin-inline: -16px;
-    padding: 2px 16px 6px;
-    overflow-x: auto;
-    overscroll-behavior-x: contain;
-    scrollbar-width: none;
-  }
-
-  .offer-cats--scroll::-webkit-scrollbar {
-    display: none;
-  }
-
-  .offer-cats--scroll > .offer-chip {
-    flex: none;
-    white-space: nowrap;
-  }
-}
-
 .offer-chip__dot {
   flex: none;
   width: 8px;
@@ -8369,7 +8354,7 @@ html.is-standalone .user-menu__item--standalone:not([hidden]) {
   margin-top: 24px;
 }
 
-/* Aanbiedingen: de titel is de link naar de winkel, zodat de kaart ook een knop kan hebben (Vergelijk verpakkingen). */
+/* Aanbiedingen: de titel is de link naar de prijsgeschiedenis, zodat de kaart ook knoppen kan hebben (Vergelijk verpakkingen, de winkel). */
 .offer-card .offer-card__link {
   color: inherit;
   text-decoration: none;
@@ -8574,6 +8559,13 @@ html.is-standalone .user-menu__item--standalone:not([hidden]) {
 
 .offer-popup[hidden] {
   display: none;
+}
+
+/* Met de muis is de popup alleen om naar te kijken: de muis gaat er doorheen, zodat de kaart eronder reageert en de popup naar
+   die kaart verspringt in plaats van de weg ernaartoe te versperren. Er staat dan ook niets in om op te klikken (offerPopupHtml
+   met `preview`). */
+.offer-popup {
+  pointer-events: none;
 }
 
 .offer-popup__inner .ohc-stats {
@@ -8801,6 +8793,36 @@ html.is-standalone .user-menu__item--standalone:not([hidden]) {
   padding-top: 2px;
 }
 
+/* Het mandje bij een aanbieding (offers_cart.js): links onderaan de kaart, of voor de iconen van de compacte rij. Zit het product
+   nog niet in het mandje, dan staat er alleen de plus. */
+.offer-cart {
+  gap: 2px;
+  margin: 0 auto 0 6px;
+}
+
+.offer-cart[hidden] {
+  display: none;
+}
+
+.offer-cart .qty__step {
+  width: 32px;
+  height: 32px;
+}
+
+.offer-cart .qty__input {
+  width: 40px;
+  height: 32px;
+}
+
+.offer-cart--empty .qty__input,
+.offer-cart--empty [data-cart-step="-1"] {
+  display: none;
+}
+
+.offer-row__links .offer-cart {
+  margin: 0 6px 0 0;
+}
+
 .offer-card__foot .icon-button {
   border-color: transparent;
   background: none;
@@ -8811,6 +8833,23 @@ html.is-standalone .user-menu__item--standalone:not([hidden]) {
 @media (hover: hover) {
   .offer-card__foot .icon-button:hover {
     color: var(--primary-strong);
+  }
+}
+
+/* Telefoon, twee kaarten naast elkaar (~135 px): het mandje op een eigen regel boven de iconen, die samen de breedte delen. */
+@media (max-width: 640px) {
+  .offer-card__foot {
+    flex-wrap: wrap;
+  }
+
+  .offer-card__foot .offer-cart {
+    flex: 0 0 100%;
+    margin: 0 0 0 6px;
+  }
+
+  .offer-card__foot .icon-button {
+    flex: 1 1 0;
+    min-width: 0;
   }
 }
 
@@ -8845,7 +8884,7 @@ html.is-standalone .user-menu__item--standalone:not([hidden]) {
    uitschuifpaneel achter de knop Filters. */
 .offers-layout {
   display: grid;
-  grid-template-columns: 240px minmax(0, 1fr);
+  grid-template-columns: 280px minmax(0, 1fr);
   gap: 24px;
   align-items: start;
 }
@@ -8854,9 +8893,15 @@ html.is-standalone .user-menu__item--standalone:not([hidden]) {
   min-width: 0;
 }
 
+/* De zijbalk loopt mee met de lijst, die vanzelf doorloopt: onder de bovenbalk, hooguit zo hoog als het scherm, met een eigen
+   schuifbalk als de filters er niet in passen. */
 .offers-filters {
   position: sticky;
-  top: 16px;
+  top: 88px;
+  max-height: calc(100vh - 104px);
+  max-height: calc(100dvh - 104px); /* iOS: de zichtbare hoogte, zonder de werkbalk van Safari */
+  overflow-y: auto;
+  overscroll-behavior: contain;
   display: flex;
   flex-direction: column;
   gap: 16px;
@@ -8895,6 +8940,177 @@ html.is-standalone .user-menu__item--standalone:not([hidden]) {
 
 .offers-filters .ohc-filter {
   margin: 0;
+}
+
+/* Een keuzelijst in de zijbalk (offers_facets.js): per regel een plus (alleen deze), een min (verbergen), de naam en het aantal. */
+.offer-facet {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* Het uitklapvak met keuzelijsten op een pagina zonder zijbalk (een bestelling, de aankopenlijst, de prijsgeschiedenis, de
+   recepten bij de aanbiedingen): de lijsten naast elkaar, elk met een eigen schuifbalk. */
+.facet-panel {
+  margin: 10px 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+}
+
+.facet-panel[hidden] {
+  display: none;
+}
+
+.facet-panel > summary {
+  padding: 8px 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.facet-panel__body {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 12px 28px;
+  padding: 2px 14px 12px;
+}
+
+.facet-panel__list {
+  display: flex;
+  flex: 1 1 240px;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  max-width: 340px;
+}
+
+.facet-panel__list--wide {
+  max-width: 560px;
+}
+
+.facet-panel__list h4 {
+  margin: 0;
+  color: var(--muted);
+  font-weight: 600;
+  font-size: var(--text-xs);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.facet-panel .offer-facet--scroll {
+  max-height: 230px;
+}
+
+.facet-panel__clear {
+  flex-basis: 100%;
+  text-align: left;
+}
+
+/* De merken: een winkel heeft er honderden, dus een eigen schuifbalk onder het zoekveld. */
+.offer-facet--scroll {
+  max-height: 300px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.offer-facet__search {
+  min-height: 36px;
+  padding: 0 10px;
+}
+
+.offer-facet__row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 30px;
+  padding: 1px 4px 1px 1px;
+  border-radius: var(--radius-sm);
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+
+@media (hover: hover) {
+  .offer-facet__row:hover {
+    background: var(--surface-muted);
+  }
+}
+
+.offer-facet__step {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.offer-facet__step svg {
+  width: 16px;
+  height: 16px;
+  fill: currentColor;
+}
+
+@media (hover: hover) {
+  .offer-facet__step:hover {
+    border-color: var(--primary);
+    color: var(--primary-strong);
+  }
+}
+
+.offer-facet__step--in[aria-pressed="true"] {
+  border-color: var(--primary);
+  background: var(--primary);
+  color: var(--on-primary);
+}
+
+.offer-facet__step--out[aria-pressed="true"] {
+  border-color: var(--danger);
+  background: var(--danger);
+  color: var(--surface);
+}
+
+.offer-facet__name .offer-chip__dot {
+  display: inline-block;
+  margin-right: 6px;
+}
+
+.offer-facet__name {
+  flex: 1;
+  min-width: 0;
+  margin-left: 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.offer-facet__row.is-in .offer-facet__name {
+  font-weight: 700;
+}
+
+.offer-facet__row.is-out .offer-facet__name {
+  color: var(--muted);
+  text-decoration: line-through;
+}
+
+.offer-facet__count,
+.offer-facet__empty {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.offer-facet__empty {
+  padding: 4px;
+  font-size: var(--text-sm);
 }
 
 .offers-filters .offer-cats {
@@ -8977,6 +9193,7 @@ html.is-standalone .user-menu__item--standalone:not([hidden]) {
     inset: 0 auto 0 0;
     z-index: 60;
     width: min(320px, 86vw);
+    max-height: none;
     overflow: auto;
     border-radius: 0 var(--radius-card) var(--radius-card) 0;
     transform: translateX(-100%);
@@ -9071,7 +9288,7 @@ html.is-standalone .user-menu__item--standalone:not([hidden]) {
 
 .offer-row {
   display: grid;
-  grid-template-columns: 48px 60px minmax(0, 1fr) 110px 100px 150px 106px;
+  grid-template-columns: 48px 60px minmax(0, 1fr) 110px 100px 150px 216px;
   align-items: center;
   gap: 10px;
   min-height: 56px;
@@ -9197,7 +9414,7 @@ html.is-standalone .user-menu__item--standalone:not([hidden]) {
    alleen (bij 1280 px met beide open is de lijst ~690 px breed). */
 @container (max-width: 799px) {
   .offer-row {
-    grid-template-columns: 48px 60px minmax(0, 1fr) 100px 90px 106px;
+    grid-template-columns: 48px 60px minmax(0, 1fr) 100px 90px minmax(142px, max-content); /* alleen de plus, tot er iets in het mandje zit */
     row-gap: 2px;
   }
 

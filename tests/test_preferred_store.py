@@ -46,7 +46,8 @@ APP_HELPERS = ["preferredSupermarket", "preferredSupermarketKnown", "defaultStor
 OFFERS_PAGE = r"""
 const state = { auth: { preferredStore: "ah" }, linkedStores: { jumbo: false, picnic: false, crisp: false },
   storeStatusKnown: { jumbo: false, picnic: false, crisp: false } };
-const offersState = { store: "ah", category: "x", course: "x", chosen: false, waiting: false };
+const offersState = { store: "ah", category: "x", courses: { shown: ["x"], hidden: [] }, chosen: false, waiting: false };
+function facetSelection() { return { shown: [], hidden: [] }; }
 const router = { pending: "", applying: 0 };
 const window = { location: { href: "https://shop.example/offers" } };
 const loads = [];
@@ -152,11 +153,11 @@ class PreferredStoreTest(unittest.TestCase):
             active = false;
             state.auth = { preferredStore: "crisp" }; link("crisp");
             offersFollowPreferred();
-            console.log(JSON.stringify({ ...result(), category: offersState.category, course: offersState.course }));
+            console.log(JSON.stringify({ ...result(), course: offersState.courses }));
             """
         )
         self.assertEqual((out["store"], out["loads"]), ("crisp", []), "laden doet showOffers bij het openen")
-        self.assertEqual((out["category"], out["course"], out["historyChanged"]), ("all", "all", 1))
+        self.assertEqual((out["course"], out["historyChanged"]), ({"shown": [], "hidden": []}, 1))  # de categorieen zijn filters per winkel (offersFilters)
 
     def test_an_address_waiting_for_a_link_decides_first(self):
         out = self.run_js(

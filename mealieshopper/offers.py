@@ -255,6 +255,7 @@ async def _setup(conn: aiosqlite.Connection) -> None:
     await conn.executescript(OFFERS_INDEX_SQL)
     await conn.commit()
     await _repair_open_ends(conn)
+    await _repair_measure_prices(conn)
     await _repair_picnic_recipe_images(conn)
 
 
@@ -276,6 +277,21 @@ async def _repair_open_ends(conn: aiosqlite.Connection) -> None:
     cutoff = f"{ah.OPEN_ENDED_YEAR:04d}"
     for table in ("offers", "offer_history"):
         await conn.execute(OPEN_ENDS_SQL.format(table=table), (cutoff,))
+    await conn.commit()
+
+
+MEASURE_PRICES_SQL = "SELECT rowid AS row, unit_size, price, promo_label FROM {table} WHERE LOWER(promo_label) LIKE 'per %voor%'"
+
+
+async def _repair_measure_prices(conn: aiosqlite.Connection) -> None:
+    """Tot en met 4.10.2 stond een aanbieding per gewicht ("per 100 GRAM voor 1.59") met de prijs per 100 gram als prijs van het
+    pak in de tabellen: 1,59 naast een gewone prijs van 15,49. `ah._bonus_product` rekent dat sindsdien om, deze reparatie doet het
+    voor wat er al stond, zodat de geschiedenis geen laagste prijs van 1,59 onthoudt."""
+    for table in ("offers", "offer_history"):
+        for row in await conn.execute_fetchall(MEASURE_PRICES_SQL.format(table=table)):
+            price: float | None = deals.measure_priced(row["promo_label"], row["unit_size"], row["price"])
+            if price is not None and price != row["price"]:
+                await conn.execute(f"UPDATE {table} SET price = ? WHERE rowid = ?", (price, row["row"]))
     await conn.commit()
 
 
@@ -1290,19 +1306,31 @@ async def _rejections(store: str) -> set[tuple[str, str]]:
     return {(row["product_id"], row["head"]) for row in rows}
 
 
-async def suggest(store: Any, limit: int = 30, course: Any = None, cap: int = 100, week: Any = None) -> dict[str, Any]:
+async def suggest(store: Any, limit: int = 30, course: Any = None, cap: int = 100, week: Any = None,
+                  courses: Any = None, courses_out: Any = None) -> dict[str, Any]:
     """Recepten uit de index die zoveel mogelijk met de aanbiedingen van deze winkel te maken zijn, de beste eerst.
 
     Basisingrediënten (zout, olie, boter ...) tellen niet mee. De volgorde is: het grootste deel van de ingrediënten in de aanbieding,
     dan het grootste aantal, dan de grootste besparing. `course` beperkt de lijst tot één soort gerecht (zie `offer_courses`); de
     aantallen per soort in `courses` gelden voor alle voorstellen, zodat je ziet wat er bij een andere keuze zou staan. Met `week`
-    tellen alleen de aanbiedingen van die week mee (zie `load`), zodat de voorstellen passen bij de week die je plant.
+    tellen alleen de aanbiedingen van die week mee (zie `load`), zodat de voorstellen passen bij de week die je plant. De
+    keuzelijst van het scherm stuurt `courses` (alleen deze soorten, een van de gekozen) en `courses_out` (deze soorten niet,
+    dat wint).
     """
     course = str(course or "").strip().lower()
     if course in ("", "all"):
         course = ""
     elif course not in offer_courses.COURSES:
         raise ValueError(tr("Onbekende soort gerecht", "Unknown kind of dish"))
+
+    def kinds(value: Any) -> frozenset[str]:
+        found: frozenset[str] = frozenset(str(item).strip().lower() for item in value or () if str(item).strip())
+        if not found <= set(offer_courses.COURSES):
+            raise ValueError(tr("Onbekende soort gerecht", "Unknown kind of dish"))
+        return found
+
+    only: frozenset[str] = kinds(courses)
+    without: frozenset[str] = kinds(courses_out)
     offers = await load(store, week)
     rejected = await _rejections(offers["store"])
     verdicts = await _verdicts(offers["store"])
@@ -1402,7 +1430,10 @@ async def suggest(store: Any, limit: int = 30, course: Any = None, cap: int = 10
     )
     results = merge_duplicates(results)
     courses = offer_courses.summarize([item["course"] for item in results])
-    shown = [item for item in results if not course or item["course"] == course]
+    shown = [
+        item for item in results
+        if (not course or item["course"] == course) and item["course"] not in without and (not only or item["course"] in only)
+    ]
     return {
         "store": offers["store"],
         "recipes": shown[: max(1, min(cap, int(limit)))],

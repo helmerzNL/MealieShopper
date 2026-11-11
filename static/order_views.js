@@ -17,7 +17,7 @@ const orderView = viewState("order", { view: ORDER_VIEW_DEFAULTS, sort: { key: "
 
 // De aankoop die open staat, met zijn regels en wat er gezocht en gekozen is. `key` herkent dezelfde aankoop bij opnieuw tekenen
 // (een bon waarvan de producten net gekoppeld zijn): dan blijven het zoeken en de chip staan.
-const orderPage = { purchase: null, kind: null, store: "ah", key: "", lines: [], query: "", words: [], category: "all" };
+const orderPage = { purchase: null, kind: null, store: "ah", key: "", lines: [], query: "", words: [], facets: orderFacetsEmpty(), brandSearch: "" };
 
 function orderScope(kind) {
   return kind === "receipt" ? "receipt" : "order";
@@ -98,10 +98,18 @@ function orderLines(purchase, kind, store) {
   return (purchase.items || []).map((item, index) => orderLine(item, index, kind, store));
 }
 
-// Zoeken op de titel en op de naam op de bon (alle woorden moeten passen, zoals in de aankopenlijst), en de chip van een categorie.
-function orderFilter(lines, words, category) {
+// De keuzelijsten van een aankoop (facets.js): de categorieën en de merken, elk met tonen en verbergen.
+function orderFacetsEmpty() {
+  return { category: facetSelection(), brand: facetSelection() };
+}
+
+// Zoeken op de titel en op de naam op de bon (alle woorden moeten passen, zoals in de aankopenlijst), en met `facets` de
+// keuzelijsten: de categorie en het merk van de regel moeten erdoor.
+function orderFilter(lines, words, facets = null) {
   return lines.filter(
-    (line) => (category === "all" || line.category === category) && (!words.length || matchesQuery(line.title, words) || matchesQuery(line.name, words))
+    (line) =>
+      (!facets || (facetPasses(facets.category, line.category) && facetPasses(facets.brand, line.brand))) &&
+      (!words.length || matchesQuery(line.title, words) || matchesQuery(line.name, words))
   );
 }
 
@@ -276,36 +284,45 @@ function orderStatusText(shown, total, categories) {
   return [tn("orders.page.products", total), tn("orders.page.categories", categories)].join(" · ");
 }
 
-// De chips: een per categorie in deze aankoop, met het aantal regels dat door het zoeken komt. Een categorie zonder treffers valt
-// weg, behalve de gekozen, zodat je die weer uit kunt zetten.
-function orderChips(lines, searched, active) {
-  const present = new Set(lines.map((line) => line.category));
-  const categories = CATEGORY_ORDER.filter((id) => present.has(id))
-    .map((id) => ({ id, count: searched.filter((line) => line.category === id).length }))
-    .filter((category) => category.count || category.id === active);
-  return categoryChips({ categories, active, total: searched.length });
+// De keuzelijsten: de categorieën en de merken van de regels die door het zoeken komen, elk met het aantal dat er met de andere
+// lijst overblijft. Wat gekozen is blijft staan, ook met 0, zodat je het weer uit kunt zetten.
+const ORDER_FACET_LISTS = { category: "#order-categories", brand: "#order-brands" };
+
+function orderFacetRows(searched, facets = orderPage.facets, brandSearch = orderPage.brandSearch) {
+  const categories = facetCounts(searched.filter((line) => facetPasses(facets.brand, line.brand)).map((line) => line.category));
+  const brands = facetCounts(searched.filter((line) => facetPasses(facets.category, line.category)).map((line) => line.brand));
+  return {
+    category: facetRows(categories, facets.category, { label: categoryLabel }),
+    brand: facetRows(brands, facets.brand, { search: brandSearch }),
+  };
 }
 
-// Tekent de gekozen weergave uit de aankoop die er staat: de chips, de statusregel en de producten. Bon tekent het bonnetje met de
-// gevonden regels opgelicht (receiptPaper in orders.js) en heeft geen chips. De andere weergaven laten alleen zien wat door het
-// zoeken en de chip komt.
+function renderOrderFacets(searched) {
+  const rows = orderFacetRows(searched);
+  $(ORDER_FACET_LISTS.category).innerHTML = facetListHtml("category", rows.category, { cls: (value) => ` cat--${escapeHtml(value)}`, dot: true });
+  $(ORDER_FACET_LISTS.brand).innerHTML = facetListHtml("brand", rows.brand, { empty: "offers.filters.no_brands" });
+  facetPanelCount($("#order-facets"), facetActive(orderPage.facets.category) + facetActive(orderPage.facets.brand));
+}
+
+// Tekent de gekozen weergave uit de aankoop die er staat: de keuzelijsten, de statusregel en de producten. Bon tekent het bonnetje
+// met de gevonden regels opgelicht (receiptPaper in orders.js) en heeft geen keuzelijsten. De andere weergaven laten alleen zien
+// wat door het zoeken en de lijsten komt.
 function renderOrderItems() {
-  const { purchase, kind, lines, words, category } = orderPage;
+  const { purchase, kind, lines, words, facets } = orderPage;
   if (!purchase) return;
   const view = orderViewFor(orderScope(kind));
   const paper = view === "paper";
   const box = $("#ah-order-items");
-  const searched = orderFilter(lines, words, "all");
-  const visible = orderSortLines(paper ? searched : orderFilter(lines, words, category));
-  const chips = $("#order-categories");
-  chips.innerHTML = orderChips(lines, searched, category);
-  chips.hidden = paper || !lines.length;
+  const searched = orderFilter(lines, words);
+  const visible = orderSortLines(paper ? searched : orderFilter(lines, words, facets));
+  renderOrderFacets(searched);
+  $("#order-facets").hidden = paper || !lines.length;
   const status = document.getElementById(viewStatusId("order"));
   if (status) status.textContent = lines.length ? orderStatusText(visible.length, lines.length, new Set(lines.map((line) => line.category)).size) : "";
   const summary = kind === "receipt" ? receiptBonusSummary(purchase) : "";
   if (!lines.length) box.innerHTML = `<p class="muted">${escapeHtml(t("orders.items_missing"))}</p>`;
   else if (paper) box.innerHTML = receiptPaper(purchase, words);
-  else if (!visible.length) box.innerHTML = `<p class="muted">${escapeHtml(t("orders.search_none", { query: orderPage.query.trim() || categoryLabel(category) }))}</p>`;
+  else if (!visible.length) box.innerHTML = `<p class="muted">${escapeHtml(t(orderPage.query.trim() ? "orders.search_none" : "orders.page.filter_none", { query: orderPage.query.trim() }))}</p>`;
   else if (view === "cards") box.innerHTML = `<div class="product-grid product-grid--${escapeHtml(orderView.options.size)}">${visible.map((line) => productCard(line)).join("")}</div>${summary}`;
   else if (view === "table") box.innerHTML = orderTable(visible, orderView.sort) + summary;
   else {
@@ -323,7 +340,9 @@ function renderOrderPage(purchase, kind, store) {
   const key = `${kind}:${store}:${purchase.id ?? purchase.ref ?? ""}`;
   if (key !== orderPage.key) {
     orderPage.query = ordersState.query || "";
-    orderPage.category = "all";
+    orderPage.facets = orderFacetsEmpty();
+    orderPage.brandSearch = "";
+    $("#order-brand-search").value = "";
     $("#order-search").value = orderPage.query;
   }
   Object.assign(orderPage, { purchase, kind, store, key, lines: orderLines(purchase, kind, store), words: orderWords(orderPage.query) });
@@ -345,12 +364,13 @@ function renderOrderPage(purchase, kind, store) {
 
 // Terug naar de lijst (of een andere aankoop die laadt): niets van de vorige aankoop blijft staan.
 function orderPageClose() {
-  Object.assign(orderPage, { purchase: null, kind: null, key: "", lines: [], query: "", words: [], category: "all" });
+  Object.assign(orderPage, { purchase: null, kind: null, key: "", lines: [], query: "", words: [], facets: orderFacetsEmpty(), brandSearch: "" });
   $("#ah-order-badges").innerHTML = "";
   $("#ah-order-badges").hidden = true;
   viewBarElement("order").hidden = true;
   $("#order-filter").hidden = true;
   $("#order-categories").innerHTML = "";
+  $("#order-brands").innerHTML = "";
 }
 
 function orderWords(query) {
@@ -369,11 +389,21 @@ $("#order-search").addEventListener("input", (event) => {
   orderPage.words = orderWords(orderPage.query);
   renderOrderItems();
 });
-// Een chip kiest die categorie. Nog een keer op de gekozen chip en je ziet weer alles.
-$("#order-categories").addEventListener("click", (event) => {
-  const chip = event.target.closest("[data-cat]");
-  if (!chip) return;
-  orderPage.category = chip.dataset.cat === orderPage.category ? "all" : chip.dataset.cat;
+// Plus of min in een keuzelijst, of "Alles wissen".
+$("#order-facets").addEventListener("click", (event) => {
+  if (event.target.closest("[data-facet-clear]")) {
+    orderPage.facets = orderFacetsEmpty();
+    renderOrderItems();
+    return;
+  }
+  const click = facetClick(event);
+  if (!click) return;
+  orderPage.facets[click.name] = facetToggled(orderPage.facets[click.name], click.value, click.mode);
+  renderOrderItems();
+  facetRefocus($(ORDER_FACET_LISTS[click.name]), click);
+});
+$("#order-brand-search").addEventListener("input", (event) => {
+  orderPage.brandSearch = event.target.value;
   renderOrderItems();
 });
 $("#ah-order-items").addEventListener("click", (event) => {

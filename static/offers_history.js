@@ -16,9 +16,31 @@ const OFFER_HISTORY_BOUGHT_KEY = "ms-offers-history-bought";
 // `pinned`: het product is gekozen (met een klik of uit het adres) en hoort dus in het adres (router.js). `pin`: het product-id
 // uit het adres (een link van een aanbieding of bon). De server zet het altijd bovenaan de lijst, ook als de naam niet past of
 // als het alleen een aanbieding heeft die nog moet beginnen; een nieuwe zoekterm laat het los.
-const offerHistory = { query: "", bought: false, products: [], total: 0, selected: "", pinned: false, pin: "", loadId: 0, timer: 0, loadedStore: "", unsynced: null, ranges: {} };
+const offerHistory = { query: "", bought: false, products: [], total: 0, selected: "", pinned: false, pin: "", loadId: 0, timer: 0, loadedStore: "", unsynced: null, ranges: {},
+  // De keuzelijsten (facets.js): de keuze per lijst, het zoekveld boven de merken en de aantallen van de server.
+  facets: offerHistoryFacetsEmpty(), brandSearch: "", counts: { brands: [], categories: [] } };
 // De keuzes voor de periode van de grafiek, in dagen terug vanaf vandaag ("all": alles wat er is).
 const OFFER_HISTORY_RANGES = { "1y": 365, "3y": 1095 };
+
+function offerHistoryFacetsEmpty() {
+  return { brand: facetSelection(), category: facetSelection() };
+}
+
+const OFFER_HISTORY_FACET_LISTS = { brand: "#offers-history-brands", category: "#offers-history-categories" };
+
+// De keuzelijsten boven de producten: de merken en de categorieën van wat de zoekterm vindt, met de aantallen van de server
+// (prices.history telt over alle gevonden producten, niet alleen de eerste dertig).
+function renderOfferHistoryFacets() {
+  const { facets, counts } = offerHistory;
+  const brands = facetRows(counts.brands || [], facets.brand, { search: offerHistory.brandSearch });
+  const categories = facetRows(counts.categories || [], facets.category, { label: categoryLabel });
+  $(OFFER_HISTORY_FACET_LISTS.brand).innerHTML = facetListHtml("brand", brands, { empty: "offers.filters.no_brands" });
+  $(OFFER_HISTORY_FACET_LISTS.category).innerHTML = facetListHtml("category", categories, { cls: (value) => ` cat--${escapeHtml(value)}`, dot: true });
+  const panel = $("#offers-history-facets");
+  const active = facetActive(facets.brand) + facetActive(facets.category);
+  panel.hidden = !active && !(counts.brands || []).length && !(counts.categories || []).length;
+  facetPanelCount(panel, active);
+}
 
 function offerHistoryKey(product) {
   return `${product.store}:${product.productId}`;
@@ -55,8 +77,15 @@ function offerHistoryPeriodText(episode) {
   return t("offers.history.period", { from: offerHistoryDayText(from), to: offerHistoryDayText(to) });
 }
 
+// Wat een stuk bij een periode kostte (prices._product: `perPiece`). Bij "2e halve prijs" noemt de winkel de gewone prijs als prijs,
+// en de kaart bij de aanbiedingen rekent met de stukprijs: de grafiek en de tabel doen dat ook.
+function offerHistoryEpisodePrice(episode) {
+  return typeof episode.perPiece === "number" ? episode.perPiece : typeof episode.price === "number" ? episode.price : null;
+}
+
 function offerHistoryBarTitle(episode) {
-  const price = typeof episode.price === "number" ? offerHistoryPrice(episode.price) : t("offers.history.no_price");
+  const value = offerHistoryEpisodePrice(episode);
+  const price = value === null ? t("offers.history.no_price") : value !== episode.price ? t("offers.history.line_price", { price: offerHistoryPrice(value) }) : offerHistoryPrice(value);
   return [offerHistoryPeriodText(episode), price, offerHistoryLabel(episode)].filter(Boolean).join(" · ");
 }
 
@@ -184,7 +213,7 @@ function offerHistoryChart(product, width, range = undefined) {
   const withYear = xmax - xmin > 330;
   const x = (day) => left + ((day - xmin) / (xmax - xmin)) * (W - left - right);
   const prices = [
-    ...shownBars.map((bar) => bar.episode.price),
+    ...shownBars.map((bar) => offerHistoryEpisodePrice(bar.episode)),
     ...shownSteps.map((step) => step.segment.price),
     ...shownDots.map((dot) => dot.purchase.price),
     ...shownMeasured.map((dot) => dot.point.price),
@@ -255,8 +284,8 @@ function offerHistoryChart(product, width, range = undefined) {
   }
   const drawn = [];
   for (const bar of shownBars) {
-    const price = bar.episode.price;
-    if (typeof price !== "number") continue;
+    const price = offerHistoryEpisodePrice(bar.episode);
+    if (price === null) continue;
     const x0 = x(bar.start);
     const x1 = Math.max(x(bar.end), x0 + 4);
     const cy = y(price);
@@ -396,22 +425,27 @@ function offerHistoryImages(product) {
 
 // De kop van een product: plaatje, naam, merk en verpakking, de status (nu in de aanbieding, vanaf, of niet) met de link naar de
 // winkel en Vergelijk verpakkingen. `compact` (de popup bij een aanbieding) zet een grotere foto links en laat de vergelijkknop weg.
-function offerHistoryHead(product, { compact = false, offer = null } = {}) {
+function offerHistoryHead(product, { compact = false, offer = null, links = true } = {}) {
   const meta = [product.brand, product.unitSize].filter(Boolean).join(" · ");
   const image = ((product.savedImages || [])[0] || {}).url || product.image;
   const status = product.onOfferNow ? t("offers.history.now")
     : product.upcoming ? offerHistoryUpcomingText(product.upcoming, true)
     : t((product.observed || []).length && !(product.episodes || []).length ? "offers.history.no_confirmed_offer" : "offers.history.not_now");
-  const link = product.url
+  // `links` false (de popup bij een aanbieding, waar de muis doorheen gaat): zonder de link naar de winkel.
+  const link = links && product.url
     ? `<a href="${escapeHtml(product.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(t("offers.history.open", { store: storeDisplayName(product.store) }))}</a>`
     : "";
   // Vergelijk verpakkingen zoekt bij de winkel: niet bij een winkel met alleen aanbiedingen (Lidl, Aldi) en niet in de popup.
   const compare = !compact && product.regularPerUnit && !offersOnlyStore(product.store)
     ? `<button class="link-button" type="button" data-compare="${escapeHtml(product.productId)}" data-store="${escapeHtml(product.store)}">${escapeHtml(t("offers.compare.open"))}</button>`
     : "";
-  // De prijsregel van de aanbieding zelf (de popup): actieprijs, de oude prijs doorgestreept en de actietekst, zoals op de kaart.
-  const price = offer && typeof offer.price === "number"
-    ? `<p class="ohc-head__price"><b>${escapeHtml(offerHistoryPrice(offer.price))}</b>${typeof offer.priceBefore === "number" && offer.priceBefore > offer.price ? ` <s>${escapeHtml(offerHistoryPrice(offer.priceBefore))}</s>` : ""}${offer.promoLabel || offer.personal ? ` <small>${escapeHtml(offer.promoLabel || t("offers.personal.badge"))}</small>` : ""}</p>`
+  // De prijsregel van de aanbieding zelf (de popup), zoals op de kaart (offerPriceHtml): wat een stuk met de actie kost, doorgestreept
+  // de laagste gewone prijs die de app kent (anders de "van"-prijs van de winkel) en de actietekst.
+  const now = offer && typeof offer.unitPrice === "number" && offer.unitPrice > 0 ? offer.unitPrice : offer ? offer.price : null;
+  const lowestRegular = offer && offer.verdict ? offer.verdict.lowestRegular : null;
+  const before = typeof lowestRegular === "number" ? lowestRegular : offer ? offer.priceBefore : null;
+  const price = typeof now === "number"
+    ? `<p class="ohc-head__price"><b>${escapeHtml(offerHistoryPrice(now))}</b>${typeof before === "number" && before > now + 0.005 ? ` <s>${escapeHtml(offerHistoryPrice(before))}</s>` : ""}${offer.promoLabel || offer.personal ? ` <small>${escapeHtml(offer.promoLabel || t("offers.personal.badge"))}</small>` : ""}</p>`
     : "";
   return `<div class="ohc-head${compact ? " ohc-head--compact" : ""}">
       ${image ? `<img src="${escapeHtml(storeImage(image))}" alt="" loading="lazy" data-hide-on-error>` : ""}
@@ -486,7 +520,7 @@ function offerHistoryDetail(product) {
     .reverse()
     .map(
       (episode) =>
-        `<tr><td>${escapeHtml(offerHistoryPeriodText(episode))}</td><td>${escapeHtml(typeof episode.price === "number" ? offerHistoryPrice(episode.price) : "")}</td><td>${escapeHtml(offerHistoryLabel(episode))}</td></tr>`
+        `<tr><td>${escapeHtml(offerHistoryPeriodText(episode))}</td><td>${escapeHtml(offerHistoryEpisodePrice(episode) === null ? "" : offerHistoryPrice(offerHistoryEpisodePrice(episode)))}</td><td>${escapeHtml(offerHistoryLabel(episode))}</td></tr>`
     )
     .join("");
   const lineRows = (product.lineOffers || [])
@@ -547,10 +581,10 @@ function offerHistoryRangeLabel(key) {
 // prijsgeschiedenis (de popup bij een aanbieding), anders de breedte van het detailvak.
 // `ranges`: de map met de periodekeuze per product; de popup bij een aanbieding heeft een eigen map (offers.js, offerPopup.ranges),
 // zodat haar knoppen de keuze van de pagina Prijsgeschiedenis niet veranderen.
-function offerHistoryChartBlock(product, { width = null, ranges = null } = {}) {
+function offerHistoryChartBlock(product, { width = null, ranges = null, buttons: withButtons = true } = {}) {
   const own = ranges && ranges !== offerHistory.ranges;
   const range = offerHistoryRange(product, (ranges || offerHistory.ranges)[offerHistoryKey(product)]);
-  const buttons = range.options.length
+  const buttons = withButtons && range.options.length
     ? `<div class="ohc-range" role="group" aria-label="${escapeHtml(t("offers.history.range.label"))}">${range.options
         .map((key) => `<button type="button" class="ohc-range-button" data-range="${key}" aria-pressed="${key === range.choice}">${escapeHtml(offerHistoryRangeLabel(key))}</button>`)
         .join("")}</div>`
@@ -574,6 +608,7 @@ function offerHistoryUnsyncedText() {
 }
 
 function renderOfferHistory() {
+  renderOfferHistoryFacets();
   const list = $("#offers-history-list");
   const detail = $("#offers-history-detail");
   const status = $("#offers-history-status");
@@ -635,11 +670,16 @@ async function loadOfferHistory() {
     const params = new URLSearchParams({ store, q: query, limit: String(OFFER_HISTORY_LIMIT) });
     if (bought) params.set("bought", "1");
     if (offerHistory.pin) params.set("pin", offerHistory.pin);
+    for (const [name, param] of [["brand", "brand"], ["category", "category"]]) {
+      offerHistory.facets[name].shown.forEach((value) => params.append(param, value));
+      offerHistory.facets[name].hidden.forEach((value) => params.append(`${param}_out`, value));
+    }
     const data = await jsonFetch(`/api/prices/history?${params}`);
     if (loadId !== offerHistory.loadId) return;
     offerHistory.bought = bought;
     offerHistory.products = data.products || [];
     offerHistory.total = data.total || 0;
+    offerHistory.counts = data.facets || { brands: [], categories: [] };
     offerHistory.unsynced = (data.unsynced || {})[store] || null;
     offerHistory.loadedStore = store;
     if (!offerHistory.products.some((product) => offerHistoryKey(product) === offerHistory.selected)) {
@@ -660,6 +700,8 @@ async function loadOfferHistory() {
 function offerHistoryStoreChanged() {
   offerHistory.selected = "";
   offerHistory.products = [];
+  offerHistory.facets = offerHistoryFacetsEmpty(); // merken verschillen per winkel
+  offerHistory.counts = { brands: [], categories: [] };
   priceImportShowButton();
   if (document.querySelector("#offers-history.is-active")) loadOfferHistory();
   else offerHistory.loadedStore = "";
@@ -670,6 +712,21 @@ $("#offers-history-search").addEventListener("input", () => {
   offerHistory.pin = "";
   clearTimeout(offerHistory.timer);
   offerHistory.timer = setTimeout(loadOfferHistory, 250);
+});
+// Plus of min in een keuzelijst, of "Alles wissen": de server filtert en telt opnieuw.
+$("#offers-history-facets").addEventListener("click", async (event) => {
+  const click = event.target.closest("[data-facet-clear]") ? null : facetClick(event);
+  if (click) offerHistory.facets[click.name] = facetToggled(offerHistory.facets[click.name], click.value, click.mode);
+  else if (event.target.closest("[data-facet-clear]")) offerHistory.facets = offerHistoryFacetsEmpty();
+  else return;
+  renderOfferHistoryFacets(); // de keuze staat er meteen, de aantallen volgen met het antwoord
+  clearTimeout(offerHistory.timer);
+  await loadOfferHistory();
+  if (click) facetRefocus($(OFFER_HISTORY_FACET_LISTS[click.name]), click);
+});
+$("#offers-history-brand-search").addEventListener("input", (event) => {
+  offerHistory.brandSearch = event.target.value;
+  renderOfferHistoryFacets();
 });
 $("#offers-history-form").addEventListener("submit", (event) => {
   event.preventDefault();
