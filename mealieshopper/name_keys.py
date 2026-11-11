@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from . import ah_lists, line_offers
+from . import ah_lists
 
 NEAR_MARK: str = "~"  # voor een sleutel van `near`: geen gevouwen naam begint zo
 NEAR_NOISE: frozenset[str] = frozenset(
@@ -30,6 +30,8 @@ def fold(value: Any) -> str:
 def near(name: str) -> str:
     """Een naam om bijna-gelijke namen te herkennen: de woorden in enkelvoud, op volgorde van het alfabet. AH noemde het brood
     in de mails van 2022 "AH Les pain triomphe heel" en nu "AH Les pains triomphe heel": hetzelfde product."""
+    from . import line_offers  # pas hier: line_offers importeert product_links, en dat importeert deze module
+
     return NEAR_MARK + " ".join(sorted(line_offers.words(name) - NEAR_NOISE))
 
 

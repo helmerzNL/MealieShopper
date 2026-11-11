@@ -1,6 +1,10 @@
 """De sleutel van een naam (`name_keys`) en het gedeelde bestand met koppelingen per winkel (`shared_links`)."""
 
 import logging
+import os
+import subprocess
+import sys
+from pathlib import Path
 
 import pytest
 
@@ -35,9 +39,8 @@ def test_dump_round_trips_sorted_one_link_per_line() -> None:
         "ah doosjevol kersen",
         "ah stamppot",
     ]
-    assert text.count("\n") == 4 and text.endswith(
-        "\n"
-    )  # kop, twee koppelingen, sluiting
+    # kop, twee koppelingen, sluiting
+    assert text.count("\n") == 4 and text.endswith("\n")
     assert text.splitlines()[0] == '{"version": 1, "links": ['
     assert (
         text.splitlines()[1]
@@ -146,3 +149,56 @@ def test_broken_file_loads_as_empty(tmp_path, monkeypatch, caplog) -> None:
         len([record for record in caplog.records if record.levelno == logging.WARNING])
         == 2
     )
+
+
+def test_broken_file_with_deep_nesting_loads_as_empty(tmp_path, monkeypatch, caplog) -> None:
+    (tmp_path / "ah.json").write_text("[" * 100000, encoding="utf-8")
+    monkeypatch.setattr(shared_links, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(shared_links, "_cache", {})
+    with caplog.at_level(logging.WARNING, logger=shared_links.log.name):
+        assert dict(shared_links.load("ah")) == {}
+    assert any(record.levelno == logging.WARNING for record in caplog.records)
+
+
+def test_load_result_is_read_only(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(shared_links, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(shared_links, "_cache", {})
+    with pytest.raises(TypeError):
+        shared_links.load("ah")["x"] = SharedLink("x", "1", "X", "")  # type: ignore[index]
+
+
+def test_conflicting_file_warns_and_first_link_wins(tmp_path, monkeypatch, caplog) -> None:
+    text: str = (
+        '{"version": 1, "links": [\n'
+        '  {"name": "ah les pain", "productId": "1", "title": "A", "unitSize": ""},\n'
+        '  {"name": "ah les pains", "productId": "2", "title": "B", "unitSize": ""}\n'
+        "]}\n"
+    )
+    (tmp_path / "ah.json").write_text(text, encoding="utf-8")
+    monkeypatch.setattr(shared_links, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(shared_links, "_cache", {})
+    with caplog.at_level(logging.WARNING, logger=shared_links.log.name):
+        loaded = shared_links.load("ah")
+    assert loaded[name_keys.key("ah les pain")].product_id == "1"
+    warnings: list[str] = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
+    assert len(warnings) == 1 and "ah" in warnings[0] and "dezelfde sleutel" in warnings[0]
+
+
+@pytest.mark.parametrize(
+    "order",
+    [
+        "mealieshopper.name_keys, mealieshopper.line_offers, mealieshopper.product_links, mealieshopper.prices",
+        "mealieshopper.product_links, mealieshopper.name_keys, mealieshopper.line_offers, mealieshopper.prices",
+        "mealieshopper.line_offers, mealieshopper.name_keys, mealieshopper.product_links, mealieshopper.prices",
+    ],
+)
+def test_import_order_does_not_matter(order: str) -> None:
+    root: Path = Path(__file__).resolve().parent.parent
+    result = subprocess.run(
+        [sys.executable, "-c", f"import {order}"],
+        cwd=root,
+        env={**os.environ, "MEALIESHOPPER_TESTING": "1"},
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr

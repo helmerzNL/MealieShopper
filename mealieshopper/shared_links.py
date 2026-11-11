@@ -9,8 +9,9 @@ from __future__ import annotations
 
 import json
 import logging
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from pathlib import Path
+from types import MappingProxyType
 from typing import Any, NamedTuple
 
 from . import name_keys
@@ -36,7 +37,7 @@ def _parse_link(raw: Any, index: int) -> SharedLink:
         )
     for field in _LINK_KEYS:
         if not isinstance(raw[field], str):
-            raise ValueError(f"koppeling {index}: {field} moet tekst zijn")  # noqa: TRY004  # noqa: TRY004
+            raise ValueError(f"koppeling {index}: {field} moet tekst zijn")  # noqa: TRY004
     return SharedLink(raw["name"], raw["productId"], raw["title"], raw["unitSize"])
 
 
@@ -53,7 +54,7 @@ def parse(text: str) -> list[SharedLink]:
             f"versie {data['version']!r} wordt niet ondersteund, verwacht {VERSION}"
         )
     if not isinstance(data["links"], list):
-        raise ValueError("links moet een lijst zijn")  # noqa: TRY004  # noqa: TRY004
+        raise ValueError("links moet een lijst zijn")  # noqa: TRY004
     return [_parse_link(raw, index) for index, raw in enumerate(data["links"])]
 
 
@@ -99,26 +100,32 @@ def dump(links: Iterable[SharedLink]) -> str:
     )
 
 
-_cache: dict[str, dict[str, SharedLink]] = {}
+_cache: dict[str, Mapping[str, SharedLink]] = {}
 
 
-def _read(store: str) -> dict[str, SharedLink]:
+def _read(store: str) -> Mapping[str, SharedLink]:
     path: Path = DATA_DIR / f"{store}.json"
     try:
         links: list[SharedLink] = parse(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError) as exc:
+    except (OSError, ValueError, RecursionError) as exc:
         log.warning(
             "Het gedeelde bestand met koppelingen voor %s is onbruikbaar en wordt overgeslagen: %s",
             store,
             exc,
         )
-        return {}
-    return {name_keys.key(link.name): link for link in links}
+        return MappingProxyType({})
+    found: list[str] = problems(links)
+    if found:
+        log.warning("Het gedeelde bestand met koppelingen voor %s klopt niet, eerste probleem: %s", store, found[0])
+    by_key: dict[str, SharedLink] = {}
+    for link in links:
+        by_key.setdefault(name_keys.key(link.name), link)  # de eerste per sleutel wint
+    return MappingProxyType(by_key)
 
 
-def load(store: str) -> dict[str, SharedLink]:
-    """De koppelingen van een winkel, met `name_keys.key(name)` als sleutel. Per proces gecachet. Leeg bij een ontbrekend of
-    kapot bestand, met een waarschuwing in het logboek."""
+def load(store: str) -> Mapping[str, SharedLink]:
+    """De koppelingen van een winkel, met `name_keys.key(name)` als sleutel, alleen-lezen. Per proces gecachet. Leeg bij een
+    ontbrekend of kapot bestand, met een waarschuwing in het logboek."""
     if store not in _cache:
         _cache[store] = _read(store)
     return _cache[store]
