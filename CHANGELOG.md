@@ -8,6 +8,8 @@ Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar
 
 ### Nieuw in 4.19.0
 
+Pull request: [#321](https://github.com/helmerzNL/MealieShopper/pull/321), van wolph.
+
 - Het image draait Python 3.15 in plaats van 3.12. Gemeten op een kopie van echte gegevens zijn de zware routes 20 tot 35% sneller: het prijsoordeel bij de aanbiedingen van AH 1,0 s in plaats van 1,6 s, de prijsgeschiedenis van gekochte producten 230 ms in plaats van 320 ms, en de server verwerkt een derde meer aanvragen per seconde. Het geheugen blijft gelijk.
 - Python komt van uv (python-build-standalone) op Debian trixie-slim, niet meer uit het officiele image `python:3.12-slim`: op dezelfde versie 3.15 was het officiele image 20 tot 25% trager, en op de aanbiedingengeschiedenis zelfs trager dan 3.12. uv zelf staat niet in het image.
 - De bytecode van de app en de pakketten staat in het image, zodat een start niet meer elke module compileert: de eerste pagina staat er na ongeveer 0,75 s in plaats van 1 s.
