@@ -1867,8 +1867,8 @@ def _regular_for_verdict(points: list[RegularPoint], today: str) -> Chosen | Non
 
 
 def _regular_of(chosen: Chosen | None) -> dict[str, Any] | None:
-    """De gekozen gewone prijs zoals het oordeel en de badge hem tonen."""
-    return None if chosen is None else {"price": chosen.price, "day": chosen.day, "source": chosen.source}
+    """De gekozen gewone prijs zoals het oordeel en de badge hem tonen. `judged`: hoogstens een jaar oud, dus bruikbaar voor een oordeel."""
+    return None if chosen is None else {"price": chosen.price, "day": chosen.day, "source": chosen.source, "judged": chosen.judged}
 
 
 def _compared(effective: float | None, regular: float | None, stated: float | None) -> dict[str, Any]:

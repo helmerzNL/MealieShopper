@@ -9860,9 +9860,20 @@ html.is-standalone .user-menu__item--standalone:not([hidden]) {
   color: var(--success-text);
 }
 
-.product-card .verdict--year-above,
-.product-card .verdict--regular-old {
+.product-card .verdict--year-above {
   white-space: normal;
+}
+
+/* De regel over een gewone prijs die te oud is voor een oordeel: gewone kleine tekst, geen pil (hij loopt over drie regels). */
+.product-card .verdict--regular-old {
+  width: auto;
+  border-radius: 0;
+  padding: 0;
+  background: none;
+  box-shadow: none;
+  text-align: left;
+  white-space: normal;
+  font-weight: 400;
 }
 
 /* De rij met inzichten onder de prijs op een kaart: het prijslabel (niet meer op het plaatje) en de chips, naast elkaar. */

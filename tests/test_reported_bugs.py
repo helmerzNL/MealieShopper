@@ -1334,7 +1334,7 @@ class RegularPriceFromEverySourceTest(PricesCase):
             )
         annotated: dict = (await prices.annotate("ah", [offer("1", "AH Pindakaas", 1.99, 2.99, "nu 1,99")], today=TODAY))[0]
         self.assertNotEqual(annotated["badge"]["source"], "store", "de app kent een gewone prijs van dit product")
-        self.assertEqual(annotated["badge"]["regular"], {"price": 2.79, "day": days(-200), "source": "import"})
+        self.assertEqual(annotated["badge"]["regular"], {"price": 2.79, "day": days(-200), "source": "import", "judged": True})
 
 
 class SpeedTest(PricesCase):

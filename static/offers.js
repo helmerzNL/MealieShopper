@@ -559,8 +559,8 @@ function offerVerdictLines(offer) {
   const verdict = offer.verdict;
   if (!verdict) return [];
   const lines = [];
-  // Een gewone prijs van meer dan een jaar oud geeft geen oordeel, maar de app toont wel wat ze nog weet.
-  if (verdict.kind === "unknown" && verdict.regular) {
+  // Een gewone prijs van meer dan een jaar oud (judged false) geeft geen oordeel, maar de app toont wel wat ze nog weet.
+  if (verdict.kind === "unknown" && verdict.regular && verdict.regular.judged === false) {
     lines.push({ cls: "verdict verdict--regular-old", text: t("offers.verdict.regular_old", offerRegularSourceParams(verdict.regular)) });
   }
   const yearLow = offerYearLowLine(offer);
@@ -592,12 +592,17 @@ function offerBadgeTitle(offer) {
   const verdict = offer.verdict || { kind: badge.percent >= 20 ? "good" : badge.percent >= 1 ? "small" : "none" };
   // Alleen de claim van de winkel, en die niet opgepompt: dan zegt de uitleg dat de app geen gewone prijs kent.
   if (badge.source === "store" && !badge.inflated) return t("offers.badge.title_store", { percent: badge.percent });
-  const kind ={ good: "offers.verdict.good", small: "offers.verdict.small", none: "offers.verdict.none" }[verdict.kind];
+  // Bij een oude gewone prijs (dated) zegt de uitleg niet "de laatste 30 dagen": de prijs en zijn datum staan er zelf bij.
+  const dated = badge.source === "dated" && Boolean(badge.regular);
+  const kinds = dated
+    ? { good: "offers.verdict.good_dated", small: "offers.verdict.small_dated", none: "offers.verdict.none_dated" }
+    : { good: "offers.verdict.good", small: "offers.verdict.small", none: "offers.verdict.none" };
+  const kind = kinds[verdict.kind];
   const parts = [kind ? t(kind, { percent: badge.percent }) : ""];
-  if (badge.source === "dated" && badge.regular) parts.push(t("offers.verdict.reference_dated", offerRegularSourceParams(badge.regular)));
+  if (dated) parts.push(t("offers.verdict.reference_dated", offerRegularSourceParams(badge.regular)));
   else if (typeof verdict.lowestRegular === "number") parts.push(t("offers.verdict.reference", { price: formatPrice(verdict.lowestRegular) }));
   if (badge.inflated && typeof offer.priceBefore === "number") {
-    parts.push(t("offers.verdict.inflated", { before: formatPrice(offer.priceBefore), price: formatPrice(verdict.lowestRegular) }));
+    parts.push(t(dated ? "offers.verdict.inflated_dated" : "offers.verdict.inflated", { before: formatPrice(offer.priceBefore), price: formatPrice(verdict.lowestRegular) }));
   }
   return parts.filter(Boolean).join(" ");
 }

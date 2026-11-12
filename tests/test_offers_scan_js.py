@@ -553,10 +553,20 @@ class OffersScanNodeTest(unittest.TestCase):
             "const store = { badge: { percent: 25, source: 'store', claimed: 25 }, verdict: { kind: 'good' } };"
             "const history = { badge: { percent: 25, source: 'history', regular: { price: 1.99, day: '2026-11-01', source: 'order' } },"
             "  verdict: { kind: 'good', lowestRegular: 1.99 } };"
-            "console.log(JSON.stringify({ dated: real(dated), store: real(store), history: real(history),"
+            "const datedInflated = { ...dated, priceBefore: 2.29, badge: { ...dated.badge, inflated: true }, verdict: { kind: 'good', lowestRegular: 1.99, inflated: true } };"
+            "const datedNone = { ...dated, verdict: { kind: 'none', lowestRegular: 1.99 } };"
+            "const datedSmall = { ...dated, verdict: { kind: 'small', lowestRegular: 1.99 } };"
+            "console.log(JSON.stringify({ dated: real(dated), datedInflated: real(datedInflated), datedNone: real(datedNone), datedSmall: real(datedSmall), store: real(store), history: real(history),"
             "  datedBadge: offerBadge(dated), storeBadge: offerBadge(store), historyBadge: offerBadge(history) }));",
         )
-        self.assertIn("offers.verdict.good", result["dated"])
+        self.assertIn("offers.verdict.good_dated", result["dated"])
+        self.assertNotIn("offers.verdict.good {", result["dated"], "geen 30 dagen bij een oude prijs")
+        self.assertNotIn("offers.verdict.inflated {", result["datedInflated"])
+        self.assertIn("offers.verdict.inflated_dated", result["datedInflated"])
+        self.assertRegex(result["dated"], r"^offers\.verdict\.good_dated \{[^}]*\} offers\.verdict\.reference_dated")
+        self.assertIn("offers.verdict.none_dated", result["datedNone"])
+        self.assertIn("offers.verdict.small_dated", result["datedSmall"])
+        self.assertIn("offers.verdict.good ", result["history"])
         self.assertIn("offers.verdict.reference_dated", result["dated"])
         self.assertIn("EUR 1.99", result["dated"])
         self.assertIn("offers.regular.source.receipt", result["dated"])
@@ -570,9 +580,10 @@ class OffersScanNodeTest(unittest.TestCase):
 
     def test_a_regular_price_that_is_too_old_for_a_verdict_gets_its_own_line(self):
         lines = self.run_js(
-            "const old = { verdict: { kind: 'unknown', lowestRegular: null, regular: { price: 2.49, day: '2025-05-01', source: 'import' } } };"
+            "const old = { verdict: { kind: 'unknown', lowestRegular: null, regular: { price: 2.49, day: '2025-05-01', source: 'import', judged: false } } };"
             "const plain = { verdict: { kind: 'unknown', lowestRegular: null, regular: null } };"
-            "console.log(JSON.stringify({ old: offerVerdictLines(old), plain: offerVerdictLines(plain) }));",
+            "const fresh = { verdict: { kind: 'unknown', lowestRegular: 1.19, regular: { price: 1.19, day: '2026-11-01', source: 'search', judged: true } } };"
+            "console.log(JSON.stringify({ old: offerVerdictLines(old), plain: offerVerdictLines(plain), fresh: offerVerdictLines(fresh) }));",
         )
         self.assertEqual(len(lines["old"]), 1)
         self.assertIn("offers.verdict.regular_old", lines["old"][0]["text"])
@@ -580,6 +591,7 @@ class OffersScanNodeTest(unittest.TestCase):
         self.assertIn("offers.regular.source.import", lines["old"][0]["text"])
         self.assertIn("2025-05-01", lines["old"][0]["text"])
         self.assertEqual(lines["plain"], [])
+        self.assertEqual(lines["fresh"], [], "een verse prijs zonder te berekenen actieprijs is niet te oud")
 
     def test_the_sort_puts_a_fresh_regular_price_before_a_dated_one_before_a_store_claim(self):
         order = self.run_js(

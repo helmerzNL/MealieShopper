@@ -459,10 +459,12 @@ function offerHistoryHead(product, { compact = false, offer = null, links = true
     </div>`;
 }
 
-// De stat Gewone prijs, met eronder uit welke bron de nieuwste gewone prijs komt en sinds wanneer hij geldt (zonder bron alleen de prijs).
+// De stat Gewone prijs, met eronder de bron van de nieuwste gewone prijs en de dag van dat punt zelf: het einde van de laatste periode
+// (`regular[-1].to`), niet het begin (`regularSince`), want de periode kan dezelfde prijs uit meer dan een bron en dag omvatten.
 function offerHistoryRegularStat(product) {
   const price = offerHistoryPrice(product.regularPrice);
-  const day = offerHistoryDay(product.regularSince);
+  const last = (product.regular || []).at(-1);
+  const day = offerHistoryDay(last && last.to ? last.to : product.regularSince);
   if (!product.regularSource || day === null) return offerHistoryStat(t("offers.history.stat.regular"), price);
   const from = t("offers.history.stat.regular_from", {
     source: t(`offers.regular.source.${product.regularSource}`),

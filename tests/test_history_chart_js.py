@@ -234,6 +234,16 @@ console.log(JSON.stringify({{
         self.assertIn("offers.history.stat.regular_from", stats)
         self.assertIn("offers.regular.source.import", stats)
         self.assertIn("2026", stats.split("regular_from")[1])
+        # Dezelfde prijs uit twee bronnen op twee dagen: de bron is die van de nieuwste dag, en de regel noemt ook die dag.
+        run: dict = {
+            **salami(),
+            "regularSince": "2026-09-01",
+            "regularSource": "receipt",
+            "regular": [{"from": "2026-09-01", "to": "2026-09-20", "price": 4.29}],
+        }
+        line: str = self.render(run)["stats"].split("regular_from")[1]
+        self.assertIn("20", line.split("</small>")[0])
+        self.assertNotIn("1 sep", line.split("</small>")[0])
         bare: str = self.render({**salami(), "regularSource": None})["stats"]
         self.assertNotIn("regular_from", bare)
 
