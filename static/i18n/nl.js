@@ -60,6 +60,7 @@ I18N.add("nl", {
   "offers.verdict.often": "{count}× in de aanbieding dit jaar: komt vaak terug",
   "offers.verdict.cheaper_pack": "Per eenheid goedkoper: {title} ({price})",
   "offers.badge.title_store": "{percent}% korting volgens de winkel. De app kent nog geen gewone prijs van dit product.",
+  "offers.badge.title_store_lower": "{percent}% korting volgens de winkel. De app kent een hogere gewone prijs, {price}, {source} van {date}, maar rekent met de lagere prijs ervoor van de winkel.",
   "offers.badge.none": "Geen korting",
   "offers.label.lowest_ever": "Laagste prijs ooit",
   "offers.label.lowest_12m": "Laagste in 12 mnd",

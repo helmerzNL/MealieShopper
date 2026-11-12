@@ -44,6 +44,14 @@ class ChooseTest(unittest.TestCase):
         self.assertTrue(within.judged)
         self.assertFalse(beyond.judged)
 
+    def test_thirty_days_back_is_fresh_and_thirty_one_is_not(self) -> None:
+        # FRESH_DAYS 30 en `p.day >= on - 30 dagen`: op 2026-11-12 is 2026-10-13 nog vers en 2026-10-12 niet meer.
+        within: Chosen | None = choose([RegularPoint("2026-10-13", 1.0, "order")], ON)
+        beyond: Chosen | None = choose([RegularPoint("2026-10-12", 1.0, "order")], ON)
+        assert within is not None and beyond is not None
+        self.assertTrue(within.fresh)
+        self.assertFalse(beyond.fresh)
+
     def test_future_points_and_empty(self) -> None:
         self.assertIsNone(choose([RegularPoint("2026-11-13", 1.0, "search")], ON))
         self.assertIsNone(choose([], ON))

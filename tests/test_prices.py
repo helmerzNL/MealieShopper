@@ -803,7 +803,7 @@ class VerdictTest(PricesCase):
         await self.observe("2026-10-10", "1", "AH Penne", 1.19)
         badge = (await self.annotate(deal("1", "AH Penne", 0.89, 1.19, "25% korting")))["1"]["badge"]
         self.assertEqual(badge, {"percent": 25, "source": "history", "claimed": 25, "inflated": False,
-                                 "regular": {"price": 1.19, "day": "2026-10-10", "source": "search", "judged": True}})
+                                 "regular": {"price": 1.19, "day": "2026-10-10", "source": "search", "judged": True, "fresh": True}})
 
     async def test_without_history_the_badge_is_the_claim_of_the_store(self):
         badge = (await self.annotate(deal("1", "AH Rijst", 1.50, 2.00, "25% korting")))["1"]["badge"]
@@ -840,24 +840,65 @@ class VerdictTest(PricesCase):
         self.ah_receipt("R1", f"{day}T10:00:00", (1, "AH PINDAKAAS", 1, 2.50, 2.50))
         found: dict = (await self.annotate(deal("1", "AH Pindakaas", 2.00, 2.99, "nu 2,00")))["1"]
         self.assertEqual(found["badge"]["source"], "dated")
-        self.assertEqual(found["badge"]["regular"], {"price": 2.50, "day": day, "source": "receipt", "judged": True})
+        self.assertEqual(found["badge"]["regular"], {"price": 2.50, "day": day, "source": "receipt", "judged": True, "fresh": False})
         self.assertEqual(found["verdict"]["regular"], found["badge"]["regular"])
         self.assertEqual((found["verdict"]["lowestRegular"], found["verdict"]["percent"]), (2.50, 20))
         self.assertIs(found["verdict"]["inflated"], True)
 
-    async def test_own_from_price_is_not_a_source_next_to_a_dated_price(self) -> None:
-        # De van-prijs van de lopende aanbieding (2,29) is lager dan de bon, maar telt alleen nog voor `inflated`.
-        self.ah_receipt("R1", f"{prices._days_ago(TODAY, 120)}T10:00:00", (1, "AH PINDAKAAS", 1, 2.50, 2.50))
+    async def test_a_from_price_below_a_dated_price_is_the_stricter_reference(self) -> None:
+        # Eindreview 2026-11-12: de van-prijs van de lopende aanbieding (2,29) is lager dan de bon van 2,50. Een winkel noemt zijn
+        # van-prijs niet te laag, dus de gewone prijs is sindsdien gedaald: het oordeel rekent met 2,29 (13%, niet 20%), de badge is
+        # de claim van de winkel en noemt de bon alleen als bekende hogere prijs (`known`), niet als de prijs waarmee is vergeleken.
+        day: str = prices._days_ago(TODAY, 120)
+        self.ah_receipt("R1", f"{day}T10:00:00", (1, "AH PINDAKAAS", 1, 2.50, 2.50))
         found: dict = (await self.annotate(deal("1", "AH Pindakaas", 2.00, 2.29, "nu 2,00")))["1"]
-        self.assertEqual((found["verdict"]["lowestRegular"], found["verdict"]["percent"], found["verdict"]["inflated"]), (2.50, 20, False))
+        self.assertEqual((found["verdict"]["lowestRegular"], found["verdict"]["percent"], found["verdict"]["inflated"]), (2.29, 13, False))
+        self.assertIsNone(found["verdict"]["regular"])
+        self.assertEqual(found["badge"]["source"], "store")
+        self.assertNotIn("regular", found["badge"])
+        self.assertEqual(found["badge"]["known"], {"price": 2.50, "day": day, "source": "receipt", "judged": True, "fresh": False})
+
+    async def test_an_old_receipt_never_gives_more_than_the_store_claims(self) -> None:
+        # Eindreview 2026-11-12: bon van 300 dagen terug 3,49, aanbieding 2,49 van 2,79. De winkel zegt 11%, de bon zou 29% geven.
+        day: str = prices._days_ago(TODAY, 300)
+        self.ah_receipt("R1", f"{day}T10:00:00", (1, "AH PINDAKAAS", 1, 3.49, 3.49))
+        found: dict = (await self.annotate(deal("1", "AH Pindakaas", 2.49, 2.79, "nu 2,49")))["1"]
+        self.assertEqual((found["verdict"]["kind"], found["verdict"]["percent"], found["verdict"]["lowestRegular"]), ("small", 11, 2.79))
+        self.assertEqual((found["badge"]["percent"], found["badge"]["source"], found["badge"]["inflated"]), (11, "store", False))
+        self.assertEqual(found["badge"]["known"], {"price": 3.49, "day": day, "source": "receipt", "judged": True, "fresh": False})
+
+    async def test_a_fresh_measurement_never_gives_more_than_the_store_claims(self) -> None:
+        # Eindreview 2026-11-12: gemeten 2,99 op 25 dagen terug, aanbieding 1,99 van 2,49: 20% (van 2,49), niet 33% (van 2,99).
+        day: str = prices._days_ago(TODAY, 25)
+        await self.observe(day, "1", "AH Penne", 2.99)
+        found: dict = (await self.annotate(deal("1", "AH Penne", 1.99, 2.49, "nu 1,99")))["1"]
+        self.assertEqual((found["verdict"]["kind"], found["verdict"]["percent"], found["verdict"]["lowestRegular"]), ("good", 20, 2.49))
+        self.assertEqual((found["badge"]["percent"], found["badge"]["source"]), (20, "store"))
+        self.assertEqual(found["badge"]["known"], {"price": 2.99, "day": day, "source": "search", "judged": True, "fresh": True})
+
+    async def test_an_equal_from_price_keeps_the_chosen_source(self) -> None:
+        await self.observe("2026-10-10", "1", "AH Penne", 1.19)
+        found: dict = (await self.annotate(deal("1", "AH Penne", 0.89, 1.19, "nu 0,89")))["1"]
+        self.assertEqual((found["badge"]["source"], found["verdict"]["regular"]["source"]), ("history", "search"))
+        self.assertNotIn("known", found["badge"])
+
+    async def test_the_from_price_of_an_offer_that_ended_ten_days_ago_is_fresh(self) -> None:
+        # Eindreview 2026-11-12: van-prijs 2,49 van een aanbieding die tien dagen terug eindigde, gisteren 2,79 gemeten, aanbieding
+        # 1,99 van 2,79. De laagste van 30 dagen is 2,49: `dated` (een van-prijs), maar `fresh`, dus de tekst met de 30 dagen.
+        await self.sync_offer("2026-10-04T05:00:00+00:00", offer("1", "AH Pindakaas", 1.99, 2.49, "nu 1,99", validFrom="2026-10-04", validUntil="2026-10-10"))
+        await self.sync_offer("2026-10-11T05:00:00+00:00")
+        await self.observe("2026-10-19", "1", "AH Pindakaas", 2.79)
+        found: dict = (await self.annotate(deal("1", "AH Pindakaas", 1.99, 2.79, "nu 1,99")))["1"]
         self.assertEqual(found["badge"]["source"], "dated")
+        self.assertEqual(found["badge"]["regular"], {"price": 2.49, "day": "2026-10-10", "source": "offer", "judged": True, "fresh": True})
+        self.assertEqual((found["verdict"]["percent"], found["verdict"]["inflated"]), (20, True))
 
     async def test_from_price_of_an_earlier_offer_counts(self) -> None:
         await self.sync_offer("2026-09-01T05:00:00+00:00", offer("1", "AH Pindakaas", 1.99, 2.49, "nu 1,99", validFrom="2026-09-01", validUntil="2026-09-07"))
         await self.sync_offer("2026-09-08T05:00:00+00:00")
         found: dict = (await self.annotate(deal("1", "AH Pindakaas", 1.99, 2.99, "nu 1,99")))["1"]
         self.assertEqual(found["badge"]["source"], "dated")
-        self.assertEqual(found["badge"]["regular"], {"price": 2.49, "day": "2026-09-07", "source": "offer", "judged": True})
+        self.assertEqual(found["badge"]["regular"], {"price": 2.49, "day": "2026-09-07", "source": "offer", "judged": True, "fresh": False})
         self.assertEqual(found["verdict"]["lowestRegular"], 2.49)
 
     async def test_regular_older_than_a_year_is_shown_without_verdict(self) -> None:
@@ -869,7 +910,7 @@ class VerdictTest(PricesCase):
             with self.subTest(priceBefore=before):
                 found: dict = (await self.annotate(deal("1", "AH Pindakaas", 1.99, before, "nu 1,99")))["1"]
                 self.assertEqual(found["verdict"]["kind"], "unknown")
-                self.assertEqual(found["verdict"]["regular"], {"price": 2.49, "day": "2022-10-09", "source": "offer", "judged": False})
+                self.assertEqual(found["verdict"]["regular"], {"price": 2.49, "day": "2022-10-09", "source": "offer", "judged": False, "fresh": False})
                 self.assertIs(found["verdict"]["inflated"], False)
                 self.assertIsNone(found["verdict"]["lowestRegular"])
                 self.assertIsNone(found["badge"])
@@ -879,7 +920,7 @@ class VerdictTest(PricesCase):
         await self.observe("2026-10-19", "1", "AH Penne", 1.19)
         found: dict = (await self.annotate(deal("1", "AH Penne", None, None, "bonus")))["1"]
         self.assertEqual(found["verdict"]["kind"], "unknown")
-        self.assertEqual(found["verdict"]["regular"], {"price": 1.19, "day": "2026-10-19", "source": "search", "judged": True})
+        self.assertEqual(found["verdict"]["regular"], {"price": 1.19, "day": "2026-10-19", "source": "search", "judged": True, "fresh": True})
         self.assertIsNone(found["badge"])
 
     async def test_own_from_price_only_keeps_the_store_badge(self) -> None:
@@ -914,7 +955,7 @@ class VerdictTest(PricesCase):
         await self.observe("2026-10-19", "1", "AH Penne", 1.19)
         found: dict = (await self.annotate(deal("1", "AH Penne", 0.89, 1.19, "nu 0,89")))["1"]
         self.assertEqual(found["badge"]["source"], "history")
-        self.assertEqual(found["badge"]["regular"], {"price": 1.19, "day": "2026-10-19", "source": "search", "judged": True})
+        self.assertEqual(found["badge"]["regular"], {"price": 1.19, "day": "2026-10-19", "source": "search", "judged": True, "fresh": True})
 
     async def test_a_bigger_pack_that_is_cheaper_per_kilo(self):
         await self.observe("2026-10-15", "big", "AH Zalmfilet", 7.00, size="500 g")  # €14/kg
@@ -1011,6 +1052,35 @@ class RegularPricesTest(PricesCase):
         self.assertEqual(await prices.fill_regular_prices("ah", now=self.NOW), 1)
         row: dict = self.rows("SELECT regular_price, regular_checked_at FROM ah_order_items")[0]
         self.assertEqual((row["regular_price"], row["regular_checked_at"]), (2.29, self.NOW))
+
+    async def test_fill_keeps_a_stored_price_when_there_is_no_pick(self) -> None:
+        # Geen enkele bron: de bewaarde prijs blijft staan, de regel krijgt wel zijn moment.
+        await store_order(1, "2026-09-21", [line("1", price=0.89)])
+        with closing(db(ah_orders)) as conn, conn:
+            conn.execute("UPDATE ah_order_items SET regular_price = 2.29")
+        self.assertEqual(await prices.fill_regular_prices("ah", now=self.NOW), 1)
+        row: dict = self.rows("SELECT regular_price, regular_checked_at FROM ah_order_items")[0]
+        self.assertEqual((row["regular_price"], row["regular_checked_at"]), (2.29, self.NOW))
+
+    async def test_fill_builds_no_catalogue_when_no_line_needs_one(self) -> None:
+        # Eindreview 2026-11-12: het openen van een aankoop bouwde de catalogus, ook als er niets te vullen was.
+        with mock.patch.object(prices, "_catalogue", new_callable=mock.AsyncMock) as catalogue:
+            self.assertEqual(await prices.fill_regular_prices("ah", order_ids=[1], now=self.NOW), 0)
+            await store_order(1, "2026-09-21", [order_item(0, "Los product", 1.0)])  # zonder product van de webwinkel
+            self.assertEqual(await prices.fill_regular_prices("ah", order_ids=[1], now=self.NOW), 1)
+        catalogue.assert_not_awaited()
+        self.assertEqual(self.rows("SELECT regular_checked_at FROM ah_order_items")[0]["regular_checked_at"], self.NOW)
+
+    async def test_fill_stamps_nothing_when_the_catalogue_fails(self) -> None:
+        # Zonder catalogus ontbreken de bonnen en de ingelezen aankopen: een regel die dan wordt gestempeld komt nooit terug.
+        await self.observe("2026-09-10", "1", "AH Penne", 1.19)
+        await store_order(1, "2026-09-21", [line("1", price=0.89)])
+        with mock.patch.object(prices, "_catalogue", new_callable=mock.AsyncMock, side_effect=RuntimeError("stuk")), self.assertLogs(prices.log, "ERROR"):
+            self.assertEqual(await prices.fill_regular_prices("ah", now=self.NOW), 0)
+        row: dict = self.rows("SELECT regular_price, regular_checked_at FROM ah_order_items")[0]
+        self.assertEqual((row["regular_price"], row["regular_checked_at"]), (None, None))
+        self.assertEqual(await prices.fill_regular_prices("ah", now=self.NOW), 1)  # de volgende ronde vult hem alsnog
+        self.assertEqual(self.rows("SELECT regular_price FROM ah_order_items")[0]["regular_price"], 1.19)
 
     async def test_fill_gives_an_unpriced_line_an_old_judged_price(self) -> None:
         await self.observe("2026-07-01", "1", "AH Penne", 0.99)

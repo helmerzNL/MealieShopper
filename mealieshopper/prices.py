@@ -1634,11 +1634,12 @@ async def annotate(store: str, items: list[dict[str, Any]], today: str | None = 
     De gewone prijs is de nieuwste bekende uit elke bron (`_regular_points`, gekozen door `regular_price.choose`, zie `_verdict_of`),
     en pas zonder bron de prijs ervoor die de aanbieding zelf noemt. `verdict.kind` is `good` (minstens 20% onder de gewone prijs),
     `small` (wel lager, maar minder), `none` (niet lager) of `unknown` (de actieprijs per stuk of de gewone prijs is niet bekend, of de
-    gewone prijs is ouder dan een jaar). Daarnaast: `percent`, `regular` (de gekozen gewone prijs als `{price, day, source}`, ook als
-    hij ouder is dan een jaar), `lowestRegular` (de gewone prijs waarmee is gerekend, of None), `inflated` (de prijs ervoor die de
-    winkel noemt is hoger dan die gewone prijs), `timesThisYear`, `often` en `cheaperPack` (een andere verpakking van hetzelfde product
-    die per eenheid goedkoper is, uit de bewaarde prijzen en de andere aanbiedingen). Daarnaast `badge` (het getal op de kaart:
-    `percent`, `source` `history`, `dated` of `store`, `regular` bij `history` en `dated`, `claimed`, `inflated`) en `priceLabel` (de
+    gewone prijs is ouder dan een jaar). Daarnaast: `percent`, `regular` (de gekozen gewone prijs als `{price, day, source, judged,
+    fresh}`, ook als hij ouder is dan een jaar, en None als de lagere van-prijs van de aanbieding telt), `lowestRegular` (de gewone
+    prijs waarmee is gerekend, of None), `inflated` (de prijs ervoor die de winkel noemt is hoger dan die gewone prijs), `timesThisYear`,
+    `often` en `cheaperPack` (een andere verpakking van hetzelfde product die per eenheid goedkoper is, uit de bewaarde prijzen en de
+    andere aanbiedingen). Daarnaast `badge` (het getal op de kaart: `percent`, `source` `history`, `dated` of `store`, `regular` bij
+    `history` en `dated`, `known` bij `store` als de app een hogere gewone prijs kent, `claimed`, `inflated`) en `priceLabel` (de
     ladder uit de geschiedenis, zie `price_label`). Een fout laat de aanbiedingen staan zonder oordeel.
     """
     try:
@@ -1867,8 +1868,11 @@ def _regular_for_verdict(points: list[RegularPoint], today: str) -> Chosen | Non
 
 
 def _regular_of(chosen: Chosen | None) -> dict[str, Any] | None:
-    """De gekozen gewone prijs zoals het oordeel en de badge hem tonen. `judged`: hoogstens een jaar oud, dus bruikbaar voor een oordeel."""
-    return None if chosen is None else {"price": chosen.price, "day": chosen.day, "source": chosen.source, "judged": chosen.judged}
+    """De gekozen gewone prijs zoals het oordeel en de badge hem tonen. `judged`: hoogstens een jaar oud, dus bruikbaar voor een oordeel.
+    `fresh`: van de laatste 30 dagen, dus de laagste van die dagen en niet de laatst bekende."""
+    if chosen is None:
+        return None
+    return {"price": chosen.price, "day": chosen.day, "source": chosen.source, "judged": chosen.judged, "fresh": chosen.fresh}
 
 
 def _compared(effective: float | None, regular: float | None, stated: float | None) -> dict[str, Any]:
@@ -1892,19 +1896,32 @@ def _badge_source(chosen: Chosen | None) -> str:
     return "history" if chosen.fresh and chosen.source != "offer" else "dated"
 
 
+def _stated_is_stricter(stated: float | None, chosen: Chosen | None) -> bool:
+    """De van-prijs die de aanbieding noemt (`stated`) is lager dan een gekozen gewone prijs van hoogstens een jaar oud. Een winkel
+    noemt zijn van-prijs niet te laag, dus de gewone prijs is sindsdien gedaald: dan vergelijkt het oordeel met de van-prijs, zodat
+    een oudere prijs een oordeel alleen strenger kan maken en nooit ruimer dan de winkel zelf."""
+    return chosen is not None and chosen.judged and stated is not None and 0 < stated < chosen.price - 0.005
+
+
 def _verdict_of(effective: float | None, stated: float | None, chosen: Chosen | None) -> tuple[dict[str, Any], dict[str, Any] | None]:
     """Het oordeel en de badge van een aanbieding, de badge zonder `claimed` (dat komt uit de aanbieding zelf).
 
-    De gekozen gewone prijs (`_regular_for_verdict`) gaat voor de van-prijs die de aanbieding noemt (`stated`): die telt dan alleen
-    nog voor `inflated`. Is de gekozen prijs ouder dan een jaar (niet `judged`), dan staat hij in `regular`, maar zonder oordeel en
-    zonder badge, ook als de aanbieding een van-prijs noemt. Zonder gekozen prijs oordeelt de van-prijs, met de badge `store`."""
-    regular: dict[str, Any] | None = _regular_of(chosen)
-    base: float | None = stated if chosen is None else (chosen.price if chosen.judged else None)
+    De gekozen gewone prijs (`_regular_for_verdict`) gaat voor de van-prijs die de aanbieding noemt (`stated`), tenzij die lager is
+    (`_stated_is_stricter`): dan rekent het oordeel met de van-prijs, is `regular` None en is de badge `store`, met de gekozen prijs
+    alleen als hogere bekende prijs in `known`. Is de gekozen prijs ouder dan een jaar (niet `judged`), dan staat hij in `regular`,
+    maar zonder oordeel en zonder badge, ook als de aanbieding een van-prijs noemt. Zonder gekozen prijs oordeelt de van-prijs, met
+    de badge `store`."""
+    known: dict[str, Any] | None = _regular_of(chosen)
+    stricter: bool = _stated_is_stricter(stated, chosen)
+    base: float | None = stated if chosen is None or stricter else (chosen.price if chosen.judged else None)
+    regular: dict[str, Any] | None = None if stricter else known
     verdict: dict[str, Any] = {**_compared(effective, base, stated), "regular": regular}
     if verdict["kind"] == "unknown":
         return verdict, None
-    badge: dict[str, Any] = {"percent": verdict["percent"], "source": _badge_source(chosen), "inflated": verdict["inflated"]}
-    if chosen is not None:
+    badge: dict[str, Any] = {"percent": verdict["percent"], "source": "store" if stricter else _badge_source(chosen), "inflated": verdict["inflated"]}
+    if stricter:
+        badge["known"] = known
+    elif chosen is not None:
         badge["regular"] = regular
     return verdict, badge
 
@@ -2162,17 +2179,61 @@ def _price_to_store(stored: Any, pick: Chosen | None) -> float | None:
     return pick.price if stored is None or pick.fresh else stored
 
 
+class _Picks:
+    """De keuzes van `_chosen_before` per aankoopdag, voor `fill_regular_prices`. De catalogus (voor de bonnen en de ingelezen
+    aankopen) wordt pas gelezen bij de eerste regel die hem nodig heeft: een aankoop openen zonder te vullen regels bouwt hem niet."""
+
+    def __init__(self, conn: aiosqlite.Connection, store: str, today: str) -> None:
+        self.conn: aiosqlite.Connection = conn
+        self.store: str = store
+        self.today: str = today
+        self.receipts: list[dict[str, Any]] | None = None
+        self.by_day: dict[str, dict[str, Chosen]] = {}
+
+    async def ready(self) -> bool:
+        """Leest de catalogus bij de eerste vraag. False als hij niet te lezen is (`_catalogue_or_none` logt dat)."""
+        if self.receipts is None:
+            catalogue: _Catalogue | None = await _catalogue_or_none(self.conn, self.store, self.today)
+            if catalogue is None:
+                return False
+            self.receipts = catalogue.receipts
+        return True
+
+    async def pick(self, day: str, product_id: str) -> Chosen | None:
+        """De keuze voor dit product bij een aankoop op `day`. Pas na `ready`."""
+        if day not in self.by_day:
+            self.by_day[day] = await _chosen_before(self.conn, self.store, day, self.receipts or [])
+        return self.by_day[day].get(product_id)
+
+
+async def _line_updates(picks: _Picks, lines: list[Any], stamp: str) -> list[tuple[Any, ...]] | None:
+    """Per regel de nieuwe `regular_price` en `regular_checked_at`, of None als de catalogus niet te lezen is. Dan blijft alles
+    ongestempeld: een regel die zonder de bonnen en de ingelezen aankopen is bepaald, komt nooit meer terug."""
+    updates: list[tuple[Any, ...]] = []
+    for line in lines:
+        day: str | None = _iso_day(line["day"])
+        pick: Chosen | None = None
+        if day is not None and line["product_id"] is not None:
+            if not await picks.ready():
+                return None
+            pick = await picks.pick(day, str(line["product_id"]))
+        updates.append((_price_to_store(line["stored"], pick), stamp, line["purchase"], line["position"]))
+    return updates
+
+
 async def fill_regular_prices(
     store: str, *, limit: int = REGULAR_LIMIT, recent_days: int = REGULAR_RECENT_DAYS, now: str | None = None,
     order_ids: list[Any] | None = None, receipt_ids: list[Any] | None = None,
 ) -> int:
-    """Bewaar per aankoopregel de gewone prijs (`regular_before`) in `regular_price`, met het moment in `regular_checked_at`.
+    """Bewaar per aankoopregel de gewone prijs (`_chosen_before`) in `regular_price`, met het moment in `regular_checked_at`.
 
     Het gaat om de bestellingen van AH en Jumbo en de kassabonnen van AH (via het gekoppelde product van de webwinkel). Een regel krijgt
     een prijs als hij nooit is bepaald, of als de aankoop van de laatste `recent_days` dagen is en de prijs meer dan een dag oud is
     (er kan sindsdien een meting uit het venster zijn bijgekomen). Hooguit `limit` regels, de nieuwste aankopen eerst. Met `order_ids`
-    of `receipt_ids` alleen de regels van die aankopen, ongeacht `limit` en `recent_days`. Een regel zonder gewone prijs krijgt
-    `regular_price` NULL en wel `regular_checked_at`, zodat hij niet elke nacht terugkomt. Geeft het aantal bijgewerkte regels.
+    of `receipt_ids` alleen de regels van die aankopen, ongeacht `limit` en `recent_days`. Een bewaarde prijs wordt alleen vervangen
+    door een verse keuze (`_price_to_store`). Een regel zonder keuze houdt wat er stond (NULL als er niets stond) en krijgt wel
+    `regular_checked_at`, zodat hij niet elke nacht terugkomt. Is de catalogus niet te lezen, dan stopt de ronde zonder de regels
+    met een product te stempelen (`_line_updates`). Geeft het aantal bijgewerkte regels.
     """
     stamp = now or _now()
     checked_before = (datetime.fromisoformat(stamp) - timedelta(days=1)).isoformat(timespec="seconds")
@@ -2181,9 +2242,7 @@ async def fill_regular_prices(
     done = 0
     async with _connect() as conn:
         tables = await _tables(conn)
-        catalogue: _Catalogue | None = await _catalogue_or_none(conn, store, stamp[:10])
-        receipts: list[dict[str, Any]] = catalogue.receipts if catalogue else []
-        by_day: dict[str, dict[str, Chosen]] = {}
+        picks: _Picks = _Picks(conn, store, stamp[:10])
         for source in _REGULAR_LINES.get(store, ()):
             if not source.needed <= tables or (not targeted and done >= limit):
                 continue
@@ -2192,15 +2251,9 @@ async def fill_regular_prices(
                 continue
             await ah_orders._ensure_columns(conn, source.table, ah_orders.REGULAR_COLUMNS)
             lines = await _lines_to_fill(conn, source, ids, recent_since=recent_since, checked_before=checked_before, limit=limit - done)
-            updates: list[tuple[Any, ...]] = []
-            for line in lines:
-                day: str | None = _iso_day(line["day"])
-                pick: Chosen | None = None
-                if day is not None and line["product_id"] is not None:
-                    if day not in by_day:
-                        by_day[day] = await _chosen_before(conn, store, day, receipts)
-                    pick = by_day[day].get(str(line["product_id"]))
-                updates.append((_price_to_store(line["stored"], pick), stamp, line["purchase"], line["position"]))
+            updates: list[tuple[Any, ...]] | None = await _line_updates(picks, lines, stamp)
+            if updates is None:
+                break
             await conn.executemany(
                 f"UPDATE {source.table} SET regular_price = ?, regular_checked_at = ? WHERE {source.purchase_column} = ? AND position = ?",
                 updates,

@@ -123,7 +123,7 @@ CREATE TABLE IF NOT EXISTS ah_orders_meta (
 
 ITEM_COLUMNS = ("product_id", "title", "brand", "unit_size", "quantity", "amount", "price", "price_before_bonus", "bonus", "taxonomy", "image")
 
-# De gewone prijs van een aankoopregel: de laagste van de 30 dagen voor de aankoopdag (`prices.fill_regular_prices` vult ze 's nachts).
+# De gewone prijs van een aankoopregel: de keuze van `regular_price.choose` uit hooguit een jaar voor de aankoopdag (`prices.fill_regular_prices` vult ze 's nachts).
 # `regular_price` NULL met een `regular_checked_at`: bepaald, maar er was geen gewone prijs bekend. Ook op `jumbo_order_items`.
 REGULAR_COLUMNS: tuple[tuple[str, str], ...] = (("regular_price", "REAL"), ("regular_checked_at", "TEXT"))
 
@@ -430,7 +430,7 @@ SUMMARY_NAMES = 4
 
 # De samenvatting per bestelling voor de kaarten en het overzicht, in dezelfde query: de eerste foto's en namen in de volgorde van
 # de bestelling (GROUP_CONCAT over een gesorteerde subquery, een regel per adres), het bespaarde bedrag en het aantal bonusregels.
-# Het bespaarde bedrag is dat tegen de gewone prijs van 30 dagen (`regular_price`), en zonder die prijs tegen de prijs ervoor van AH.
+# Het bespaarde bedrag is dat tegen de gewone prijs bij de aankoop (`regular_price`), en zonder die prijs tegen de prijs ervoor van AH.
 _ORDER_SUMMARY_SQL = f"""
     (SELECT GROUP_CONCAT(image, char(10)) FROM (SELECT image FROM ah_order_items i WHERE i.order_id = o.order_id AND image != ''
         ORDER BY position LIMIT {SUMMARY_IMAGES})) AS summary_images,

@@ -440,10 +440,13 @@ function offerHistoryHead(product, { compact = false, offer = null, links = true
     ? `<button class="link-button" type="button" data-compare="${escapeHtml(product.productId)}" data-store="${escapeHtml(product.store)}">${escapeHtml(t("offers.compare.open"))}</button>`
     : "";
   // De prijsregel van de aanbieding zelf (de popup), zoals op de kaart (offerPriceHtml): wat een stuk met de actie kost, doorgestreept
-  // de laagste gewone prijs die de app kent (anders de "van"-prijs van de winkel) en de actietekst.
+  // de laagste gewone prijs van 30 dagen als die uit een verse meting of aankoop komt (badge history), anders de "van"-prijs van de
+  // winkel (bij een actie met een minimumaantal de prijs zelf), en de actietekst.
   const now = offer && typeof offer.unitPrice === "number" && offer.unitPrice > 0 ? offer.unitPrice : offer ? offer.price : null;
   const lowestRegular = offer && offer.verdict ? offer.verdict.lowestRegular : null;
-  const before = typeof lowestRegular === "number" ? lowestRegular : offer ? offer.priceBefore : null;
+  const fresh = Boolean(offer && offer.badge && offer.badge.source === "history") && typeof lowestRegular === "number";
+  const stated = !offer ? null : typeof offer.priceBefore === "number" ? offer.priceBefore : typeof offer.price === "number" && offer.price > now ? offer.price : null;
+  const before = fresh ? lowestRegular : stated;
   const price = typeof now === "number"
     ? `<p class="ohc-head__price"><b>${escapeHtml(offerHistoryPrice(now))}</b>${typeof before === "number" && before > now + 0.005 ? ` <s>${escapeHtml(offerHistoryPrice(before))}</s>` : ""}${offer.promoLabel || offer.personal ? ` <small>${escapeHtml(offer.promoLabel || t("offers.personal.badge"))}</small>` : ""}</p>`
     : "";

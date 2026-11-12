@@ -578,6 +578,61 @@ class OffersScanNodeTest(unittest.TestCase):
         self.assertIn("offer-badge--store", result["storeBadge"])
         self.assertNotIn("offer-badge--store", result["historyBadge"])
 
+    def test_a_fresh_from_price_of_an_ended_offer_keeps_the_texts_of_30_days(self):
+        # Eindreview 2026-11-12: van-prijs 2,49 van een aanbieding die tien dagen terug eindigde, gisteren 2,79 gemeten, aanbieding
+        # 1,99 van 2,79. De badge is `dated` (een van-prijs), maar de prijs is de laagste van 30 dagen en niet de laatst bekende.
+        result = self.run_js(
+            "const regular = { price: 2.49, day: '2026-11-02', source: 'offer', judged: true, fresh: true };"
+            "const offer = { priceBefore: 2.79, badge: { percent: 20, source: 'dated', inflated: true, regular },"
+            "  verdict: { kind: 'good', lowestRegular: 2.49, inflated: true } };"
+            "console.log(JSON.stringify(offerBadgeTitle(offer)));"
+        )
+        self.assertIn("offers.verdict.good {", result)
+        self.assertNotIn("good_dated", result)
+        self.assertIn("offers.verdict.reference_dated", result, "de regel met bron en datum blijft")
+        self.assertIn("offers.regular.source.offer", result)
+        self.assertIn("offers.verdict.inflated {", result)
+        self.assertNotIn("inflated_dated", result, "geen 'laatst bekende' bij de laagste van 30 dagen")
+
+    def test_a_store_claim_below_a_known_price_says_the_app_knows_a_higher_one(self):
+        # Eindreview 2026-11-12: de van-prijs van de winkel (2,79) is lager dan de bon van 3,49: het oordeel rekent met de winkel, de
+        # uitleg zegt niet dat de app geen gewone prijs kent, en noemt de bon met zijn datum als hogere bekende prijs.
+        result = self.run_js(
+            "const known = { price: 3.49, day: '2025-12-24', source: 'receipt', judged: true, fresh: false };"
+            "const offer = { priceBefore: 2.79, badge: { percent: 11, source: 'store', inflated: false, claimed: 11, known },"
+            "  verdict: { kind: 'small', lowestRegular: 2.79 } };"
+            "console.log(JSON.stringify({ title: offerBadgeTitle(offer), badge: offerBadge(offer) }));"
+        )
+        self.assertIn("offers.badge.title_store_lower", result["title"])
+        self.assertNotIn("offers.badge.title_store {", result["title"])
+        for part in ("EUR 3.49", "offers.regular.source.receipt", "2025-12-24", '"percent":11'):
+            self.assertIn(part, result["title"])
+        self.assertIn("offer-badge--store", result["badge"])
+
+    def test_the_card_strikes_through_a_fresh_measured_price_and_otherwise_the_price_of_the_store(self):
+        # Eindreview 2026-11-12: de kaart streepte de gewone prijs door, ook een bon van 300 dagen terug, zonder datum. Alleen een
+        # verse meting of aankoop (`history`) staat doorgestreept, anders de prijs ervoor van de winkel, en zonder die niets.
+        found = self.run_js(
+            "const card = (badge, lowest, extra) => offerPriceHtml({ price: 2.49, priceBefore: 2.79, badge, verdict: { lowestRegular: lowest }, ...extra });"
+            "console.log(JSON.stringify({"
+            "  history: card({ source: 'history' }, 2.99),"
+            "  dated: card({ source: 'dated' }, 3.49),"
+            "  store: card({ source: 'store' }, 2.79),"
+            "  none: card(null, 3.49),"
+            "  datedWithout: card({ source: 'dated' }, 3.49, { priceBefore: null }),"
+            "  bundle: card({ source: 'dated' }, 2.99, { priceBefore: null, unitPrice: 1.87 }),"
+            "}));",
+            extra=("offerPriceHtml",),
+        )
+        self.assertIn("<s>EUR 2.99</s>", found["history"])
+        self.assertIn("<s>EUR 2.79</s>", found["dated"])
+        self.assertNotIn("3.49", found["dated"], "geen oude prijs zonder datum op de kaart")
+        self.assertIn("<s>EUR 2.79</s>", found["store"])
+        self.assertIn("<s>EUR 2.79</s>", found["none"])
+        self.assertNotIn("<s>", found["datedWithout"])
+        # Bij een actie met een minimumaantal noemt AH de gewone prijs als prijs (prices._stated_regular): die is de claim.
+        self.assertIn("EUR 1.87 <s>EUR 2.49</s>", found["bundle"])
+
     def test_a_regular_price_that_is_too_old_for_a_verdict_gets_its_own_line(self):
         lines = self.run_js(
             "const old = { verdict: { kind: 'unknown', lowestRegular: null, regular: { price: 2.49, day: '2025-05-01', source: 'import', judged: false } } };"

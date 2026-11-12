@@ -289,6 +289,16 @@ console.log(JSON.stringify({{
             "ohc-head__price", found["headCompact"], "zonder aanbieding geen prijsregel"
         )
 
+    def test_the_compact_head_strikes_through_an_old_price_only_when_it_is_fresh(self) -> None:
+        # Eindreview 2026-11-12: de kop van de popup streepte de gewone prijs door, ook een bon van 300 dagen terug. Alleen bij een
+        # verse meting of aankoop (`history`), anders de prijs ervoor van de winkel.
+        offer: dict = {"price": 3.65, "priceBefore": 4.29, "promoLabel": "Bonus Box 15% korting"}
+        dated: dict = self.render(salami(), offer={**offer, "badge": {"source": "dated"}, "verdict": {"lowestRegular": 4.99}})
+        fresh: dict = self.render(salami(), offer={**offer, "badge": {"source": "history"}, "verdict": {"lowestRegular": 3.99}})
+        self.assertIn("<s>€4,29</s>", dated["headOffer"])
+        self.assertNotIn("4,99", dated["headOffer"])
+        self.assertIn("<s>€3,99</s>", fresh["headOffer"])
+
     def test_without_older_data_there_are_no_buttons(self) -> None:
         product: dict = salami()
         product.update(purchases=[], lineOffers=[], timesInLineOffer=0, regular=[])

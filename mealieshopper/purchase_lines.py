@@ -1,8 +1,8 @@
 """De regels van een aankoop verrijkt voor de detailroutes: categorie, korting, eerder gekocht, bespaard en status.
 
 Eén plek voor de vier soorten aankopen (een bestelling van AH of Jumbo, een kassabon van AH en een ingelezen bestelling), zodat de
-bestelpagina ze op dezelfde manier toont. De korting is die tegen de gewone prijs van 30 dagen (de kolom `regular_price`, die
-`prices.fill_regular_prices` vult), en zonder die prijs de prijs ervoor die de winkel zelf noemt.
+bestelpagina ze op dezelfde manier toont. De korting is die tegen de gewone prijs bij de aankoop (de kolom `regular_price`, die
+`prices.fill_regular_prices` vult uit hooguit een jaar ervoor), en zonder die prijs de prijs ervoor die de winkel zelf noemt.
 """
 
 from __future__ import annotations
@@ -270,7 +270,7 @@ async def enrich(
     """Zet op elke regel `category`, `regularPrice`, `discount`, `discountSource`, `timesBefore` en `paidEach`. Past de dicts aan.
 
     `kind` is `order`, `receipt` of `imported`. `regularPrice` op de regel is bij binnenkomst de kolom `regular_price` (de gewone
-    prijs van 30 dagen, `discountSource` `history`). Zonder die prijs wordt het de prijs ervoor van de winkel (`_store_regular`,
+    prijs bij de aankoop, `discountSource` `history`). Zonder die prijs wordt het de prijs ervoor van de winkel (`_store_regular`,
     `discountSource` `store`), anders None. Een regel zonder aantal krijgt geen korting. Een bonregel heeft `bonus` (het bedrag van
     `match_receipt_bonus`). Geeft `saved` (de som van `(regularPrice - paidEach) * quantity` waar dat positief is) en `savedPercent`
     (`saved` als deel van wat de regels zonder korting hadden gekost) voor de aankoop.
@@ -311,7 +311,7 @@ async def fill_regular(
     order_ids: list[Any] | None = None,
     receipt_ids: list[Any] | None = None,
 ) -> None:
-    """Vul de gewone prijs van 30 dagen bij de regels van de aankoop die je opent (`prices.fill_regular_prices`). Een fout komt in
+    """Vul de gewone prijs bij de regels van de aankoop die je opent (`prices.fill_regular_prices`). Een fout komt in
     het log en laat de aankoop gewoon zien: de korting valt dan terug op de prijs ervoor van de winkel."""
     # prices leest ah_orders en price_import, die deze module gebruiken: pas hier ophalen houdt de import rond.
     from . import prices
