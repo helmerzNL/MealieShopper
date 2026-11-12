@@ -7,7 +7,7 @@ from unittest import mock
 
 os.environ.setdefault("MEALIESHOPPER_DATA_DIR", tempfile.mkdtemp())
 
-from mealieshopper import ah, ah_orders, auth, mcp, offers, picnic_orders, price_import, prices, product_links  # noqa: E402
+from mealieshopper import ah, ah_orders, auth, mcp, offers, picnic_orders, price_import, prices, product_links, regular_price  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
 from helpers import AppTestCase, db, in_db, returned, run, served  # noqa: E402
 
@@ -1355,3 +1355,170 @@ class CatalogueTest(PricesCase):
 
 if __name__ == "__main__":
     unittest.main()
+class RegularPointsTest(PricesCase):
+    SINCE = "2026-08-01"
+    UNTIL = "2026-10-20"
+
+    async def observe(self, day, product_id, title, price):
+        await prices.record(
+            "ah",
+            [
+                {
+                    "id": product_id,
+                    "title": title,
+                    "price": price,
+                    "unitSize": "500 g",
+                    "brand": "AH",
+                }
+            ],
+            now=f"{day}T08:00:00+00:00",
+        )
+
+    @staticmethod
+    def line(
+        source, product_id="1", day="2026-09-10", paid=2.79, regular=None, quantity=1
+    ):
+        return {
+            "product_id": product_id,
+            "day": day,
+            "paid": paid,
+            "regular": regular,
+            "quantity": quantity,
+            "source": source,
+        }
+
+    async def points(
+        self, receipts=(), *, before=False, ids=None, since=None, until=None
+    ):
+        async def collect(conn):
+            return await prices._regular_points(
+                conn,
+                "ah",
+                since or self.SINCE,
+                until or self.UNTIL,
+                receipts=list(receipts),
+                purchases_before_until=before,
+                ids=ids,
+            )
+
+        return (await in_db(prices._connect, collect))[0]
+
+    async def test_search_order_import_receipt_and_offer_each_give_a_point(self):
+        await self.observe("2026-09-01", "1", "AH Pindakaas", 2.99)
+        await self.ah_order(
+            101,
+            "delivered",
+            "2026-09-05",
+            order_item(1, "AH Pindakaas", 2.0, before=3.19, bonus=True),
+        )
+        await self.sync_offer(
+            "2026-09-22T05:00:00+00:00",
+            offer(
+                "1",
+                "AH Pindakaas",
+                1.99,
+                2.49,
+                "nu 1,99",
+                validFrom="2026-09-22",
+                validUntil="2026-09-28",
+            ),
+        )
+        await self.sync_offer("2026-09-29T05:00:00+00:00")
+        receipts = [
+            self.line("import", day="2026-09-10", regular=2.89),
+            self.line("receipt", day="2026-09-12", paid=2.79),
+        ]
+        found = (await self.points(receipts))["1"]
+        self.assertEqual(
+            {p.source for p in found}, {"search", "order", "import", "receipt", "offer"}
+        )
+        self.assertEqual(len(found), 5)
+
+    async def test_weighed_receipt_line_gives_no_point(self):
+        found = await self.points(
+            [
+                self.line("receipt", quantity=0.482),
+                self.line("receipt", day="2026-09-11", quantity=2),
+            ]
+        )
+        self.assertEqual(
+            found, {"1": [regular_price.RegularPoint("2026-09-11", 2.79, "receipt")]}
+        )
+        self.assertEqual(await self.points([self.line("receipt", quantity=None)]), {})
+
+    async def test_ended_offer_point_is_dated_at_its_end(self):
+        await self.sync_offer(
+            "2026-09-22T05:00:00+00:00",
+            offer(
+                "1",
+                "AH Pindakaas",
+                1.99,
+                2.49,
+                "nu 1,99",
+                validFrom="2026-09-22",
+                validUntil="2026-09-28",
+            ),
+        )
+        await self.sync_offer("2026-09-29T05:00:00+00:00")
+        self.assertEqual(
+            (await self.points())["1"],
+            [regular_price.RegularPoint("2026-09-28", 2.49, "offer")],
+        )
+
+    async def test_running_offer_point_is_dated_until(self):
+        await self.sync_offer(
+            "2026-10-15T05:00:00+00:00",
+            offer("1", "AH Pindakaas", 1.99, 2.49, "nu 1,99"),
+        )
+        self.assertEqual(
+            (await self.points())["1"],
+            [regular_price.RegularPoint(self.UNTIL, 2.49, "offer")],
+        )
+
+    async def test_folder_rows_give_no_point(self):
+        await self.sync_offer(
+            "2026-10-15T05:00:00+00:00",
+            offer("folder:abc", "Folderaanbieding", 1.99, 2.49, "nu 1,99"),
+        )
+        self.assertNotIn("folder:abc", await self.points())
+
+    async def test_purchase_of_until_is_left_out_on_request(self):
+        await self.ah_order(
+            101,
+            "delivered",
+            self.UNTIL,
+            order_item(1, "AH Pindakaas", 2.0, before=3.19, bonus=True),
+        )
+        receipts = [
+            self.line("import", day=self.UNTIL, regular=2.89),
+            self.line("receipt", day=self.UNTIL),
+        ]
+        self.assertEqual(len((await self.points(receipts))["1"]), 3)
+        self.assertEqual(await self.points(receipts, before=True), {})
+
+    async def test_ids_limits_the_products(self):
+        await self.observe("2026-09-01", "1", "AH Pindakaas", 2.99)
+        await self.observe("2026-09-01", "2", "AH Hagelslag", 1.99)
+        await self.sync_offer(
+            "2026-10-15T05:00:00+00:00",
+            offer("1", "AH Pindakaas", 1.99, 2.49),
+            offer("2", "AH Hagelslag", 1.0, 1.5),
+        )
+        receipts = [
+            self.line("import", product_id="1", regular=2.89),
+            self.line("import", product_id="2", regular=1.89),
+        ]
+        self.assertEqual(set(await self.points(receipts)), {"1", "2"})
+        limited = await self.points(receipts, ids=["2"])
+        self.assertEqual(set(limited), {"2"})
+        self.assertEqual(
+            {p.source for p in limited["2"]}, {"search", "import", "offer"}
+        )
+
+    async def test_points_outside_the_window_are_left_out(self):
+        await self.observe("2026-07-01", "1", "AH Pindakaas", 2.99)
+        receipts = [
+            self.line("import", day="2026-07-02", regular=2.89),
+            self.line("import", day="2026-10-21", regular=2.89),
+        ]
+        self.assertEqual(await self.points(receipts), {})

@@ -38,6 +38,7 @@ import aiosqlite
 
 from . import ah, ah_lists, ah_orders, auth, deals, line_offers, name_keys, offer_categories, offer_ranking, offers, packs, price_import, product_links, shared_links
 from .i18n import tr
+from .regular_price import RegularPoint
 
 log = logging.getLogger(__name__)
 
@@ -1725,6 +1726,113 @@ def price_label(effective: float | None, points: list[tuple[str, float]], today:
         latest = max(day for day, price in ordered if price == lowest_all)
         return {**label, "kind": "lower_before", "price": lowest_all, "month": latest[:7]}
     return label
+
+
+def _point(points: dict[str, list[RegularPoint]], product_id: Any, day: Any, price: Any, source: str) -> None:
+    """Voegt een gedateerd punt toe als de prijs een getal boven nul is en de dag een ISO-dag."""
+    value = _number(price)
+    if value is None or not day:
+        return
+    points.setdefault(str(product_id), []).append(RegularPoint(str(day)[:10], value, source))
+
+
+def _in_window(day: Any, since: str, until: str, before_until: bool) -> bool:
+    """Of een dag tussen `since` en `until` valt, met `until` zelf buiten het venster als `before_until`."""
+    text = str(day or "")[:10]
+    return bool(text) and text >= since and (text < until if before_until else text <= until)
+
+
+async def _search_points(
+    conn: aiosqlite.Connection, store: str, since: str, until: str, ids: list[str] | None
+) -> list[tuple[Any, Any, Any]]:
+    """De bewaarde prijzen (`price_observations`) van de dagen in het venster, als (product, dag, prijs)."""
+    wanted = f" AND {_WANTED_SQL}" if ids is not None else ""
+    args: tuple[Any, ...] = (store, since, until, PUBLIC_OBSERVED_UNKNOWN) + ((json.dumps(ids),) if ids is not None else ())
+    rows = await conn.execute_fetchall(
+        f"SELECT product_id, day, price FROM price_observations WHERE store = ? AND day >= ? AND day <= ? AND source != ?{wanted}", args
+    )
+    return [(row["product_id"], row["day"], row["price"]) for row in rows]
+
+
+async def _order_points(
+    conn: aiosqlite.Connection, store: str, since: str, until: str, before_until: bool, ids: list[str] | None
+) -> list[tuple[Any, Any, Any]]:
+    """De gewone prijs in je bestellingen (`regular` van `_purchase_sources`), als (product, dag, prijs)."""
+    last_day = "day < ?" if before_until else "day <= ?"
+    wanted = f" AND {_WANTED_SQL}" if ids is not None else ""
+    args: tuple[Any, ...] = (since, until) + ((json.dumps(ids),) if ids is not None else ())
+    found: list[tuple[Any, Any, Any]] = []
+    for sql in _purchase_sources(await _tables(conn), store):
+        for row in await conn.execute_fetchall(
+            f"SELECT product_id, day, regular FROM ({sql}) WHERE day >= ? AND {last_day} AND regular IS NOT NULL{wanted}", args
+        ):
+            found.append((row["product_id"], row["day"], row["regular"]))
+    return found
+
+
+def _receipt_points(
+    receipts: list[dict[str, Any]], since: str, until: str, before_until: bool
+) -> list[tuple[Any, Any, Any, str]]:
+    """De punten uit de bonregels en ingelezen aankopen, als (product, dag, prijs, bron).
+
+    Een ingelezen aankoop geeft zijn `regular`, een bonregel de prijs die is betaald, maar alleen bij een geheel aantal:
+    een gewogen product (0,482 kg) heeft een prijs per kilo en geen prijs per stuk."""
+    found: list[tuple[Any, Any, Any, str]] = []
+    for row in receipts:
+        if not _in_window(row.get("day"), since, until, before_until):
+            continue
+        if row.get("source") == "import":
+            found.append((row["product_id"], row["day"], row.get("regular"), "import"))
+        elif row.get("source") == "receipt":
+            quantity = _number(row.get("quantity"))
+            if quantity is not None and float(quantity).is_integer():
+                found.append((row["product_id"], row["day"], row.get("paid"), "receipt"))
+    return found
+
+
+async def _offer_points(
+    conn: aiosqlite.Connection, store: str, since: str, until: str, ids: list[str] | None
+) -> list[tuple[Any, Any, Any]]:
+    """De prijs vóór de actie van elke aanbieding, op de dag dat de periode eindigde (`until` als ze nog loopt of later eindigt).
+
+    Een rij van een folder (`folder:...`) is geen product en telt niet. De voorselectie in SQL is ruim (een jaar voor `since`):
+    `_episode_span` bepaalt het einde ook uit `ended_at`, wat de SQL niet ziet."""
+    wanted = f" AND {_WANTED_SQL}" if ids is not None else ""
+    args: tuple[Any, ...] = (store, _days_ago(since, YEAR_DAYS)) + ((json.dumps(ids),) if ids is not None else ())
+    found: list[tuple[Any, Any, Any]] = []
+    for row in await conn.execute_fetchall(
+        "SELECT * FROM offer_history WHERE store = ? AND price_before IS NOT NULL AND product_id NOT LIKE 'folder:%' "
+        f"AND COALESCE(valid_until, substr(last_seen, 1, 10)) >= ?{wanted}", args
+    ):
+        end = offers._episode_span(row)["end"]
+        day = until if end is None or end > until else end
+        if since <= day:
+            found.append((row["product_id"], day, row["price_before"]))
+    return found
+
+
+async def _regular_points(
+    conn: aiosqlite.Connection, store: str, since: str, until: str, *, receipts: list[dict[str, Any]],
+    purchases_before_until: bool = False, ids: list[str] | None = None,
+) -> dict[str, list[RegularPoint]]:
+    """De gedateerde gewone prijzen per product tussen `since` en `until` (ISO-dagen, beide meegerekend), uit elke bron.
+
+    Bronnen (de naam is `RegularPoint.source`): `search` (bewaarde prijzen), `order` (de gewone prijs in je bestellingen),
+    `import` (ingelezen aankopen met een gewone prijs), `receipt` (de betaalde prijs op een bon, alleen bij een geheel aantal)
+    en `offer` (de prijs vóór de actie, op de dag dat de periode eindigde). `receipts` is `_Catalogue.receipts`.
+    `purchases_before_until` laat de aankopen van de dag `until` zelf weg. `ids` beperkt het tot die producten."""
+    points: dict[str, list[RegularPoint]] = {}
+    wanted: set[str] | None = None if ids is None else {str(i) for i in ids}
+    for product_id, day, price in await _search_points(conn, store, since, until, ids):
+        _point(points, product_id, day, price, "search")
+    for product_id, day, price in await _order_points(conn, store, since, until, purchases_before_until, ids):
+        _point(points, product_id, day, price, "order")
+    for product_id, day, price, source in _receipt_points(receipts, since, until, purchases_before_until):
+        if wanted is None or str(product_id) in wanted:
+            _point(points, product_id, day, price, source)
+    for product_id, day, price in await _offer_points(conn, store, since, until, ids):
+        _point(points, product_id, day, price, "offer")
+    return points
 
 
 async def _regulars_between(
