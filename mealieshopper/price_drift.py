@@ -43,11 +43,11 @@ def percentile(values: list[float], fraction: float) -> float | None:
     return ordered[max(ceil(fraction * len(ordered)), 1) - 1]
 
 
-def summary(pairs: list[tuple[int, float]]) -> list[dict[str, Any]]:
+def summary(found: list[tuple[int, float]]) -> list[dict[str, Any]]:
     """Per rij van `GAPS` het aantal paren en het 50e, 90e en 95e percentiel (nearest-rank) van het verschil. Een lege rij heeft
     aantal 0 en percentielen None."""
     buckets: dict[str, list[float]] = {name: [] for name, _ in GAPS}
-    for days, diff in pairs:
+    for days, diff in found:
         name: str = next(name for name, limit in GAPS if days <= limit)
         buckets[name].append(diff)
     return [
@@ -60,3 +60,43 @@ def summary(pairs: list[tuple[int, float]]) -> list[dict[str, Any]]:
         }
         for name, _ in GAPS
     ]
+
+
+def valid_day(value: Any) -> str | None:
+    """De dag (`YYYY-MM-DD`) uit een tekst, of None als er geen geldige dag in staat (ook bij een lege tekst)."""
+    text: str = str(value or "")[:10]
+    try:
+        date.fromisoformat(text)
+    except ValueError:
+        return None
+    return text
+
+
+def chain_offers(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """De rijen van een product (op volgorde van `first_seen` en id, met de sleutels `day`, `price_before`, `continued`) als
+    aanbiedingen. Een rij met `continued` hoort bij de rij ervoor (`prices._offer_chains`): een aanbieding is een keten.
+    Per keten: `day` van de eerste rij, `price_before` de nieuwste die niet leeg is (None als geen rij er een heeft) en `rows`.
+    Een keten waarvan de eerste rij geen geldige dag heeft, valt weg."""
+    chains: list[list[dict[str, Any]]] = []
+    for item in rows:
+        if chains and item["continued"]:
+            chains[-1].append(item)
+        else:
+            chains.append([item])
+    offers: list[dict[str, Any]] = []
+    for chain in chains:
+        day: str | None = valid_day(chain[0]["day"])
+        claimed: list[float] = [r["price_before"] for r in chain if r["price_before"] is not None]
+        if day is not None:
+            offers.append({"day": day, "price_before": claimed[-1] if claimed else None, "rows": chain})
+    return offers
+
+
+def daily_points(offers: list[dict[str, Any]]) -> list[tuple[str, float]]:
+    """Eén punt (dag, van-prijs) per dag uit de aanbiedingen van een product, op volgorde van dag. Bij twee aanbiedingen op een
+    dag telt de laatste. Een aanbieding zonder van-prijs geeft geen punt."""
+    by_day: dict[str, float] = {}
+    for offer in offers:
+        if offer["price_before"] is not None:
+            by_day[offer["day"]] = float(offer["price_before"])
+    return sorted(by_day.items())
