@@ -18,7 +18,7 @@ from typing import Any, Awaitable, Callable
 
 import aiosqlite
 
-from . import ah_orders, auth, image_cache, offers, prices, purchase_sync, tasks
+from . import ah_orders, auth, image_cache, loose_names, offers, prices, purchase_sync, tasks
 
 log = logging.getLogger(__name__)
 
@@ -122,6 +122,7 @@ async def run_all(trigger: str, now: datetime | None = None, *, wait_for_images:
         if outcome is not None:
             result = {**result, key: outcome}
     if wait_for_images:
+        _start_loose_names()
         images = await image_cache.prefetch_nightly()
         if images is not None:
             result = {**result, "images": images}
@@ -136,6 +137,14 @@ async def run_all(trigger: str, now: datetime | None = None, *, wait_for_images:
         else:
             tasks.spawn("warm-offers", _warm())
     return result
+
+
+def _start_loose_names() -> None:
+    """Start de nachtelijke ronde voor losse aankoopnamen in een eigen task: de run wacht er niet op."""
+    try:
+        loose_names.start(None, "nightly")
+    except Exception:  # noqa: BLE001 - een extraatje: een fout bij het starten mag de nachtelijke run niet vertragen of laten falen
+        log.warning("Ronde voor losse namen starten mislukt", exc_info=True)
 
 
 async def _warm() -> None:

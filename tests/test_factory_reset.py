@@ -67,6 +67,38 @@ class PasswordResetTest(FactoryResetCase):
         self.assertEqual(self.files(), [])
         self.assertIn("ms_session=;", response.headers.get("Set-Cookie", ""))
 
+    async def test_a_rejected_shared_link_goes_with_the_database(self):
+        from mealieshopper import shared_links
+
+        cherries = {shared_links.name_keys.key("AH Doosjevol kersen"): shared_links.SharedLink("ah doosjevol kersen", "1234", "AH Doosje met kersen", "250 g")}
+        with mock.patch.object(shared_links, "load", return_value=cherries):
+            self.assertTrue(await shared_links.reject("ah", "AH Doosjevol kersen", "1234"))
+            response = await self.reset({"password": PASSWORD})
+            self.assertEqual(response.status_code, 200, response.get_json())
+            auth.forget_runtime_state()
+            await auth.init_db()
+            self.assertTrue(await shared_links.reject("ah", "AH Doosjevol kersen", "1234"), "na de reset is de afwijzing weg")
+
+    async def test_the_loose_names_go_with_the_database(self):
+        from contextlib import closing
+
+        from helpers import db
+        from mealieshopper import loose_names
+
+        with closing(db(loose_names)) as conn, conn:
+            conn.execute(
+                "INSERT INTO loose_names (store, key, name, checked_at, outcome, candidates, proposal) "
+                "VALUES ('jumbo', '~kersen', 'Jumbo Kersen', '2026-11-11T01:00:00+00:00', 'candidates', '[]', NULL)"
+            )
+        self.assertTrue(await loose_names.reject("jumbo", "~kersen"))
+        response = await self.reset({"password": PASSWORD})
+        self.assertEqual(response.status_code, 200, response.get_json())
+        auth.forget_runtime_state()
+        await auth.init_db()
+        self.assertFalse(await loose_names.reject("jumbo", "~kersen"), "na de reset is de stand weg")
+        with closing(db(loose_names)) as conn:
+            self.assertEqual(conn.execute("SELECT COUNT(*) FROM loose_names").fetchone()[0], 0)
+
     async def test_the_image_cache_folder_goes_too(self):
         cached = self.data / "images" / "ab" / "abcd.webp"
         cached.parent.mkdir(parents=True)

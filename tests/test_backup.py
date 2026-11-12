@@ -20,7 +20,7 @@ from werkzeug.exceptions import RequestTimeout
 
 os.environ["PASSKEY_AUTH_ENABLED"] = "false"
 
-from mealieshopper import audit, auth, auth_password, backup, factory_reset, image_cache, mealie, mealie_images, oauth, price_archive, prices, profile, push, recipe_nutrition, tasks, uploads  # noqa: E402
+from mealieshopper import audit, auth, auth_password, backup, factory_reset, image_cache, loose_names, mealie, mealie_images, oauth, price_archive, prices, profile, push, recipe_nutrition, shared_links, tasks, uploads  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
 from helpers import AppClient, db, ReadResponse, run_aside  # noqa: E402
 
@@ -310,6 +310,35 @@ class RoundTripTest(BackupCase):
         self.assertEqual(product["regular"], [])
         self.assertIsNone(product["regularPrice"])
 
+    async def test_a_rejected_shared_link_comes_back_with_a_restore(self) -> None:
+        # Klopt niet (shared_links.py) is werk van de gebruiker: zonder de back-up wijst de gedeelde lijst na een herstel weer naar het oude product.
+        self.assertIn("shared_link_rejections", backup.DATA_TABLES)
+        await backup.ensure_schemas()
+        cherries = {shared_links.name_keys.key("AH Doosjevol kersen"): shared_links.SharedLink("ah doosjevol kersen", "1234", "AH Doosje met kersen", "250 g")}
+        with mock.patch.object(shared_links, "load", return_value=cherries):
+            self.assertTrue(await shared_links.reject("ah", "AH Doosjevol kersen", "1234"))
+            response, data = await self.make()
+            self.assertEqual(response.status_code, 200)
+            self.wipe()
+            self.assertEqual((await self.restore(data))["status"], "done")
+            self.assertFalse(await shared_links.reject("ah", "AH Doosjevol kersen", "1234"), "de afwijzing was er al")
+
+    async def test_a_rejected_loose_name_comes_back_with_a_restore(self) -> None:
+        # "Geen van deze" (loose_names.py) is werk van de gebruiker: zonder de back-up zou de ronde de naam na een herstel weer opzoeken.
+        self.assertIn("loose_names", backup.DATA_TABLES)
+        with closing(self.connect()) as conn, conn:
+            conn.execute(
+                "INSERT INTO loose_names (store, key, name, checked_at, outcome, candidates, proposal) "
+                "VALUES ('jumbo', '~kersen', 'Jumbo Kersen', '2026-11-11T01:00:00+00:00', 'candidates', '[]', NULL)"
+            )
+        self.assertTrue(await loose_names.reject("jumbo", "~kersen"))
+        response, data = await self.make()
+        self.assertEqual(response.status_code, 200)
+        self.wipe()
+        self.assertEqual((await self.restore(data))["status"], "done")
+        self.assertFalse(await loose_names.reject("jumbo", "~kersen"), "de afwijzing was er al")
+        self.assertTrue(await loose_names.restore("jumbo", "~kersen"))
+
     async def test_everything_comes_back_with_its_links(self) -> None:
         self.seed()
         for key, value in SECRETS.items():
@@ -551,6 +580,21 @@ class OlderBackupTest(BackupCase):
             {key: (await profile.get("owner"))[key] for key in ("theme", "darkBackground", "accent", "navbarStyle", "navbarGlass", "cookingMode", "preferredStore")},
             {"theme": None, "darkBackground": "green", "accent": "", "navbarStyle": "auto", "navbarGlass": 60, "cookingMode": True, "preferredStore": "ah"},
         )
+
+    async def test_a_backup_from_before_the_link_origin_still_restores_as_manual(self) -> None:
+        # product_links kreeg de kolom origin (herkomst van de koppeling); een oudere back-up heeft hem niet en geeft `manual`.
+        self.seed()
+        _, data = await self.make()
+
+        def older(doc):
+            for row in doc["tables"]["product_links"]:
+                del row["origin"]
+
+        job = await self.restore(self.tweak(data, older))
+        self.assertEqual(job["status"], "done", job)
+        with closing(self.connect()) as conn:
+            origins = [row["origin"] for row in conn.execute("SELECT origin FROM product_links")]
+        self.assertEqual(origins, ["manual", "manual"])
 
     async def test_restore_of_a_3_x_backup_file_succeeds(self) -> None:
         # tests/fixtures/backup-3.13.1.json is gemaakt met de code van release 3.13.1 (commit 135bd86) op een lege

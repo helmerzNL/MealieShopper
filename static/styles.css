@@ -10861,3 +10861,309 @@ html.is-standalone .user-menu__item--standalone:not([hidden]) {
   color: var(--muted);
   font-size: var(--text-sm);
 }
+
+/* Losse aankopen (loose_names.js): een kaart per oude naam, de kandidaten als keuzerondjes. Geen eigen breekpunt: de kandidaten
+   vullen het vak met auto-fill en staan op een telefoon onder elkaar. */
+.loose-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 14px 0;
+}
+
+.loose-header__info {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.loose-slot {
+  display: contents;
+}
+
+.loose-header__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.loose-cards {
+  display: grid;
+  gap: 14px;
+  margin-top: 10px;
+}
+
+.loose-card {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  padding: 16px;
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
+}
+
+.loose-card__head h3 {
+  margin: 0;
+  font-size: var(--text-lg);
+  overflow-wrap: anywhere;
+}
+
+.loose-card__head p {
+  margin: 2px 0 0;
+}
+
+.loose-card__candidates {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 280px), 1fr));
+  gap: 8px;
+}
+
+.loose-candidate {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  min-height: 44px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  padding: 6px 8px;
+  background: var(--surface);
+  cursor: pointer;
+}
+
+.loose-candidate:has(input:checked) {
+  border-color: var(--primary);
+  background: var(--selection);
+}
+
+.loose-candidate:has(input:focus-visible) {
+  outline: 3px solid var(--primary);
+  outline-offset: 2px;
+}
+
+@media (hover: hover) {
+  .loose-candidate:hover {
+    border-color: var(--primary);
+  }
+}
+
+.loose-candidate input {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  margin: 0;
+  accent-color: var(--primary);
+}
+
+.loose-candidate img,
+.loose-candidate .link-item__photo {
+  width: 48px;
+  height: 48px;
+  flex: none;
+  border-radius: var(--radius-control);
+  object-fit: contain;
+}
+
+.loose-candidate .link-item__photo {
+  display: grid;
+  place-items: center;
+  border: 1px dashed var(--border);
+  color: var(--muted);
+}
+
+.loose-candidate .link-item__photo svg {
+  width: 24px;
+  height: 24px;
+  fill: currentColor;
+}
+
+.loose-candidate__body {
+  display: grid;
+  flex: 1;
+  gap: 2px;
+  min-width: 0;
+}
+
+.loose-candidate__body strong {
+  overflow-wrap: break-word;
+}
+
+.loose-candidate__body small {
+  color: var(--muted);
+}
+
+.loose-candidate__price {
+  flex: none;
+  font-family: var(--font-heading);
+  font-weight: 700;
+}
+
+.loose-card__ai {
+  margin: 0;
+  font-size: var(--text-md);
+  overflow-wrap: anywhere;
+}
+
+.loose-card__unsure {
+  display: inline-block;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-pill);
+  padding: 0 8px;
+  color: var(--muted);
+  font-size: var(--text-xs);
+}
+
+.loose-card__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.loose-fold {
+  margin-top: 16px;
+  border-top: 1px solid var(--border);
+  padding-top: 10px;
+}
+
+.loose-fold > summary {
+  min-height: 44px;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.loose-fold__count {
+  color: var(--muted);
+  font-weight: 400;
+}
+
+.loose-list {
+  display: grid;
+  gap: 6px;
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.loose-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.loose-row__name {
+  display: grid;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* Op een telefoon is de kolom van de titel smal tussen foto en prijs: kleinere foto, en de prijs onder de titel. */
+@media (max-width: 640px) {
+  .loose-candidate {
+    display: grid;
+    grid-template-columns: 20px 40px minmax(0, 1fr);
+    align-items: start;
+  }
+
+  .loose-candidate img,
+  .loose-candidate .link-item__photo {
+    width: 40px;
+    height: 40px;
+  }
+
+  /* Elk kind heeft zijn eigen cel: valt de foto weg (data-hide-on-error), dan blijft zijn cel leeg en houdt de titel zijn kolom. */
+  .loose-candidate input {
+    grid-area: 1 / 1;
+  }
+
+  .loose-candidate img,
+  .loose-candidate .link-item__photo {
+    grid-area: 1 / 2;
+  }
+
+  .loose-candidate__body {
+    grid-area: 1 / 3;
+  }
+
+  .loose-candidate__price {
+    grid-area: 2 / 3;
+  }
+}
+
+/* De export voor GitHub (shared_links_export.js): een lijst met een vinkje per koppeling. Geen eigen breekpunt: elk kind heeft zijn
+   eigen kolom (het vinkje en de tekst), lange namen breken op woordgrenzen. */
+.export-dialog {
+  width: min(560px, calc(100vw - 32px));
+}
+
+.export-dialog h4 {
+  margin: 0 0 6px;
+  overflow-wrap: break-word;
+}
+
+.export-section {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  margin-top: 14px;
+}
+
+.export-section p,
+.export-steps {
+  margin: 0;
+  overflow-wrap: break-word;
+}
+
+.export-steps {
+  padding-left: 20px;
+}
+
+.export-list {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.export-list li {
+  min-width: 0;
+}
+
+.export-row {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  padding: 8px;
+  cursor: pointer;
+}
+
+.export-row input {
+  grid-area: 1 / 1;
+  margin: 2px 0 0;
+}
+
+.export-row__body {
+  display: grid;
+  grid-area: 1 / 2;
+  gap: 2px;
+  min-width: 0;
+  overflow-wrap: break-word;
+}
+
+.export-row__body small {
+  color: var(--muted);
+  font-size: var(--text-sm);
+}
+
+.export-note {
+  overflow-wrap: break-word;
+}

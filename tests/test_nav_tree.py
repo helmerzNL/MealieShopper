@@ -87,6 +87,16 @@ class NavTreeTest(unittest.TestCase):
             TREE,
         )
 
+    def test_loose_purchases_is_a_subtab_of_every_store_and_only_for_the_administrator(self):
+        # De boom kopieert de zichtbare links van de balk, dus de pagina staat er vanzelf onder Winkels, naast Bestellingen.
+        subtab = re.search(r'<a class="subtab"[^>]*data-subtab="ah-items-losse-aankopen"[^>]*>', HTML)
+        self.assertIsNotNone(subtab)
+        self.assertIn("data-admin-only", subtab.group(0))
+        self.assertNotIn("hidden", subtab.group(0).replace("data-admin-only", ""), "de winkelkeuze verbergt hem niet")
+        self.assertIn("link) => !link.hidden", TREE, "een verborgen subtab (gewone gebruiker) staat niet in de boom")
+        app = (ROOT / "static" / "app.js").read_text(encoding="utf-8")
+        self.assertEqual(app.count('loose: "ah-items-losse-aankopen"'), 4)
+
     def test_the_tree_follows_the_bars(self):
         for needle in (
             "new MutationObserver(navTreeSchedule)",

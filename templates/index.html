@@ -280,6 +280,7 @@
           <h3 id="link-dialog-title" data-i18n="links.link">Product koppelen</h3>
           <p class="muted" id="link-dialog-intro"></p>
           <p class="link-dialog__current" id="link-dialog-current" hidden></p>
+          <p class="muted" id="link-dialog-shared" hidden data-i18n="links.shared_source">Gekoppeld via de gedeelde lijst</p>
         </div>
         <form class="link-dialog__search" id="link-dialog-form" role="search">
           <input class="input" id="link-dialog-query" type="search" autocomplete="off" aria-label="Zoek een product" placeholder="Zoek een product" data-i18n-attr="aria-label:links.search;placeholder:links.search">
@@ -290,7 +291,21 @@
         <p class="muted link-dialog__note" data-i18n="links.note">Na het koppelen herkent MealieShopper deze regel ook op je andere en volgende bonnen en bestellingen.</p>
         <div class="product-dialog__actions">
           <button class="button button--secondary" type="button" id="link-dialog-unlink" hidden><svg class="mdi" viewBox="0 0 24 24" aria-hidden="true"><path d="M2,5.27L3.28,4L20,20.72L18.73,22L13.9,17.17L11.29,19.78C9.34,21.73 6.17,21.73 4.22,19.78C2.27,17.83 2.27,14.66 4.22,12.71L5.71,11.22C5.7,12.04 5.83,12.86 6.11,13.65L5.64,14.12C4.46,15.29 4.46,17.19 5.64,18.36C6.81,19.54 8.71,19.54 9.88,18.36L12.5,15.76L10.88,14.15C10.87,14.39 10.77,14.64 10.59,14.83C10.2,15.22 9.56,15.22 9.17,14.83C8.12,13.77 7.63,12.37 7.72,11L2,5.27M12.71,4.22C14.66,2.27 17.83,2.27 19.78,4.22C21.73,6.17 21.73,9.34 19.78,11.29L18.29,12.78C18.3,11.96 18.17,11.14 17.89,10.36L18.36,9.88C19.54,8.71 19.54,6.81 18.36,5.64C17.19,4.46 15.29,4.46 14.12,5.64L10.79,8.97L9.38,7.55L12.71,4.22M13.41,9.17C13.8,8.78 14.44,8.78 14.83,9.17C16.2,10.54 16.61,12.5 16.06,14.23L14.28,12.46C14.23,11.78 13.94,11.11 13.41,10.59C13,10.2 13,9.56 13.41,9.17Z"/></svg><span data-i18n="links.unlink">Ontkoppelen</span></button>
+          <button class="button button--secondary" type="button" id="link-dialog-reject" hidden data-i18n="links.shared_wrong">Klopt niet</button>
           <button class="button button--secondary" type="button" id="link-dialog-close" data-i18n="common.close">Sluiten</button>
+        </div>
+      </div>
+    </dialog>
+
+    <!-- De export van je eigen koppelingen voor een pull request (#loose-export, static/shared_links_export.js). -->
+    <dialog id="export-dialog" class="product-dialog export-dialog" aria-labelledby="export-dialog-title">
+      <div class="product-dialog__inner">
+        <h3 id="export-dialog-title" data-i18n="loose.export_title">Exporteer voor GitHub</h3>
+        <div id="export-dialog-body"></div>
+        <div id="export-dialog-message" role="status" aria-live="polite"></div>
+        <div class="product-dialog__actions">
+          <button class="button" type="button" id="export-download" disabled>Download</button>
+          <button class="button button--secondary" type="button" id="export-dialog-close" data-i18n="common.close">Sluiten</button>
         </div>
       </div>
     </dialog>
@@ -1034,6 +1049,7 @@
           <a class="subtab" data-subtab="ah-items-crisp-recepten" hidden data-i18n="crisp.recipes.tab" href="/stores/crisp/recipes" data-nav>Recepten</a>
           <a class="subtab" data-subtab="ah-items-crisp-favorieten" hidden data-i18n="crisp.favorites.tab" href="/stores/crisp/favorites" data-nav>Favorieten</a>
           <a class="subtab" data-subtab="ah-items-crisp-bestellingen" hidden data-i18n="crisp.orders.tab" href="/stores/crisp/orders" data-nav>Bestellingen</a>
+          <a class="subtab" data-subtab="ah-items-losse-aankopen" data-admin-only data-i18n="loose.tab" href="/stores/ah/loose" data-nav>Losse aankopen</a>
         </nav>
 
         <div id="ah-items-recepten" class="subpanel is-active">
@@ -1134,6 +1150,26 @@
           <p class="muted" id="ah-list-meta"></p>
           <div id="ah-list-items-message"></div>
           <div id="ah-list-items"></div>
+        </div>
+        </div>
+
+        <div id="ah-items-losse-aankopen" class="subpanel">
+        <div class="box box--wide" id="loose-view">
+          <div class="toolbar">
+            <h2 data-i18n="loose.title">Losse aankopen</h2>
+          </div>
+          <p class="muted" data-i18n="loose.intro">Oude productnamen uit bevestigingsmails die nog bij geen product horen. Kies bij elke naam het product van de winkel, zoek zelf of wijs de naam af.</p>
+          <details class="help">
+            <summary data-i18n="common.help">Hoe werkt dit?</summary>
+            <p class="muted" data-i18n="loose.intro_more">De app zoekt zulke namen 's nachts of op verzoek op bij de winkel. Een voorstel van de AI is alleen een voorgeselecteerde keuze: er wordt niets gekoppeld voordat je op Koppel gekozen product klikt.</p>
+          </details>
+          <div id="loose-header"></div>
+          <div id="loose-export-home" hidden><button class="button button--secondary" id="loose-export" type="button" disabled>Exporteer voor GitHub</button></div>
+          <div id="loose-message"></div>
+          <div id="loose-cards" class="loose-cards"></div>
+          <p class="muted" id="loose-empty" hidden data-i18n="loose.empty">Er staan geen losse aankopen met voorstellen klaar.</p>
+          <p><button class="button button--secondary" id="loose-more" type="button" hidden data-i18n="offers.more">Meer</button></p>
+          <div id="loose-lists"></div>
         </div>
         </div>
 
@@ -1899,13 +1935,18 @@
           <h2 class="fold__title"><button type="button" class="fold__toggle" id="ai-login-toggle" aria-expanded="false" aria-controls="ai-login-body"><span data-i18n="aireview.title">AI-beoordeling van koppelingen</span><svg class="fold__chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="M7.41,8.58L12,13.17L16.59,8.58L18,10L12,16L6,10L7.41,8.58Z"/></svg></button></h2>
           <div class="fold__body" id="ai-login-body" hidden>
             <p class="muted" data-i18n="aireview.intro">Met een API-sleutel van Claude (Anthropic) of ChatGPT (OpenAI) zoekt een AI recepten bij de aanbiedingen van een winkel. Helemaal optioneel.</p>
-            <p class="muted" data-i18n="aireview.privacy">Er gaat alleen tekst van producten en ingrediënten naar de aanbieder, alleen als je zelf op de knop drukt, en een ronde kost geld.</p>
+            <p class="muted" data-i18n="aireview.privacy">Er gaat alleen tekst van producten en ingrediënten naar de aanbieder, alleen als je zelf op de knop drukt, en een ronde kost geld. De uitzondering is het vinkje voor losse aankopen hieronder: daar staat wat er dan 's nachts meegaat.</p>
             <details class="help">
               <summary data-i18n="common.help">Hoe werkt dit?</summary>
               <p class="muted" data-i18n="aireview.intro_more">Je start het zelf met de knop Recepten zoeken met AI bij de receptvoorstellen: de AI koppelt de ingrediënten van je recepten (Mealie, Albert Heijn, Jumbo, Picnic en Crisp) aan producten uit de aanbieding. Die koppelingen vervangen de koppelingen van MealieShopper voor de recepten die de AI doorzocht heeft. Zonder sleutel werkt alles zoals eerst.</p>
               <p class="muted" data-i18n="aireview.privacy_more">Er gaan geen recepttitels, namen of adressen mee. Een ronde doorzoekt maximaal 120 recepten; je ziet vooraf een schatting en na afloop het aantal gebruikte tokens. De sleutel wordt versleuteld opgeslagen en nooit meer getoond.</p>
             </details>
             <form class="auth-form" id="ai-review-form" autocomplete="off">
+              <label class="check">
+                <input type="checkbox" id="ai-loose-nightly">
+                <span><span data-i18n="aireview.loose_nightly">Laat de AI 's nachts voorstellen doen voor losse aankopen</span>
+                <small class="muted" data-i18n="aireview.loose_nightly_note">Dan stuurt de app per naam de oude productnaam, hoe vaak en in welke jaren je hem kocht, de laagste en hoogste prijs die je betaalde en de producten die de winkel bij die naam vond (titel, merk, inhoud en prijs) naar de AI-aanbieder. Er wordt niets gekoppeld zonder dat je klikt. Staat standaard uit.</small></span>
+              </label>
               <label class="field">
                 <span data-i18n="aireview.provider">Gebruik</span>
                 <select class="input" id="ai-provider">
@@ -2423,6 +2464,8 @@
     <script src="{{ url_for('static', filename='recipe_bulk.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='crisp.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='product_links.js', v=config.ASSET_VERSION) }}"></script>
+    <script src="{{ url_for('static', filename='loose_names.js', v=config.ASSET_VERSION) }}"></script>
+    <script src="{{ url_for('static', filename='shared_links_export.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='mealkits.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='ah_planner.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='basket.js', v=config.ASSET_VERSION) }}"></script>

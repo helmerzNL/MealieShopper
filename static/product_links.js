@@ -27,6 +27,7 @@ function productLinkButton(line) {
     ["data-product-id", line.productId ?? ""],
     ["data-kind", line.link?.kind || ""],
     ["data-key", line.link?.key || ""],
+    ["data-shared", line.shared ? "1" : ""],
   ]
     .map(([name, value]) => `${name}="${escapeHtml(value)}"`)
     .join(" ");
@@ -121,6 +122,27 @@ async function removeProductLink() {
   }
 }
 
+// Klopt niet: de koppeling uit het gedeelde bestand (shared_links.py) geldt niet meer voor deze installatie. Die naam hoort daarna
+// weer bij de automatische koppeling, of bij een product dat je zelf kiest.
+async function rejectSharedLink() {
+  const line = productLinks.line;
+  if (!line?.shared || !line.productId) return;
+  setProductLinkBusy(true);
+  try {
+    await jsonFetch("/api/shared-links/reject", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ store: line.store, name: line.name, productId: line.productId }),
+    });
+    $("#link-dialog").close();
+    productLinksChanged(line.store);
+  } catch (error) {
+    message("#link-dialog-message", error.message);
+  } finally {
+    setProductLinkBusy(false);
+  }
+}
+
 // Opent het venster voor de regel achter een knop van productLinkButton, en zoekt meteen op de naam van de regel.
 function openProductLink(button) {
   const data = button.dataset;
@@ -131,6 +153,7 @@ function openProductLink(button) {
     product: data.product || null,
     productId: data.productId || null,
     link: data.kind && data.key ? { kind: data.kind, key: data.key } : null,
+    shared: data.shared === "1" && !(data.kind && data.key),
   };
   productLinks.line = line;
   productLinks.results = [];
@@ -139,6 +162,8 @@ function openProductLink(button) {
   $("#link-dialog-current").textContent = line.product ? t(line.link ? "links.current_own" : "links.current", { title: line.product }) : "";
   $("#link-dialog-current").hidden = !line.product;
   $("#link-dialog-unlink").hidden = !line.link;
+  $("#link-dialog-shared").hidden = !line.shared;
+  $("#link-dialog-reject").hidden = !line.shared;
   $("#link-dialog-query").value = line.name;
   $("#link-dialog-list").innerHTML = "";
   message("#link-dialog-message", "");
@@ -164,6 +189,7 @@ $("#link-dialog-list").addEventListener("click", (event) => {
   if (item) pickProductLink(Number(item.dataset.linkPick));
 });
 $("#link-dialog-unlink").addEventListener("click", removeProductLink);
+$("#link-dialog-reject").addEventListener("click", rejectSharedLink);
 $("#link-dialog-close").addEventListener("click", () => $("#link-dialog").close());
 $("#link-dialog").addEventListener("click", (event) => {
   if (event.target === event.currentTarget) event.currentTarget.close();

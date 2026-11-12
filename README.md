@@ -334,7 +334,7 @@ Staat de waarde in `.env.unraid`, dan ziet Compose hem niet voor de image-tag; g
 
 ## Meewerken
 
-Bijdragen zijn welkom. Pull requests gaan naar de branch `beta`, nooit naar `main`. De werkafspraken voor mensen en AI-hulpen staan in [`CLAUDE.md`](CLAUDE.md). Voor fouten en ideeën open je een [issue](https://github.com/helmerzNL/MealieShopper/issues/new/choose).
+Bijdragen zijn welkom. Pull requests gaan naar de branch `beta`, nooit naar `main`. De werkafspraken voor mensen en AI-hulpen staan in [`CLAUDE.md`](CLAUDE.md). Een koppeling van een oude productnaam die je zelf maakte, kun je als pull request aanbieden: zie [Winkels: losse aankopen](docs/handleiding.md#winkels-losse-aankopen) in de handleiding. Voor fouten en ideeën open je een [issue](https://github.com/helmerzNL/MealieShopper/issues/new/choose).
 
 ```bash
 python -m venv .venv

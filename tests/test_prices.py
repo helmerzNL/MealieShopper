@@ -1338,7 +1338,7 @@ class CatalogueTest(PricesCase):
         self.assertLessEqual({f"catalogue_ah_receipt_items_{op}" for op in ("insert", "update", "delete")}, names)
         self.assertEqual(prices.CATALOGUE_TABLES - {"crisp_order_items", "crisp_orders", "jumbo_order_items", "jumbo_orders", "picnic_order_items", "picnic_orders"},
                          {"offer_history", "offers", "price_observations", "imported_purchases", "ah_receipts", "ah_receipt_items", "ah_receipt_products",
-                          "product_links", "ah_orders", "ah_order_items"})
+                          "product_links", "shared_link_rejections", "ah_orders", "ah_order_items"})
 
     async def test_a_new_database_does_not_reuse_a_version_from_the_cache(self):
         await self.observe("2026-05-01", "1", "AH Pindakaas", 2.99)

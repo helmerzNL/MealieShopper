@@ -36,6 +36,7 @@ TIMEOUT = 60
 RETRIES = 2
 
 SETTING_PROVIDER = "AI_PROVIDER"
+SETTING_LOOSE_NIGHTLY = "AI_LOOSE_NAMES_NIGHTLY"  # de AI stelt 's nachts producten voor bij losse aankoopnamen (loose_names_ai), standaard uit
 
 PROVIDERS: dict[str, dict[str, str]] = {
     "anthropic": {
@@ -175,6 +176,12 @@ async def configured() -> bool:
     return bool(await active_provider())
 
 
+async def loose_nightly() -> bool:
+    """Of de AI 's nachts voorstellen doet voor losse aankoopnamen. Standaard uit, ook voor wie al een sleutel heeft: er gaan namen en
+    prijzen naar de aanbieder en het kost geld."""
+    return (await auth.get_setting(SETTING_LOOSE_NIGHTLY, "")).strip().lower() in ("1", "true")
+
+
 def _hint(key: str) -> str:
     return f"…{key[-4:]}" if len(key) >= 8 else ""
 
@@ -192,7 +199,7 @@ async def status() -> dict[str, Any]:
     chosen: str = (await auth.get_setting(SETTING_PROVIDER)).strip().lower()
     return {
         "active": await active_provider(), "chosen": chosen if chosen in PROVIDERS else "", "providers": providers,
-        "batchSize": BATCH_SIZE, "defaultMaxPairs": DEFAULT_MAX_PAIRS, "maxPairs": MAX_PAIRS,
+        "batchSize": BATCH_SIZE, "defaultMaxPairs": DEFAULT_MAX_PAIRS, "maxPairs": MAX_PAIRS, "looseNightly": await loose_nightly(),
     }
 
 
@@ -217,6 +224,8 @@ async def save(body: dict[str, Any]) -> dict[str, Any]:
         await auth.set_secret(info["secret"], value)
     for name in body.get("clear") or []:
         await auth.delete_secret(_provider(name)["secret"])
+    if "looseNightly" in body:
+        await auth.set_setting(SETTING_LOOSE_NIGHTLY, "1" if body["looseNightly"] is True else "")
     return await status()
 
 

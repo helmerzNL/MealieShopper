@@ -24,11 +24,14 @@ from typing import Any, NamedTuple
 
 import aiosqlite
 
-from . import ah_lists, auth, offers
+from . import auth, name_keys, offers
 from .i18n import tr
 
 STORES = offers.SHOP_STORES  # koppelen zoekt bij de winkel: Lidl en Aldi hebben geen webwinkel
 KINDS = ("article", "name")
+# Herkomst van een koppeling: zelf gemaakt, bevestigd uit een voorstel, of de naam kwam letterlijk overeen. Alleen "exact" is
+# automatisch en overschrijft nooit een koppeling van een mens.
+ORIGINS = ("manual", "confirmed", "exact")
 MAX_NAME_CHARS = 300
 MAX_ID_CHARS = 64
 MAX_SIZE_CHARS = 100
@@ -48,6 +51,7 @@ CREATE TABLE IF NOT EXISTS product_links (
   image TEXT,
   source_name TEXT,
   created_at TEXT NOT NULL,
+  origin TEXT NOT NULL DEFAULT 'manual',
   PRIMARY KEY (store, kind, key)
 );
 """
@@ -73,11 +77,8 @@ def _now() -> str:
 
 def fold(value: Any) -> str:
     """Een naam om op te vergelijken: kleine letters, zonder accenten en met enkele spaties. "AH Ah zachte spinazie" in een
-    bevestigingsmail heeft het merk twee keer; dat telt als een keer. Dezelfde vouw als de koppeling op naam in `prices`."""
-    words = ah_lists._fold(value).split()
-    if len(words) > 1 and words[0] == words[1]:
-        words = words[1:]
-    return " ".join(words)
+    bevestigingsmail heeft het merk twee keer; dat telt als een keer. Zie `name_keys.fold`."""
+    return name_keys.fold(value)
 
 
 def article_key(value: Any) -> str | None:
@@ -104,11 +105,29 @@ RECEIPT_LINE_TITLE_SQL = "CASE WHEN k1.key IS NOT NULL THEN k1.title WHEN k2.key
 RECEIPT_LINE_IMAGE_SQL = "CASE WHEN k1.key IS NOT NULL THEN k1.image WHEN k2.key IS NOT NULL THEN k2.image ELSE p.image END"
 
 
+_ADDED_COLUMNS: tuple[tuple[str, str], ...] = (("origin", "TEXT NOT NULL DEFAULT 'manual'"),)
+
+
+async def _setup(conn: aiosqlite.Connection) -> None:
+    """Het schema en de kolommen die later kwamen (oude rijen krijgen `manual`), een keer per proces (`auth.ensure_schema`)."""
+    await conn.executescript(SCHEMA)
+    present: set[str] = {row["name"] for row in await conn.execute_fetchall("PRAGMA table_info(product_links)")}
+    for name, kind in _ADDED_COLUMNS:
+        if name in present:
+            continue
+        try:
+            await conn.execute(f"ALTER TABLE product_links ADD COLUMN {name} {kind}")
+        except aiosqlite.OperationalError as exc:
+            if "duplicate column" not in str(exc):  # een andere verbinding was ons net voor
+                raise
+    await conn.commit()
+
+
 async def ensure(conn: aiosqlite.Connection) -> aiosqlite.Connection:
     """Maak de tabel als die er nog niet is, en geef SQL de functie `ms_fold` (`fold`), zodat een query op naam kan koppelen.
 
     Voor de `_connect` van elke module die bonregels koppelt (en `purchase_lines.times_before`)."""
-    await auth.ensure_schema(conn, "product_links", SCHEMA)
+    await auth.ensure_schema(conn, "product_links", _setup)
     await conn.create_function("ms_fold", 1, fold, deterministic=True)
     return conn
 
@@ -125,7 +144,7 @@ def link_json(row: Any) -> dict[str, Any]:
     return {
         "store": row["store"], "kind": row["kind"], "key": row["key"], "productId": row["product_id"], "title": row["title"],
         "brand": row["brand"] or None, "unitSize": row["unit_size"] or None, "image": row["image"] or None,
-        "name": row["source_name"] or row["key"], "createdAt": row["created_at"],
+        "name": row["source_name"] or row["key"], "createdAt": row["created_at"], "origin": row["origin"],
     }
 
 
@@ -161,12 +180,17 @@ def _image(value: Any) -> str | None:
     return text if text.startswith("https://") and len(text) <= MAX_IMAGE_CHARS and not any(ch.isspace() for ch in text) else None
 
 
-async def save(store: Any, name: Any, product: Any, article: Any = None, now: str | None = None) -> dict[str, Any]:
+async def save(store: Any, name: Any, product: Any, article: Any = None, now: str | None = None, origin: str = "manual") -> dict[str, Any]:
     """Koppel een regel (de naam op de bon of in de mail, en bij een AH-bon het artikelnummer) aan een product van de winkel.
 
     Met een bruikbaar artikelnummer (alleen bij AH) wordt het een koppeling op artikelnummer, anders een op naam. Een bestaande
     koppeling van dezelfde regel wordt vervangen. `product` is een product uit de zoeker: `productId`, `title` en eventueel `brand`,
-    `unitSize` en `image`. Geeft de koppeling (`link_json`); een fout in de invoer geeft een ValueError met een leesbare melding."""
+    `unitSize` en `image`. Geeft de koppeling (`link_json`); een fout in de invoer geeft een ValueError met een leesbare melding.
+
+    `origin` (zie `ORIGINS`) is de herkomst. Een koppeling met `exact` laat een bestaande van `manual` of `confirmed` staan en geeft
+    die terug."""
+    if origin not in ORIGINS:
+        raise ValueError(tr("Onbekende herkomst van een koppeling", "Unknown origin of a link"))
     key_store = _store(store)
     product = product if isinstance(product, dict) else {}
     product_id = _text(product.get("productId") or product.get("id"), MAX_ID_CHARS)
@@ -179,14 +203,15 @@ async def save(store: Any, name: Any, product: Any, article: Any = None, now: st
     if not key:
         raise ValueError(tr("De regel heeft geen naam om op te koppelen", "The line has no name to link by"))
     values = (key_store, kind, key, product_id, title, _text(product.get("brand"), MAX_NAME_CHARS) or None,
-              _text(product.get("unitSize"), MAX_SIZE_CHARS) or None, _image(product.get("image")), source_name or None, now or _now())
+              _text(product.get("unitSize"), MAX_SIZE_CHARS) or None, _image(product.get("image")), source_name or None, now or _now(), origin)
     async with _connect() as conn:
         await conn.execute(
-            """INSERT INTO product_links (store, kind, key, product_id, title, brand, unit_size, image, source_name, created_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """INSERT INTO product_links (store, kind, key, product_id, title, brand, unit_size, image, source_name, created_at, origin)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                ON CONFLICT (store, kind, key) DO UPDATE SET product_id = excluded.product_id, title = excluded.title,
                  brand = excluded.brand, unit_size = excluded.unit_size, image = excluded.image, source_name = excluded.source_name,
-                 created_at = excluded.created_at""",
+                 created_at = excluded.created_at, origin = excluded.origin
+               WHERE NOT (excluded.origin = 'exact' AND product_links.origin IN ('manual', 'confirmed'))""",
             values,
         )
         async with conn.execute("SELECT * FROM product_links WHERE store = ? AND kind = ? AND key = ?", values[:3]) as cursor:

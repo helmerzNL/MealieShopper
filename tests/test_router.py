@@ -17,7 +17,7 @@ ROUTER = (ROOT / "static" / "router.js").read_text(encoding="utf-8")
 HTML = (ROOT / "templates" / "index.html").read_text(encoding="utf-8")
 
 PAGES = ["/recipes", "/recipes/search", "/offers", "/offers/history", "/import", "/stores", "/stores/ah/orders/225301",
-         "/stores/ah/receipts/AH-123", "/stores/jumbo/lists/7", "/meal-kits", "/cart", "/profile/security", "/settings/system", "/settings/preferences", "/settings/appearance", "/about"]
+         "/stores/ah/receipts/AH-123", "/stores/jumbo/lists/7", "/stores/ah/loose", "/stores/picnic/loose", "/meal-kits", "/cart", "/profile/security", "/settings/system", "/settings/preferences", "/settings/appearance", "/about"]
 
 
 class PageRoutesTest(AppTestCase):
@@ -66,7 +66,7 @@ class LinkMarkupTest(AppTestCase):
         tabs = dict(re.findall(r'<a class="tab[^"]*" data-tab="([\w-]+)"[^>]* href="([^"]+)" data-nav>', HTML))
         self.assertEqual(tabs, {"recipes": "/recipes", "offers": "/offers", "ah-items": "/stores", "meal-kits": "/meal-kits", "basket": "/cart"})
         subtabs = dict(re.findall(r'<a class="subtab[^"]*" data-subtab="([\w-]+)"[^>]* href="([^"]+)" data-nav>', HTML))
-        for subtab, path in {"search": "/recipes/search", "offers-history": "/offers/history", "ah-items-bestellingen": "/stores/ah/orders",
+        for subtab, path in {"search": "/recipes/search", "offers-history": "/offers/history", "ah-items-bestellingen": "/stores/ah/orders", "ah-items-losse-aankopen": "/stores/ah/loose",
                              "profile-security": "/profile/security", "settings-system": "/settings/system"}.items():
             self.assertEqual(subtabs.get(subtab), path, subtab)
         users = dict(re.findall(r'<a[^>]*data-user-action="(\w+)"[^>]* href="([^"]+)" data-nav>', HTML))

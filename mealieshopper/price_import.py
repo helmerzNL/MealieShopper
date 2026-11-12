@@ -579,7 +579,7 @@ async def get_order(store: Any, ref: Any) -> dict[str, Any] | None:
             "unitSize": product.get("unitSize"),
             # De naam van het product in de winkel, en je eigen koppeling van deze naam (#238): zo kan het scherm *Ander product
             # kiezen* en *Ontkoppelen* tonen.
-            "productTitle": product.get("title"), "link": product.get("link"),
+            "productTitle": product.get("title"), "link": product.get("link"), "shared": bool(product.get("shared")),
         })
     async with _connect() as conn:
         totals = await purchase_lines.enrich(conn, key, "imported", rows[0]["day"], items)

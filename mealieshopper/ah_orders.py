@@ -609,6 +609,9 @@ class _HourlyBudgetSpent(Exception):
     """Het aantal zoekopdrachten van dit uur is op (`RECEIPT_PRODUCTS_PER_HOUR`)."""
 
 
+HourlyBudgetSpent = _HourlyBudgetSpent  # de openbare naam, voor de zoekronde van losse aankoopnamen (`loose_names`)
+
+
 # Een pauze en een uurbudget voor het hele proces: de nachtelijke taak, een bon-sync, het zoeken in de Prijsgeschiedenis en
 # een ronde op afroep delen ze, zodat AH nooit meer dan een zoekopdracht per `RECEIPT_PRODUCTS_PAUSE_SECONDS` van ons krijgt.
 # Het slot `_lock("pace")` zet de verzoeken achter elkaar (ook tijdens de pauze en het verzoek zelf). `_PACE["recent"]` (de monotone
@@ -660,7 +663,21 @@ async def _polite(call: Callable[[], Awaitable[T]]) -> T:
             await _wait(wait)
         _PACE["last"] = time.monotonic()
         _PACE["recent"].append(_PACE["last"])
-        return await call()
+        try:
+            return await call()
+        except ah.AhHttpError as exc:
+            if exc.status in (403, 429):  # de pauze moet er al zijn voor wie op het slot wacht, niet pas na de aanroeper
+                try:
+                    await _pause(_now(), exc.status)
+                except Exception:  # noqa: BLE001 - de fout van AH gaat hoe dan ook ongewijzigd door, de aanroeper pauzeert ook
+                    log.exception("Koppelen: de pauze na een %s van AH vastleggen mislukte", exc.status)
+            raise
+
+
+async def polite(call: Callable[[], Awaitable[T]]) -> T:
+    """`_polite` voor een andere module: de zoekronde van losse aankoopnamen (`loose_names`) deelt zo het tempo en het uurbudget
+    van het koppelen van de bonnen. Geen tweede rem bij AH."""
+    return await _polite(call)
 
 
 async def _polite_search(query: str) -> list[tuple[int, int, str, str]]:
@@ -746,6 +763,12 @@ async def _pause(now: str, status: int) -> str:
     await auth.set_setting(SETTING_RECEIPT_PRODUCTS_PAUSED, until)
     await auth.set_setting(SETTING_RECEIPT_PRODUCTS_PAUSED_REASON, f"{status}@{now}")
     return until
+
+
+async def pause(now: str, status: int) -> str:
+    """`_pause` voor een andere module: een 403 of 429 in de zoekronde van losse aankoopnamen (`loose_names`) zet dezelfde pauze
+    als het koppelen van de bonnen. Geen tweede pauze bij AH."""
+    return await _pause(now, status)
 
 
 # Het koppelen en de foto's van een ronde kunnen in verschillende tasks tegelijk eindigen: `_lock("round")` houdt het lezen en
@@ -992,6 +1015,14 @@ async def _pause_reason(now: str) -> tuple[str | None, str | None, int | None]:
         return None, None, None
     status, _, since = (await auth.get_setting(SETTING_RECEIPT_PRODUCTS_PAUSED_REASON, "")).partition("@")
     return until, since or None, int(status) if status.isdigit() else None
+
+
+async def paused_until(now: str) -> str | None:
+    """Tot wanneer het zoeken bij AH stilligt na een 403 of 429 (`_pause`), of None. Dezelfde regel als `_pause_reason` en dus als
+    de melding op de bestelpagina: een verlopen pauze telt niet, en een pauze die de beheerder ophief (`run_linking(force=True)`
+    maakt de instelling leeg) ook niet."""
+    until, _, _ = await _pause_reason(now)
+    return until
 
 
 def _budget(now: str) -> dict[str, Any]:

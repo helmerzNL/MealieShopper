@@ -334,7 +334,7 @@ If you put the value in `.env.unraid`, Compose does not see it for the image tag
 
 ## Contributing
 
-Contributions are welcome. Pull requests go to the `beta` branch, never to `main`. The working conventions for people and AI assistants alike are in [`CLAUDE.md`](CLAUDE.md) (in Dutch). For bugs and ideas, open an [issue](https://github.com/helmerzNL/MealieShopper/issues/new/choose).
+Contributions are welcome. Pull requests go to the `beta` branch, never to `main`. The working conventions for people and AI assistants alike are in [`CLAUDE.md`](CLAUDE.md) (in Dutch). A link from an old product name that you made yourself can be offered as a pull request: see [Stores: loose purchases](docs/handleiding.en.md#stores-loose-purchases) in the user guide. For bugs and ideas, open an [issue](https://github.com/helmerzNL/MealieShopper/issues/new/choose).
 
 ```bash
 python -m venv .venv

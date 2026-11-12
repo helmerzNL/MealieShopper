@@ -794,7 +794,7 @@ function importedOrderMeta(order, status = importedOrderStatus(order)) {
 function importedLinkLine(item, store) {
   return {
     store, name: item.title, article: null, product: item.productId ? item.productTitle || item.title : null,
-    productId: item.productId ?? null, link: item.link || null,
+    productId: item.productId ?? null, link: item.link || null, shared: Boolean(item.shared),
   };
 }
 
