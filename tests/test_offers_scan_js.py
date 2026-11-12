@@ -648,6 +648,20 @@ class OffersScanNodeTest(unittest.TestCase):
         self.assertEqual(lines["plain"], [])
         self.assertEqual(lines["fresh"], [], "een verse prijs zonder te berekenen actieprijs is niet te oud")
 
+    def test_a_store_badge_and_the_too_old_line_show_together(self):
+        # Antwoord van de eigenaar, 2026-11-12: is de gewone prijs ouder dan een jaar en noemt de aanbieding een van-prijs, dan houdt
+        # de kaart de gestippelde badge van de winkel, met daaronder de regel "Te oud voor een oordeel".
+        result = self.run_js(
+            "const old = { badge: { percent: 33, source: 'store', inflated: false, claimed: 33 },"
+            "  verdict: { kind: 'good', percent: 33, lowestRegular: null, inflated: false,"
+            "    regular: { price: 2.49, day: '2022-10-09', source: 'offer', judged: false, fresh: false } } };"
+            "console.log(JSON.stringify({ badge: offerBadge(old), lines: offerVerdictLines(old) }));"
+        )
+        self.assertIn("offer-badge--good offer-badge--store", result["badge"])
+        self.assertIn("offers.badge.title_store {", result["badge"])
+        self.assertEqual([line["cls"] for line in result["lines"]], ["verdict verdict--regular-old"])
+        self.assertIn("2022-10-09", result["lines"][0]["text"])
+
     def test_the_sort_puts_a_fresh_regular_price_before_a_dated_one_before_a_store_claim(self):
         order = self.run_js(
             "const mk = (id, source) => ({ id, badge: { percent: 30, source }, unitPricePer: null, priceLabel: { kind: null } });"

@@ -559,8 +559,9 @@ function offerVerdictLines(offer) {
   const verdict = offer.verdict;
   if (!verdict) return [];
   const lines = [];
-  // Een gewone prijs van meer dan een jaar oud (judged false) geeft geen oordeel, maar de app toont wel wat ze nog weet.
-  if (verdict.kind === "unknown" && verdict.regular && verdict.regular.judged === false) {
+  // Een gewone prijs van meer dan een jaar oud (judged false) geeft geen oordeel, maar de app toont wel wat ze nog weet. Noemt de
+  // aanbieding een van-prijs, dan staat de gestippelde badge van de winkel erboven (prices._verdict_of) en deze regel eronder.
+  if (verdict.regular && verdict.regular.judged === false) {
     lines.push({ cls: "verdict verdict--regular-old", text: t("offers.verdict.regular_old", offerRegularSourceParams(verdict.regular)) });
   }
   const yearLow = offerYearLowLine(offer);

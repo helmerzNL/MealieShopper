@@ -520,7 +520,10 @@ async def _imported_rows(conn: aiosqlite.Connection, store: str, today: str) -> 
 def _shared_link_row(row: Any, link: shared_links.SharedLink) -> dict[str, Any]:
     """Een ingelezen aankoop met een koppeling uit het gedeelde bestand (`shared_links`): het product, met de naam en de inhoud uit
     het bestand. De naam uit de mail blijft vindbaar (`receipt_name`), `shared` laat het scherm Klopt niet tonen."""
-    return {**dict(row), "product_id": link.product_id, "title": link.title, "unit_size": link.unit_size, "receipt_name": row["title"], "shared": True}
+    return {
+        **dict(row), "product_id": link.product_id, "title": link.title, "unit_size": link.unit_size, "receipt_name": row["title"], "shared": True,
+        "linked_by": "shared",
+    }
 
 
 def _own_link_row(row: Any, link: dict[str, Any]) -> dict[str, Any]:
@@ -528,7 +531,7 @@ def _own_link_row(row: Any, link: dict[str, Any]) -> dict[str, Any]:
     die je koos. De naam op de bon of in de mail blijft vindbaar (`receipt_name`)."""
     return {
         **dict(row), "product_id": link["productId"], "title": link["title"], "brand": link["brand"], "unit_size": link["unitSize"],
-        "image": link["image"], "receipt_name": row["title"],
+        "image": link["image"], "receipt_name": row["title"], "linked_by": "own",
     }
 
 
@@ -567,7 +570,11 @@ def _link_receipt_rows(
     """Het koppelen van `_receipt_rows`, zonder database: de regels, de namen (`_names`), de koppelingen van AH
     (`_receipt_products`), je eigen koppelingen (`product_links.load`) en de gedeelde (`shared_links.active`).
 
-    Een gedeelde koppeling geldt alleen voor een ingelezen aankoop, na je eigen koppeling en voor al het andere."""
+    Een gedeelde koppeling geldt alleen voor een ingelezen aankoop, na je eigen koppeling en voor al het andere. Elke regel zegt in
+    `linked_by` hoe hij bij zijn product kwam: `own` (je eigen koppeling), `shared` (het gedeelde bestand), `article` (de koppeling van
+    AH op het artikelnummer), `id` (het nummer op de regel is het product zelf), `name` (op naam of bijna-naam, zonder verpakking) of
+    `fallback` (bij geen product, `bon:` of `import:`). De prijsgeschiedenis toont ze allemaal, het oordeel telt alleen de bevestigde
+    (`CONFIRMED_LINKS`, zie `_receipt_points`)."""
     index: dict[str, str] = names.index
     bare = _bare_index(index, store)
     webshop: dict[str, _Linked] = {link.product_id: link for link in linked.values()}
@@ -597,7 +604,7 @@ def _link_receipt_rows(
             shop: _Linked = linked[own]
             found.append({
                 **dict(row), "product_id": shop.product_id, "title": shop.title or row["title"], "brand": shop.brand,
-                "unit_size": shop.unit_size, "receipt_name": row["title"],
+                "unit_size": shop.unit_size, "receipt_name": row["title"], "linked_by": "article",
             })
             continue
         matched: str | None = _match_name(index, bare, store, name)
@@ -607,7 +614,11 @@ def _link_receipt_rows(
         # Een bonregel met een artikelnummer dat (nog) bij geen enkel product hoort: die kan `history` meteen laten opzoeken.
         # Op naam bij een product dat de app van de bonkoppeling kent: dan ook met het merk en de inhoud van daar.
         known: dict[str, Any] = {"brand": webshop[key].brand, "unit_size": webshop[key].unit_size} if key in webshop and not row["unit_size"] else {}
-        found.append({**dict(row), **known, "product_id": key, "lookup": row["source"] == "receipt" and bool(own) and key in (own, fallback)})
+        linked_by: str = "id" if own and key == own else ("name" if key == matched else "fallback")
+        found.append({
+            **dict(row), **known, "product_id": key, "lookup": row["source"] == "receipt" and bool(own) and key in (own, fallback),
+            "linked_by": linked_by,
+        })
     return found
 
 
@@ -1776,16 +1787,22 @@ async def _order_points(
     return found
 
 
+# Hoe een bonregel of ingelezen aankoop aan zijn product hangt (`_link_receipt_rows`): alleen deze koppelingen zijn bevestigd. Een
+# regel op naam ("AH RUNDERGEHAKT" bij "AH Rundergehakt 500 g") kan een andere verpakking zijn: die staat in de prijsgeschiedenis,
+# maar is geen bron voor het oordeel en de gewone prijs van een aankoop (antwoord van de eigenaar, 2026-11-12).
+CONFIRMED_LINKS: frozenset[str] = frozenset({"own", "shared", "article", "id"})
+
+
 def _receipt_points(
     receipts: list[dict[str, Any]], since: str, until: str, before_until: bool
 ) -> list[tuple[Any, Any, Any, str]]:
     """De punten uit de bonregels en ingelezen aankopen, als (product, dag, prijs, bron).
 
-    Een ingelezen aankoop geeft zijn `regular`, een bonregel de prijs die is betaald, maar alleen bij een geheel aantal:
-    een gewogen product (0,482 kg) heeft een prijs per kilo en geen prijs per stuk."""
+    Alleen regels met een bevestigde koppeling (`CONFIRMED_LINKS`). Een ingelezen aankoop geeft zijn `regular`, een bonregel de prijs
+    die is betaald, maar alleen bij een geheel aantal: een gewogen product (0,482 kg) heeft een prijs per kilo en geen prijs per stuk."""
     found: list[tuple[Any, Any, Any, str]] = []
     for row in receipts:
-        if not _in_window(row.get("day"), since, until, before_until):
+        if row.get("linked_by") not in CONFIRMED_LINKS or not _in_window(row.get("day"), since, until, before_until):
             continue
         if row.get("source") == "import":
             found.append((row["product_id"], row["day"], row.get("regular"), "import"))
@@ -1908,21 +1925,25 @@ def _verdict_of(effective: float | None, stated: float | None, chosen: Chosen | 
 
     De gekozen gewone prijs (`_regular_for_verdict`) gaat voor de van-prijs die de aanbieding noemt (`stated`), tenzij die lager is
     (`_stated_is_stricter`): dan rekent het oordeel met de van-prijs, is `regular` None en is de badge `store`, met de gekozen prijs
-    alleen als hogere bekende prijs in `known`. Is de gekozen prijs ouder dan een jaar (niet `judged`), dan staat hij in `regular`,
-    maar zonder oordeel en zonder badge, ook als de aanbieding een van-prijs noemt. Zonder gekozen prijs oordeelt de van-prijs, met
-    de badge `store`."""
+    alleen als hogere bekende prijs in `known`. Is de gekozen prijs ouder dan een jaar (niet `judged`), dan staat hij in `regular`
+    met `lowestRegular` None, en oordeelt de van-prijs van de aanbieding zoals bij een product zonder bron, met de badge `store`
+    (antwoord van de eigenaar, 2026-11-12). Noemt de aanbieding geen van-prijs, dan is er geen oordeel en geen badge. Zonder gekozen
+    prijs oordeelt de van-prijs, met de badge `store`."""
     known: dict[str, Any] | None = _regular_of(chosen)
     stricter: bool = _stated_is_stricter(stated, chosen)
-    base: float | None = stated if chosen is None or stricter else (chosen.price if chosen.judged else None)
-    regular: dict[str, Any] | None = None if stricter else known
-    verdict: dict[str, Any] = {**_compared(effective, base, stated), "regular": regular}
+    too_old: bool = chosen is not None and not chosen.judged
+    claim: bool = chosen is None or stricter or too_old  # de van-prijs van de winkel is de vergelijkingsprijs
+    base: float | None = chosen.price if chosen is not None and not claim else stated
+    verdict: dict[str, Any] = {**_compared(effective, base, stated), "regular": None if stricter else known}
+    if too_old:
+        verdict["lowestRegular"] = None  # de te oude prijs is geen vergelijkingsprijs, en de kaart streept hem niet door
     if verdict["kind"] == "unknown":
         return verdict, None
-    badge: dict[str, Any] = {"percent": verdict["percent"], "source": "store" if stricter else _badge_source(chosen), "inflated": verdict["inflated"]}
+    badge: dict[str, Any] = {"percent": verdict["percent"], "source": "store" if claim else _badge_source(chosen), "inflated": verdict["inflated"]}
     if stricter:
         badge["known"] = known
-    elif chosen is not None:
-        badge["regular"] = regular
+    elif not claim:
+        badge["regular"] = known
     return verdict, badge
 
 

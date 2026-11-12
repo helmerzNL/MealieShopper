@@ -556,7 +556,7 @@ async def get_order(store: Any, ref: Any) -> dict[str, Any] | None:
     """Eén ingelezen bestelling met de producten uit de mail, of None als die er niet (meer) is. Elke regel heeft, als de naam bij
     een product van de winkel hoort, ook `productId`, `image`, `brand` en `unitSize` van dat product (zie `prices.link_names`), en
     `link` als je die naam zelf koppelde (#238), en de velden van `purchase_lines.enrich`: de korting is die tegen de prijs uit de mail
-    (`price`, `discountSource` `store`), want voor deze regels bewaren we geen gewone prijs van 30 dagen. `status` blijft die uit de mail,
+    (`price`, `discountSource` `store`), want voor deze regels bewaart `prices.fill_regular_prices` geen gewone prijs. `status` blijft die uit de mail,
     `statusKind` is `imported`."""
     from . import prices
 

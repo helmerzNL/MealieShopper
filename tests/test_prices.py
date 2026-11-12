@@ -901,19 +901,54 @@ class VerdictTest(PricesCase):
         self.assertEqual(found["badge"]["regular"], {"price": 2.49, "day": "2026-09-07", "source": "offer", "judged": True, "fresh": False})
         self.assertEqual(found["verdict"]["lowestRegular"], 2.49)
 
+    async def test_a_name_linked_receipt_is_no_source_for_the_verdict(self) -> None:
+        # Eindreview 2026-11-12, met het antwoord van de eigenaar: een bonregel die alleen op naam bij het product hoort ("AH
+        # RUNDERGEHAKT", zonder verpakking) kan de 300 g zijn. Hij telt niet voor het oordeel, wel in de prijsgeschiedenis.
+        await self.observe("2026-10-15", "500", "AH Rundergehakt", 4.49)
+        self.ah_receipt("R1", f"{prices._days_ago(TODAY, 10)}T10:00:00", (88888, "AH RUNDERGEHAKT", 1, 2.99, 2.99))
+        found: dict = (await self.annotate(deal("500", "AH Rundergehakt", 3.99, 4.49, "nu 3,99")))["500"]
+        self.assertEqual((found["verdict"]["kind"], found["verdict"]["percent"], found["verdict"]["lowestRegular"]), ("small", 11, 4.49))
+        self.assertIs(found["verdict"]["inflated"], False)
+        self.assertEqual((found["badge"]["source"], found["badge"]["regular"]["source"]), ("history", "search"))
+        rows: list = (await in_db(prices._connect, lambda conn: prices._receipt_rows(conn, "ah", TODAY)))[0]
+        self.assertEqual([(row["product_id"], row["linked_by"]) for row in rows], [("500", "name")], "de prijsgeschiedenis houdt de regel")
+
+    async def test_a_receipt_with_a_confirmed_link_is_a_source_for_the_verdict(self) -> None:
+        # Je eigen koppeling en de koppeling van AH op het artikelnummer zijn bevestigd: dan telt de bon wel.
+        await self.observe("2026-10-15", "500", "AH Rundergehakt", 4.49)
+        self.ah_receipt("R1", f"{prices._days_ago(TODAY, 10)}T10:00:00", (88888, "AH RUNDERGEHAKT", 1, 2.99, 2.99))
+        for how in ("article", "own"):  # eerst de koppeling van AH, dan je eigen erbij (die gaat voor)
+            with self.subTest(linked_by=how):
+                if how == "article":
+                    with closing(db(ah_orders)) as conn, conn:
+                        conn.execute("INSERT INTO ah_receipt_products (receipt_product_id, product_id, title, checked_at) VALUES (88888, 500, 'AH Rundergehakt', 'x')")
+                else:
+                    await product_links.save("ah", "AH RUNDERGEHAKT", {"productId": "500", "title": "AH Rundergehakt"}, article=88888, now=f"{TODAY}T00:00:00+00:00")
+                rows: list = (await in_db(prices._connect, lambda conn: prices._receipt_rows(conn, "ah", TODAY)))[0]
+                self.assertEqual([(row["product_id"], row["linked_by"]) for row in rows], [("500", how)])
+                found: dict = (await self.annotate(deal("500", "AH Rundergehakt", 3.99, 4.49, "nu 3,99")))["500"]
+                self.assertEqual((found["verdict"]["kind"], found["verdict"]["inflated"], found["verdict"]["lowestRegular"]), ("none", True, 2.99))
+                self.assertEqual(found["badge"]["regular"]["source"], "receipt")
+
     async def test_regular_older_than_a_year_is_shown_without_verdict(self) -> None:
-        # Een van-prijs van een periode van vier jaar terug. Ook als de lopende aanbieding zelf een van-prijs noemt: de oude bekende
-        # prijs gaat voor de claim van de winkel, en is te oud voor een oordeel.
+        # Een van-prijs van een periode van vier jaar terug, te oud voor een oordeel. Zonder van-prijs bij de aanbieding geen badge.
+        # Noemt de aanbieding er wel een (antwoord van de eigenaar, 2026-11-12), dan houdt de kaart de gestippelde badge van de winkel,
+        # met het oordeel uit die van-prijs zoals bij een product zonder bron, en blijft de te oude prijs in `regular` staan.
         await self.sync_offer("2022-10-03T05:00:00+00:00", offer("1", "AH Pindakaas", 1.99, 2.49, "nu 1,99", validFrom="2022-10-03", validUntil="2022-10-09"))
         await self.sync_offer("2022-10-10T05:00:00+00:00")
-        for before in (None, 2.99):
+        for before, kind in ((None, "unknown"), (2.99, "good")):
             with self.subTest(priceBefore=before):
                 found: dict = (await self.annotate(deal("1", "AH Pindakaas", 1.99, before, "nu 1,99")))["1"]
-                self.assertEqual(found["verdict"]["kind"], "unknown")
+                self.assertEqual(found["verdict"]["kind"], kind)
                 self.assertEqual(found["verdict"]["regular"], {"price": 2.49, "day": "2022-10-09", "source": "offer", "judged": False, "fresh": False})
                 self.assertIs(found["verdict"]["inflated"], False)
                 self.assertIsNone(found["verdict"]["lowestRegular"])
-                self.assertIsNone(found["badge"])
+        self.assertIsNone((await self.annotate(deal("1", "AH Pindakaas", 1.99, None, "nu 1,99")))["1"]["badge"])
+        badge: dict = (await self.annotate(deal("1", "AH Pindakaas", 1.99, 2.99, "nu 1,99")))["1"]["badge"]
+        self.assertEqual(badge, {"percent": 33, "source": "store", "inflated": False, "claimed": 33})
+        # Dezelfde kaart als een product zonder enige bron: hetzelfde oordeel, dezelfde badge.
+        bare: dict = (await self.annotate(deal("9", "AH Nieuw", 1.99, 2.99, "nu 1,99")))["9"]
+        self.assertEqual((bare["verdict"]["kind"], bare["badge"]), ("good", badge))
 
     async def test_a_fresh_regular_price_without_a_computable_offer_price_is_judged_but_unknown(self) -> None:
         # Geen te berekenen actieprijs (een tekst zonder van-prijs): kind unknown met de verse gewone prijs, en die is wel `judged`.
@@ -1018,6 +1053,15 @@ class RegularPricesTest(PricesCase):
             conn.execute("INSERT INTO ah_receipt_products (receipt_product_id, product_id, title, checked_at) VALUES (555, 1, 'AH Penne', 'x')")
         found: dict[str, float] = await prices.regular_before("ah", ["1"], "2026-09-21")
         self.assertEqual(found, {"1": 0.89})
+
+    async def test_regular_before_counts_a_receipt_only_with_a_confirmed_link(self) -> None:
+        # Antwoord van de eigenaar, 2026-11-12: dezelfde regel als bij het oordeel. Op naam ("AH PENNE" bij "AH Penne") telt een
+        # bonregel niet voor de gewone prijs van een aankoop, met je eigen koppeling wel.
+        await self.observe("2025-06-01", "1", "AH Penne", 1.19)  # ouder dan een jaar: alleen voor de naam
+        self.ah_receipt("R1", "2026-09-01T10:00:00", (88888, "AH PENNE", 1, 0.89, 0.89))
+        self.assertEqual(await prices.regular_before("ah", ["1"], "2026-09-21"), {})
+        await product_links.save("ah", "AH PENNE", {"productId": "1", "title": "AH Penne"}, article=88888, now=self.NOW)
+        self.assertEqual(await prices.regular_before("ah", ["1"], "2026-09-21"), {"1": 0.89})
 
     async def test_regular_before_ignores_the_purchase_of_that_day(self) -> None:
         await store_order(1, "2026-09-21", [line("1", price=0.50)])
@@ -1603,8 +1647,9 @@ class RegularPointsTest(PricesCase):
 
     @staticmethod
     def line(
-        source, product_id="1", day="2026-09-10", paid=2.79, regular=None, quantity=1
+        source, product_id="1", day="2026-09-10", paid=2.79, regular=None, quantity=1, linked_by="own"
     ):
+        # `linked_by` zoals `_link_receipt_rows` hem zet: alleen een bevestigde koppeling geeft een punt (CONFIRMED_LINKS).
         return {
             "product_id": product_id,
             "day": day,
@@ -1612,7 +1657,16 @@ class RegularPointsTest(PricesCase):
             "regular": regular,
             "quantity": quantity,
             "source": source,
+            "linked_by": linked_by,
         }
+
+    async def test_only_a_confirmed_link_gives_a_point(self) -> None:
+        for how in ("own", "shared", "article", "id"):
+            with self.subTest(linked_by=how):
+                self.assertEqual(list(await self.points([self.line("receipt", linked_by=how)])), ["1"])
+        for how in ("name", "fallback", None):
+            with self.subTest(linked_by=how):
+                self.assertEqual(await self.points([self.line("receipt", linked_by=how), self.line("import", regular=2.89, linked_by=how)]), {})
 
     async def points(
         self, receipts=(), *, before=False, ids=None, since=None, until=None

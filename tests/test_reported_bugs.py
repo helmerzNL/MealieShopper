@@ -1332,6 +1332,8 @@ class RegularPriceFromEverySourceTest(PricesCase):
                 "VALUES ('ah', 'M1', 1, ?, 'AH Pindakaas', 1, 2.79, 2.79, 'x')",
                 (days(-200),),
             )
+        # Sinds het antwoord van de eigenaar (eindreview 2026-11-12) telt een aankoop alleen met een bevestigde koppeling, niet op naam.
+        await product_links.save("ah", "AH Pindakaas", {"productId": "1", "title": "AH Pindakaas"}, now=f"{TODAY}T00:00:00+00:00")
         annotated: dict = (await prices.annotate("ah", [offer("1", "AH Pindakaas", 1.99, 2.99, "nu 1,99")], today=TODAY))[0]
         self.assertNotEqual(annotated["badge"]["source"], "store", "de app kent een gewone prijs van dit product")
         self.assertEqual(annotated["badge"]["regular"], {"price": 2.79, "day": days(-200), "source": "import", "judged": True, "fresh": False})
