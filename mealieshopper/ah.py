@@ -17,7 +17,6 @@ import httpx
 from . import auth, deals, http_client, nutrition, tasks
 from .i18n import tr
 
-log = logging.getLogger(__name__)
 from .packs import (  # noqa: F401 - blijft hier bereikbaar voor bestaande aanroepers
     LARGE_PACK_COUNT,
     MAX_CART_QUANTITY,
@@ -26,6 +25,8 @@ from .packs import (  # noqa: F401 - blijft hier bereikbaar voor bestaande aanro
     packs_needed,
     parse_pack_size,
 )
+
+log = logging.getLogger(__name__)
 
 AH_API_BASE = "https://api.ah.nl"
 AH_LOGIN_BASE = "https://login.ah.nl"

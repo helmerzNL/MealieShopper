@@ -12,9 +12,9 @@ from typing import Any
 ROOT: Path = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "scripts"))
 
-import folder_price_margin
+import folder_price_margin  # noqa: E402 - na het pad naar scripts/
 
-from mealieshopper.price_drift import chain_offers, daily_points, pairs, summary
+from mealieshopper.price_drift import chain_offers, daily_points, pairs, summary  # noqa: E402
 
 OFFER_HISTORY: str = """
 CREATE TABLE offer_history (

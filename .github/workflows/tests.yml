@@ -23,5 +23,9 @@ jobs:
           python-version: "3.12"
       - name: Afhankelijkheden installeren
         run: pip install -r requirements.txt -r requirements-dev.txt
+      - name: Opmaak en lint controleren (Ruff)
+        run: |
+          ruff check .
+          ruff format --check .
       - name: Tests draaien
         run: MEALIESHOPPER_TESTING=1 python -m pytest -q
