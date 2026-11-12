@@ -1170,6 +1170,9 @@ def _product(store: str, product_id: str, offer: dict[str, Any] | None, observed
     if segments:
         product["regularPrice"] = segments[-1]["price"]
         product["regularSince"] = segments[-1]["from"]
+        # De bron van de nieuwste gewone prijs: `latest_point` is de nieuwste dag en op die dag de bron met de hoogste rang, en dat
+        # is ook het punt dat `_regular_segments` voor het einde van de laatste periode kiest.
+        product["regularSource"] = latest_point[2] if latest_point else None
     # De verpakking van de nieuwste gewone prijs die er een noemt: een ingelezen aankoop of een bon heeft er geen.
     confirmed_unit: str | None = next((point[3] for point in sorted(points, key=lambda point: point[0], reverse=True) if point[3]), None)
     if latest_point:

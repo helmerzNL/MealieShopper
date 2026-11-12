@@ -459,6 +459,18 @@ function offerHistoryHead(product, { compact = false, offer = null, links = true
     </div>`;
 }
 
+// De stat Gewone prijs, met eronder uit welke bron de nieuwste gewone prijs komt en sinds wanneer hij geldt (zonder bron alleen de prijs).
+function offerHistoryRegularStat(product) {
+  const price = offerHistoryPrice(product.regularPrice);
+  const day = offerHistoryDay(product.regularSince);
+  if (!product.regularSource || day === null) return offerHistoryStat(t("offers.history.stat.regular"), price);
+  const from = t("offers.history.stat.regular_from", {
+    source: t(`offers.regular.source.${product.regularSource}`),
+    date: offerHistoryDayText(day, true),
+  });
+  return `<div class="ohc-stat"><dt>${escapeHtml(t("offers.history.stat.regular"))}</dt><dd>${escapeHtml(price)}<small class="ohc-stat__from">${escapeHtml(from)}</small></dd></div>`;
+}
+
 // De kerncijfers: keer in de aanbieding, laagste en hoogste actieprijs, gewone prijs, wat je betaalde, laatst gezien.
 function offerHistoryStats(product) {
   const lastDay = offerHistoryDay(product.lastActivity || product.lastSeen);
@@ -474,7 +486,7 @@ function offerHistoryStats(product) {
     number(product.highestPrice) && product.highestPrice !== product.lowestPrice
       ? offerHistoryStat(t("offers.history.stat.highest"), offerHistoryPrice(product.highestPrice))
       : "",
-    number(product.regularPrice) ? offerHistoryStat(t("offers.history.stat.regular"), offerHistoryPrice(product.regularPrice)) : "",
+    number(product.regularPrice) ? offerHistoryRegularStat(product) : "",
     product.regularPerUnit ? offerHistoryStat(t("offers.history.stat.regular_per_unit"), offerPerUnitText(product.regularPerUnit)) : "",
     number(product.lowestRegular) && number(product.highestRegular) && product.lowestRegular !== product.highestRegular
       ? offerHistoryStat(t("offers.history.stat.regular_range"), `${offerHistoryPrice(product.lowestRegular)} – ${offerHistoryPrice(product.highestRegular)}`)

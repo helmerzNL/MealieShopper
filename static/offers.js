@@ -262,7 +262,7 @@ const OFFER_LABEL_ORDER = { lowest_ever: 0, lowest_12m: 1, lowest_6m: 2, lowest_
 function offerDiscountKey(offer) {
   const badge = offer.badge;
   if (!badge || typeof badge.percent !== "number") return [1, 0, 1];
-  return [0, -badge.percent, badge.source === "history" ? 0 : 1];
+  return [0, -badge.percent, { history: 0, dated: 1 }[badge.source] ?? 2];
 }
 
 // Beste eerst: wat nu op of onder de laagste prijs van de afgelopen twaalf maanden staat (prices.yearLow) en per eenheid niet
@@ -559,6 +559,10 @@ function offerVerdictLines(offer) {
   const verdict = offer.verdict;
   if (!verdict) return [];
   const lines = [];
+  // Een gewone prijs van meer dan een jaar oud geeft geen oordeel, maar de app toont wel wat ze nog weet.
+  if (verdict.kind === "unknown" && verdict.regular) {
+    lines.push({ cls: "verdict verdict--regular-old", text: t("offers.verdict.regular_old", offerRegularSourceParams(verdict.regular)) });
+  }
   const yearLow = offerYearLowLine(offer);
   if (yearLow) lines.push(yearLow);
   if (verdict.often) {
@@ -574,6 +578,11 @@ function offerVerdictLines(offer) {
   return lines;
 }
 
+// De waarden voor de tekst over een gewone prijs met herkomst: de prijs, de bron (bestelling, kassabon ...) en de dag.
+function offerRegularSourceParams(regular) {
+  return { price: formatPrice(regular.price), source: t(`offers.regular.source.${regular.source}`), date: offerDateText(regular.day) };
+}
+
 // De uitleg bij de badge: het oordeel, de laagste gewone prijs van 30 dagen waarmee vergeleken is, en de claim van de winkel als die
 // hoger is. Kent de app geen gewone prijs, dan is het getal de claim van de winkel en zegt de uitleg dat. Een regel van een aankoop
 // heeft geen oordeel, alleen { badge: { percent, source } }: dan het percentage met het oordeel dat bij dat getal hoort, zonder
@@ -585,7 +594,8 @@ function offerBadgeTitle(offer) {
   if (badge.source === "store" && !badge.inflated) return t("offers.badge.title_store", { percent: badge.percent });
   const kind ={ good: "offers.verdict.good", small: "offers.verdict.small", none: "offers.verdict.none" }[verdict.kind];
   const parts = [kind ? t(kind, { percent: badge.percent }) : ""];
-  if (typeof verdict.lowestRegular === "number") parts.push(t("offers.verdict.reference", { price: formatPrice(verdict.lowestRegular) }));
+  if (badge.source === "dated" && badge.regular) parts.push(t("offers.verdict.reference_dated", offerRegularSourceParams(badge.regular)));
+  else if (typeof verdict.lowestRegular === "number") parts.push(t("offers.verdict.reference", { price: formatPrice(verdict.lowestRegular) }));
   if (badge.inflated && typeof offer.priceBefore === "number") {
     parts.push(t("offers.verdict.inflated", { before: formatPrice(offer.priceBefore), price: formatPrice(verdict.lowestRegular) }));
   }
@@ -603,7 +613,7 @@ function offerBadge(offer, extraClass = "") {
   if (!badge || typeof badge.percent !== "number") return "";
   const verdict = offer.verdict && ["good", "small", "none"].includes(offer.verdict.kind) ? offer.verdict.kind : "";
   const kind = verdict || (badge.percent >= 20 ? "good" : badge.percent >= 1 ? "small" : "none");
-  const cls = `offer-badge offer-badge--${kind}${badge.source === "store" ? " offer-badge--store" : ""}${extraClass ? ` ${extraClass}` : ""}`;
+  const cls = `offer-badge offer-badge--${kind}${badge.source === "store" || badge.source === "dated" ? " offer-badge--store" : ""}${extraClass ? ` ${extraClass}` : ""}`;
   const text = badge.percent > 0 ? `-${badge.percent}%` : t("offers.badge.none");
   return `<span class="${cls}" title="${escapeHtml(offerBadgeTitle(offer))}">${escapeHtml(text)}</span>`;
 }

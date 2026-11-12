@@ -405,6 +405,18 @@ class PublicObservedPriceTest(PricesCase):
         self.assertEqual((await prices.history("picnic", product="milk", today=TODAY))["products"][0], product)
         self.assertEqual((await prices.history("picnic", bought=True, today=TODAY))["total"], 0)
 
+    def test_regular_source_is_the_source_of_the_point_that_gives_the_regular_price(self) -> None:
+        def row(day: str, source: str, regular: float) -> dict:
+            return {"day": day, "regular": regular, "paid": regular, "quantity": 1, "ref": day, "source": source, "unit_size": None,
+                    "title": "Melk", "brand": None, "image": None}
+
+        only_import: dict = prices._product("picnic", "milk", None, [], [row("2026-10-01", "import", 1.49)], TODAY)
+        self.assertEqual((only_import["regularPrice"], only_import["regularSource"]), (1.49, "import"))
+        newer: dict = prices._product("picnic", "milk", None, [], [row("2026-09-01", "import", 1.49), row("2026-10-02", "receipt", 1.59)], TODAY)
+        self.assertEqual((newer["regularPrice"], newer["regularSince"], newer["regularSource"]), (1.59, "2026-10-02", "receipt"))
+        empty: dict = prices._product("picnic", "milk", None, [], [], TODAY)
+        self.assertIsNone(empty.get("regularSource"))
+
     async def test_archive_source_is_not_labelled_as_a_product_link_at_the_store(self) -> None:
         self.observation("2026-10-01", 1.09)
         self.assertEqual((await self.product("milk", store="picnic"))["url"], "")

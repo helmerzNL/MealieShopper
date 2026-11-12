@@ -227,6 +227,16 @@ console.log(JSON.stringify({{
         self.assertIn("offers.history.stat.line_lowest", detail)
         self.assertIn("offers.history.table.price_each", detail)
 
+    def test_the_regular_price_stat_names_its_source_and_date(self) -> None:
+        product: dict = {**salami(), "regularSince": "2026-10-03", "regularSource": "import"}
+        stats: str = self.render(product)["stats"]
+        self.assertIn("<dt>offers.history.stat.regular {}</dt>", stats)
+        self.assertIn("offers.history.stat.regular_from", stats)
+        self.assertIn("offers.regular.source.import", stats)
+        self.assertIn("2026", stats.split("regular_from")[1])
+        bare: str = self.render({**salami(), "regularSource": None})["stats"]
+        self.assertNotIn("regular_from", bare)
+
     def test_the_detail_is_built_from_head_stats_chart_and_purchases(self) -> None:
         found: dict = self.render(salami())
         for part in ("head", "stats", "block", "purchasesAll"):

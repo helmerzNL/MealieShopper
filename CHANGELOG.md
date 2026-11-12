@@ -2,6 +2,23 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub; een stabiele release krijgt de teksten van alle versies sinds de vorige stabiele release.
 
+## v4.18.0
+
+*English summary: The regular price a verdict compares with now comes from every source MealieShopper has, with its date and source in the badge. **Sources**: receipts, confirmation emails, orders, measured prices and the from-price of earlier offers. **Fresh and old**: a price of the last 30 days is fresh (the lowest counts), an older price still counts up to a year, and an older one is shown as *Last known regular price* without a verdict or badge. **Badge**: the tooltip names the regular price, its source and its date, and the dashed border now means the price is older than 30 days or a claim of the store. **Own from-price**: the from-price of a running offer is no source for its own verdict, also when the offer changed halfway. **Purchases**: the regular price of a purchase uses the same sources, up to a year before the purchase. **Price history**: the key figure Regular price names its source and date.*
+
+### Nieuw in 4.18.0
+
+- De gewone prijs waarmee het oordeel vergelijkt komt uit alle bronnen die MealieShopper heeft: kassabonnen, bevestigingsmails, bestellingen, gemeten prijzen en de van-prijs van eerdere aanbiedingen. De tooltip van de badge noemt de gewone prijs met de bron en de datum.
+- Een prijs van de laatste 30 dagen is vers, en van de verse prijzen telt de laagste. Zonder verse prijs telt de nieuwste prijs tot een jaar terug. Is die ouder, dan staat op de kaart *Laatst bekende gewone prijs ... Te oud voor een oordeel.* zonder oordeel en zonder badge.
+- De gestippelde rand van de badge betekent nu dat de gewone prijs ouder is dan 30 dagen of de van-prijs van een eerdere aanbieding is, of dat het percentage een claim van de winkel is. In de sortering op korting komt een badge met een verse prijs voor een met een oudere prijs, en die voor een claim.
+- Op de pagina Prijsgeschiedenis staat onder het kerncijfer *Gewone prijs* de bron en de datum.
+
+### Opgelost in 4.18.0
+
+- De van-prijs van een lopende aanbieding telt niet meer als bron voor het oordeel over diezelfde aanbieding, ook niet als de aanbieding halverwege wijzigde.
+- Het oordeel rekent met de nieuwste gewone prijs uit elke bron in plaats van alleen met de laagste van de laatste 30 dagen.
+- De gewone prijs bij een aankoop komt uit dezelfde bronnen als het oordeel, uit hooguit een jaar voor de aankoop. Een al bewaarde prijs blijft staan als er alleen nog een oudere bron is.
+
 ## v4.17.0
 
 ### Nieuw in 4.17.0
