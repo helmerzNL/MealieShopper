@@ -1425,7 +1425,6 @@ async def history(store: Any = None, query: Any = "", limit: Any = 50, today: st
 
 # --- prijs per eenheid, oordeel en verpakkingen vergelijken (deel 2) ----------------------------------------------------
 
-VERDICT_DAYS = 30  # de gewone prijs bij een aankoop (regular_before, fill_regular_prices): de laagste van de 30 dagen ervoor
 YEAR_DAYS = 365
 EVER_DAYS = 365  # "laagste prijs ooit" pas als de app het product minstens zo lang volgt
 HALF_YEAR_DAYS = 182  # "laagste in 6 maanden" pas bij een half jaar dekking
@@ -1855,52 +1854,6 @@ async def _regular_points(
     return points
 
 
-async def _regulars_between(
-    conn: aiosqlite.Connection, store: str, since: str, until: str, *, purchases_before_until: bool = False,
-    measured: set[str] | None = None,
-) -> dict[str, list[float]]:
-    """De gewone prijzen per product die golden tussen `since` en `until` (ISO-dagen, beide meegerekend), uit drie bronnen.
-
-    - de bewaarde prijzen (`price_observations`) van die dagen,
-    - de gewone prijs in je bestellingen van die dagen (`regular` van `_purchase_sources`: de prijs, of bij een actie de prijs ervoor),
-    - de prijs vóór de actie (`offer_history.price_before`) van elke aanbieding die het venster raakt.
-
-    `purchases_before_until` laat een bestelling van de dag `until` zelf weg: bij de gewone prijs van een aankoop telt die aankoop
-    niet als zijn eigen gewone prijs. `measured` krijgt de producten met een gemeten gewone prijs (bewaard of betaald) erbij. De prijs
-    vóór een actie is alleen de claim van de winkel en telt daar niet.
-    """
-    regulars: dict[str, list[float]] = {}
-
-    def add(product_id: Any, price: Any, is_measured: bool) -> None:
-        value = _number(price)
-        if value is None:
-            return
-        regulars.setdefault(str(product_id), []).append(value)
-        if is_measured and measured is not None:
-            measured.add(str(product_id))
-
-    for row in await conn.execute_fetchall(
-        "SELECT product_id, price FROM price_observations WHERE store = ? AND day >= ? AND day <= ? AND source != ?",
-        (store, since, until, PUBLIC_OBSERVED_UNKNOWN),
-    ):
-        add(row["product_id"], row["price"], True)
-    last_day = "day < ?" if purchases_before_until else "day <= ?"
-    for sql in _purchase_sources(await _tables(conn), store):
-        for row in await conn.execute_fetchall(
-            f"SELECT product_id, regular FROM ({sql}) WHERE day >= ? AND {last_day} AND regular IS NOT NULL", (since, until)
-        ):
-            add(row["product_id"], row["regular"], True)
-    # De voorselectie in SQL is ruim (een jaar): `_episode_span` bepaalt het einde ook uit `ended_at`, wat de SQL niet ziet.
-    for row in await conn.execute_fetchall(
-        "SELECT * FROM offer_history WHERE store = ? AND price_before IS NOT NULL AND COALESCE(valid_until, substr(last_seen, 1, 10)) >= ?",
-        (store, _days_ago(until, YEAR_DAYS)),
-    ):
-        span = offers._episode_span(row)
-        if (span["end"] is None or span["end"] >= since) and (span["start"] or "") <= until:
-            add(row["product_id"], row["price_before"], False)
-    return regulars
-
-
 def _regular_for_verdict(points: list[RegularPoint], today: str) -> Chosen | None:
     """De gewone prijs voor het oordeel op `today` (`regular_price.choose`), zonder de van-prijs van een aanbieding die nog loopt.
 
@@ -2086,7 +2039,7 @@ REGULAR_RECENT_DAYS = 60  # de gewone prijs van een aankoop van de laatste 60 da
 
 class _LineSource(NamedTuple):
     """Aankoopregels die een gewone prijs krijgen: de tabel, de kolom met de aankoop en de SQL die per regel `purchase`, `position`,
-    het product van de webwinkel (`product_id`), de aankoopdag (`day`) en `checked` (`regular_checked_at`) geeft."""
+    het product van de webwinkel (`product_id`), de aankoopdag (`day`), `checked` (`regular_checked_at`) en `stored` (`regular_price`) geeft."""
 
     table: str
     purchase_column: str
@@ -2106,7 +2059,8 @@ _REGULAR_LINES: dict[str, tuple[_LineSource, ...]] = {
             f"""
             SELECT i.order_id AS purchase, i.position AS position,
                    CASE WHEN i.product_id IS NULL OR i.product_id = 0 THEN NULL ELSE CAST(i.product_id AS TEXT) END AS product_id,
-                   {_DAY} AS day, i.regular_checked_at AS checked
+                   {_DAY} AS day, i.regular_checked_at AS checked,
+                   i.regular_price AS stored
             FROM ah_order_items i JOIN ah_orders o ON o.order_id = i.order_id
             """,
         ),
@@ -2115,7 +2069,8 @@ _REGULAR_LINES: dict[str, tuple[_LineSource, ...]] = {
             f"""
             SELECT l.receipt_id AS purchase, l.position AS position,
                    CASE WHEN {_RECEIPT_PRODUCT} IS NULL OR {_RECEIPT_PRODUCT} = 0 THEN NULL ELSE CAST({_RECEIPT_PRODUCT} AS TEXT) END AS product_id,
-                   substr(r.date_time, 1, 10) AS day, l.regular_checked_at AS checked
+                   substr(r.date_time, 1, 10) AS day, l.regular_checked_at AS checked,
+                   l.regular_price AS stored
             FROM ah_receipt_items l JOIN ah_receipts r ON r.receipt_id = l.receipt_id
             {product_links.RECEIPT_LINE_JOIN_SQL}
             """,
@@ -2126,7 +2081,7 @@ _REGULAR_LINES: dict[str, tuple[_LineSource, ...]] = {
             "jumbo_order_items", "order_id", frozenset({"jumbo_order_items", "jumbo_orders"}), "order",
             f"""
             SELECT i.order_id AS purchase, i.position AS position, NULLIF(i.product_id, '') AS product_id, {_DAY} AS day,
-                   i.regular_checked_at AS checked
+                   i.regular_checked_at AS checked, i.regular_price AS stored
             FROM jumbo_order_items i JOIN jumbo_orders o ON o.order_id = i.order_id
             """,
         ),
@@ -2141,18 +2096,36 @@ def _iso_day(value: Any) -> str | None:
         return None
 
 
-async def regular_before(store: str, product_ids: list[str], day: str) -> dict[str, float]:
-    """De gewone prijs per product bij een aankoop op `day`: de laagste van de 30 dagen ervoor (`VERDICT_DAYS`, `day` meegerekend).
+async def _chosen_before(
+    conn: aiosqlite.Connection, store: str, day: str, receipts: list[dict[str, Any]], ids: list[str] | None = None
+) -> dict[str, Chosen]:
+    """De gekozen gewone prijs (`regular_price.choose`) per product bij een aankoop op `day`, uit de punten van het jaar ervoor.
 
-    Dezelfde bronnen als het oordeel bij de aanbiedingen (`_regulars_between`), maar een bestelling van `day` zelf telt niet mee:
-    anders is een aankoop zonder actie zijn eigen gewone prijs. Een product zonder gewone prijs in dat venster ontbreekt.
+    Een aankoop van `day` zelf telt niet als gewone prijs (`purchases_before_until`), de van-prijs van een aanbieding die op `day`
+    loopt wel (hij staat op `day`). Alleen een keuze die `judged` is (hoogstens een jaar oud) komt in het resultaat."""
+    points: dict[str, list[RegularPoint]] = await _regular_points(
+        conn, store, _days_ago(day, YEAR_DAYS), day, receipts=receipts, purchases_before_until=True, ids=ids
+    )
+    chosen: dict[str, Chosen] = {}
+    for product_id, product_points in points.items():
+        pick: Chosen | None = choose(product_points, day)
+        if pick is not None and pick.judged:
+            chosen[product_id] = pick
+    return chosen
+
+
+async def regular_before(store: str, product_ids: list[str], day: str) -> dict[str, float]:
+    """De gewone prijs per product bij een aankoop op `day`: dezelfde keuze (`regular_price.choose`) uit dezelfde bronnen als het oordeel
+    bij de aanbiedingen (`_regular_points`), uit het jaar vóór `day`. Een bestelling van `day` zelf telt niet mee: anders is een aankoop
+    zonder actie zijn eigen gewone prijs. Een product zonder gewone prijs van hoogstens een jaar oud ontbreekt.
     """
-    wanted: set[str] = {str(product_id) for product_id in product_ids if product_id not in (None, "")}
+    wanted: list[str] = sorted({str(product_id) for product_id in product_ids if product_id not in (None, "")})
     if not wanted or _iso_day(day) is None:
         return {}
     async with _connect() as conn:
-        found = await _regulars_between(conn, store, _days_ago(day, VERDICT_DAYS), day, purchases_before_until=True)
-    return {product_id: min(values) for product_id, values in found.items() if product_id in wanted and values}
+        catalogue: _Catalogue | None = await _catalogue_or_none(conn, store, day)
+        chosen: dict[str, Chosen] = await _chosen_before(conn, store, day, catalogue.receipts if catalogue else [], wanted)
+    return {product_id: pick.price for product_id, pick in chosen.items()}
 
 
 async def _lines_to_fill(
@@ -2178,6 +2151,14 @@ async def _lines_to_fill(
     ))
 
 
+def _price_to_store(stored: Any, pick: Chosen | None) -> float | None:
+    """De gewone prijs die een aankoopregel krijgt. Een bewaarde prijs blijft staan tenzij de nieuwe keuze vers is (`Chosen.fresh`):
+    een oudere bron mag een eerder bepaalde prijs niet vervangen. Een regel zonder prijs krijgt de keuze, of NULL zonder keuze."""
+    if pick is None:
+        return stored
+    return pick.price if stored is None or pick.fresh else stored
+
+
 async def fill_regular_prices(
     store: str, *, limit: int = REGULAR_LIMIT, recent_days: int = REGULAR_RECENT_DAYS, now: str | None = None,
     order_ids: list[Any] | None = None, receipt_ids: list[Any] | None = None,
@@ -2197,7 +2178,9 @@ async def fill_regular_prices(
     done = 0
     async with _connect() as conn:
         tables = await _tables(conn)
-        by_day: dict[str, dict[str, list[float]]] = {}
+        catalogue: _Catalogue | None = await _catalogue_or_none(conn, store, stamp[:10])
+        receipts: list[dict[str, Any]] = catalogue.receipts if catalogue else []
+        by_day: dict[str, dict[str, Chosen]] = {}
         for source in _REGULAR_LINES.get(store, ()):
             if not source.needed <= tables or (not targeted and done >= limit):
                 continue
@@ -2208,14 +2191,13 @@ async def fill_regular_prices(
             lines = await _lines_to_fill(conn, source, ids, recent_since=recent_since, checked_before=checked_before, limit=limit - done)
             updates: list[tuple[Any, ...]] = []
             for line in lines:
-                day = _iso_day(line["day"])
-                price: float | None = None
+                day: str | None = _iso_day(line["day"])
+                pick: Chosen | None = None
                 if day is not None and line["product_id"] is not None:
                     if day not in by_day:
-                        by_day[day] = await _regulars_between(conn, store, _days_ago(day, VERDICT_DAYS), day, purchases_before_until=True)
-                    found = by_day[day].get(str(line["product_id"]))
-                    price = min(found) if found else None
-                updates.append((price, stamp, line["purchase"], line["position"]))
+                        by_day[day] = await _chosen_before(conn, store, day, receipts)
+                    pick = by_day[day].get(str(line["product_id"]))
+                updates.append((_price_to_store(line["stored"], pick), stamp, line["purchase"], line["position"]))
             await conn.executemany(
                 f"UPDATE {source.table} SET regular_price = ?, regular_checked_at = ? WHERE {source.purchase_column} = ? AND position = ?",
                 updates,

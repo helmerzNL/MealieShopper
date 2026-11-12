@@ -462,13 +462,11 @@ class PublicObservedPriceTest(PricesCase):
 
     async def test_unknown_prices_never_supply_a_regular_baseline_but_count_as_observed_history(self) -> None:
         self.observation("2026-10-01", 0.79)
-        measured: set[str] = set()
 
-        async def regulars(conn):
-            return await prices._regulars_between(conn, "picnic", "2026-09-20", TODAY, measured=measured)
+        async def points(conn):
+            return await prices._regular_points(conn, "picnic", "2026-09-20", TODAY, receipts=[])
 
-        self.assertEqual((await in_db(prices._connect, regulars))[0], {})
-        self.assertEqual(measured, set())
+        self.assertEqual((await in_db(prices._connect, points))[0], {})
         self.assertEqual((await history_points("picnic", ("milk",)))["milk"], [("2026-10-01", 0.79)])
         self.assertEqual(await prices.regular_before("picnic", ["milk"], TODAY), {})
         current: dict = offer("milk", "Halfvolle melk", price=0.69, before=None)
@@ -931,9 +929,9 @@ class RegularPricesTest(PricesCase):
         await self.observe("2026-07-01", "1", "AH Penne", 0.99)  # ouder dan 30 dagen: telt niet
         self.assertEqual(await prices.regular_before("ah", ["1"], "2026-09-21"), {"1": 1.19})
 
-    async def test_without_a_measurement_in_the_window_there_is_no_regular_price(self):
-        await self.observe("2026-07-01", "1", "AH Penne", 0.99)
-        self.assertEqual(await prices.regular_before("ah", ["1"], "2026-09-21"), {})
+    async def test_a_measurement_older_than_30_days_still_gives_a_judged_regular_price(self):
+        await self.observe("2026-07-01", "1", "AH Penne", 0.99)  # 82 dagen ervoor: niet vers, wel binnen het jaar
+        self.assertEqual(await prices.regular_before("ah", ["1"], "2026-09-21"), {"1": 0.99})
 
     async def test_an_earlier_order_and_the_price_before_of_an_offer_count_but_the_purchase_day_itself_does_not(self):
         await store_order(1, "2026-09-05", [line("1", price=1.29)])  # een eerdere bestelling: de gewone prijs die je toen betaalde
@@ -941,6 +939,61 @@ class RegularPricesTest(PricesCase):
         await self.sync_offer("2026-09-12T08:00:00+00:00", offer("3", "AH Kaas", price=2.0, before=2.49))
         found = await prices.regular_before("ah", ["1", "2", "3"], "2026-09-21")
         self.assertEqual(found, {"1": 1.29, "3": 2.49})
+
+    async def test_regular_before_uses_a_receipt_of_three_months_earlier(self) -> None:
+        self.ah_receipt("R1", "2026-06-21T10:00:00", (555, "PENNE", 1, 0.89, 0.89))
+        with closing(db(ah_orders)) as conn, conn:
+            conn.execute("INSERT INTO ah_receipt_products (receipt_product_id, product_id, title, checked_at) VALUES (555, 1, 'AH Penne', 'x')")
+        found: dict[str, float] = await prices.regular_before("ah", ["1"], "2026-09-21")
+        self.assertEqual(found, {"1": 0.89})
+
+    async def test_regular_before_ignores_the_purchase_of_that_day(self) -> None:
+        await store_order(1, "2026-09-21", [line("1", price=0.50)])
+        self.assertEqual(await prices.regular_before("ah", ["1"], "2026-09-21"), {})
+
+    async def test_regular_before_ignores_a_price_of_two_years_earlier(self) -> None:
+        await self.observe("2024-09-01", "1", "AH Penne", 1.19)
+        self.assertEqual(await prices.regular_before("ah", ["1"], "2026-09-21"), {})
+
+    async def test_regular_before_counts_the_from_price_of_an_offer_running_on_the_purchase_day(self) -> None:
+        await self.sync_offer("2026-09-20T08:00:00+00:00", offer("3", "AH Kaas", price=2.0, before=2.49))
+        self.assertEqual(await prices.regular_before("ah", ["3"], "2026-09-21"), {"3": 2.49})
+
+    async def test_regular_points_give_search_order_and_offer_points(self) -> None:
+        await self.observe("2026-09-10", "1", "AH Penne", 1.19)
+        await store_order(1, "2026-09-05", [line("2", price=1.29)])
+        await self.sync_offer("2026-09-12T08:00:00+00:00", offer("3", "AH Kaas", price=2.0, before=2.49))
+
+        async def points(conn):
+            return await prices._regular_points(conn, "ah", "2026-08-22", "2026-09-21", receipts=[])
+
+        found: dict = (await in_db(prices._connect, points))[0]
+        self.assertEqual({key: [(p.price, p.source) for p in value] for key, value in found.items()},
+                         {"1": [(1.19, "search")], "2": [(1.29, "order")], "3": [(2.49, "offer")]})
+
+    async def test_fill_keeps_a_stored_price_when_only_an_old_source_remains(self) -> None:
+        await store_order(1, "2026-09-21", [line("1", price=0.89)])
+        with closing(db(ah_orders)) as conn, conn:
+            conn.execute("UPDATE ah_order_items SET regular_price = 2.29")
+        await self.sync_offer("2026-06-12T08:00:00+00:00", offer("1", "AH Penne", price=2.0, before=2.49))
+        await self.sync_offer("2026-06-13T08:00:00+00:00")  # de aanbieding is voorbij: de van-prijs is 100 dagen oud
+        self.assertEqual(await prices.fill_regular_prices("ah", now=self.NOW), 1)
+        row: dict = self.rows("SELECT regular_price, regular_checked_at FROM ah_order_items")[0]
+        self.assertEqual((row["regular_price"], row["regular_checked_at"]), (2.29, self.NOW))
+
+    async def test_fill_gives_an_unpriced_line_an_old_judged_price(self) -> None:
+        await self.observe("2026-07-01", "1", "AH Penne", 0.99)
+        await store_order(1, "2026-09-21", [line("1", price=0.89)])
+        self.assertEqual(await prices.fill_regular_prices("ah", now=self.NOW), 1)
+        self.assertEqual(self.rows("SELECT regular_price FROM ah_order_items")[0]["regular_price"], 0.99)
+
+    async def test_fill_overwrites_a_stored_price_with_a_fresh_one(self) -> None:
+        await self.observe("2026-09-10", "1", "AH Penne", 1.19)
+        await store_order(1, "2026-09-21", [line("1", price=0.89)])
+        with closing(db(ah_orders)) as conn, conn:
+            conn.execute("UPDATE ah_order_items SET regular_price = 2.29")
+        self.assertEqual(await prices.fill_regular_prices("ah", now=self.NOW), 1)
+        self.assertEqual(self.rows("SELECT regular_price FROM ah_order_items")[0]["regular_price"], 1.19)
 
     async def test_fill_writes_the_column_and_marks_lines_without_a_price_as_checked(self):
         await self.observe("2026-09-10", "1", "AH Penne", 1.19)
