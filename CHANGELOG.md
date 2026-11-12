@@ -2,6 +2,16 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub; een stabiele release krijgt de teksten van alle versies sinds de vorige stabiele release.
 
+## v4.19.1
+
+*English summary: Pages load faster on a slow connection, because the app now sends text compressed. **Faster**: JSON, scripts and styles go to the browser with gzip, where a reverse proxy often compresses HTML only. Opening the offers of Albert Heijn transferred 5.3 MB and now 0.6 MB, of which the list itself went from 3.7 MB to 254 KB.*
+
+### Sneller in 4.19.1
+
+- De app verstuurt tekst (JSON, scripts en stijlen) met gzip naar een browser die dat aankan. Een reverse proxy verpakt vaak alleen HTML, zoals nginx zonder uitgebreide `gzip_types`, en een installatie zonder proxy verpakte niets. De aanbiedingen van Albert Heijn openen haalde daardoor 5,3 MB op: 3,7 MB voor de lijst, 1,2 MB aan scripts en 0,3 MB aan stijlen. Dat is nu samen ongeveer 0,6 MB, en de lijst zelf 254 KB.
+- Een antwoord met een ETag wordt een keer verpakt en daarna uit het geheugen verstuurd, tot 32 MB aan verpakte antwoorden. De ETag blijft dezelfde, dus een ongewijzigde lijst of een ongewijzigd script geeft nog steeds een 304.
+- Plaatjes, lettertypen en back-ups zijn al verpakt en blijven zoals ze zijn, net als een antwoord onder 1 KB, een deel van een bestand (`Range`) en een antwoord dat als stroom wordt verstuurd.
+
 ## v4.19.0
 
 *English summary: The image runs Python 3.15 instead of 3.12, and measured on a copy of real data it is 20 to 35% faster on the heavy routes. **Python**: CPython 3.15 from uv (python-build-standalone) on Debian trixie-slim instead of the official `python:3.12-slim` image, which on the same 3.15 was 20 to 25% slower. **Start**: the bytecode of the app and its packages is in the image, so a start no longer compiles every module and takes about 0.75 s instead of 1 s. **Fixed**: saving an uploaded backup or price archive writes each piece to disk straight away again, also with the larger file buffer of Python 3.15. **Benchmark**: `scripts/benchmark.py` measures the app on several Python builds in Docker, JIT and free-threaded measured too and not chosen.*

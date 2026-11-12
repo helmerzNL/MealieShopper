@@ -42,6 +42,7 @@ TO_THREAD_ALLOWED: dict[str, str] = {
     "about.py": "git rev-parse (subprocess) voor de commit",
     "audit.py": "de export van tot 5000 regels als JSON of CSV",
     "factory_reset.py": "de afbeeldingencache wissen (shutil.rmtree over duizenden bestanden)",
+    "compression.py": "een antwoord met tekst verpakken met gzip (de lijst met aanbiedingen is 3,7 MB)",
     "price_archive.py": "een prijsarchief uitpakken en controleren, invoegen en exporteren (zip, tar, gzip, tot een miljoen regels)",
     "uploads.py": "een stuk van een upload (tot 4 MB) naar schijf schrijven",
 }

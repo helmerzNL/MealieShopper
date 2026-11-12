@@ -10,12 +10,14 @@ import os
 import shutil
 import subprocess
 import tempfile
+import gzip
 import inspect
 import re
 import unittest
 from contextlib import closing
 from datetime import date, timedelta
 from pathlib import Path
+from typing import ClassVar
 from unittest import mock
 
 import jwt
@@ -1675,6 +1677,60 @@ class SameDealAFewCentsApartTest(unittest.TestCase):
         cheap = [("2020-01-06", 0.5, "offer"), ("2026-08-31", 0.39, "offer")]
         self.assertEqual(offer_ranking.year_low(0.4, cheap, self.TODAY)["status"], "lowest")
         self.assertEqual(offer_ranking.year_low(0.42, cheap, self.TODAY)["status"], "above")
+
+
+class CompressedResponsesTest(AppTestCase):
+    """2026-11-12: "ik open net deze pagina, en het laden duurt lang, kan dat sneller?", bij /offers. De pagina haalde 5,3 MB op:
+    3,7 MB voor de lijst van AH (2801 aanbiedingen), 1,2 MB aan scripts en 0,3 MB aan stijlen, allemaal onverpakt. De reverse
+    proxy verpakte alleen de HTML. De app verpakt tekst nu zelf met gzip (compression.py): de lijst is dan 254 KB."""
+
+    GZIP: ClassVar[dict[str, str]] = {"Accept-Encoding": "gzip, deflate, br"}
+
+    def setUp(self) -> None:
+        patcher = mock.patch.dict(os.environ, {"PASSKEY_AUTH_ENABLED": "false"})
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.client = self.client_for(create_app())
+
+    async def test_2026_11_12_scripts_and_styles_are_sent_compressed(self) -> None:
+        for name in ("app.js", "styles.css"):
+            with self.subTest(name):
+                plain: bytes = (ROOT / "static" / name).read_bytes()
+                response = await self.client.get(f"/static/{name}?v=1", headers=self.GZIP)
+                body: bytes = response.get_data()
+                self.assertEqual((response.status_code, response.headers.get("Content-Encoding")), (200, "gzip"))
+                self.assertIn("Accept-Encoding", response.headers.get("Vary", ""))
+                self.assertEqual(int(response.headers["Content-Length"]), len(body))
+                self.assertLess(len(body), len(plain) / 3)
+                self.assertEqual(gzip.decompress(body), plain)
+
+    async def test_2026_11_12_the_offers_are_sent_compressed_and_keep_their_etag(self) -> None:
+        fetched: list[dict] = [{"id": str(n), "title": f"AH Kipfilet {n}", "price": 3.0, "priceBefore": 4.0, "promoLabel": "Bonus"} for n in range(60)]
+        with mock.patch.dict(offers.FETCHERS, {"ah": lambda: returned(fetched)}):
+            await self.client.post("/api/offers/sync", json={"store": "ah"})
+        plain = await self.client.get("/api/offers?store=ah")
+        packed = await self.client.get("/api/offers?store=ah", headers=self.GZIP)
+        self.assertEqual((plain.headers.get("Content-Encoding"), packed.headers.get("Content-Encoding")), (None, "gzip"))
+        self.assertEqual(gzip.decompress(packed.get_data()), plain.get_data())
+        self.assertEqual(packed.headers["ETag"], plain.headers["ETag"], "de browser vraagt met dezelfde ETag na of de lijst veranderd is")
+        again = await self.client.get("/api/offers?store=ah", headers={**self.GZIP, "If-None-Match": packed.headers["ETag"]})
+        self.assertEqual((again.status_code, again.get_data()), (304, b""))
+        # Een tweede keer komt het verpakte antwoord uit het geheugen (dezelfde ETag): dezelfde bytes.
+        self.assertEqual((await self.client.get("/api/offers?store=ah", headers=self.GZIP)).get_data(), packed.get_data())
+
+    async def test_2026_11_12_what_does_not_gain_from_it_stays_as_it_is(self) -> None:
+        cases: dict[str, tuple[str, dict[str, str]]] = {
+            "de browser vraagt er niet om": ("/static/app.js", {}),
+            "de browser wijst gzip af": ("/static/app.js", {"Accept-Encoding": "gzip;q=0, identity"}),
+            "een deel van een bestand": ("/static/app.js", {**self.GZIP, "Range": "bytes=0-99"}),
+            "een plaatje is al verpakt": ("/favicon.ico", self.GZIP),
+            "een kort antwoord": ("/api/offers/status", self.GZIP),
+        }
+        for reason, (path, headers) in cases.items():
+            with self.subTest(reason):
+                response = await self.client.get(path, headers=headers)
+                self.assertIn(response.status_code, (200, 206))
+                self.assertIsNone(response.headers.get("Content-Encoding"))
 
 
 if __name__ == "__main__":

@@ -15,6 +15,7 @@ from quart import Quart, Response, jsonify, redirect, render_template, request, 
 from . import about, ah, ah_explore, ah_lists, ah_orders, ah_planner, ah_recipes, ai_match, ai_review, audit, auth_password, backup, cart_memory, crisp, crisp_orders, factory_reset, hellofresh, image_cache, jumbo, jumbo_explore, jumbo_lists, jumbo_orders, jumbo_recipes, loose_names, loose_names_ai, marleyspoon, mcp_http, mealie, mealie_images, offers, offers_schedule, onboarding, picnic, picnic_explore, picnic_orders, picnic_recipes, price_archive, price_import, prices, product_images, product_links, profile, push, recipe_bulk, recipe_nutrition, request_body, server_settings, shared_links, shared_links_export, updates, users
 from . import auth, deals, http_client, tasks, urls
 from . import assets
+from . import compression
 from .body_limits import DEFAULT_MAX_BODY, SizedRequest
 from .forwarded import ForwardedHeaders
 from .keep_running import FinishAfterDisconnect
@@ -103,6 +104,8 @@ def create_app() -> Quart:
     app.request_class = SizedRequest
     app.config["MAX_CONTENT_LENGTH"] = DEFAULT_MAX_BODY
     app.config["BODY_TIMEOUT"] = 120
+    # Tekst (JSON, scripts, stijlen) gaat met gzip naar de browser: de lijst met aanbiedingen is anders 3,7 MB (compression.py).
+    compression.register(app)
     app.config["RESPONSE_TIMEOUT"] = 120
     # Achter de reverse proxy: schema, host en client-adres uit X-Forwarded-* (een hop), zoals ProxyFix voorheen. Daarbinnen,
     # direct om Quart: een handler maakt zijn werk af als de client weggaat (keep_running.py), zoals een thread onder 3.x.
