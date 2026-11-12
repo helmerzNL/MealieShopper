@@ -1319,6 +1319,24 @@ class ConditionalOfferPriceTest(PricesCase):
         self.assertRegex(head.group(1), r"<b>[^<]*1,87</b> <s>[^<]*2,49</s>", "de kop van de popup toont de prijs zoals de kaart")
 
 
+class RegularPriceFromEverySourceTest(PricesCase):
+    """2026-11-12, gemeld: bij veel producten staat dat de app geen gewone prijs van dat product kent, terwijl er veel data is.
+    Het oordeel keek alleen naar de laatste 30 dagen, dus een aankoop van een half jaar terug telde niet en de badge viel terug
+    op de claim van de winkel (`store`)."""
+
+    async def test_2026_11_12_an_imported_purchase_of_200_days_ago_is_a_known_regular_price(self) -> None:
+        await self.sync_offer(f"{TODAY}T05:00:00+00:00", offer("1", "AH Pindakaas", 1.99, 2.99, "nu 1,99", validFrom=TODAY, validUntil=days(6)))
+        with closing(db(price_import)) as conn, conn:
+            conn.execute(
+                "INSERT INTO imported_purchases (store, order_ref, position, day, title, quantity, paid, regular, imported_at) "
+                "VALUES ('ah', 'M1', 1, ?, 'AH Pindakaas', 1, 2.79, 2.79, 'x')",
+                (days(-200),),
+            )
+        annotated: dict = (await prices.annotate("ah", [offer("1", "AH Pindakaas", 1.99, 2.99, "nu 1,99")], today=TODAY))[0]
+        self.assertNotEqual(annotated["badge"]["source"], "store", "de app kent een gewone prijs van dit product")
+        self.assertEqual(annotated["badge"]["regular"], {"price": 2.79, "day": days(-200), "source": "import"})
+
+
 class SpeedTest(PricesCase):
     """Meldingen over traagheid: het dure werk gebeurt een keer, niet bij elke aanvraag."""
 

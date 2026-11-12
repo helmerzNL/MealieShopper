@@ -38,7 +38,7 @@ import aiosqlite
 
 from . import ah, ah_lists, ah_orders, auth, deals, line_offers, name_keys, offer_categories, offer_ranking, offers, packs, price_import, product_links, shared_links
 from .i18n import tr
-from .regular_price import RegularPoint
+from .regular_price import Chosen, RegularPoint, choose
 
 log = logging.getLogger(__name__)
 
@@ -1430,9 +1430,10 @@ YEAR_DAYS = 365
 EVER_DAYS = 365  # "laagste prijs ooit" pas als de app het product minstens zo lang volgt
 HALF_YEAR_DAYS = 182  # "laagste in 6 maanden" pas bij een half jaar dekking
 SEEN_DAYS = 30  # "laagste sinds <maand>": de milde trede voor een installatie die nog kort meet
-GOOD_DISCOUNT = 0.20  # vanaf 20% onder de laagste gewone prijs van de laatste 30 dagen is het echt voordelig
+GOOD_DISCOUNT = 0.20  # vanaf 20% onder de gewone prijs (regular_price.choose) is het echt voordelig
 OFTEN_PER_YEAR = 6  # zo vaak of vaker per jaar in de aanbieding: het komt vaak terug
 PACK_DAYS = 60  # hoe oud een prijs van een andere verpakking mag zijn om mee te vergelijken
+REGULAR_HISTORY_DAYS = 3650  # zo ver terug zoekt het oordeel bij de aanbiedingen een gewone prijs (regular_price.choose kiest)
 PACK_MARGIN = 0.02  # een andere verpakking telt pas als goedkoper bij minstens 2% verschil per eenheid
 COMPARE_LIMIT = 30  # genoeg om ook de grote verpakking (zoals 1000 g rundergehakt) tussen de resultaten te krijgen
 
@@ -1628,13 +1629,15 @@ async def signature(store: Any) -> str:
 async def annotate(store: str, items: list[dict[str, Any]], today: str | None = None) -> list[dict[str, Any]]:
     """Zet bij elke aanbieding een oordeel (`verdict`) en de prijs per eenheid (`unitPricePer`). Past de dicts aan en geeft ze terug.
 
-    `verdict.kind` is `good` (minstens 20% onder de laagste gewone prijs van de laatste 30 dagen), `small` (wel lager, maar minder),
-    `none` (niet lager dan de gewone prijs van de laatste 30 dagen) of `unknown` (de actieprijs per stuk of de gewone prijs is niet bekend).
-    Daarnaast: `percent`, `lowestRegular` (de laagste gewone prijs van de laatste 30 dagen), `inflated` (de prijs ervoor die de winkel noemt
-    is hoger dan die laagste), `timesThisYear`, `often` en `cheaperPack` (een andere verpakking van hetzelfde product die per eenheid
-    goedkoper is, uit de bewaarde prijzen en de andere aanbiedingen). Daarnaast `badge` (het getal op de kaart: `percent`, `source`
-    `history` of `store`, `claimed`, `inflated`) en `priceLabel` (de ladder uit de geschiedenis, zie `price_label`). Een fout laat de
-    aanbiedingen staan zonder oordeel.
+    De gewone prijs is de nieuwste bekende uit elke bron (`_regular_points`, gekozen door `regular_price.choose`, zie `_verdict_of`),
+    en pas zonder bron de prijs ervoor die de aanbieding zelf noemt. `verdict.kind` is `good` (minstens 20% onder de gewone prijs),
+    `small` (wel lager, maar minder), `none` (niet lager) of `unknown` (de actieprijs per stuk of de gewone prijs is niet bekend, of de
+    gewone prijs is ouder dan een jaar). Daarnaast: `percent`, `regular` (de gekozen gewone prijs als `{price, day, source}`, ook als
+    hij ouder is dan een jaar), `lowestRegular` (de gewone prijs waarmee is gerekend, of None), `inflated` (de prijs ervoor die de
+    winkel noemt is hoger dan die gewone prijs), `timesThisYear`, `often` en `cheaperPack` (een andere verpakking van hetzelfde product
+    die per eenheid goedkoper is, uit de bewaarde prijzen en de andere aanbiedingen). Daarnaast `badge` (het getal op de kaart:
+    `percent`, `source` `history`, `dated` of `store`, `regular` bij `history` en `dated`, `claimed`, `inflated`) en `priceLabel` (de
+    ladder uit de geschiedenis, zie `price_label`). Een fout laat de aanbiedingen staan zonder oordeel.
     """
     try:
         await _annotate(store, items, today or _now()[:10])
@@ -1881,14 +1884,94 @@ async def _regulars_between(
     return regulars
 
 
+def _regular_for_verdict(points: list[RegularPoint], today: str) -> Chosen | None:
+    """De gewone prijs voor het oordeel op `today` (`regular_price.choose`), zonder de van-prijs van een aanbieding die nog loopt.
+
+    `_offer_points` dateert een periode op haar einde, of op `until` (hier `today`) als ze nog loopt of later eindigt. Een punt
+    `offer` van `today` is dus de van-prijs van een lopende aanbieding: de claim van de winkel die we beoordelen, geen bron. De
+    van-prijs van een periode die voor vandaag eindigde telt wel."""
+    return choose([point for point in points if point.source != "offer" or point.day < today], today)
+
+
+def _regular_of(chosen: Chosen | None) -> dict[str, Any] | None:
+    """De gekozen gewone prijs zoals het oordeel en de badge hem tonen."""
+    return None if chosen is None else {"price": chosen.price, "day": chosen.day, "source": chosen.source}
+
+
+def _compared(effective: float | None, regular: float | None, stated: float | None) -> dict[str, Any]:
+    """`kind`, `percent`, `lowestRegular` en `inflated`: de actieprijs per stuk tegen de gewone prijs `regular` (None: geen oordeel).
+    `inflated` zegt of de van-prijs die de aanbieding noemt (`stated`) hoger is dan die gewone prijs."""
+    verdict: dict[str, Any] = {"kind": "unknown", "percent": None, "lowestRegular": regular, "inflated": False}
+    if effective is None or not regular:
+        return verdict
+    ratio: float = 1 - effective / regular
+    verdict["percent"] = max(0, round(ratio * 100))
+    verdict["kind"] = "none" if effective >= regular - 0.005 else ("good" if ratio >= GOOD_DISCOUNT - 1e-9 else "small")
+    verdict["inflated"] = stated is not None and stated > regular + 0.005
+    return verdict
+
+
+def _badge_source(chosen: Chosen | None) -> str:
+    """`history` bij een verse gewone prijs uit een meting of aankoop, `dated` bij een oudere of bij de van-prijs van een eerdere
+    aanbieding, `store` als alleen de van-prijs van de aanbieding zelf bekend is."""
+    if chosen is None:
+        return "store"
+    return "history" if chosen.fresh and chosen.source != "offer" else "dated"
+
+
+def _verdict_of(effective: float | None, stated: float | None, chosen: Chosen | None) -> tuple[dict[str, Any], dict[str, Any] | None]:
+    """Het oordeel en de badge van een aanbieding, de badge zonder `claimed` (dat komt uit de aanbieding zelf).
+
+    De gekozen gewone prijs (`_regular_for_verdict`) gaat voor de van-prijs die de aanbieding noemt (`stated`): die telt dan alleen
+    nog voor `inflated`. Is de gekozen prijs ouder dan een jaar (niet `judged`), dan staat hij in `regular`, maar zonder oordeel en
+    zonder badge, ook als de aanbieding een van-prijs noemt. Zonder gekozen prijs oordeelt de van-prijs, met de badge `store`."""
+    regular: dict[str, Any] | None = _regular_of(chosen)
+    base: float | None = stated if chosen is None else (chosen.price if chosen.judged else None)
+    verdict: dict[str, Any] = {**_compared(effective, base, stated), "regular": regular}
+    if verdict["kind"] == "unknown":
+        return verdict, None
+    badge: dict[str, Any] = {"percent": verdict["percent"], "source": _badge_source(chosen), "inflated": verdict["inflated"]}
+    if chosen is not None:
+        badge["regular"] = regular
+    return verdict, badge
+
+
+async def _catalogue_or_none(conn: aiosqlite.Connection, store: str, today: str) -> _Catalogue | None:
+    """De catalogus (`_catalogue`), of None als hij niet te lezen is: dan oordelen de aanbiedingen zonder de bonnen en de
+    ingelezen aankopen, en zonder ladder en folderacties."""
+    try:
+        return await _catalogue(conn, store, today)
+    except Exception:  # noqa: BLE001 - zonder catalogus blijft het oordeel uit de andere bronnen staan
+        log.exception("Oordeel: de catalogus van %s kon niet worden gelezen", store)
+        return None
+
+
+async def _ladder(
+    conn: aiosqlite.Connection, store: str, today: str, catalogue: _Catalogue | None, ids: list[str]
+) -> tuple[_Catalogue | None, dict[str, list[tuple[str, float, str]]], set[str]]:
+    """De catalogus, de punten van de ladder (`_history_points`) en de gekochte producten (voor het filter Eerder gekocht). Zonder
+    catalogus of als de geschiedenis niet te lezen is `(None, {}, set())`: de ladder is een extraatje, het oordeel blijft staan."""
+    if catalogue is None:
+        return None, {}, set()
+    try:
+        points: dict[str, list[tuple[str, float, str]]] = await _history_points(conn, store, today, catalogue.receipts, ids)
+        bought_ids: set[str] = _with_twins(await _bought(conn, store, today, catalogue.receipts), catalogue.twins)
+    except Exception:  # noqa: BLE001 - de ladder is een extraatje: zonder blijven het oordeel en de badge staan
+        log.exception("Prijslabels: de geschiedenis van %s kon niet worden gelezen", store)
+        return None, {}, set()
+    return catalogue, points, bought_ids
+
+
 async def _annotate(store: str, items: list[dict[str, Any]], today: str) -> None:
-    since30, since_year, since_pack = _days_ago(today, VERDICT_DAYS), _days_ago(today, YEAR_DAYS), _days_ago(today, PACK_DAYS)
-    measured: set[str] = set()  # producten met een gemeten gewone prijs (bewaard of betaald), niet alleen de claim van de winkel
+    since_year, since_pack = _days_ago(today, YEAR_DAYS), _days_ago(today, PACK_DAYS)
     episodes: dict[str, list[Any]] = {}
     latest: dict[str, Any] = {}
     ids = sorted({str(offer.get("id")) for offer in items})  # alleen de geschiedenis van deze producten telt, zie _WANTED_SQL
     async with _connect() as conn:
-        regulars = await _regulars_between(conn, store, since30, today, measured=measured)
+        catalogue = await _catalogue_or_none(conn, store, today)
+        regulars = await _regular_points(
+            conn, store, _days_ago(today, REGULAR_HISTORY_DAYS), today, receipts=catalogue.receipts if catalogue else [], ids=ids
+        )
         for row in await conn.execute_fetchall(
             "SELECT * FROM price_observations WHERE store = ? AND day >= ? AND day <= ? AND source != ? ORDER BY day",
             (store, since_pack, today, PUBLIC_OBSERVED_UNKNOWN),
@@ -1900,13 +1983,7 @@ async def _annotate(store: str, items: list[dict[str, Any]], today: str) -> None
             (store, since_year, json.dumps(ids)),
         ):
             episodes.setdefault(row["product_id"], []).append(row)
-        try:
-            catalogue = await _catalogue(conn, store, today)
-            points = await _history_points(conn, store, today, catalogue.receipts, ids)
-            bought_ids = _with_twins(await _bought(conn, store, today, catalogue.receipts), catalogue.twins)  # voor het filter Eerder gekocht
-        except Exception:  # noqa: BLE001 - de ladder is een extraatje: zonder blijven het oordeel en de badge staan
-            log.exception("Prijslabels: de geschiedenis van %s kon niet worden gelezen", store)
-            catalogue, points, bought_ids = None, {}, set()
+        catalogue, points, bought_ids = await _ladder(conn, store, today, catalogue, ids)
     # De folderacties voor de hele lijn (per stuk), zonder de weken waarin het product zelf in de aanbieding was: ze tellen mee als
     # keer in de aanbieding en als prijs van het jaar (offer_ranking.year_low). Voor een product dat nog niet in de catalogus staat
     # (de aanbieding van deze week is zijn eerste spoor) zoekt de app op de naam van de aanbieding.
@@ -1956,21 +2033,9 @@ async def _annotate(store: str, items: list[dict[str, Any]], today: str) -> None
         if _number(offer.get("unitPrice")) is None and effective is not None and stated is not None:
             offer["unitPrice"] = effective  # zo toont de kaart ook bij "1+1 gratis" van AH wat een stuk kost
         offer["unitPricePer"] = unit_price(effective if effective is not None else offer.get("price"), offer.get("unitSize"))
-        known = [price for price in regulars.get(product_id, []) if _number(price) is not None]
-        if stated is not None:
-            known.append(stated)
-        lowest = min(known) if known else None
-        verdict: dict[str, Any] = {"kind": "unknown", "percent": None, "lowestRegular": lowest, "inflated": False}
-        if effective is not None and lowest:
-            ratio = 1 - effective / lowest
-            verdict["percent"] = max(0, round(ratio * 100))
-            verdict["kind"] = "none" if effective >= lowest - 0.005 else ("good" if ratio >= GOOD_DISCOUNT - 1e-9 else "small")
-            verdict["inflated"] = stated is not None and stated > lowest + 0.005
-        # De badge op de kaart: het gemeten verschil, of de claim van de winkel als de app geen gewone prijs van het product kent.
-        offer["badge"] = None if verdict["kind"] == "unknown" else {
-            "percent": verdict["percent"], "source": "history" if product_id in measured else "store", "claimed": _claimed_percent(offer),
-            "inflated": verdict["inflated"],
-        }
+        # De badge op de kaart: het verschil met de gekozen gewone prijs, of de claim van de winkel als de app er geen kent.
+        verdict, badge = _verdict_of(effective, stated, _regular_for_verdict(regulars.get(product_id, []), today))
+        offer["badge"] = None if badge is None else {**badge, "claimed": _claimed_percent(offer)}
         mine = [row for row in episodes.get(product_id, []) if not row["continued"]]
         started = [row for row in mine if (offers._episode_span(row)["start"] or "") >= since_year]
         line_weeks = [line for line in lines.get(product_id, []) if str(line["start"]) >= since_year]
