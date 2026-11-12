@@ -1,0 +1,6 @@
+# Commits die alleen de opmaak wijzigen. `git blame` slaat ze over met
+#   git config blame.ignoreRevsFile .git-blame-ignore-revs
+# en GitHub doet dat vanzelf in de blame-weergave.
+
+# style: het hele project door ruff check --fix en ruff format, zonder handwerk
+83cd257ffb50631fb2c3b675a0287679498b522d
