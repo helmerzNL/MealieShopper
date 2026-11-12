@@ -30,6 +30,13 @@ class PricesCase(AppTestCase):
     async def ah_order(self, order_id, kind, day, *items):
         await in_db(ah_orders._connect, lambda conn: ah_orders._save_order(conn, {"id": order_id, "deliveryDate": day}, kind, list(items) if items else None))
 
+    def ah_article(self, article: int, product_id: int, title: str) -> None:
+        """De koppeling van AH van een artikelnummer op de bon aan een product van de webwinkel (`ah_receipt_products`)."""
+        with closing(db(ah_orders)) as conn, conn:
+            conn.execute(
+                "INSERT INTO ah_receipt_products (receipt_product_id, product_id, title, checked_at) VALUES (?, ?, ?, 'x')", (article, product_id, title)
+            )
+
     def ah_receipt(self, receipt_id, when, *lines):
         with closing(db(ah_orders)) as conn, conn:
             conn.execute("INSERT INTO ah_receipts (receipt_id, date_time, total, details_synced, first_seen) VALUES (?, ?, 0, 1, ?)", (receipt_id, when, when))
@@ -838,6 +845,7 @@ class VerdictTest(PricesCase):
     async def test_receipt_of_four_months_ago_gives_a_dated_badge(self) -> None:
         day: str = prices._days_ago(TODAY, 120)
         self.ah_receipt("R1", f"{day}T10:00:00", (1, "AH PINDAKAAS", 1, 2.50, 2.50))
+        self.ah_article(1, 1, "AH Pindakaas")  # de koppeling van AH op het artikelnummer: alleen die telt (CONFIRMED_LINKS)
         found: dict = (await self.annotate(deal("1", "AH Pindakaas", 2.00, 2.99, "nu 2,00")))["1"]
         self.assertEqual(found["badge"]["source"], "dated")
         self.assertEqual(found["badge"]["regular"], {"price": 2.50, "day": day, "source": "receipt", "judged": True, "fresh": False})
@@ -851,6 +859,7 @@ class VerdictTest(PricesCase):
         # de claim van de winkel en noemt de bon alleen als bekende hogere prijs (`known`), niet als de prijs waarmee is vergeleken.
         day: str = prices._days_ago(TODAY, 120)
         self.ah_receipt("R1", f"{day}T10:00:00", (1, "AH PINDAKAAS", 1, 2.50, 2.50))
+        self.ah_article(1, 1, "AH Pindakaas")  # de koppeling van AH op het artikelnummer: alleen die telt (CONFIRMED_LINKS)
         found: dict = (await self.annotate(deal("1", "AH Pindakaas", 2.00, 2.29, "nu 2,00")))["1"]
         self.assertEqual((found["verdict"]["lowestRegular"], found["verdict"]["percent"], found["verdict"]["inflated"]), (2.29, 13, False))
         self.assertIsNone(found["verdict"]["regular"])
@@ -862,6 +871,7 @@ class VerdictTest(PricesCase):
         # Eindreview 2026-11-12: bon van 300 dagen terug 3,49, aanbieding 2,49 van 2,79. De winkel zegt 11%, de bon zou 29% geven.
         day: str = prices._days_ago(TODAY, 300)
         self.ah_receipt("R1", f"{day}T10:00:00", (1, "AH PINDAKAAS", 1, 3.49, 3.49))
+        self.ah_article(1, 1, "AH Pindakaas")  # de koppeling van AH op het artikelnummer: alleen die telt (CONFIRMED_LINKS)
         found: dict = (await self.annotate(deal("1", "AH Pindakaas", 2.49, 2.79, "nu 2,49")))["1"]
         self.assertEqual((found["verdict"]["kind"], found["verdict"]["percent"], found["verdict"]["lowestRegular"]), ("small", 11, 2.79))
         self.assertEqual((found["badge"]["percent"], found["badge"]["source"], found["badge"]["inflated"]), (11, "store", False))
@@ -912,6 +922,18 @@ class VerdictTest(PricesCase):
         self.assertEqual((found["badge"]["source"], found["badge"]["regular"]["source"]), ("history", "search"))
         rows: list = (await in_db(prices._connect, lambda conn: prices._receipt_rows(conn, "ah", TODAY)))[0]
         self.assertEqual([(row["product_id"], row["linked_by"]) for row in rows], [("500", "name")], "de prijsgeschiedenis houdt de regel")
+
+    async def test_a_receipt_whose_article_number_equals_a_product_id_is_no_source(self) -> None:
+        # Herreview 2026-11-12 (N1): het nummer op een AH-bon is AH's artikelnummer, niet het id van de webwinkel. Dat 123456 ook het
+        # id van "AH Kip tandoori" is en de namen een woord delen ("KIPFILET" begint met "Kip") is toeval, geen bevestigde koppeling.
+        await self.observe("2026-10-15", "123456", "AH Kip tandoori", 4.49)
+        self.ah_receipt("R1", f"{prices._days_ago(TODAY, 10)}T10:00:00", (123456, "AH KIPFILET", 1, 2.99, 2.99))
+        found: dict = (await self.annotate(deal("123456", "AH Kip tandoori", 3.99, 4.49, "nu 3,99")))["123456"]
+        self.assertEqual((found["verdict"]["kind"], found["verdict"]["percent"], found["verdict"]["lowestRegular"]), ("small", 11, 4.49))
+        self.assertIs(found["verdict"]["inflated"], False)
+        self.assertEqual((found["badge"]["source"], found["badge"]["regular"]["source"]), ("history", "search"))
+        rows: list = (await in_db(prices._connect, lambda conn: prices._receipt_rows(conn, "ah", TODAY)))[0]
+        self.assertEqual([(row["product_id"], row["linked_by"]) for row in rows], [("123456", "id")], "de prijsgeschiedenis houdt de regel")
 
     async def test_a_receipt_with_a_confirmed_link_is_a_source_for_the_verdict(self) -> None:
         # Je eigen koppeling en de koppeling van AH op het artikelnummer zijn bevestigd: dan telt de bon wel.
@@ -1661,10 +1683,10 @@ class RegularPointsTest(PricesCase):
         }
 
     async def test_only_a_confirmed_link_gives_a_point(self) -> None:
-        for how in ("own", "shared", "article", "id"):
+        for how in ("own", "shared", "article"):
             with self.subTest(linked_by=how):
                 self.assertEqual(list(await self.points([self.line("receipt", linked_by=how)])), ["1"])
-        for how in ("name", "fallback", None):
+        for how in ("id", "name", "fallback", None):  # `id`: het artikelnummer is toevallig ook een id van de webwinkel
             with self.subTest(linked_by=how):
                 self.assertEqual(await self.points([self.line("receipt", linked_by=how), self.line("import", regular=2.89, linked_by=how)]), {})
 

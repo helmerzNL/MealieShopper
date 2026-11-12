@@ -1338,6 +1338,26 @@ class RegularPriceFromEverySourceTest(PricesCase):
         self.assertNotEqual(annotated["badge"]["source"], "store", "de app kent een gewone prijs van dit product")
         self.assertEqual(annotated["badge"]["regular"], {"price": 2.79, "day": days(-200), "source": "import", "judged": True, "fresh": False})
 
+    async def test_2026_11_12_an_import_linked_by_name_only_counts_once_you_link_it(self) -> None:
+        """Uitspraak van de eigenaar bij de eindreview van 2026-11-12: alleen bevestigde koppelingen tellen in het oordeel. Een
+        ingelezen aankoop die alleen op naam bij het product hoort (de mail noemt geen verpakking) staat in de prijsgeschiedenis,
+        maar is geen bron voor het oordeel: de kaart houdt de badge van de winkel. Koppel je hem zelf, dan telt hij wel. Dit keert
+        de melding hierboven om voor aankopen op naam, met opzet."""
+        await self.sync_offer(f"{TODAY}T05:00:00+00:00", offer("1", "AH Pindakaas", 1.99, 2.99, "nu 1,99", validFrom=TODAY, validUntil=days(6)))
+        with closing(db(price_import)) as conn, conn:
+            conn.execute(
+                "INSERT INTO imported_purchases (store, order_ref, position, day, title, quantity, paid, regular, imported_at) "
+                "VALUES ('ah', 'M1', 1, ?, 'AH Pindakaas', 1, 2.79, 2.79, 'x')",
+                (days(-200),),
+            )
+        annotated: dict = (await prices.annotate("ah", [offer("1", "AH Pindakaas", 1.99, 2.99, "nu 1,99")], today=TODAY))[0]
+        self.assertEqual(annotated["badge"]["source"], "store", "op naam is geen bron voor het oordeel")
+        purchases: list = (await self.product("1"))["purchases"]
+        self.assertEqual([(p["date"], p["source"]) for p in purchases], [(days(-200), "import")], "wel in de prijsgeschiedenis")
+        await product_links.save("ah", "AH Pindakaas", {"productId": "1", "title": "AH Pindakaas"}, now=f"{TODAY}T00:00:00+00:00")
+        linked: dict = (await prices.annotate("ah", [offer("1", "AH Pindakaas", 1.99, 2.99, "nu 1,99")], today=TODAY))[0]
+        self.assertEqual((linked["badge"]["source"], linked["badge"]["regular"]["source"]), ("dated", "import"))
+
 
 class SpeedTest(PricesCase):
     """Meldingen over traagheid: het dure werk gebeurt een keer, niet bij elke aanvraag."""

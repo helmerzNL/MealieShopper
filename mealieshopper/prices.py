@@ -16,7 +16,7 @@ aanbieding die je kocht bewaart `product_images.py` de afbeelding (in `product_i
 `history` geeft die per product in `savedImages`, om later te vergelijken als het product anders gaat heten.
 
 Daarbovenop (deel 2 van #178): de **prijs per kilo, liter of stuk** (`unit_price`), een **oordeel bij elke aanbieding**
-(`annotate`: is de actieprijs lager dan de gewone prijs van de laatste 30 dagen, hoe vaak was het product dit jaar in de aanbieding,
+(`annotate`: is de actieprijs lager dan de gewone prijs (`regular_price.choose`), hoe vaak was het product dit jaar in de aanbieding,
 en is een andere verpakking van hetzelfde product per kilo goedkoper) en **verpakkingen vergelijken** (`compare`: één zoekopdracht
 bij de winkel naar hetzelfde product in andere maten). Ideeën en testgevallen voor de prijs per eenheid komen uit het userscript
 *Albert Heijn kortingspercentages en prijs per kg/ml/etc.* van wolph (BSD-3-Clause); de code is eigen werk.
@@ -572,14 +572,12 @@ def _link_receipt_rows(
 
     Een gedeelde koppeling geldt alleen voor een ingelezen aankoop, na je eigen koppeling en voor al het andere. Elke regel zegt in
     `linked_by` hoe hij bij zijn product kwam: `own` (je eigen koppeling), `shared` (het gedeelde bestand), `article` (de koppeling van
-    AH op het artikelnummer), `id` (het nummer op de regel is het product zelf), `name` (op naam of bijna-naam, zonder verpakking) of
-    `fallback` (bij geen product, `bon:` of `import:`). De prijsgeschiedenis toont ze allemaal, het oordeel telt alleen de bevestigde
-    (`CONFIRMED_LINKS`, zie `_receipt_points`)."""
-    index: dict[str, str] = names.index
-    bare = _bare_index(index, store)
+    AH op het artikelnummer), `id`, `name` of `fallback` (`_guessed_row`). De prijsgeschiedenis toont ze allemaal, het oordeel telt
+    alleen de bevestigde (`CONFIRMED_LINKS`, zie `_receipt_points`)."""
+    bare = _bare_index(names.index, store)
     webshop: dict[str, _Linked] = {link.product_id: link for link in linked.values()}
     titles: dict[str, list[str]] = {}
-    for title, product_id in index.items():
+    for title, product_id in names.index.items():
         titles.setdefault(product_id, []).append(title)
     found: list[dict[str, Any]] = []
     for row in rows:
@@ -591,35 +589,49 @@ def _link_receipt_rows(
         shared_link = shared.get(name_keys.key(row["title"])) if shared and row["source"] == "import" else None
         if shared_link:
             found.append(_shared_link_row(row, shared_link))
-            continue
-        fallback = f"import:{name}" if row["source"] == "import" else f"bon:{name}"
-        # Het id op een bon is AH's artikelnummer, dat toevallig gelijk kan zijn aan het id van een ander product in de webwinkel
-        # ("AH ROOKWORST" 627748 en "Dr. Oetker Ristorante pizza hawaii 3-pack" 627748). Een bekend id telt dus alleen als de namen
-        # minstens een woord delen. Hoort het id bij een ander product, dan valt het ook als laatste keus af.
-        same_id = bool(own) and own in titles and _names_agree(name, titles[own])
-        other_product = bool(own) and own in titles and not same_id
-        if own in linked:
-            # Gekoppeld via het artikelnummer: de echte naam uit de webwinkel ("Red Band Winegums original" in plaats van "RED BAND").
-            # De naam op de bon blijft vindbaar (`receipt_name`). Het merk en de inhoud komen ook van de koppeling: een bon heeft ze niet.
-            shop: _Linked = linked[own]
-            found.append({
-                **dict(row), "product_id": shop.product_id, "title": shop.title or row["title"], "brand": shop.brand,
-                "unit_size": shop.unit_size, "receipt_name": row["title"], "linked_by": "article",
-            })
-            continue
-        matched: str | None = _match_name(index, bare, store, name)
-        if name in names.shared:  # twee producten met precies deze naam: de prijs kiest
-            matched = _nearest_priced(names.shared[name], row, matched) or matched
-        key = own if same_id else (matched or (None if other_product else own) or fallback)
-        # Een bonregel met een artikelnummer dat (nog) bij geen enkel product hoort: die kan `history` meteen laten opzoeken.
-        # Op naam bij een product dat de app van de bonkoppeling kent: dan ook met het merk en de inhoud van daar.
-        known: dict[str, Any] = {"brand": webshop[key].brand, "unit_size": webshop[key].unit_size} if key in webshop and not row["unit_size"] else {}
-        linked_by: str = "id" if own and key == own else ("name" if key == matched else "fallback")
-        found.append({
-            **dict(row), **known, "product_id": key, "lookup": row["source"] == "receipt" and bool(own) and key in (own, fallback),
-            "linked_by": linked_by,
-        })
+        elif own in linked:
+            found.append(_article_row(row, linked[own]))
+        else:
+            found.append(_guessed_row(store, row, names, bare, titles, webshop))
     return found
+
+
+def _article_row(row: Any, shop: _Linked) -> dict[str, Any]:
+    """Een bonregel gekoppeld via het artikelnummer (`ah_orders.resolve_receipt_products`): de echte naam uit de webwinkel ("Red Band
+    Winegums original" in plaats van "RED BAND"). De naam op de bon blijft vindbaar (`receipt_name`). Het merk en de inhoud komen ook
+    van de koppeling: een bon heeft ze niet."""
+    return {
+        **dict(row), "product_id": shop.product_id, "title": shop.title or row["title"], "brand": shop.brand,
+        "unit_size": shop.unit_size, "receipt_name": row["title"], "linked_by": "article",
+    }
+
+
+def _guessed_row(
+    store: str, row: Any, names: _Names, bare: dict[str, str], titles: dict[str, list[str]], webshop: dict[str, _Linked]
+) -> dict[str, Any]:
+    """Een regel zonder bevestigde koppeling (`_link_receipt_rows`), met `linked_by`: `id` (het nummer op de bon is ook het id van
+    een product in de webwinkel), `name` (op naam of bijna-naam, zonder verpakking) of `fallback` (bij geen product, `bon:` of
+    `import:`). Geen van drie is een bron voor het oordeel (`CONFIRMED_LINKS`).
+
+    Het id op een bon is AH's artikelnummer, dat toevallig gelijk kan zijn aan het id van een ander product in de webwinkel
+    ("AH ROOKWORST" 627748 en "Dr. Oetker Ristorante pizza hawaii 3-pack" 627748). Een bekend id telt dus alleen als de namen
+    minstens een woord delen. Hoort het id bij een ander product, dan valt het ook als laatste keus af."""
+    own, name = row["receipt_product_id"], _fold_name(row["title"])
+    fallback: str = f"import:{name}" if row["source"] == "import" else f"bon:{name}"
+    same_id: bool = bool(own) and own in titles and _names_agree(name, titles[own])
+    other_product: bool = bool(own) and own in titles and not same_id
+    matched: str | None = _match_name(names.index, bare, store, name)
+    if name in names.shared:  # twee producten met precies deze naam: de prijs kiest
+        matched = _nearest_priced(names.shared[name], row, matched) or matched
+    key = own if same_id else (matched or (None if other_product else own) or fallback)
+    # Een bonregel met een artikelnummer dat (nog) bij geen enkel product hoort: die kan `history` meteen laten opzoeken.
+    # Op naam bij een product dat de app van de bonkoppeling kent: dan ook met het merk en de inhoud van daar.
+    known: dict[str, Any] = {"brand": webshop[key].brand, "unit_size": webshop[key].unit_size} if key in webshop and not row["unit_size"] else {}
+    linked_by: str = "id" if own and key == own else ("name" if key == matched else "fallback")
+    return {
+        **dict(row), **known, "product_id": key, "lookup": row["source"] == "receipt" and bool(own) and key in (own, fallback),
+        "linked_by": linked_by,
+    }
 
 
 async def _product_details(conn: aiosqlite.Connection, store: str, ids: list[str]) -> dict[str, dict[str, Any]]:
@@ -1788,9 +1800,10 @@ async def _order_points(
 
 
 # Hoe een bonregel of ingelezen aankoop aan zijn product hangt (`_link_receipt_rows`): alleen deze koppelingen zijn bevestigd. Een
-# regel op naam ("AH RUNDERGEHAKT" bij "AH Rundergehakt 500 g") kan een andere verpakking zijn: die staat in de prijsgeschiedenis,
-# maar is geen bron voor het oordeel en de gewone prijs van een aankoop (antwoord van de eigenaar, 2026-11-12).
-CONFIRMED_LINKS: frozenset[str] = frozenset({"own", "shared", "article", "id"})
+# regel op naam ("AH RUNDERGEHAKT" bij "AH Rundergehakt 500 g") kan een andere verpakking zijn, en een regel op `id` is een
+# artikelnummer van AH dat toevallig ook een id van de webwinkel is: die staan in de prijsgeschiedenis, maar zijn geen bron voor het
+# oordeel en de gewone prijs van een aankoop (antwoord van de eigenaar en herreview, 2026-11-12).
+CONFIRMED_LINKS: frozenset[str] = frozenset({"own", "shared", "article"})
 
 
 def _receipt_points(

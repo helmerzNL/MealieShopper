@@ -658,7 +658,9 @@ class OffersScanNodeTest(unittest.TestCase):
             "console.log(JSON.stringify({ badge: offerBadge(old), lines: offerVerdictLines(old) }));"
         )
         self.assertIn("offer-badge--good offer-badge--store", result["badge"])
-        self.assertIn("offers.badge.title_store {", result["badge"])
+        # Herreview 2026-11-12 (N3): de uitleg zegt niet dat de app geen gewone prijs kent, maar dat de bekende te oud is.
+        self.assertIn("offers.badge.title_store_old {", result["badge"])
+        self.assertNotIn("offers.badge.title_store {", result["badge"])
         self.assertEqual([line["cls"] for line in result["lines"]], ["verdict verdict--regular-old"])
         self.assertIn("2022-10-09", result["lines"][0]["text"])
 

@@ -481,7 +481,7 @@ def _order_day(row: Any) -> str:
 
 async def get_order(order_id: int) -> dict[str, Any] | None:
     """Een bestelling met haar producten. Elke regel krijgt de velden van `purchase_lines.enrich` (categorie, korting tegen de gewone
-    prijs van 30 dagen, eerder gekocht), de bestelling `saved`, `savedPercent`, `statusKind` en `statusText`. De gewone prijs van de
+    prijs bij de aankoop, eerder gekocht), de bestelling `saved`, `savedPercent`, `statusKind` en `statusText`. De gewone prijs van de
     regels wordt eerst bijgewerkt (`purchase_lines.fill_regular`)."""
     async with _connect() as conn:
         row = await auth.fetchone(conn, "SELECT * FROM ah_orders WHERE order_id = ?", (int(order_id),))
@@ -1228,7 +1228,7 @@ def _receipt_summary(row: Any) -> dict[str, Any]:
     savings = row["summary_savings"]
     return {
         "images": price_import.split_lines(row["summary_images"]), "productNames": price_import.split_lines(row["summary_names"]),
-        # De bonusregels plus wat de regels met een gewone prijs van 30 dagen scheelden, met als prijs per stuk het bedrag gedeeld door
+        # De bonusregels plus wat de regels met een gewone prijs bij de aankoop scheelden, met als prijs per stuk het bedrag gedeeld door
         # het aantal als de bon geen prijs noemt (bij één stuk). Dezelfde som als de detailroute: die geeft een regel hooguit zijn eigen
         # bedrag aan bonus en telt de rest in het totaal. Alleen als de gewone prijs onder de prijs vóór bonus ligt, kan het verschillen.
         "savings": None if not row["summary_lines"] else round(float(savings or 0) + float(row["summary_history"] or 0), 2),
@@ -1334,7 +1334,7 @@ async def get_receipt(
             result["images"] = await backfill_receipt_images(batches=1, only=missing) if missing else {"products": 0, "requests": 0, "failed": 0}
         except Exception:  # noqa: BLE001 - de foto's zijn een extraatje
             result["images"] = None
-    # Na het koppelen kunnen er regels bij een product horen, dus pas nu de gewone prijs van 30 dagen bijwerken en lezen.
+    # Na het koppelen kunnen er regels bij een product horen, dus pas nu de gewone prijs bij de aankoop bijwerken en lezen.
     await purchase_lines.fill_regular("ah", receipt_ids=[receipt_id])
     async with _connect() as conn:
         lines = await _receipt_lines(conn, receipt_id)

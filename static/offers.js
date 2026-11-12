@@ -73,7 +73,7 @@ function offersRemember(key, value) {
   }
 }
 
-// De filters in de zijbalk: merken en categorieën (elk een lijst om te tonen en een om te verbergen, offers_facets.js), eerder gekocht, minimale korting (procent onder de laagste gewone prijs van 30 dagen),
+// De filters in de zijbalk: merken en categorieën (elk een lijst om te tonen en een om te verbergen, offers_facets.js), eerder gekocht, minimale korting (procent onder de gewone prijs, het getal van de badge),
 // prijs per eenheid hooguit (in een eenheid), laagste prijs in een jaar (yearLow) en zelden in de aanbieding (minder dan zes keer per
 // jaar, folderacties meegeteld). Per winkel onthouden, want merken verschillen per winkel.
 function offersEmptyFilters() {
@@ -584,8 +584,9 @@ function offerRegularSourceParams(regular) {
   return { price: formatPrice(regular.price), source: t(`offers.regular.source.${regular.source}`), date: offerDateText(regular.day) };
 }
 
-// De uitleg bij de badge: het oordeel, de laagste gewone prijs van 30 dagen waarmee vergeleken is, en de claim van de winkel als die
-// hoger is. Kent de app geen gewone prijs, dan is het getal de claim van de winkel en zegt de uitleg dat. Kent ze wel een, maar is de
+// De uitleg bij de badge: het oordeel, de gewone prijs waarmee vergeleken is (de laagste van 30 dagen, of met bron en datum), en de
+// claim van de winkel als die hoger is. Kent de app geen gewone prijs, dan is het getal de claim van de winkel en zegt de uitleg dat,
+// en is de bekende prijs te oud voor een oordeel, dan zegt ze dat. Kent ze wel een, maar is de
 // prijs ervoor van de winkel lager (badge.known, prices._stated_is_stricter), dan telt de winkel en noemt de uitleg de hogere prijs
 // met zijn bron en datum. Een regel van een aankoop heeft geen oordeel, alleen { badge: { percent, source } }: dan het percentage met
 // het oordeel dat bij dat getal hoort, zonder de vergelijkingsprijs en zonder "30 dagen" (die gewone prijs kan tot een jaar ouder
@@ -596,6 +597,8 @@ function offerBadgeTitle(offer) {
   // Alleen de claim van de winkel, en die niet opgepompt: dan zegt de uitleg dat de app geen (lagere) gewone prijs kent.
   if (badge.source === "store" && !badge.inflated) {
     if (badge.known) return t("offers.badge.title_store_lower", { percent: badge.percent, ...offerRegularSourceParams(badge.known) });
+    // De bekende gewone prijs is ouder dan een jaar: de regel "Te oud voor een oordeel" staat eronder met prijs en datum.
+    if (offer.verdict && offer.verdict.regular && offer.verdict.regular.judged === false) return t("offers.badge.title_store_old", { percent: badge.percent });
     return t("offers.badge.title_store", { percent: badge.percent });
   }
   // Een gewone prijs met bron en datum (dated): de prijs en zijn datum staan er zelf bij. Is hij ouder dan 30 dagen (niet fresh), of
