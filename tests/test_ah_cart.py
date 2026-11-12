@@ -10,18 +10,31 @@ import httpx
 
 os.environ["PASSKEY_AUTH_ENABLED"] = "false"
 
+from helpers import AppTestCase, run, sent_json, sent_params, served  # noqa: E402
+
 from mealieshopper import ah  # noqa: E402
-from mealieshopper.i18n import tr  # noqa: E402
 from mealieshopper import app as app_module  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
-from helpers import AppTestCase, run, sent_json, sent_params, served  # noqa: E402
+from mealieshopper.i18n import tr  # noqa: E402
 
 
 class NormalizeQuantityTest(AppTestCase):
     def test_values(self):
         cases = {
-            500: 99, 99: 99, 100: 99, 98: 98, 1: 1, 0: 1, -3: 1,
-            2.6: 3, "7": 7, "500": 99, None: 1, "": 1, "abc": 1, float("nan"): 1,
+            500: 99,
+            99: 99,
+            100: 99,
+            98: 98,
+            1: 1,
+            0: 1,
+            -3: 1,
+            2.6: 3,
+            "7": 7,
+            "500": 99,
+            None: 1,
+            "": 1,
+            "abc": 1,
+            float("nan"): 1,
         }
         for value, expected in cases.items():
             self.assertEqual(ah.normalize_quantity(value), expected, repr(value))
@@ -30,10 +43,18 @@ class NormalizeQuantityTest(AppTestCase):
 class ParsePackSizeTest(AppTestCase):
     def test_sizes(self):
         cases = {
-            "6 stuks": (6, "count"), "10 stuks": (10, "count"), "per stuk": (1, "count"),
-            "1 stuk": (1, "count"), "500 g": (500, "mass"), "1 kg": (1000, "mass"),
-            "ca. 400 g": (400, "mass"), "4 x 125 g": (500, "mass"), "1 l": (1000, "volume"),
-            "0,5 l": (500, "volume"), "330 ml": (330, "volume"), "75 cl": (750, "volume"),
+            "6 stuks": (6, "count"),
+            "10 stuks": (10, "count"),
+            "per stuk": (1, "count"),
+            "1 stuk": (1, "count"),
+            "500 g": (500, "mass"),
+            "1 kg": (1000, "mass"),
+            "ca. 400 g": (400, "mass"),
+            "4 x 125 g": (500, "mass"),
+            "1 l": (1000, "volume"),
+            "0,5 l": (500, "volume"),
+            "330 ml": (330, "volume"),
+            "75 cl": (750, "volume"),
         }
         for text, expected in cases.items():
             self.assertEqual(ah.parse_pack_size(text), expected, text)
@@ -67,7 +88,7 @@ class PacksNeededTest(AppTestCase):
     def test_unmeasurable_is_one_pack(self):
         self.assertEqual(ah.packs_needed(2, "el", "500 g"), 1)
         self.assertEqual(ah.packs_needed(3, "teentje", "1 stuk"), 1)
-        self.assertEqual(ah.packs_needed(2, None, "1 kg"), 1)      # "2 uien", verkocht per gewicht
+        self.assertEqual(ah.packs_needed(2, None, "1 kg"), 1)  # "2 uien", verkocht per gewicht
         self.assertEqual(ah.packs_needed(500, "g", "6 stuks"), 1)  # soort komt niet overeen
         self.assertEqual(ah.packs_needed(500, "g", None), 1)
 
@@ -89,10 +110,10 @@ class AssessPacksTest(AppTestCase):
             ((6, None, "10 stuks"), 1),
             ((8, None, "6 stuks"), 2),
             ((500, "g", "250 g"), 2),
-            ((2, "el", "500 g"), 1),       # olie: een fles
+            ((2, "el", "500 g"), 1),  # olie: een fles
             ((3, "teentje", "1 stuk"), 1),
-            ((2, None, "1 kg"), 1),        # "2 uien" bij gewicht
-            ((None, "tl", "100 g"), 1),    # onbekende hoeveelheid zout
+            ((2, None, "1 kg"), 1),  # "2 uien" bij gewicht
+            ((None, "tl", "100 g"), 1),  # onbekende hoeveelheid zout
             ((3, None, "per stuk"), 3),
         ):
             self.assertEqual(ah.assess_packs(*args), (packs, None), args)
@@ -121,36 +142,40 @@ class AssessPacksTest(AppTestCase):
 
 class AddToShoppingListTest(AppTestCase):
     def test_quantities_are_clamped_in_the_payload(self):
-        with mock.patch.object(ah, "get_user_token", return_value="tok"), \
-                served(httpx.Response(200)) as patch:
-            run(ah.add_to_shopping_list([
-                {"productId": 1, "quantity": 500, "query": "aardappelen"},
-                {"productId": 2, "quantity": 0, "query": "melk"},
-                {"productId": 3, "quantity": "4", "query": "eieren"},
-            ]))
+        with mock.patch.object(ah, "get_user_token", return_value="tok"), served(httpx.Response(200)) as patch:
+            run(
+                ah.add_to_shopping_list(
+                    [
+                        {"productId": 1, "quantity": 500, "query": "aardappelen"},
+                        {"productId": 2, "quantity": 0, "query": "melk"},
+                        {"productId": 3, "quantity": "4", "query": "eieren"},
+                    ]
+                )
+            )
         self.assertEqual(patch.calls.last.request.method, "PATCH")
         quantities = [item["quantity"] for item in sent_json(patch.calls.last)["items"]]
         self.assertEqual(quantities, [99, 1, 4])
 
     def test_the_same_product_is_sent_once_with_the_quantities_added_up(self):
-        with mock.patch.object(ah, "get_user_token", return_value="tok"), \
-                served(httpx.Response(200)) as patch:
-            run(ah.add_to_shopping_list([
-                {"productId": 7, "quantity": 1, "query": "melk"},
-                {"productId": 8, "quantity": 2, "query": "eieren"},
-                {"productId": "7", "quantity": 2, "title": "AH Halfvolle melk"},
-                {"productId": 8, "quantity": 99, "query": "eieren"},
-            ]))
+        with mock.patch.object(ah, "get_user_token", return_value="tok"), served(httpx.Response(200)) as patch:
+            run(
+                ah.add_to_shopping_list(
+                    [
+                        {"productId": 7, "quantity": 1, "query": "melk"},
+                        {"productId": 8, "quantity": 2, "query": "eieren"},
+                        {"productId": "7", "quantity": 2, "title": "AH Halfvolle melk"},
+                        {"productId": 8, "quantity": 99, "query": "eieren"},
+                    ]
+                )
+            )
         items = sent_json(patch.calls.last)["items"]
         self.assertEqual([item["productId"] for item in items], [7, 8])
         self.assertEqual([item["quantity"] for item in items], [3, 99])
         self.assertEqual(items[0]["description"], "melk")
 
-
     def test_an_open_order_gets_a_readable_message(self):
         refused = httpx.Response(412, text='{"status":412,"message":"Server in order mode"}')
-        with mock.patch.object(ah, "get_user_token", return_value="tok"), \
-                served(refused):
+        with mock.patch.object(ah, "get_user_token", return_value="tok"), served(refused):
             with self.assertRaises(RuntimeError) as caught:
                 run(ah.add_to_shopping_list([{"productId": 1, "quantity": 1}]))
         self.assertIn("bestelling open", str(caught.exception))
@@ -159,8 +184,7 @@ class AddToShoppingListTest(AppTestCase):
 
     def test_other_errors_keep_the_raw_answer(self):
         refused = httpx.Response(500, text="kapot")
-        with mock.patch.object(ah, "get_user_token", return_value="tok"), \
-                served(refused):
+        with mock.patch.object(ah, "get_user_token", return_value="tok"), served(refused):
             with self.assertRaisesRegex(RuntimeError, r"\(500\): kapot"):
                 run(ah.add_to_shopping_list([{"productId": 1, "quantity": 1}]))
 
@@ -168,9 +192,11 @@ class AddToShoppingListTest(AppTestCase):
 class SearchRetryTest(AppTestCase):
     def search(self, side_effect: Any) -> tuple[Any, Any, list[float]]:
         """Zoek met `side_effect` als antwoorden van AH. Geeft (uitkomst of fout, de route, de pauzes van `_wait`)."""
-        with mock.patch.object(ah, "get_token", return_value="tok"), \
-                mock.patch.object(ah, "_wait", new_callable=mock.AsyncMock) as wait, \
-                served(side_effect=side_effect) as get:
+        with (
+            mock.patch.object(ah, "get_token", return_value="tok"),
+            mock.patch.object(ah, "_wait", new_callable=mock.AsyncMock) as wait,
+            served(side_effect=side_effect) as get,
+        ):
             try:
                 result: Any = run(ah.search_products("melk", 1))
             except Exception as exc:  # noqa: BLE001
@@ -192,8 +218,12 @@ class SearchRetryTest(AppTestCase):
 
     def test_every_kind_of_dropped_connection_and_timeout_is_tried_again(self):
         # Wat requests `ConnectionError` en `Timeout` noemde: geen verbinding, een server die ophangt, een time-out.
-        for failure in (httpx.RemoteProtocolError("Server disconnected"), httpx.ReadError("reset"),
-                        httpx.ReadTimeout("traag"), httpx.ConnectTimeout("traag")):
+        for failure in (
+            httpx.RemoteProtocolError("Server disconnected"),
+            httpx.ReadError("reset"),
+            httpx.ReadTimeout("traag"),
+            httpx.ConnectTimeout("traag"),
+        ):
             answer = httpx.Response(200, json={"products": []})
             result, get, waits = self.search([failure, answer])
             self.assertEqual((result, get.call_count, waits), ([], 2, [0.5]), type(failure).__name__)
@@ -206,8 +236,15 @@ class SearchRetryTest(AppTestCase):
 
 
 def ah_product(webshop_id, title, brand="AH", bundle=False):
-    return {"webshopId": webshop_id, "title": title, "brand": brand, "isVirtualBundle": bundle,
-            "currentPrice": 1.0, "salesUnitSize": "500 g", "images": []}
+    return {
+        "webshopId": webshop_id,
+        "title": title,
+        "brand": brand,
+        "isVirtualBundle": bundle,
+        "currentPrice": 1.0,
+        "salesUnitSize": "500 g",
+        "images": [],
+    }
 
 
 class SearchRankTest(AppTestCase):
@@ -238,8 +275,10 @@ class SearchRankTest(AppTestCase):
 
     def test_ahs_own_brand_may_be_left_out(self):
         self.assertEqual(self.titles("penne", self.PENNE)[0], "AH Penne")
-        spaghetti = [ah_product(1, "Knorr Maaltijdmix spaghetti bolognese", brand="Knorr"),
-                     ah_product(2, "AH Biologisch Spaghetti", brand="AH Biologisch")]
+        spaghetti = [
+            ah_product(1, "Knorr Maaltijdmix spaghetti bolognese", brand="Knorr"),
+            ah_product(2, "AH Biologisch Spaghetti", brand="AH Biologisch"),
+        ]
         self.assertEqual(self.titles("spaghetti", spaghetti)[0], "AH Biologisch Spaghetti")
 
     def test_another_brand_is_not_an_exact_match(self):
@@ -258,14 +297,11 @@ class SearchRankTest(AppTestCase):
             ah_product(3, "AH Scharrel roasted kipfilet 2-pack", bundle=True),
             ah_product(4, "AH Scharrel kipfilet 2 stuks"),
         ]
-        self.assertEqual(
-            [item["webshopId"] for item in ah.rank_search_results("kipfilet", products)], [2, 4, 1, 3]
-        )
+        self.assertEqual([item["webshopId"] for item in ah.rank_search_results("kipfilet", products)], [2, 4, 1, 3])
 
     def test_otherwise_ahs_order_stays(self):
         # Milner is kaas zonder "kaas" in de naam: woorden in de titel tellen niet mee.
-        products = [ah_product(1, "Milner Jong belegen 35+ plakken", brand="Milner"),
-                    ah_product(2, "AH Kruiden roomkaas")]
+        products = [ah_product(1, "Milner Jong belegen 35+ plakken", brand="Milner"), ah_product(2, "AH Kruiden roomkaas")]
         self.assertEqual(self.titles("kaas", products), ["Milner Jong belegen 35+ plakken", "AH Kruiden roomkaas"])
         self.assertEqual(self.titles("", self.PENNE)[-1], "AH Guacamole seasoning mix 3-pack")
 
@@ -325,12 +361,17 @@ class SearchRankTest(AppTestCase):
     def test_cold_cuts_stay_when_no_fresh_meat_names_the_ingredient(self):
         ids = lambda query, products: [item["webshopId"] for item in ah.rank_search_results(query, products)]
         # Ham en rosbief koop je als vleeswaren: geen los stuk vers vlees noemt het ingrediënt, dus de volgorde blijft.
-        ham = [self.meat(1, "AH Schouderham 2-pack", "Vleeswaren", bundle=True), self.meat(2, "AH Achterham", "Vleeswaren"),
-               self.meat(3, "AH Hamlappen", "Vlees")]
+        ham = [
+            self.meat(1, "AH Schouderham 2-pack", "Vleeswaren", bundle=True),
+            self.meat(2, "AH Achterham", "Vleeswaren"),
+            self.meat(3, "AH Hamlappen", "Vlees"),
+        ]
         self.assertEqual(ids("achterham", ham)[0], 2)
         # Alleen een multipack vers vlees noemt het ingrediënt: dat telt niet, de gerookte plakjes blijven voorop.
-        smoked = [self.meat(1, "AH Gerookte kipfilet", "Vleeswaren"),
-                  self.meat(2, "AH Scharrel gerookte kipfiletflakes 3-pack", "Vlees", bundle=True)]
+        smoked = [
+            self.meat(1, "AH Gerookte kipfilet", "Vleeswaren"),
+            self.meat(2, "AH Scharrel gerookte kipfiletflakes 3-pack", "Vlees", bundle=True),
+        ]
         self.assertEqual(ids("gerookte kipfilet", smoked), [1, 2])
         # Zonder categorie (oude gegevens) verandert er niets.
         plain = [ah_product(1, "AH Biologisch Kipfilet", brand="AH Biologisch"), ah_product(2, "AH Scharrel kipfilet 2 stuks")]
@@ -369,10 +410,8 @@ class CartRouteTest(AppTestCase):
         self.client = self.client_for(create_app())
 
     async def post(self, items, unit_size):
-        product = {"webshopId": "42", "title": "Product", "unitSize": unit_size,
-                   "price": {"now": 2.0}, "images": []}
-        with mock.patch.object(ah, "search_product", return_value=product), \
-                mock.patch.object(ah, "add_to_shopping_list") as add:
+        product = {"webshopId": "42", "title": "Product", "unitSize": unit_size, "price": {"now": 2.0}, "images": []}
+        with mock.patch.object(ah, "search_product", return_value=product), mock.patch.object(ah, "add_to_shopping_list") as add:
             response = await self.client.post("/api/ah/cart", json={"items": items})
         return response, add
 
@@ -395,12 +434,23 @@ class CartRouteTest(AppTestCase):
         self.assertEqual(add.call_args.args[0], [{"productId": "42", "quantity": 2}])
 
     async def test_confirmed_products_skip_the_search(self):
-        with mock.patch.object(ah, "search_product", side_effect=AssertionError("niet zoeken")), \
-                mock.patch.object(ah, "add_to_shopping_list") as add:
-            response = await self.client.post("/api/ah/cart", json={"items": [
-                {"query": "eieren", "productId": 7, "quantity": 500, "title": "AH Eieren 10 stuks",
-                 "price": 2.99, "unitSize": "10 stuks", "image": "https://img/7.jpg"},
-            ]})
+        with mock.patch.object(ah, "search_product", side_effect=AssertionError("niet zoeken")), mock.patch.object(ah, "add_to_shopping_list") as add:
+            response = await self.client.post(
+                "/api/ah/cart",
+                json={
+                    "items": [
+                        {
+                            "query": "eieren",
+                            "productId": 7,
+                            "quantity": 500,
+                            "title": "AH Eieren 10 stuks",
+                            "price": 2.99,
+                            "unitSize": "10 stuks",
+                            "image": "https://img/7.jpg",
+                        },
+                    ]
+                },
+            )
         self.assertEqual(response.status_code, 200)
         self.assertEqual(add.call_args.args[0], [{"productId": 7, "quantity": 99}])
         item = response.get_json()["items"][0]
@@ -411,8 +461,12 @@ class CartRouteTest(AppTestCase):
 
 def search_result(webshop_id, title, unit_size, price=1.5):
     return {
-        "webshopId": str(webshop_id), "title": title, "brand": "AH", "unitSize": unit_size,
-        "price": {"now": price, "unitSize": unit_size}, "images": [{"url": f"https://img/{webshop_id}.jpg"}],
+        "webshopId": str(webshop_id),
+        "title": title,
+        "brand": "AH",
+        "unitSize": unit_size,
+        "price": {"now": price, "unitSize": unit_size},
+        "images": [{"url": f"https://img/{webshop_id}.jpg"}],
         "isBonus": False,
     }
 
@@ -445,8 +499,7 @@ class CartPreviewRouteTest(AppTestCase):
         self.assertEqual(response.status_code, 200)
         eggs, cheese = response.get_json()["items"]
         self.assertEqual(eggs["display"], "8 eieren")
-        self.assertEqual([(c["productId"], c["packs"], c["doubt"]) for c in eggs["candidates"]],
-                         [("1", 1, None), ("2", 2, None)])
+        self.assertEqual([(c["productId"], c["packs"], c["doubt"]) for c in eggs["candidates"]], [("1", 1, None), ("2", 2, None)])
         self.assertEqual(eggs["candidates"][0]["url"], "https://www.ah.nl/producten/product/wi1")
         self.assertEqual(eggs["candidates"][0]["image"], "https://img/1.jpg")
         self.assertEqual(eggs["candidates"][0]["imageLarge"], "https://img/1.jpg")
@@ -474,9 +527,7 @@ class CartPreviewRouteTest(AppTestCase):
                 raise RuntimeError("AH productzoekopdracht mislukt (500)")
             return []
 
-        response = await self.preview(
-            [{"query": "niets", "quantity": 1}, {"query": "kapot", "quantity": 1}], search
-        )
+        response = await self.preview([{"query": "niets", "quantity": 1}, {"query": "kapot", "quantity": 1}], search)
         self.assertEqual(response.status_code, 200)
         nothing, broken = response.get_json()["items"]
         self.assertEqual(nothing["candidates"], [])
@@ -489,9 +540,7 @@ class CartPreviewRouteTest(AppTestCase):
         def search(query, limit):
             return [search_result(9, "AH Pak choi", "250 g")] if query == "pak choi" else []
 
-        response = await self.preview(
-            [{"query": "pak choi", "display": "500 g paksoi", "quantity": 500, "unit": "g"}], search
-        )
+        response = await self.preview([{"query": "pak choi", "display": "500 g paksoi", "quantity": 500, "unit": "g"}], search)
         (row,) = response.get_json()["items"]
         self.assertEqual((row["query"], row["display"], row["quantity"], row["unit"]), ("pak choi", "500 g paksoi", 500, "g"))
         self.assertEqual([(c["productId"], c["packs"]) for c in row["candidates"]], [("9", 2)])

@@ -12,6 +12,7 @@ wat een stuk dan kost. Deze module zet wat de winkels leveren om naar één vorm
 Wat we niet met zekerheid kunnen lezen blijft `unknown`: liever een aanbieding zonder rekenwerk dan een
 verkeerde prijs.
 """
+
 from __future__ import annotations
 
 import re
@@ -50,7 +51,9 @@ _PERCENT_RE = re.compile(rf"{_NUMBER}\s*%")
 _AMOUNT_OFF_RE = re.compile(rf"{_EURO}{_NUMBER}\s*(?:euro\s*)?korting|korting\s*{_EURO}{_NUMBER}")
 _FROM_QUANTITY_RE = re.compile(r"\bvanaf\s*(\d+)\s*(?:stuks?|st)\b")
 # "per 100 gram voor 1.59", "per kilo voor 9,99": het bedrag geldt voor dat gewicht of die inhoud.
-_PER_MEASURE_RE = re.compile(rf"\bper\s*(\d+(?:[.,]\d+)?)?\s*(kilogram|kilo|kg|gram|gr|g|milliliter|liter|ml|cl|dl|l)\s*voor\s*{_EURO}{_NUMBER}(?![\d%])(?!\s*%)")
+_PER_MEASURE_RE = re.compile(
+    rf"\bper\s*(\d+(?:[.,]\d+)?)?\s*(kilogram|kilo|kg|gram|gr|g|milliliter|liter|ml|cl|dl|l)\s*voor\s*{_EURO}{_NUMBER}(?![\d%])(?!\s*%)"
+)
 
 
 def _number(text: str) -> float:
@@ -70,7 +73,12 @@ def parse_mechanic(*texts: Any) -> dict[str, Any]:
             continue
         match = _PER_MEASURE_RE.search(text)
         if match:
-            return {"type": PER_MEASURE, "minQuantity": 1, "measure": f"{match.group(1) or '1'} {match.group(2)}", "measurePrice": _number(match.group(3))}
+            return {
+                "type": PER_MEASURE,
+                "minQuantity": 1,
+                "measure": f"{match.group(1) or '1'} {match.group(2)}",
+                "measurePrice": _number(match.group(3)),
+            }
         match = _BUY_GET_FREE_RE.search(text)
         if match:
             pay, free = int(match.group(1)), int(match.group(2))
@@ -127,9 +135,7 @@ def is_measure_price(label: Any, price: Any) -> bool:
     return mechanic["type"] == PER_MEASURE and isinstance(price, (int, float)) and abs(price - mechanic["measurePrice"]) <= 0.005
 
 
-def effective_unit_price(
-    mechanic: dict[str, Any], price_before: float | None, price_now: float | None
-) -> float | None:
+def effective_unit_price(mechanic: dict[str, Any], price_before: float | None, price_now: float | None) -> float | None:
     """Wat één stuk kost als je de voorwaarde van de aanbieding haalt, of None als dat niet te weten is.
 
     `price_before` is de gewone prijs. `price_now` is de prijs die de winkel noemt; bij een aanbieding met
@@ -310,8 +316,13 @@ def make_deal(store: str, product: dict[str, Any], today: date | None = None) ->
     price_now = price_now.get("now") if isinstance(price_now, dict) else price_now
     price_before = promo.get("priceBefore")
     described = describe(
-        promo.get("mechanism"), promo.get("label"), price_now=price_now, price_before=price_before,
-        valid_from=promo.get("validFrom"), valid_until=promo.get("validUntil"), today=today,
+        promo.get("mechanism"),
+        promo.get("label"),
+        price_now=price_now,
+        price_before=price_before,
+        valid_from=promo.get("validFrom"),
+        valid_until=promo.get("validUntil"),
+        today=today,
     )
     return {
         "store": store,

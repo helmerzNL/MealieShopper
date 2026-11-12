@@ -11,6 +11,7 @@ de pagina om voor Mealie. Zie docs/onderzoek-hellofresh.md.
 - We vragen zuinig (één verzoek tegelijk, met een pauze ertussen), noemen ons in de User-Agent en komen alleen op de
   paden die `robots.txt` niet uitsluit: `/menus/<week>` en `/recipes/<recept>`.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -57,6 +58,7 @@ CREATE TABLE IF NOT EXISTS hellofresh_menus (
   payload TEXT NOT NULL
 );
 """
+
 
 class HelloFreshError(RuntimeError):
     """Een fout met een tekst van onszelf (nooit het antwoord van HelloFresh), die de gebruiker mag zien."""
@@ -122,7 +124,9 @@ async def _get(path: str) -> str:
     if response.status_code == 404:
         raise ValueError(tr("HelloFresh heeft dit niet (meer)", "HelloFresh does not have this (any more)"))
     if response.status_code != 200:
-        raise HelloFreshError(tr(f"HelloFresh antwoordde met status {response.status_code}", f"HelloFresh answered with status {response.status_code}"))
+        raise HelloFreshError(
+            tr(f"HelloFresh antwoordde met status {response.status_code}", f"HelloFresh answered with status {response.status_code}")
+        )
     return response.text
 
 
@@ -211,7 +215,7 @@ def recipe_key(url: Any) -> str | None:
     parts = urlsplit(str(url or ""))
     if (parts.hostname or "").lower() not in {HOST, f"www.{HOST}"} or not parts.path.startswith("/recipes/"):
         return None
-    key = parts.path[len("/recipes/"):].strip("/")
+    key = parts.path[len("/recipes/") :].strip("/")
     return key if _KEY.match(key) else None
 
 
@@ -437,8 +441,14 @@ async def detail(key: Any) -> dict[str, Any]:
     """Het recept in de vorm van het zoekscherm (ingrediënten als regels), zoals Jumbo en Picnic, met de voedingswaarden per portie."""
     recipe = await get_recipe(key)
     return {
-        "id": recipe["key"], "name": recipe["name"], "description": recipe["description"], "image": recipe["image"],
-        "minutes": recipe["minutes"], "portions": recipe["portions"], "url": source_url(recipe["key"]),
-        "ingredients": [{"line": line} for line in recipe["ingredients"]], "steps": recipe["steps"],
+        "id": recipe["key"],
+        "name": recipe["name"],
+        "description": recipe["description"],
+        "image": recipe["image"],
+        "minutes": recipe["minutes"],
+        "portions": recipe["portions"],
+        "url": source_url(recipe["key"]),
+        "ingredients": [{"line": line} for line in recipe["ingredients"]],
+        "steps": recipe["steps"],
         "nutrition": nutrition.items(recipe.get("nutrition")),
     }

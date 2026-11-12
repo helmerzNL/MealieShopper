@@ -2,6 +2,7 @@
 
 `mealkit_import` doet zelf geen http: het ophalen zit in hellofresh en marleyspoon, het zetten in Mealie in mealie (zie
 hun tests met respx). Hier gaat het om wat dit module zelf beslist."""
+
 import os
 import tempfile
 import unittest
@@ -11,8 +12,9 @@ import httpx
 
 os.environ.setdefault("MEALIESHOPPER_DATA_DIR", tempfile.mkdtemp())
 
-from mealieshopper import audit, auth, mealie, mealkit_import  # noqa: E402
 from helpers import returned, run  # noqa: E402
+
+from mealieshopper import audit, auth, mealie, mealkit_import  # noqa: E402
 
 
 class BoxError(RuntimeError):
@@ -40,9 +42,11 @@ class Case(unittest.TestCase):
 class ImportIntoMealieTest(Case):
     def test_the_first_attempt_that_works_gives_the_slug_and_is_logged(self):
         log = []
-        slug = run(mealkit_import.import_into_mealie(
-            "Box", "ok1", (("volledig", lambda: returned("pasta")), ("tweede", lambda: returned("nooit"))), BoxError, log
-        ))
+        slug = run(
+            mealkit_import.import_into_mealie(
+                "Box", "ok1", (("volledig", lambda: returned("pasta")), ("tweede", lambda: returned("nooit"))), BoxError, log
+            )
+        )
         self.assertEqual((slug, log), ("pasta", [{"attempt": "volledig", "ok": True}]))
 
     def test_a_refusal_goes_on_with_the_next_attempt(self):

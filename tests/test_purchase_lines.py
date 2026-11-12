@@ -8,8 +8,9 @@ from unittest import mock
 
 os.environ.setdefault("MEALIESHOPPER_DATA_DIR", tempfile.mkdtemp())
 
-from mealieshopper import ah_orders, auth, jumbo_orders, product_links, purchase_lines
 from helpers import db, in_db, run
+
+from mealieshopper import ah_orders, auth, jumbo_orders, product_links, purchase_lines
 
 
 class DiscountTest(unittest.TestCase):
@@ -36,9 +37,7 @@ class ReceiptBonusTest(unittest.TestCase):
             {"name": "AHKOMKOMMERP", "amount": -0.4},
             {"name": "PERLAHUISBLE", "amount": -17.97},
         ]
-        self.assertEqual(
-            purchase_lines.match_receipt_bonus(lines, discounts), {0: 3.96, 1: 0.4}
-        )
+        self.assertEqual(purchase_lines.match_receipt_bonus(lines, discounts), {0: 3.96, 1: 0.4})
 
     def test_the_house_brand_in_front_is_left_out_on_both_sides(self):
         # De bonusregel heeft "AH" vooraan en is afgekort, de regel niet: zonder "ah" is "komkommer" een voorvoegsel van "komkommerp".
@@ -50,9 +49,7 @@ class ReceiptBonusTest(unittest.TestCase):
             {"name": "AHKOMKOMMERP", "amount": -0.4},
             {"name": "PENNE", "amount": -0.3},
         ]
-        self.assertEqual(
-            purchase_lines.match_receipt_bonus(lines, discounts), {0: 0.4, 1: 0.3}
-        )
+        self.assertEqual(purchase_lines.match_receipt_bonus(lines, discounts), {0: 0.4, 1: 0.3})
 
     def test_a_key_under_three_characters_never_matches(self):
         # "AH" wordt "ah" of "", "EI" blijft "ei": te kort, anders paste de bonusregel op elke regel die zo begint.
@@ -63,9 +60,7 @@ class ReceiptBonusTest(unittest.TestCase):
         discounts = [{"name": "AH", "amount": -0.5}, {"name": "EI", "amount": -0.2}]
         self.assertEqual(purchase_lines.match_receipt_bonus(lines, discounts), {})
         self.assertEqual(
-            purchase_lines.match_receipt_bonus(
-                [{"name": "EI"}], [{"name": "EIEREN", "amount": -0.2}]
-            ),
+            purchase_lines.match_receipt_bonus([{"name": "EI"}], [{"name": "EIEREN", "amount": -0.2}]),
             {},
         )
 
@@ -117,9 +112,14 @@ class ReceiptBonusTest(unittest.TestCase):
 
     def test_a_receipt_line_of_one_without_a_price_uses_its_amount(self):
         # AH zet bij één stuk geen prijs op de bon, alleen het bedrag. Zonder die terugval was er niets betaald en 100% bespaard.
-        items = [{"name": "RED VELVET", "quantity": 1, "price": None, "amount": 7.99, "bonus": 2.8}, {"name": "MELK", "quantity": 2, "price": None, "amount": 2.0, "bonus": 0.0}]
+        items = [
+            {"name": "RED VELVET", "quantity": 1, "price": None, "amount": 7.99, "bonus": 2.8},
+            {"name": "MELK", "quantity": 2, "price": None, "amount": 2.0, "bonus": 0.0},
+        ]
         totals = run(purchase_lines.enrich(None, "ah", "receipt", "2026-10-30", items))
-        self.assertEqual((items[0]["paidEach"], items[0]["regularPrice"], items[0]["discountSource"], items[0]["discount"]), (5.19, 7.99, "store", 35))
+        self.assertEqual(
+            (items[0]["paidEach"], items[0]["regularPrice"], items[0]["discountSource"], items[0]["discount"]), (5.19, 7.99, "store", 35)
+        )
         self.assertEqual((items[1]["paidEach"], items[1]["regularPrice"], items[1]["discount"]), (1.0, None, None))
         # 2.80 bespaard. Betaald 5.19 + 2.00 = 7.19, zonder korting 9.99: 28%.
         self.assertEqual((totals["saved"], totals["savedPercent"]), (2.8, 28))
@@ -226,20 +226,14 @@ class EnrichTest(unittest.TestCase):
 class StatusTest(unittest.TestCase):
     def test_the_status_of_each_kind_of_purchase(self):
         self.assertEqual(
-            purchase_lines.status_kind(
-                "order", {"kind": "delivered", "state_text": "Bezorgd"}
-            ),
+            purchase_lines.status_kind("order", {"kind": "delivered", "state_text": "Bezorgd"}),
             ("delivered", None),
         )
         self.assertEqual(
-            purchase_lines.status_kind(
-                "order", {"kind": "open", "state_text": "Ingepland"}
-            ),
+            purchase_lines.status_kind("order", {"kind": "open", "state_text": "Ingepland"}),
             ("planned", "Ingepland"),
         )
-        self.assertEqual(
-            purchase_lines.status_kind("order", {"kind": "open"}), ("planned", None)
-        )  # Jumbo kent geen state_text
+        self.assertEqual(purchase_lines.status_kind("order", {"kind": "open"}), ("planned", None))  # Jumbo kent geen state_text
         self.assertEqual(purchase_lines.status_kind("imported", {}), ("imported", None))
         self.assertEqual(purchase_lines.status_kind("receipt", {}), ("receipt", None))
 
@@ -260,15 +254,15 @@ class TimesBeforeTest(unittest.TestCase):
         self,
     ):
         line = {"productId": 1, "title": "AH Bananen", "quantity": 1, "price": 1.0}
-        run(in_db(
-            ah_orders._connect,
-            lambda conn: ah_orders._save_order(
-                conn, {"id": 1, "deliveryDate": "2026-09-01"}, "delivered", [line, line]
-            ),  # twee regels, één bestelling
-            lambda conn: ah_orders._save_order(
-                conn, {"id": 2, "deliveryDate": "2026-09-21"}, "delivered", [line]
-            ),  # de dag zelf telt niet
-        ))
+        run(
+            in_db(
+                ah_orders._connect,
+                lambda conn: ah_orders._save_order(
+                    conn, {"id": 1, "deliveryDate": "2026-09-01"}, "delivered", [line, line]
+                ),  # twee regels, één bestelling
+                lambda conn: ah_orders._save_order(conn, {"id": 2, "deliveryDate": "2026-09-21"}, "delivered", [line]),  # de dag zelf telt niet
+            )
+        )
         with closing(db(ah_orders)) as conn, conn:
             conn.execute(
                 "INSERT INTO ah_receipts (receipt_id, date_time, total, details_synced, first_seen) VALUES ('R1', '2026-09-10T10:00:00', 1, 1, 'x')"
@@ -276,15 +270,13 @@ class TimesBeforeTest(unittest.TestCase):
             conn.execute(
                 "INSERT INTO ah_receipt_items (receipt_id, position, product_id, name, quantity, price, amount) VALUES ('R1', 0, 555, 'BANANEN', 1, 1.0, 1.0)"
             )
-            conn.execute(
-                "INSERT INTO ah_receipt_products (receipt_product_id, product_id, title, checked_at) VALUES (555, 1, 'AH Bananen', 'x')"
+            conn.execute("INSERT INTO ah_receipt_products (receipt_product_id, product_id, title, checked_at) VALUES (555, 1, 'AH Bananen', 'x')")
+        found = run(
+            in_db(
+                ah_orders._connect,
+                lambda conn: purchase_lines.times_before(conn, "ah", ["1", None, "", 2], "2026-09-21"),
             )
-        found = run(in_db(
-            ah_orders._connect,
-            lambda conn: purchase_lines.times_before(
-                conn, "ah", ["1", None, "", 2], "2026-09-21"
-            ),
-        ))[0]
+        )[0]
         self.assertEqual(found, {"1": 2})
 
     def test_a_receipt_line_you_linked_yourself_counts_as_an_earlier_purchase(self):
@@ -300,32 +292,30 @@ class TimesBeforeTest(unittest.TestCase):
         run(product_links.save("ah", "BANANEN", {"productId": "1", "title": "AH Bananen"}, article=555))
         run(product_links.save("ah", "KWARK", {"productId": "2", "title": "AH Kwark"}))
         # Op een kale verbinding zonder `ms_fold`: `times_before` zet die (en de tabel van `product_links`) er zelf bij.
-        found = run(in_db(
-            auth.connect, lambda conn: purchase_lines.times_before(conn, "ah", ["1", "2", "3"], "2026-09-21")
-        ))[0]
+        found = run(in_db(auth.connect, lambda conn: purchase_lines.times_before(conn, "ah", ["1", "2", "3"], "2026-09-21")))[0]
         self.assertEqual(found, {"1": 1, "2": 1})
 
     def test_a_store_without_tables_counts_nothing(self):
-        self.assertEqual(
-            run(in_db(auth.connect, lambda conn: purchase_lines.times_before(conn, "picnic", ["1"], "2026-09-21")))[0], {}
-        )
+        self.assertEqual(run(in_db(auth.connect, lambda conn: purchase_lines.times_before(conn, "picnic", ["1"], "2026-09-21")))[0], {})
 
     def test_jumbo_counts_its_own_orders_only(self):
-        run(in_db(
-            jumbo_orders._connect,
-            lambda conn: jumbo_orders._save_order(
-                conn,
-                {"id": "J1", "deliveryDate": "2026-09-01"},
-                [
-                    {
-                        "productId": "123STK",
-                        "title": "Jumbo Kwark",
-                        "quantity": 1,
-                        "price": 1.0,
-                    }
-                ],
-            ),
-        ))
+        run(
+            in_db(
+                jumbo_orders._connect,
+                lambda conn: jumbo_orders._save_order(
+                    conn,
+                    {"id": "J1", "deliveryDate": "2026-09-01"},
+                    [
+                        {
+                            "productId": "123STK",
+                            "title": "Jumbo Kwark",
+                            "quantity": 1,
+                            "price": 1.0,
+                        }
+                    ],
+                ),
+            )
+        )
         self.assertEqual(
             run(in_db(jumbo_orders._connect, lambda conn: purchase_lines.times_before(conn, "jumbo", ["123STK"], "2026-09-21")))[0],
             {"123STK": 1},

@@ -125,11 +125,7 @@ class PopoverNodeTest(unittest.TestCase):
                 "amount": 3.0,
                 "image": f"https://static.ah.nl/{name}.jpg",
             }
-            for name in json.loads(
-                const_source(CATEGORIES, "CATEGORY_ORDER")
-                .split(" = ", 1)[1]
-                .rstrip(";")
-            )
+            for name in json.loads(const_source(CATEGORIES, "CATEGORY_ORDER").split(" = ", 1)[1].rstrip(";"))
         ]
         script = f"{prelude()}\nconst row = {json.dumps(ROW)};\nconst lines19Categories = {json.dumps(items)};\n{scenario}"
         result = subprocess.run(
@@ -147,20 +143,14 @@ class PopoverNodeTest(unittest.TestCase):
 
     def test_the_popover_is_for_a_mouse_only(self):
         self.assertEqual(
-            self.run_expr(
-                'popoverAllowed((q) => ({ matches: q.includes("hover: hover") }))'
-            ),
+            self.run_expr('popoverAllowed((q) => ({ matches: q.includes("hover: hover") }))'),
             "true",
         )
-        self.assertEqual(
-            self.run_expr("popoverAllowed(() => ({ matches: false }))"), "false"
-        )
+        self.assertEqual(self.run_expr("popoverAllowed(() => ({ matches: false }))"), "false")
 
     def test_the_popover_asks_for_hover_and_a_fine_pointer_together(self):
         self.assertEqual(
-            self.run_expr(
-                'popoverAllowed((q) => ({ matches: q === "(hover: hover) and (pointer: fine)" }))'
-            ),
+            self.run_expr('popoverAllowed((q) => ({ matches: q === "(hover: hover) and (pointer: fine)" }))'),
             "true",
         )
 
@@ -168,9 +158,7 @@ class PopoverNodeTest(unittest.TestCase):
         place = self.run_json(
             "popoverPlace({ left: 100, top: 700, bottom: 756, width: 56 }, { width: 420, height: 300 }, { width: 1280, height: 800 })"
         )
-        self.assertEqual(
-            place, {"left": 100, "top": 400 - 8}
-        )  # boven het anker, 8 px ertussen
+        self.assertEqual(place, {"left": 100, "top": 400 - 8})  # boven het anker, 8 px ertussen
 
     def test_the_popover_sits_below_when_it_fits(self):
         place = self.run_json(
@@ -198,9 +186,7 @@ class PopoverNodeTest(unittest.TestCase):
         self.assertRegex(CSS, r"\.popover \{[^}]*max-height: calc\(100vh - 32px\)")
 
     def test_an_order_of_fourteen_categories_keeps_the_normal_thumbs(self):
-        html = self.run_expr(
-            "popoverPurchase(row, { items: lines19Categories.slice(0, 14) })"
-        )
+        html = self.run_expr("popoverPurchase(row, { items: lines19Categories.slice(0, 14) })")
         self.assertNotIn("popover__thumbs--small", html)
         self.assertEqual(html.count('class="popover__cat '), 14)
 
@@ -215,20 +201,20 @@ class PopoverNodeTest(unittest.TestCase):
         html = self.run_js(scenario)
         self.assertIn("zo 21 sep 2026", html)
         self.assertIn("badge--status-delivered", html)
-        self.assertIn('orders.page.products.other count=9', html)
-        self.assertIn('orders.page.categories.other count=2', html)
+        self.assertIn("orders.page.products.other count=9", html)
+        self.assertIn("orders.page.categories.other count=2", html)
         self.assertLess(
             html.index("cat--groente_fruit"),
             html.index("cat--vis"),
             "de volgorde van de categorieën",
         )
-        self.assertIn('popover.group units=popover.units.other count=8,kinds=popover.kinds.other count=8', html)
+        self.assertIn("popover.group units=popover.units.other count=8,kinds=popover.kinds.other count=8", html)
         self.assertEqual(html.count("/img/https://static.ah.nl/vis"), 6)
-        self.assertIn('popover.more count=2', html)
+        self.assertIn("popover.more count=2", html)
         self.assertIn("EUR 16.00", html, "het subtotaal van de vis")
         self.assertIn("badge--saved", html)
-        self.assertIn('orders.saved_percent amount=EUR 2.40,percent=12', html)
-        self.assertIn('popover.total amount=EUR 17.50', html)
+        self.assertIn("orders.saved_percent amount=EUR 2.40,percent=12", html)
+        self.assertIn("popover.total amount=EUR 17.50", html)
 
     def test_a_purchase_without_lines_says_the_products_are_not_fetched_yet(self):
         html = self.run_expr("popoverPurchase(row, { items: [] })")
@@ -250,11 +236,9 @@ class PopoverNodeTest(unittest.TestCase):
         self.assertIn("AH · 4 x 90 g", html)
         self.assertIn('class="offer-chip cat--groente_fruit', html)
         self.assertIn("offers.cat.groente_fruit", html)
-        self.assertIn(
-            'popover.amount quantity=2,price=EUR 1.19,amount=EUR 2.38', html
-        )
+        self.assertIn("popover.amount quantity=2,price=EUR 1.19,amount=EUR 2.38", html)
         self.assertIn('<span class="offer-badge">-14%</span>', html)
-        self.assertIn('popover.before count=3', html)
+        self.assertIn("popover.before count=3", html)
         self.assertNotIn("popover.last", html, "geen prijs en dag van een eerdere aankoop: die zou een extra verzoek kosten")
         self.assertNotIn("<button", html, "een tooltip heeft geen knoppen")
 
@@ -336,19 +320,13 @@ class PopoverNodeTest(unittest.TestCase):
 
 class PopoverMarkupTest(unittest.TestCase):
     def test_rows_cards_and_photos_announce_their_popover(self):
-        self.assertIn(
-            'data-popover="purchase"', function_source(VIEWS, "purchaseOverviewRow")
-        )
-        self.assertIn(
-            'data-popover="product"', function_source(VIEWS, "purchaseCollage")
-        )
+        self.assertIn('data-popover="purchase"', function_source(VIEWS, "purchaseOverviewRow"))
+        self.assertIn('data-popover="product"', function_source(VIEWS, "purchaseCollage"))
         self.assertIn('data-popover="purchase"', function_source(ORDERS, "purchaseRow"))
 
     def test_the_card_and_the_strip_photos_announce_theirs_too(self):
         self.assertIn('data-popover="purchase"', function_source(VIEWS, "purchaseCard"))
-        self.assertIn(
-            'data-popover="product"', function_source(VIEWS, "purchaseOverviewRow")
-        )
+        self.assertIn('data-popover="product"', function_source(VIEWS, "purchaseOverviewRow"))
         self.assertIn("data-image=", function_source(VIEWS, "purchaseCollage"))
 
     def test_the_popover_script_loads_right_after_the_order_views(self):
@@ -367,13 +345,13 @@ class PopoverMarkupTest(unittest.TestCase):
 
     def test_a_scroll_hides_the_popover_and_waits_again_for_the_element_under_the_mouse(self):
         source = function_source(POPOVER, "hoverPopover")
-        scroll = source[source.index('addEventListener("scroll"'):]
+        scroll = source[source.index('addEventListener("scroll"') :]
         self.assertIn("timer = window.setTimeout(() => show(target), POPOVER_DELAY)", scroll)
         self.assertIn('target.matches(":hover")', source, "na het schuiven alleen als de muis er nog op staat")
 
     def test_a_click_on_the_popover_is_forwarded_to_the_anchor_link_and_hides_it(self):
         source = function_source(POPOVER, "hoverPopover")
-        click = source[source.index('popover.addEventListener("click"'):]
+        click = source[source.index('popover.addEventListener("click"') :]
         click = click[: click.index("});") + 3]
         self.assertIn('event.target.closest("a, button")', click, "een link of knop in het venster doet zijn eigen werk")
         self.assertIn("popoverAnchorLink(", click)
@@ -395,14 +373,10 @@ class PopoverMarkupTest(unittest.TestCase):
         self.assertLess(scripts.index("popover.js"), scripts.index("router.js"), "de capture-handler moet voor die van de router staan")
 
     def test_the_detail_cache_is_cleared_when_the_list_loads(self):
-        self.assertIn(
-            "purchaseDetailCache.clear()", function_source(ORDERS, "loadOrders")
-        )
+        self.assertIn("purchaseDetailCache.clear()", function_source(ORDERS, "loadOrders"))
 
     def test_the_product_popover_has_the_category_border_and_the_grid(self):
-        self.assertRegex(
-            CSS, r"\.popover--product \{[^}]*border-left: 5px solid var\(--cat-line\)"
-        )
+        self.assertRegex(CSS, r"\.popover--product \{[^}]*border-left: 5px solid var\(--cat-line\)")
         self.assertRegex(
             CSS,
             r"\.popover__cat \{[^}]*grid-template-columns: 14px 150px 90px 1fr 70px",

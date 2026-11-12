@@ -13,9 +13,7 @@ from typing import Any
 from . import ah_lists
 
 NEAR_MARK: str = "~"  # voor een sleutel van `near`: geen gevouwen naam begint zo
-NEAR_NOISE: frozenset[str] = frozenset(
-    {"online"}
-)  # "AH Les pain triomphe heel online" in een oude bevestigingsmail
+NEAR_NOISE: frozenset[str] = frozenset({"online"})  # "AH Les pain triomphe heel online" in een oude bevestigingsmail
 
 
 def fold(value: Any) -> str:

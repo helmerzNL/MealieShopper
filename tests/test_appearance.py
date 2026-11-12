@@ -3,6 +3,7 @@
 De accentkleur mag iemand vrij kiezen, dus moet theme.js er altijd leesbare tinten van maken. Dat rekenen we hier na,
 voor de keuzes in het menu en voor een rij lastige eigen kleuren (wit, zwart, citroen, felgroen ...).
 """
+
 import json
 import re
 import shutil
@@ -31,8 +32,24 @@ global.document = { documentElement: root, addEventListener() {}, querySelectorA
 global.CustomEvent = class { constructor(type, init) { this.type = type; this.detail = init && init.detail; } };
 """
 
-HARD_COLOURS = ["#ffffff", "#000000", "#f2cf45", "#00ff00", "#ff0000", "#00ffff", "#0000ff", "#ff00ff", "#808080",
-                "#6c5ce7", "#ffd447", "#1a1a1a", "#e6e6e6", "#176b45", "#4cc38a", "#7f7f00"]
+HARD_COLOURS = [
+    "#ffffff",
+    "#000000",
+    "#f2cf45",
+    "#00ff00",
+    "#ff0000",
+    "#00ffff",
+    "#0000ff",
+    "#ff00ff",
+    "#808080",
+    "#6c5ce7",
+    "#ffd447",
+    "#1a1a1a",
+    "#e6e6e6",
+    "#176b45",
+    "#4cc38a",
+    "#7f7f00",
+]
 
 
 def block(selector: str) -> dict[str, str]:
@@ -56,15 +73,32 @@ class GreyBackgroundTest(unittest.TestCase):
     def test_grey_only_swaps_the_neutral_surfaces_text_and_borders(self):
         self.assertEqual(
             sorted(self.grey),
-            sorted(["--bg", "--surface", "--surface-muted", "--text", "--muted", "--border", "--border-strong", "--control-border", "--placeholder",
-                    "--tabbar-rgb", "--tabbar-ink", "--tabbar-solid", "--topbar-bg", "--gate-bg", "--topbar-glass"]),
+            sorted(
+                [
+                    "--bg",
+                    "--surface",
+                    "--surface-muted",
+                    "--text",
+                    "--muted",
+                    "--border",
+                    "--border-strong",
+                    "--control-border",
+                    "--placeholder",
+                    "--tabbar-rgb",
+                    "--tabbar-ink",
+                    "--tabbar-solid",
+                    "--topbar-bg",
+                    "--gate-bg",
+                    "--topbar-glass",
+                ]
+            ),
         )
         for name in self.grey:
             self.assertIn(name, self.green, f"{name} bestaat niet in het donkere thema")
 
     def test_grey_is_really_grey(self):
         for name in ("--bg", "--surface", "--surface-muted", "--border"):
-            r, g, b = (int(self.grey[name][i:i + 2], 16) for i in (1, 3, 5))
+            r, g, b = (int(self.grey[name][i : i + 2], 16) for i in (1, 3, 5))
             self.assertLessEqual(max(r, g, b) - min(r, g, b), 6, f"{name} {self.grey[name]} is getint")
 
     def test_grey_reads_as_well_as_green(self):
@@ -116,7 +150,7 @@ class AccentCssTest(unittest.TestCase):
         self.assertIn(f'grey: "{grey["--bg"]}"', bars)
 
     def test_head_script_only_takes_valid_tints(self):
-        head = HTML[:HTML.index("</head>")]
+        head = HTML[: HTML.index("</head>")]
         self.assertIn('"ms-appearance"', head)
         self.assertIn("/^--accent-(light|dark)(-strong|-on|-ink)?$/", head)
         self.assertIn("names.length !== 8", head, "alle tinten of geen")
@@ -166,8 +200,8 @@ console.log(JSON.stringify(out));
         cls.dark_bgs = [green["--bg"], grey["--bg"]]
 
     def mix(self, a, b, share):
-        x = [int(a[i:i + 2], 16) for i in (1, 3, 5)]
-        y = [int(b[i:i + 2], 16) for i in (1, 3, 5)]
+        x = [int(a[i : i + 2], 16) for i in (1, 3, 5)]
+        y = [int(b[i : i + 2], 16) for i in (1, 3, 5)]
         return "#" + "".join(f"{round(p * share + q * (1 - share)):02x}" for p, q in zip(x, y))
 
     def test_every_tint_is_readable_on_every_surface(self):
@@ -211,14 +245,20 @@ console.log(JSON.stringify(out));
         # Geen glas: een dicht vlak, 10 % naar de accentkleur. Labels 4,5 : 1, het icoon op de pil 3 : 1 (geen tekst).
         light, dark = css_tokens(), block(':root[data-theme="dark"]')
         grey = {**dark, **block(':root[data-theme="dark"][data-dark-bg="grey"]')}
-        brand = {"--accent-light": light["--primary"], "--accent-light-strong": light["--primary-strong"],
-                 "--accent-dark": dark["--primary"], "--accent-dark-strong": dark["--primary-strong"]}
+        brand = {
+            "--accent-light": light["--primary"],
+            "--accent-light-strong": light["--primary-strong"],
+            "--accent-dark": dark["--primary"],
+            "--accent-dark-strong": dark["--primary-strong"],
+        }
         for colour, tints in {**self.data["tints"], "huisstijl": brand}.items():
             if tints is None:
                 continue
-            for name, palette, primary, strong in (("licht", light, tints["--accent-light"], tints["--accent-light-strong"]),
-                                                   ("donker", dark, tints["--accent-dark"], tints["--accent-dark-strong"]),
-                                                   ("donkergrijs", grey, tints["--accent-dark"], tints["--accent-dark-strong"])):
+            for name, palette, primary, strong in (
+                ("licht", light, tints["--accent-light"], tints["--accent-light-strong"]),
+                ("donker", dark, tints["--accent-dark"], tints["--accent-dark-strong"]),
+                ("donkergrijs", grey, tints["--accent-dark"], tints["--accent-dark-strong"]),
+            ):
                 surface = "#ffffff" if palette["--surface"] == "#fff" else palette["--surface"]
                 bar = self.mix(surface, primary, 0.9)
                 self.assertGreaterEqual(contrast(palette["--muted"], bar), 4.5, f"{colour}, {name}: label")
@@ -227,37 +267,46 @@ console.log(JSON.stringify(out));
                 self.assertGreaterEqual(contrast(strong, pill), 3, f"{colour}, {name}: icoon op de pil")
 
     def test_automatic_follows_the_device_and_a_choice_does_not(self):
-        self.assertEqual(self.data["nav"], [
-            ["android", "auto", "android", "auto"],  # bewaard blijft "auto", niet wat het nu is
-            ["ios", "auto", "ios", "auto"],
-            ["other", "auto", "ios", "auto"],  # een computer of onbekend toestel: de iOS-achtige
-            ["android", "ios", "ios", "ios"],
-            ["ios", "android", "android", "android"],
-        ])
+        self.assertEqual(
+            self.data["nav"],
+            [
+                ["android", "auto", "android", "auto"],  # bewaard blijft "auto", niet wat het nu is
+                ["ios", "auto", "ios", "auto"],
+                ["other", "auto", "ios", "auto"],  # een computer of onbekend toestel: de iOS-achtige
+                ["android", "ios", "ios", "ios"],
+                ["ios", "android", "android", "android"],
+            ],
+        )
         self.assertEqual(self.data["badStyle"], ["auto", "ios"])
 
     def test_cooking_mode_is_on_unless_it_is_switched_off(self):
-        self.assertEqual(self.data["cooking"], [
-            [True, False],
-            [False, False, True],
-            ["nee", True, False],  # geen echte false: aan
-            [True, True, False],
-            [0, True, False],
-            [False, False, True],
-            [None, True, False],
-        ])
+        self.assertEqual(
+            self.data["cooking"],
+            [
+                [True, False],
+                [False, False, True],
+                ["nee", True, False],  # geen echte false: aan
+                [True, True, False],
+                [0, True, False],
+                [False, False, True],
+                [None, True, False],
+            ],
+        )
 
     def test_the_glass_slider_becomes_plain_values(self):
-        self.assertEqual(self.data["glass"], [
-            [0, 0, "1.000", "10.0px"],  # zoals applyNavGlass in 3dprint_pricing
-            [60, 60, "0.490", "28.0px"],
-            [100, 100, "0.150", "40.0px"],
-            [150, 100, "0.150", "40.0px"],
-            [-5, 0, "1.000", "10.0px"],
-            [50.5, 60, "0.490", "28.0px"],  # geen geheel getal: de standaard
-            ["60", 60, "0.490", "28.0px"],
-            [None, 60, "0.490", "28.0px"],
-        ])
+        self.assertEqual(
+            self.data["glass"],
+            [
+                [0, 0, "1.000", "10.0px"],  # zoals applyNavGlass in 3dprint_pricing
+                [60, 60, "0.490", "28.0px"],
+                [100, 100, "0.150", "40.0px"],
+                [150, 100, "0.150", "40.0px"],
+                [-5, 0, "1.000", "10.0px"],
+                [50.5, 60, "0.490", "28.0px"],  # geen geheel getal: de standaard
+                ["60", 60, "0.490", "28.0px"],
+                [None, 60, "0.490", "28.0px"],
+            ],
+        )
 
     def test_the_menu_colours_need_no_adjustment_in_the_light_theme(self):
         # Het rondje in het menu is de kleur die je krijgt.
@@ -290,7 +339,7 @@ class PlannerPreferencesTest(unittest.TestCase):
     """Voorkeuren, Supermarkt: hoe Naar weekmenu losse producten uit de AH-weekplanner in Mealie zet (4.3.1, eerst in de planner)."""
 
     def test_two_real_switches_in_the_supermarket_block(self):
-        store = HTML[HTML.index('id="appearance-store-box"'):HTML.index('id="appearance-display-box"')]
+        store = HTML[HTML.index('id="appearance-store-box"') : HTML.index('id="appearance-display-box"')]
         self.assertIn('<section class="appearance-section fold__section" aria-labelledby="appearance-planner-title">', store)
         for name in ("combine", "split-meals"):
             switch = re.search(rf'<input type="checkbox" role="switch" class="switch" id="appearance-planner-{name}"[^>]*>', store).group(0)
@@ -303,9 +352,16 @@ class PlannerPreferencesTest(unittest.TestCase):
 
     def test_servings_per_recipe_is_a_small_number_next_to_its_explanation(self):
         # Porties per recept (4.10.0): de voedingswaarden in een recept van producten staan per persoon.
-        store = HTML[HTML.index('id="appearance-store-box"'):HTML.index('id="appearance-display-box"')]
+        store = HTML[HTML.index('id="appearance-store-box"') : HTML.index('id="appearance-display-box"')]
         field = re.search(r'<input type="number"[^>]*id="appearance-planner-servings"[^>]*>', store).group(0)
-        for part in ('min="1"', 'max="8"', 'step="1"', 'value="2"', 'aria-labelledby="appearance-planner-servings-label"', 'aria-describedby="appearance-planner-servings-help"'):
+        for part in (
+            'min="1"',
+            'max="8"',
+            'step="1"',
+            'value="2"',
+            'aria-labelledby="appearance-planner-servings-label"',
+            'aria-describedby="appearance-planner-servings-help"',
+        ):
             self.assertIn(part, field)
         script = (STATIC / "appearance.js").read_text(encoding="utf-8")
         self.assertIn('appearanceSavePlanner("plannerServings", value)', script)
@@ -316,7 +372,7 @@ class PlannerPreferencesTest(unittest.TestCase):
         script = (STATIC / "appearance.js").read_text(encoding="utf-8")
         self.assertIn('appearanceSavePlanner("plannerCombine", event.target.checked)', script)
         self.assertIn('appearanceSavePlanner("plannerSplitMeals", event.target.checked)', script)
-        save = script[script.index("async function appearanceSavePlanner"):script.index("function renderAppearance()")]
+        save = script[script.index("async function appearanceSavePlanner") : script.index("function renderAppearance()")]
         self.assertIn('"/api/profile/preferences"', save)
         self.assertIn("state.auth = { ...state.auth, ...previous };", save, "een weigering zet de vorige stand terug")
         self.assertIn("renderAhPlanner()", save, "de labels in de weekplanner volgen meteen")
@@ -326,7 +382,7 @@ class PlannerPreferencesTest(unittest.TestCase):
 class AppearanceMarkupTest(unittest.TestCase):
     def panel(self):
         start = HTML.index('<div id="settings-appearance"')
-        return HTML[start:HTML.index("\n      </section>", start)]
+        return HTML[start : HTML.index("\n      </section>", start)]
 
     def test_three_folding_blocks_like_link_with_the_parts_in_order(self):
         panel = self.panel()
@@ -341,12 +397,12 @@ class AppearanceMarkupTest(unittest.TestCase):
             self.assertIn(f'aria-controls="appearance-{name}-body"', toggle)
             self.assertIn('aria-expanded="false"', toggle, "dicht tot je hem opent")
             self.assertIn(f'<div class="fold__body" id="appearance-{name}-body" hidden>', panel)
-        theme = panel[panel.index('id="appearance-theme-box"'):]
+        theme = panel[panel.index('id="appearance-theme-box"') :]
         titles = re.findall(r'<h3 id="appearance-(\w+)-title"', theme)
         self.assertEqual(titles, ["accent", "themebg", "nav"], "Accentkleur, Thema & achtergrond, Navigatiebalk")
         sections = re.findall(r'<section class="appearance-section( fold__section)?"', theme)
         self.assertEqual(sections, ["", " fold__section", " fold__section"], "een lijn tussen de onderdelen")
-        prefs = panel[panel.index('id="appearance-display-box"'):panel.index('id="appearance-theme-box"')]
+        prefs = panel[panel.index('id="appearance-display-box"') : panel.index('id="appearance-theme-box"')]
         switch = re.search(r'<input type="checkbox" role="switch" class="switch" id="appearance-cooking"[^>]*>', prefs).group(0)
         self.assertIn(" checked", switch, "standaard aan")
         self.assertIn('aria-labelledby="appearance-cooking-label"', switch)
@@ -364,17 +420,21 @@ class AppearanceMarkupTest(unittest.TestCase):
         self.assertRegex(CSS, r"\.switch:focus-visible\s*{\s*outline: 3px solid var\(--primary\)")
 
     def test_cooking_mode_off_hides_the_bar_and_the_ticks(self):
-        rule = re.search(r"html\.no-cook-mode \.cook__bar,\s*html\.no-cook-mode \.cook-ingredient input,\s*html\.no-cook-mode \.cook \[data-cook-ticked\]\s*{(.*?)}", CSS, re.S)
+        rule = re.search(
+            r"html\.no-cook-mode \.cook__bar,\s*html\.no-cook-mode \.cook-ingredient input,\s*html\.no-cook-mode \.cook \[data-cook-ticked\]\s*{(.*?)}",
+            CSS,
+            re.S,
+        )
         self.assertIsNotNone(rule)
         self.assertIn("display: none", rule.group(1))
-        head = HTML[:HTML.index("</head>")]
+        head = HTML[: HTML.index("</head>")]
         self.assertIn('if (look.cookingMode === false) root.classList.add("no-cook-mode")', head, "voor de eerste weergave")
         view = (STATIC / "recipe_view.js").read_text(encoding="utf-8")
         self.assertIn("return cookEnabled() && cookWakeSupported()", view, "uit: het scherm blijft niet aan")
         self.assertIn("input.disabled = !enabled;", view, "uit: een tik op een regel vinkt niets af")
 
     def test_the_choices_are_real_radio_buttons(self):
-        panel = HTML[HTML.index('<div id="settings-appearance"'):HTML.index("\n      </section>", HTML.index('<div id="settings-appearance"'))]
+        panel = HTML[HTML.index('<div id="settings-appearance"') : HTML.index("\n      </section>", HTML.index('<div id="settings-appearance"'))]
         self.assertEqual(re.findall(r'name="appearance-theme" value="(\w+)"', panel), ["system", "light", "dark"])
         self.assertEqual(re.findall(r'name="appearance-dark-bg" value="(\w+)"', panel), ["green", "grey"])
         self.assertEqual(re.findall(r'name="appearance-nav" value="(\w+)"', panel), ["auto", "ios", "android"])
@@ -385,12 +445,12 @@ class AppearanceMarkupTest(unittest.TestCase):
         # i18n.js ze als knop behandelen (aria-pressed).
         self.assertEqual(re.findall(r'name="appearance-lang" value="(\w+)"><span lang="(\w+)">', panel), [("nl", "nl"), ("en", "en")])
         self.assertNotRegex(panel, r'name="appearance-lang"[^>]*data-lang')
-        display = panel[panel.index('id="appearance-display-box"'):panel.index('id="appearance-theme-box"')]
+        display = panel[panel.index('id="appearance-display-box"') : panel.index('id="appearance-theme-box"')]
         self.assertIn('id="appearance-lang"', display)
         self.assertEqual(panel.count("<fieldset"), 6)
         self.assertEqual(panel.count("<legend"), 6)
         script = (STATIC / "appearance.js").read_text(encoding="utf-8")
-        self.assertIn('I18N.setLang(event.target.value)', script)
+        self.assertIn("I18N.setLang(event.target.value)", script)
         self.assertIn("input.checked = input.value === I18N.lang();", script)
         self.assertIn('type="radio" name="appearance-accent"', script)
         self.assertIn('type="color"', script)

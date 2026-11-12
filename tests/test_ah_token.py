@@ -1,13 +1,14 @@
 """Het anonieme AH-token: hooguit een uur bewaren en een geweigerd token één keer vervangen ("member not active")."""
+
 import asyncio
 import json
 import os
 import tempfile
 import unittest
 from collections.abc import Awaitable, Callable, Iterator
+from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
-from datetime import date, timedelta
 from unittest import mock
 
 import httpx
@@ -16,9 +17,10 @@ import respx
 
 os.environ.setdefault("MEALIESHOPPER_DATA_DIR", tempfile.mkdtemp())
 
+from helpers import routes, run  # noqa: E402
+
 from mealieshopper import ah, tasks  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
-from helpers import routes, run  # noqa: E402
 
 REJECTED = '{"error_description":"member not active","error":"invalid_grant"}'
 ANONYMOUS = f"{ah.AH_API_BASE}/mobile-auth/v1/auth/token/anonymous"
@@ -108,10 +110,22 @@ class AnonymousTokenTest(unittest.TestCase):
         run(ah.get_token())
         today = date.today()
         start, end = (today - timedelta(days=1)).isoformat(), (today + timedelta(days=5)).isoformat()
-        promotions = {"data": {"bonusPeriods": [{"startDate": start, "endDate": end}], "bonusPromotions": [
-            {"id": "P1", "title": "Actie", "periodStart": start, "periodEnd": end, "promotionType": "NATIONAL",
-             "promotionLabels": [{"topText": "25%", "bottomText": "korting"}],
-             "products": [{"id": 1, "title": "AH Penne", "price": {"now": {"amount": 1.19}, "was": {"amount": 1.19}}}]}]}}
+        promotions = {
+            "data": {
+                "bonusPeriods": [{"startDate": start, "endDate": end}],
+                "bonusPromotions": [
+                    {
+                        "id": "P1",
+                        "title": "Actie",
+                        "periodStart": start,
+                        "periodEnd": end,
+                        "promotionType": "NATIONAL",
+                        "promotionLabels": [{"topText": "25%", "bottomText": "korting"}],
+                        "products": [{"id": 1, "title": "AH Penne", "price": {"now": {"amount": 1.19}, "was": {"amount": 1.19}}}],
+                    }
+                ],
+            }
+        }
 
         def graphql(request):
             return Reply(400, text=REJECTED) if request.headers["Authorization"] == "Bearer anon-1" else Reply(data=promotions)
@@ -162,8 +176,10 @@ class UserTokenTest(unittest.TestCase):
         async def both() -> list[str]:
             return list(await asyncio.gather(ah.get_user_token(), ah.get_user_token(), ah.get_user_token()))
 
-        with mock.patch.object(ah, "configured_refresh_token", return_value="old"), \
-                mock.patch.object(ah, "save_refresh_token", new_callable=mock.AsyncMock) as save:
+        with (
+            mock.patch.object(ah, "configured_refresh_token", return_value="old"),
+            mock.patch.object(ah, "save_refresh_token", new_callable=mock.AsyncMock) as save,
+        ):
             self.assertEqual(run(both()), ["user-1"] * 3)
         self.assertEqual(self.used, ["old"])
         save.assert_awaited_once_with("rotated-1")
@@ -191,15 +207,19 @@ class UserTokenTest(unittest.TestCase):
             release.set()
             return await second
 
-        with mock.patch.object(ah, "configured_refresh_token", return_value="old"), \
-                mock.patch.object(ah, "save_refresh_token", new_callable=mock.AsyncMock) as save:
+        with (
+            mock.patch.object(ah, "configured_refresh_token", return_value="old"),
+            mock.patch.object(ah, "save_refresh_token", new_callable=mock.AsyncMock) as save,
+        ):
             self.assertEqual(run(scenario()), "user-1")
         self.assertEqual(self.used, ["old"], "geen tweede vernieuwing met het oude token")
         save.assert_awaited_once_with("rotated-1")
 
     def test_an_expired_user_token_is_refreshed_again(self):
-        with mock.patch.object(ah, "configured_refresh_token", return_value="old"), \
-                mock.patch.object(ah, "save_refresh_token", new_callable=mock.AsyncMock):
+        with (
+            mock.patch.object(ah, "configured_refresh_token", return_value="old"),
+            mock.patch.object(ah, "save_refresh_token", new_callable=mock.AsyncMock),
+        ):
             self.assertEqual(run(ah.get_user_token()), "user-1")
             ah.user_token_cache = ah.TokenCache(token="user-1", expires_at=0.0)
             self.assertEqual(run(ah.get_user_token()), "user-2")
@@ -230,8 +250,10 @@ async def test_a_cancelled_status_check_keeps_the_rotated_refresh_token(fresh_to
         return Reply(data={"access_token": "user-1", "refresh_token": "rotated-1", "expires_in": 3600})
 
     respx_mock.post(REFRESH).mock(side_effect=refresh)
-    with mock.patch.object(ah, "configured_refresh_token", return_value="old"), \
-            mock.patch.object(ah, "save_refresh_token", new_callable=mock.AsyncMock) as save:
+    with (
+        mock.patch.object(ah, "configured_refresh_token", return_value="old"),
+        mock.patch.object(ah, "save_refresh_token", new_callable=mock.AsyncMock) as save,
+    ):
         check = asyncio.create_task(ah.auth_status(verify=True))
         await entered.wait()
         check.cancel()

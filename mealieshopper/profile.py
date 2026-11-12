@@ -9,6 +9,7 @@ contrastregels halen (static/theme.js); hier bewaren we alleen de keuze, en een 
 De avatar is een kleine afbeelding (PNG, JPEG of WebP) die in de database bewaard wordt. De browser verkleint hem
 vooraf; hier controleren we nog het type aan de inhoud en de grootte. SVG wordt nooit geaccepteerd.
 """
+
 from __future__ import annotations
 
 import re
@@ -17,7 +18,6 @@ from contextlib import asynccontextmanager
 from typing import Any
 
 import aiosqlite
-
 from quart import Quart, Response, jsonify, request
 
 from . import auth, request_body
@@ -171,10 +171,20 @@ async def get(user_id: str) -> dict[str, Any]:
         )
     if not row:
         return {
-            "displayName": "", "hasAvatar": False, "avatarVersion": 0, "preferOrganic": False,
-            "theme": None, "darkBackground": DARK_BACKGROUNDS[0], "accent": "",
-            "navbarStyle": NAVBAR_STYLES[0], "navbarGlass": NAVBAR_GLASS_DEFAULT, "cookingMode": True,
-            "preferredStore": PREFERRED_STORES[0], "plannerCombine": True, "plannerSplitMeals": True, "showCalories": True,
+            "displayName": "",
+            "hasAvatar": False,
+            "avatarVersion": 0,
+            "preferOrganic": False,
+            "theme": None,
+            "darkBackground": DARK_BACKGROUNDS[0],
+            "accent": "",
+            "navbarStyle": NAVBAR_STYLES[0],
+            "navbarGlass": NAVBAR_GLASS_DEFAULT,
+            "cookingMode": True,
+            "preferredStore": PREFERRED_STORES[0],
+            "plannerCombine": True,
+            "plannerSplitMeals": True,
+            "showCalories": True,
             "plannerServings": PLANNER_SERVINGS_DEFAULT,
         }
     return {
@@ -213,7 +223,9 @@ async def _upsert(user_id: str, **fields: Any) -> None:
             (user_id, auth.utcnow().isoformat()),
         )
         for column, value in fields.items():
-            await conn.execute(f"UPDATE user_profiles SET {column} = ?, updated_at = ? WHERE user_id = ?", (value, auth.utcnow().isoformat(), user_id))
+            await conn.execute(
+                f"UPDATE user_profiles SET {column} = ?, updated_at = ? WHERE user_id = ?", (value, auth.utcnow().isoformat(), user_id)
+            )
         await conn.commit()
 
 

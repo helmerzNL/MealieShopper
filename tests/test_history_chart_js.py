@@ -116,19 +116,13 @@ def salami() -> dict:
 
 @unittest.skipUnless(shutil.which("node"), "Node is not installed")
 class HistoryChartTest(unittest.TestCase):
-    def render(
-        self, product: dict, range_: str | None = None, offer: dict | None = None
-    ) -> dict:
+    def render(self, product: dict, range_: str | None = None, offer: dict | None = None) -> dict:
         shown: dict = offer or {
             "price": 3.65,
             "priceBefore": 4.29,
             "promoLabel": "Bonus Box 15% korting",
         }
-        source: str = (
-            (ROOT / "static/offers_history.js")
-            .read_text()
-            .split('$("#offers-history-search").addEventListener')[0]
-        )
+        source: str = (ROOT / "static/offers_history.js").read_text().split('$("#offers-history-search").addEventListener')[0]
         prelude: str = """
 const escapeHtml = (value) => String(value).replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('"', '&quot;');
 const t = (key, values = {}) => key + ' ' + JSON.stringify(values);
@@ -164,24 +158,14 @@ console.log(JSON.stringify({{
 }}));
 """
         )
-        result: subprocess.CompletedProcess = subprocess.run(
-            ["node", "-e", script], capture_output=True, text=True, check=True
-        )
+        result: subprocess.CompletedProcess = subprocess.run(["node", "-e", script], capture_output=True, text=True, check=True)
         return json.loads(result.stdout)
 
     @staticmethod
     def xs(svg: str, kind: str) -> list[float]:
         if kind == "paid":
-            return [
-                float(value)
-                for value in re.findall(
-                    r'class="ohc-paid".*?<circle cx="([\d.]+)"', svg
-                )
-            ]
-        return [
-            float(value)
-            for value in re.findall(rf'class="{kind}[^"]*".*?<rect x="([\d.]+)"', svg)
-        ]
+            return [float(value) for value in re.findall(r'class="ohc-paid".*?<circle cx="([\d.]+)"', svg)]
+        return [float(value) for value in re.findall(rf'class="{kind}[^"]*".*?<rect x="([\d.]+)"', svg)]
 
     def test_2026_11_09_the_chart_shows_the_period_of_the_product_itself(self) -> None:
         chart: str = self.render(salami())["chart"]
@@ -252,17 +236,12 @@ console.log(JSON.stringify({{
         for part in ("head", "stats", "block", "purchasesAll"):
             self.assertIn(found[part].strip(), found["detail"], part)
         self.assertIn('class="ohc-head ohc-head--compact"', found["headCompact"])
-        self.assertNotIn(
-            "data-compare", found["headCompact"], "de popup heeft geen vergelijkknop"
-        )
+        self.assertNotIn("data-compare", found["headCompact"], "de popup heeft geen vergelijkknop")
         self.assertTrue(found["stats"].startswith('<dl class="ohc-stats">'))
 
     def test_the_purchases_table_takes_a_limit_and_says_how_many_more(self) -> None:
         product: dict = salami()
-        product["purchases"] = [
-            {**product["purchases"][0], "ref": str(n), "date": days(-n)}
-            for n in range(1, 12)
-        ]
+        product["purchases"] = [{**product["purchases"][0], "ref": str(n), "date": days(-n)} for n in range(1, 12)]
         product["timesBought"] = 11
         found: dict = self.render(product)
         self.assertEqual(found["purchases8"].count("<tr><td>"), 8)
@@ -285,9 +264,7 @@ console.log(JSON.stringify({{
         self.assertIn('class="ohc-head__price"', found["headOffer"])
         for part in ("€3,65", "<s>€4,29</s>", "Bonus Box 15% korting"):
             self.assertIn(part, found["headOffer"])
-        self.assertNotIn(
-            "ohc-head__price", found["headCompact"], "zonder aanbieding geen prijsregel"
-        )
+        self.assertNotIn("ohc-head__price", found["headCompact"], "zonder aanbieding geen prijsregel")
 
     def test_the_compact_head_strikes_through_an_old_price_only_when_it_is_fresh(self) -> None:
         # Eindreview 2026-11-12: de kop van de popup streepte de gewone prijs door, ook een bon van 300 dagen terug. Alleen bij een

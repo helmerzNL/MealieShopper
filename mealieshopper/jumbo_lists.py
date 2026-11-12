@@ -10,6 +10,7 @@ zodat de lijsten-interface voor beide winkels hetzelfde werkt (kaarten die opene
 
 Een synchronisatie bewaart de door de gebruiker aangepaste aantallen, net als bij AH.
 """
+
 from __future__ import annotations
 
 import sqlite3
@@ -162,10 +163,7 @@ async def fetch_live(list_id: str = LIST_ID) -> dict[str, Any]:
     return {
         "id": LIST_ID,
         "name": LIST_NAME,
-        "items": [
-            {"id": item["id"], "sku": item["sku"], "term": item["term"], "product": product}
-            for item, product in zip(items, details)
-        ],
+        "items": [{"id": item["id"], "sku": item["sku"], "term": item["term"], "product": product} for item, product in zip(items, details)],
     }
 
 
@@ -176,10 +174,12 @@ async def save_snapshot(live: dict[str, Any]) -> dict[str, Any]:
     synced_at = _now()
     async with _connect() as conn:
         await conn.execute("BEGIN IMMEDIATE")  # een aanpassing van een aantal tijdens het synchroniseren gaat niet verloren
-        previous: list[Any] = list(await conn.execute_fetchall(
-            "SELECT position, item_id, sku, term, quantity, default_quantity FROM jumbo_list_items WHERE list_id = ? ORDER BY position",
-            (list_id,),
-        ))
+        previous: list[Any] = list(
+            await conn.execute_fetchall(
+                "SELECT position, item_id, sku, term, quantity, default_quantity FROM jumbo_list_items WHERE list_id = ? ORDER BY position",
+                (list_id,),
+            )
+        )
         matches = _match_previous(previous, items)
         rows: list[tuple[Any, ...]] = []
         kept = 0
@@ -193,10 +193,20 @@ async def save_snapshot(live: dict[str, Any]) -> dict[str, Any]:
             price = product.get("price")
             rows.append(
                 (
-                    list_id, position, item.get("id"), item.get("sku"), item["term"], quantity, default,
-                    product.get("title"), product.get("brand"), product.get("unitSize"),
+                    list_id,
+                    position,
+                    item.get("id"),
+                    item.get("sku"),
+                    item["term"],
+                    quantity,
+                    default,
+                    product.get("title"),
+                    product.get("brand"),
+                    product.get("unitSize"),
                     float(price) if price not in (None, "") else None,
-                    product.get("image"), product.get("url"), 1 if product.get("isBonus") else 0,
+                    product.get("image"),
+                    product.get("url"),
+                    1 if product.get("isBonus") else 0,
                 )
             )
         info = {
@@ -233,10 +243,7 @@ async def list_snapshots() -> list[dict[str, Any]]:
             FROM jumbo_lists l ORDER BY LOWER(l.name)
             """
         )
-    return [
-        {"id": row["id"], "name": row["name"], "syncedAt": row["synced_at"], "itemCount": row["item_count"]}
-        for row in rows
-    ]
+    return [{"id": row["id"], "name": row["name"], "syncedAt": row["synced_at"], "itemCount": row["item_count"]} for row in rows]
 
 
 async def get_snapshot(list_id: str) -> dict[str, Any] | None:
@@ -262,8 +269,13 @@ def live_view(live: dict[str, Any]) -> dict[str, Any]:
     """Het lijstje zoals het bij Jumbo staat, in dezelfde vorm als een snapshot maar zonder lokale aantallen."""
     items = [
         {
-            "id": item["id"], "position": index, "productId": item["sku"], "url": (item.get("product") or {}).get("url"),
-            "quantity": item.get("quantity") or 1, "defaultQuantity": item.get("quantity") or 1, "edited": False,
+            "id": item["id"],
+            "position": index,
+            "productId": item["sku"],
+            "url": (item.get("product") or {}).get("url"),
+            "quantity": item.get("quantity") or 1,
+            "defaultQuantity": item.get("quantity") or 1,
+            "edited": False,
             "product": {**(item.get("product") or {}), "title": (item.get("product") or {}).get("title") or item["term"]},
             "term": item["term"],
         }

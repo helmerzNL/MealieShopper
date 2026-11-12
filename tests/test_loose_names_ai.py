@@ -31,9 +31,7 @@ ROOT: Path = Path(__file__).resolve().parents[1]
 NOW: str = "2026-11-11T01:00:00+00:00"
 
 
-def candidate(
-    product_id: str, title: str, unit_size: str = "500 g", price: float = 1.99
-) -> dict[str, Any]:
+def candidate(product_id: str, title: str, unit_size: str = "500 g", price: float = 1.99) -> dict[str, Any]:
     return {
         "productId": product_id,
         "title": title,
@@ -79,9 +77,7 @@ def letters(n: int) -> str:
     return "merk " + chr(97 + n // 26) + chr(97 + n % 26) + "x"
 
 
-def choice(
-    number: int, pick: int, sure: bool = True, reason: str = "zelfde product"
-) -> dict[str, Any]:
+def choice(number: int, pick: int, sure: bool = True, reason: str = "zelfde product") -> dict[str, Any]:
     return {"id": number, "choice": pick, "surePack": sure, "reason": reason}
 
 
@@ -128,9 +124,7 @@ class LooseAiCase(AppTestCase):
                     title,
                     NOW,
                     outcome,
-                    json.dumps(
-                        cands or [candidate("p1", "Eerste"), candidate("p2", "Tweede")]
-                    ),
+                    json.dumps(cands or [candidate("p1", "Eerste"), candidate("p2", "Tweede")]),
                     json.dumps(proposal) if proposal else None,
                 ),
             )
@@ -146,9 +140,7 @@ class LooseAiCase(AppTestCase):
     async def key(self) -> None:
         await ai_review.save({"keys": {"anthropic": KEY}})
 
-    async def propose(
-        self, ai: FakeAi, store: str = "jumbo", limit: int | None = None
-    ) -> dict[str, int]:
+    async def propose(self, ai: FakeAi, store: str = "jumbo", limit: int | None = None) -> dict[str, int]:
         with mock.patch.object(ai_review, "_call", ai):
             return await loose_names_ai.propose(store, limit)
 
@@ -159,9 +151,7 @@ class ProposeTest(LooseAiCase):
     ) -> None:
         await self.key()
         self.name("pindakaas")
-        ai: FakeAi = FakeAi(
-            [{"choices": [choice(1, 2, sure=False, reason="zelfde merk")]}]
-        )
+        ai: FakeAi = FakeAi([{"choices": [choice(1, 2, sure=False, reason="zelfde merk")]}])
         result: dict[str, int] = await self.propose(ai)
         self.assertEqual(
             self.proposal("pindakaas"),
@@ -180,9 +170,7 @@ class ProposeTest(LooseAiCase):
     async def test_choice_zero_is_stored_so_the_name_is_not_asked_again(self) -> None:
         await self.key()
         self.name("pindakaas")
-        first: FakeAi = FakeAi(
-            [{"choices": [choice(1, 0, sure=True, reason="geen gelijke")]}]
-        )
+        first: FakeAi = FakeAi([{"choices": [choice(1, 0, sure=True, reason="geen gelijke")]}])
         result: dict[str, int] = await self.propose(first)
         self.assertEqual(
             self.proposal("pindakaas"),
@@ -213,9 +201,7 @@ class ProposeTest(LooseAiCase):
             "tekst",
             None,
         ]
-        result: dict[str, int] = await self.propose(
-            FakeAi([{"choices": bad + [choice(2, 1)]}])
-        )
+        result: dict[str, int] = await self.propose(FakeAi([{"choices": bad + [choice(2, 1)]}]))
         self.assertIsNone(self.proposal("pindakaas"))
         self.assertEqual(self.proposal("hagelslag")["productId"], "p1")
         self.assertEqual((result["asked"], result["proposed"]), (2, 1))
@@ -233,18 +219,14 @@ class ProposeTest(LooseAiCase):
             with self.subTest(answer=answer):
                 result: dict[str, int] = await self.propose(FakeAi([answer]))
                 self.assertIsNone(self.proposal("pindakaas"))
-                self.assertEqual(
-                    (result["asked"], result["proposed"], result["none"]), (1, 0, 0)
-                )
+                self.assertEqual((result["asked"], result["proposed"], result["none"]), (1, 0, 0))
 
     async def test_propose_never_writes_product_links(self) -> None:
         await self.key()
         self.name("pindakaas")
         await self.propose(FakeAi([{"choices": [choice(1, 1)]}]))
         with closing(db(product_links)) as conn:
-            self.assertEqual(
-                conn.execute("SELECT COUNT(*) FROM product_links").fetchone()[0], 0
-            )
+            self.assertEqual(conn.execute("SELECT COUNT(*) FROM product_links").fetchone()[0], 0)
 
     async def test_names_go_in_groups_of_20(self) -> None:
         await self.key()
@@ -260,9 +242,7 @@ class ProposeTest(LooseAiCase):
             letters(0),
             "de vaakst gekochte eerst",
         )
-        self.assertEqual(
-            [i["id"] for i in ai.calls[2]["payload"]["items"]], [1, 2, 3, 4, 5]
-        )
+        self.assertEqual([i["id"] for i in ai.calls[2]["payload"]["items"]], [1, 2, 3, 4, 5])
 
     async def test_limit_asks_at_most_that_many_names(self) -> None:
         await self.key()
@@ -271,9 +251,7 @@ class ProposeTest(LooseAiCase):
         self.name("middel", times=2)
         ai: FakeAi = FakeAi()
         await self.propose(ai, limit=2)
-        self.assertEqual(
-            [i["name"] for i in ai.calls[0]["payload"]["items"]], ["veel", "middel"]
-        )
+        self.assertEqual([i["name"] for i in ai.calls[0]["payload"]["items"]], ["veel", "middel"])
 
     async def test_only_open_names_with_candidates_and_no_proposal_are_asked(
         self,
@@ -370,9 +348,7 @@ class ProposeTest(LooseAiCase):
             return {"choices": []}, 5
 
         with mock.patch.object(ai_review, "_call", slow):
-            first: asyncio.Task[dict[str, int]] = asyncio.create_task(
-                loose_names_ai.propose("jumbo")
-            )
+            first: asyncio.Task[dict[str, int]] = asyncio.create_task(loose_names_ai.propose("jumbo"))
             await started.wait()
             with self.assertRaises(ai_review.AiError) as raised:
                 await asyncio.wait_for(loose_names_ai.propose("jumbo", limit=100), 5)
@@ -401,9 +377,7 @@ class ProposeTest(LooseAiCase):
         self.name("zonder prijs", paid=None)
         ai: FakeAi = FakeAi()
         await self.propose(ai)
-        items: list[dict[str, Any]] = {
-            i["name"]: i for i in ai.calls[0]["payload"]["items"]
-        }
+        items: list[dict[str, Any]] = {i["name"]: i for i in ai.calls[0]["payload"]["items"]}
         for item in items.values():
             self.assertEqual(
                 set(item),
@@ -476,7 +450,12 @@ class ConsentTextTest(unittest.TestCase):
 
     def test_the_nightly_note_names_every_field_that_is_sent(self) -> None:
         card: dict[str, Any] = {
-            "name": "pindakaas", "bought": 2, "firstYear": 2022, "lastYear": 2023, "paidMin": 1.0, "paidMax": 2.0,
+            "name": "pindakaas",
+            "bought": 2,
+            "firstYear": 2022,
+            "lastYear": 2023,
+            "paidMin": 1.0,
+            "paidMax": 2.0,
             "candidates": [candidate("p1", "Pindakaas")],
         }
         sent: dict[str, Any] = loose_names_ai._item(1, card)
@@ -510,21 +489,11 @@ class NightlySettingTest(LooseAiCase):
         self.assertIs(await ai_review.loose_nightly(), False)
         self.assertIs((await ai_review.status())["looseNightly"], False)
         await ai_review.save({"keys": {"anthropic": KEY}})
-        self.assertIs(
-            await ai_review.loose_nightly(), False, "een sleutel zet hem niet aan"
-        )
-        self.assertIs(
-            (await ai_review.save({"looseNightly": True}))["looseNightly"], True
-        )
+        self.assertIs(await ai_review.loose_nightly(), False, "een sleutel zet hem niet aan")
+        self.assertIs((await ai_review.save({"looseNightly": True}))["looseNightly"], True)
         self.assertIs(await ai_review.loose_nightly(), True)
         await ai_review.save({"models": {}})
-        self.assertIs(
-            await ai_review.loose_nightly(), True, "een andere opslag laat hem staan"
-        )
-        self.assertIs(
-            (await ai_review.save({"looseNightly": False}))["looseNightly"], False
-        )
+        self.assertIs(await ai_review.loose_nightly(), True, "een andere opslag laat hem staan")
+        self.assertIs((await ai_review.save({"looseNightly": False}))["looseNightly"], False)
         await ai_review.save({"looseNightly": "true"})
-        self.assertIs(
-            await ai_review.loose_nightly(), False, "alleen een echte true zet hem aan"
-        )
+        self.assertIs(await ai_review.loose_nightly(), False, "alleen een echte true zet hem aan")

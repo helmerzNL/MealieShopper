@@ -40,9 +40,7 @@ class SharedLink(NamedTuple):
 
 def _parse_link(raw: Any, index: int) -> SharedLink:
     if not isinstance(raw, dict) or set(raw) != set(_LINK_KEYS):
-        raise ValueError(
-            f"koppeling {index} moet precies de velden {', '.join(_LINK_KEYS)} hebben"
-        )
+        raise ValueError(f"koppeling {index} moet precies de velden {', '.join(_LINK_KEYS)} hebben")
     for field in _LINK_KEYS:
         if not isinstance(raw[field], str):
             raise ValueError(f"koppeling {index}: {field} moet tekst zijn")  # noqa: TRY004
@@ -58,9 +56,7 @@ def parse(text: str) -> list[SharedLink]:
     if not isinstance(data, dict) or set(data) != {"version", "links"}:
         raise ValueError("het bestand moet precies de velden version en links hebben")
     if data["version"] != VERSION or isinstance(data["version"], bool):
-        raise ValueError(
-            f"versie {data['version']!r} wordt niet ondersteund, verwacht {VERSION}"
-        )
+        raise ValueError(f"versie {data['version']!r} wordt niet ondersteund, verwacht {VERSION}")
     if not isinstance(data["links"], list):
         raise ValueError("links moet een lijst zijn")  # noqa: TRY004
     return [_parse_link(raw, index) for index, raw in enumerate(data["links"])]
@@ -81,14 +77,10 @@ def problems(links: list[SharedLink]) -> list[str]:
         if not link.product_id.strip():
             found.append(f"{link.name!r} heeft een leeg productId")
         if link.name != name_keys.fold(link.name):
-            found.append(
-                f"{link.name!r} is niet gevouwen (name_keys.fold geeft {name_keys.fold(link.name)!r})"
-            )
+            found.append(f"{link.name!r} is niet gevouwen (name_keys.fold geeft {name_keys.fold(link.name)!r})")
         other: SharedLink = by_key.setdefault(name_keys.key(link.name), link)
         if other.name != link.name and other.product_id != link.product_id:
-            found.append(
-                f"{other.name!r} en {link.name!r} hebben dezelfde sleutel maar een ander product"
-            )
+            found.append(f"{other.name!r} en {link.name!r} hebben dezelfde sleutel maar een ander product")
     return found
 
 
@@ -99,13 +91,9 @@ def _dump_link(link: SharedLink) -> str:
 
 def dump(links: Iterable[SharedLink]) -> str:
     """De tekst van een bestand: gesorteerd op name, een koppeling per regel, eindigend op een regeleinde."""
-    lines: list[str] = [
-        _dump_link(link) for link in sorted(links, key=lambda link: link.name)
-    ]
+    lines: list[str] = [_dump_link(link) for link in sorted(links, key=lambda link: link.name)]
     body: str = ",\n".join(lines)
-    return (
-        f'{{"version": {VERSION}, "links": [\n' + (body + "\n" if body else "") + "]}\n"
-    )
+    return f'{{"version": {VERSION}, "links": [\n' + (body + "\n" if body else "") + "]}\n"
 
 
 _cache: dict[str, Mapping[str, SharedLink]] = {}
@@ -185,9 +173,7 @@ def _in_file(store: str, key: str, product: str) -> None:
     alleen een echte koppeling, en geen rij voor elke naam die iemand instuurt (elke rij maakt de catalogus opnieuw)."""
     link: SharedLink | None = load(store).get(key)
     if link is None or link.product_id != product:
-        raise ValueError(
-            tr("Deze koppeling staat niet in het gedeelde bestand.", "This link is not in the shared file.")
-        )
+        raise ValueError(tr("Deze koppeling staat niet in het gedeelde bestand.", "This link is not in the shared file."))
 
 
 def _identity(store: Any, name: Any, product_id: Any) -> tuple[str, str, str]:

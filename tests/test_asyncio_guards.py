@@ -55,8 +55,14 @@ SQLITE_CONNECT_ALLOWED: frozenset[str] = frozenset({"backup.py", "thread_db.py"}
 # in een thread of later).
 BLOCKING_IN_ASYNC: frozenset[str] = frozenset(
     {
-        "time.sleep", "sqlite3.connect", "os.system",
-        "subprocess.run", "subprocess.call", "subprocess.check_call", "subprocess.check_output", "subprocess.Popen",
+        "time.sleep",
+        "sqlite3.connect",
+        "os.system",
+        "subprocess.run",
+        "subprocess.call",
+        "subprocess.check_call",
+        "subprocess.check_output",
+        "subprocess.Popen",
     }
 )
 
@@ -74,18 +80,34 @@ OPENERS: frozenset[str] = frozenset({"open", "os.open", "os.fdopen", "io.open"})
 # erbij: `organizers.apply` in recipe_bulk is iets anders dan `price_archive.apply`. Een kale naam hoort bij de module zelf.
 THREAD_ONLY: frozenset[str] = frozenset(
     {
-        *(f"backup.{name}" for name in (
-            "_jobs_connect", "_job_update", "write_backup", "check_rows", "replace_everything", "read_plan",
-            "read_file", "_schema_copy", "unseal", "_check_staged",
-        )),
-        "thread_db.connect", "price_archive.apply", "price_archive._check_upload",
-        "price_archive_export.write_export", "price_archive_export.write_site_export", "uploads._write_chunk",
+        *(
+            f"backup.{name}"
+            for name in (
+                "_jobs_connect",
+                "_job_update",
+                "write_backup",
+                "check_rows",
+                "replace_everything",
+                "read_plan",
+                "read_file",
+                "_schema_copy",
+                "unseal",
+                "_check_staged",
+            )
+        ),
+        "thread_db.connect",
+        "price_archive.apply",
+        "price_archive._check_upload",
+        "price_archive_export.write_export",
+        "price_archive_export.write_site_export",
+        "uploads._write_chunk",
     }
 )
 
 # Een httpx-client maken of een losse aanroep van httpx (zonder de regels van http_client) mag alleen in http_client.py.
 HTTPX_DIRECT: frozenset[str] = frozenset(
-    {"httpx.AsyncClient", "httpx.Client"} | {f"httpx.{verb}" for verb in ("get", "post", "put", "patch", "delete", "head", "options", "request", "stream")}
+    {"httpx.AsyncClient", "httpx.Client"}
+    | {f"httpx.{verb}" for verb in ("get", "post", "put", "patch", "delete", "head", "options", "request", "stream")}
 )
 
 
@@ -195,8 +217,14 @@ def test_no_module_uses_requests_threading_or_blocking_sleep() -> None:
     assert found == []
     # Ook als requests ergens anders in de omgeving staat: met requests onvindbaar laadt de app gewoon.
     script: str = "import sys\nsys.modules['requests'] = None\nfrom mealieshopper.app import create_app\ncreate_app()\nprint('ok')\n"
-    loaded = subprocess.run([sys.executable, "-c", script], cwd=SOURCE.parent, capture_output=True, text=True, timeout=60,
-                            env={**os.environ, "MEALIESHOPPER_TESTING": "1"})
+    loaded = subprocess.run(
+        [sys.executable, "-c", script],
+        cwd=SOURCE.parent,
+        capture_output=True,
+        text=True,
+        timeout=60,
+        env={**os.environ, "MEALIESHOPPER_TESTING": "1"},
+    )
     assert (loaded.returncode, loaded.stdout.strip()) == (0, "ok"), loaded.stderr[-2000:]
     assert not re.search(r"^requests\b", (SOURCE.parent / "requirements.txt").read_text(encoding="utf-8"), re.M | re.I)
 
@@ -218,7 +246,11 @@ def test_httpx_clients_are_only_made_in_http_client() -> None:
             continue
         tree: ast.Module = ast.parse(text)
         names: dict[str, str] = import_names(tree)
-        found += [f"{name}:{node.lineno}: {called_name(node, names)}" for node in ast.walk(tree) if isinstance(node, ast.Call) and called_name(node, names) in HTTPX_DIRECT]
+        found += [
+            f"{name}:{node.lineno}: {called_name(node, names)}"
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Call) and called_name(node, names) in HTTPX_DIRECT
+        ]
     assert found == []
 
 
@@ -266,7 +298,10 @@ def test_the_thread_only_check_knows_the_module_of_a_call() -> None:
     )
     found: list[str] = thread_only_calls("price_archive", ast.parse(source))
     assert sorted(entry.split(": ", 1)[1] for entry in found) == [
-        "backup.read_file", "price_archive._check_upload", "price_archive.apply", "price_archive_export.write_export",
+        "backup.read_file",
+        "price_archive._check_upload",
+        "price_archive.apply",
+        "price_archive_export.write_export",
     ]
     assert all(" in wrong: " in entry for entry in found)
     # Dezelfde kale naam in een andere module is een andere functie.

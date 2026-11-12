@@ -38,8 +38,10 @@ Twee stappen, zoals bij het terugzetten van een back-up (`backup.py`):
 Een afbeeldingsadres uit een archief neemt de app niet over: de app haalt afbeeldingen van zijn eigen winkels op, niet van een
 adres uit een bestand.
 """
+
 from __future__ import annotations
 
+import asyncio
 import base64
 import binascii
 import gzip
@@ -49,7 +51,6 @@ import logging
 import math
 import os
 import re
-import asyncio
 import secrets
 import sqlite3
 import tarfile
@@ -67,8 +68,8 @@ import httpx
 from quart import Quart, Response, jsonify, request
 
 from . import audit, auth, http_client, offers, prices, request_body, tasks, thread_db, uploads
-from .price_archive_tidy import ARCHIVE_OFFERS_SQL, ARCHIVE_PRICES_SQL, Tidy
 from .i18n import tr
+from .price_archive_tidy import ARCHIVE_OFFERS_SQL, ARCHIVE_PRICES_SQL, Tidy
 
 log = logging.getLogger(__name__)
 
@@ -137,8 +138,25 @@ STORES = offers.STORES
 ARCHIVE_SEARCH = "archive_search"
 PRICE_SOURCES = ("public_press_release", prices.PUBLIC_OBSERVED_UNKNOWN, "search", ARCHIVE_SEARCH)
 OFFER_COLUMNS = (
-    "store", "product_id", "title", "brand", "unit_size", "category", "price", "price_before", "promo_label", "image", "url",
-    "valid_from", "valid_until", "first_seen", "last_seen", "ended_at", "syncs", "continued", "personal",
+    "store",
+    "product_id",
+    "title",
+    "brand",
+    "unit_size",
+    "category",
+    "price",
+    "price_before",
+    "promo_label",
+    "image",
+    "url",
+    "valid_from",
+    "valid_until",
+    "first_seen",
+    "last_seen",
+    "ended_at",
+    "syncs",
+    "continued",
+    "personal",
 )
 PRICE_COLUMNS = ("store", "product_id", "day", "source", "title", "brand", "unit_size", "image", "url", "price", "seen_at")
 
@@ -214,7 +232,10 @@ MESSAGES: dict[str, tuple[str, str]] = {
         "Het gekozen prijsarchief is niet meer beschikbaar. Kies het bestand opnieuw.",
         "The chosen price archive is no longer available. Choose the file again.",
     ),
-    "busy": ("Er loopt al een import van een prijsarchief. Wacht tot die klaar is.", "A price archive import is already running. Wait until it has finished."),
+    "busy": (
+        "Er loopt al een import van een prijsarchief. Wacht tot die klaar is.",
+        "A price archive import is already running. Wait until it has finished.",
+    ),
     "interrupted": (
         "De import is onderbroken (bijvoorbeeld door een herstart van de app). Er is niets gewijzigd; kies het bestand opnieuw.",
         "The import was interrupted (for example by a restart of the app). Nothing was changed; choose the file again.",
@@ -429,8 +450,27 @@ def normalise_offer(row: dict[str, Any], bounds: Today) -> tuple[Any, ...]:
     continued = _integer(row, "continued", 0, 0, 1)
     if _integer(row, "personal", 0, 0, 1):
         raise RowError("personal", "personal")
-    return (store, product_id, title, brand, unit_size, category, price, price_before, promo_label, "", url,
-            valid_from, valid_until, first_seen, last_seen, ended_at, syncs, continued, 0)
+    return (
+        store,
+        product_id,
+        title,
+        brand,
+        unit_size,
+        category,
+        price,
+        price_before,
+        promo_label,
+        "",
+        url,
+        valid_from,
+        valid_until,
+        first_seen,
+        last_seen,
+        ended_at,
+        syncs,
+        continued,
+        0,
+    )
 
 
 def normalise_price(row: dict[str, Any], bounds: Today) -> tuple[Any, ...]:
@@ -489,6 +529,7 @@ class _DuplicateKey(ValueError):
 def _strict_json(raw: bytes) -> Any:
     """Een document van data.mealieshopper.nl, zo streng als de site het leest: UTF-8 (een BOM mag), geen NaN of Infinity, en
     geen sleutel twee keer in hetzelfde object (die zou ongemerkt verdwijnen)."""
+
     def reject(constant: str) -> Any:
         raise ValueError(constant)
 
@@ -666,9 +707,11 @@ class Archive:
         """Het pad van mealieshopper-price-archive.json in de ZIP (bovenin, of één map diep zoals in de ZIP van een GitHub-repo)."""
         try:
             with zipfile.ZipFile(self.path) as archive:
-                found = [info.filename for info in archive.infolist()
-                         if not info.is_dir() and PurePosixPath(info.filename).name == EXPORT_MANIFEST
-                         and len(PurePosixPath(info.filename).parts) <= 2]
+                found = [
+                    info.filename
+                    for info in archive.infolist()
+                    if not info.is_dir() and PurePosixPath(info.filename).name == EXPORT_MANIFEST and len(PurePosixPath(info.filename).parts) <= 2
+                ]
         except (zipfile.BadZipFile, OSError):
             raise ArchiveError("not_an_archive") from None
         return found[0] if len(found) == 1 else None
@@ -689,8 +732,12 @@ class Archive:
                         raise ArchiveError("bad_structure", detail=EXPORT_MANIFEST) from None
                 self._own_header(header)
                 files = header.get("files")
-                if (not isinstance(files, list) or len(files) > MAX_EXPORT_FILES or len(set(map(str, files))) != len(files)
-                        or not all(isinstance(name, str) and EXPORT_FILE.match(name) for name in files)):
+                if (
+                    not isinstance(files, list)
+                    or len(files) > MAX_EXPORT_FILES
+                    or len(set(map(str, files))) != len(files)
+                    or not all(isinstance(name, str) and EXPORT_FILE.match(name) for name in files)
+                ):
                     raise ArchiveError("bad_structure", detail=f"{EXPORT_MANIFEST}: files")
                 infos = []
                 for name in files:
@@ -748,13 +795,26 @@ class Archive:
                     raise ArchiveError("bad_structure", detail=GIST_MANIFEST) from None
             parts = self._gist_manifest(manifest)
             return self._join_parts(
-                archive, by_name, folder, [(name, expected, None) for name, expected in parts],
-                manifest["archiveBytes"], manifest["archiveSha256"], manifest["archiveFile"], ".tar.gz",
+                archive,
+                by_name,
+                folder,
+                [(name, expected, None) for name, expected in parts],
+                manifest["archiveBytes"],
+                manifest["archiveSha256"],
+                manifest["archiveFile"],
+                ".tar.gz",
             )
 
     def _join_parts(
-        self, archive: zipfile.ZipFile, by_name: dict[str, zipfile.ZipInfo], folder: PurePosixPath,
-        parts: list[tuple[str, str, int | None]], size: int, sha256: str, label: str, suffix: str,
+        self,
+        archive: zipfile.ZipFile,
+        by_name: dict[str, zipfile.ZipInfo],
+        folder: PurePosixPath,
+        parts: list[tuple[str, str, int | None]],
+        size: int,
+        sha256: str,
+        label: str,
+        suffix: str,
     ) -> Path:
         """Zet de Base64-delen (naam, SHA-256, eventueel lengte) achter elkaar in een werkbestand en controleert elk deel en het
         geheel (`size` bytes met SHA-256 `sha256`). Geeft het pad; bij een fout blijft er niets staan."""
@@ -799,7 +859,11 @@ class Archive:
 
     # De vorm van data.mealieshopper.nl: lijsten van regels in offers/ en prices/ (zie `site_document`).
     def _from_site(
-        self, path: Path, documents: dict[str, dict[str, Any]] | None = None, prefix: str = "", store: str | None = None,
+        self,
+        path: Path,
+        documents: dict[str, dict[str, Any]] | None = None,
+        prefix: str = "",
+        store: str | None = None,
     ) -> Iterator[tuple[str, dict[str, Any], str, int]]:
         """De regels van elk document in de ZIP `path`, op naam gesorteerd. Met `documents` (uit data-site-manifest.json, op
         `prefix` + naam in de ZIP) moet elk genoemd document er zijn met dezelfde lengte, SHA-256 en hetzelfde aantal regels, en
@@ -904,8 +968,14 @@ class Archive:
             }
             for package in packages:
                 target = self._join_parts(
-                    archive, by_name, folder, package["parts"], package["zipBytes"], package["sha256"],
-                    package["uploadPath"], ".zip",
+                    archive,
+                    by_name,
+                    folder,
+                    package["parts"],
+                    package["zipBytes"],
+                    package["sha256"],
+                    package["uploadPath"],
+                    ".zip",
                 )
                 try:
                     yield from self._from_site(target, package["documents"], prefix=package["store"] + "/", store=package["store"])
@@ -963,7 +1033,7 @@ class Archive:
                 path = document.get("path") if isinstance(document, dict) else None
                 if not isinstance(path, str) or not path.startswith(f"{store}/") or path in listed:
                     raise bad("documents")
-                inner = site_document(path[len(store) + 1:])
+                inner = site_document(path[len(store) + 1 :])
                 if inner is None or inner[1] is not None:  # direct in offers/ of prices/ van de ZIP
                     raise bad("documents")
                 items = document.get("items")
@@ -972,10 +1042,16 @@ class Archive:
                 if items is not None and not whole(items, 0, MAX_RECORDS):
                     raise bad("documents")
                 listed[path] = {"bytes": document["bytes"], "sha256": document["sha256"], "items": items}
-            result.append({
-                "store": store, "uploadPath": upload, "zipBytes": package["zipBytes"], "sha256": package["sha256"],
-                "parts": joined, "documents": listed,
-            })
+            result.append(
+                {
+                    "store": store,
+                    "uploadPath": upload,
+                    "zipBytes": package["zipBytes"],
+                    "sha256": package["sha256"],
+                    "parts": joined,
+                    "documents": listed,
+                }
+            )
         return result
 
     @staticmethod
@@ -1128,11 +1204,15 @@ class Plan:
         self.stores: dict[str, dict[str, Any]] = {}
 
     def _store(self, store: str) -> dict[str, Any]:
-        return self.stores.setdefault(store, {
-            "offers": {"new": 0, "duplicate": 0, "covered": 0},
-            "prices": {"new": 0, "duplicate": 0, "kept": 0},
-            "earliest": None, "latest": None,
-        })
+        return self.stores.setdefault(
+            store,
+            {
+                "offers": {"new": 0, "duplicate": 0, "covered": 0},
+                "prices": {"new": 0, "duplicate": 0, "kept": 0},
+                "earliest": None,
+                "latest": None,
+            },
+        )
 
     @staticmethod
     def _span(stats: dict[str, Any], day: str | None) -> None:
@@ -1188,7 +1268,10 @@ class Plan:
         wanted = {(row[0], row[1]) for row in self.corrections}
         found: dict[tuple[str, str], list[sqlite3.Row]] = {}
         archive = f" AND NOT {ARCHIVE_OFFERS_SQL}" if self.without_archive else ""
-        for row in conn.execute(f"SELECT id, store, product_id, url, price, price_before FROM offer_history WHERE id <= ? AND url IS NOT NULL{archive}", (self.max_offer_id,)):
+        for row in conn.execute(
+            f"SELECT id, store, product_id, url, price, price_before FROM offer_history WHERE id <= ? AND url IS NOT NULL{archive}",
+            (self.max_offer_id,),
+        ):
             if (row["store"], row["url"]) in wanted:
                 found.setdefault((row["store"], row["url"]), []).append(row)
         for store, url, old_price, old_before, new_price, new_before in self.corrections:
@@ -1427,9 +1510,7 @@ def _site_reason(exc: httpx.HTTPError) -> str:
 
 async def _site_get(path: str, limit: int) -> bytes:
     """Eén bestand van de site, hoogstens `limit` bytes. Geen doorverwijzing: alleen data.mealieshopper.nl zelf."""
-    client: httpx.AsyncClient = http_client.client(
-        "data-site", headers={"User-Agent": SITE_USER_AGENT}, timeout=SITE_TIMEOUT, follow_redirects=False
-    )
+    client: httpx.AsyncClient = http_client.client("data-site", headers={"User-Agent": SITE_USER_AGENT}, timeout=SITE_TIMEOUT, follow_redirects=False)
     chunks: list[bytes] = []
     received = 0
     try:
@@ -1541,9 +1622,7 @@ def _staged_rows(path: Path) -> Iterator[tuple[str, tuple[Any, ...]]]:
             yield kind, tuple(values)
 
 
-def apply(
-    path: Path, replace: bool = False, on_commit: Callable[[sqlite3.Connection, dict[str, Any]], None] | None = None
-) -> dict[str, Any]:
+def apply(path: Path, replace: bool = False, on_commit: Callable[[sqlite3.Connection, dict[str, Any]], None] | None = None) -> dict[str, Any]:
     """Zet de klaargezette regels in één transactie in de database, na een nieuwe vergelijking met wat er dan staat.
 
     Met `replace` gaat eerst alles eruit wat eerder uit een prijsarchief kwam (ARCHIVE_OFFERS_SQL en ARCHIVE_PRICES_SQL), in
@@ -1704,9 +1783,7 @@ async def start_job(token: str, replace: bool = False) -> dict[str, Any]:
                 raise ArchiveError("stage_missing", 404) from None
             now: str = _now()
             await conn.execute("UPDATE price_archive_jobs SET dismissed = 1 WHERE status != 'running'")
-            await conn.execute(
-                "INSERT INTO price_archive_jobs (id, status, started_at, updated_at) VALUES (?, 'running', ?, ?)", (job_id, now, now)
-            )
+            await conn.execute("INSERT INTO price_archive_jobs (id, status, started_at, updated_at) VALUES (?, 'running', ?, ?)", (job_id, now, now))
             await conn.commit()
         except BaseException:
             await conn.rollback()
@@ -1761,9 +1838,18 @@ async def run_job(job_id: str, staged: Path, actor: str = "system", replace: boo
 async def _record_import(summary: dict[str, Any], actor: str, started: float) -> None:
     log.info("Prijsarchief geïmporteerd: %s aanbiedingen, %s prijzen", summary["offers"], summary["prices"])
     await audit.record(
-        kind="task", service="price-archive", action="import", actor=actor, duration_ms=int((time.monotonic() - started) * 1000),
-        detail={"offers": summary["offers"], "prices": summary["prices"], "corrections": summary["corrections"],
-                "replaced": summary["replaced"], "removed": summary["removed"]},
+        kind="task",
+        service="price-archive",
+        action="import",
+        actor=actor,
+        duration_ms=int((time.monotonic() - started) * 1000),
+        detail={
+            "offers": summary["offers"],
+            "prices": summary["prices"],
+            "corrections": summary["corrections"],
+            "replaced": summary["replaced"],
+            "removed": summary["removed"],
+        },
     )
 
 
@@ -1864,8 +1950,12 @@ def register_routes(app: Quart) -> None:
         if site:
             detail["format"] = "site"
         await audit.record(
-            kind="task", service="price-archive", action="export", actor=await audit.current_actor(),
-            duration_ms=int((time.monotonic() - started) * 1000), detail=detail,
+            kind="task",
+            service="price-archive",
+            action="export",
+            actor=await audit.current_actor(),
+            duration_ms=int((time.monotonic() - started) * 1000),
+            detail=detail,
         )
         name: str = ("mealieshopper-data-" if site else "mealieshopper-prijsarchief-") + datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S") + ".zip"
         # Het bestand is van het bestandssysteem af zodra het open is: er blijft niets staan, ook niet bij een afgebroken download.
@@ -1881,14 +1971,18 @@ def register_routes(app: Quart) -> None:
             finally:
                 handle.close()
 
-        response: Response = Response(stream(), mimetype="application/zip", headers={
-            "Content-Length": str(size),
-            "Content-Disposition": f'attachment; filename="{name}"',
-            "Cache-Control": "no-store",
-            "X-Export-Offers": str(offers_total),
-            "X-Export-Prices": str(prices_total),
-            "X-Export-Skipped": str(sum(header["skipped"].values())),
-        })
+        response: Response = Response(
+            stream(),
+            mimetype="application/zip",
+            headers={
+                "Content-Length": str(size),
+                "Content-Disposition": f'attachment; filename="{name}"',
+                "Cache-Control": "no-store",
+                "X-Export-Offers": str(offers_total),
+                "X-Export-Prices": str(prices_total),
+                "X-Export-Skipped": str(sum(header["skipped"].values())),
+            },
+        )
         # Geen RESPONSE_TIMEOUT, zoals bij de back-up: een grote export over een trage verbinding mag gewoon lang duren.
         response.timeout = None
         return response

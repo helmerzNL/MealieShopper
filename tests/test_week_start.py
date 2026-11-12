@@ -20,9 +20,10 @@ import httpx
 
 os.environ["PASSKEY_AUTH_ENABLED"] = "false"
 
+from helpers import AppTestCase, routes, run, sent_timeout  # noqa: E402
+
 from mealieshopper import auth, mcp, mealie  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
-from helpers import AppTestCase, routes, run, sent_timeout  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 APP_JS = (ROOT / "static" / "app.js").read_text(encoding="utf-8")
@@ -95,8 +96,14 @@ class FirstDayFromMealieTest(WeekStartTestCase):
             with routes() as api:
                 api.get(PREFERENCES).mock(return_value=preferences(value))
                 self.assertIsNone(run(mealie.first_day_of_week()), repr(value))
-        for answer in (response(body={"privateHousehold": True}), response(body=None), response(body=[1]), response(json_error=True),
-                       response(status=401), response(status=404)):
+        for answer in (
+            response(body={"privateHousehold": True}),
+            response(body=None),
+            response(body=[1]),
+            response(json_error=True),
+            response(status=401),
+            response(status=404),
+        ):
             mealie._week_start_cache.clear()
             with routes() as api:
                 api.get(PREFERENCES).mock(return_value=answer)
@@ -187,8 +194,10 @@ class StatusTest(WeekStartTestCase):
 class WeekMenuToolTest(WeekStartTestCase):
     def test_the_week_menu_starts_on_the_first_day_of_the_week(self):
         for first, isoweekday in ((6, 6), (0, 7), (1, 1), (3, 3)):
-            with mock.patch.object(mealie, "week_start", new_callable=mock.AsyncMock, return_value={"day": first}), \
-                    mock.patch.object(mealie, "get_meal_plan_with_recipes", new_callable=mock.AsyncMock, return_value=[]) as plan:
+            with (
+                mock.patch.object(mealie, "week_start", new_callable=mock.AsyncMock, return_value={"day": first}),
+                mock.patch.object(mealie, "get_meal_plan_with_recipes", new_callable=mock.AsyncMock, return_value=[]) as plan,
+            ):
                 data = run(mcp.tool_week_menu({}))
             start, end = (datetime.date.fromisoformat(day) for day in plan.call_args.args)
             self.assertEqual(start.isoweekday(), isoweekday, first)
@@ -198,8 +207,10 @@ class WeekMenuToolTest(WeekStartTestCase):
             self.assertEqual(data["from"], start.isoformat())
 
     def test_an_explicit_start_date_does_not_ask_for_the_week_start(self):
-        with mock.patch.object(mealie, "week_start", new_callable=mock.AsyncMock, side_effect=AssertionError("niet nodig")), \
-                mock.patch.object(mealie, "get_meal_plan_with_recipes", new_callable=mock.AsyncMock, return_value=[]) as plan:
+        with (
+            mock.patch.object(mealie, "week_start", new_callable=mock.AsyncMock, side_effect=AssertionError("niet nodig")),
+            mock.patch.object(mealie, "get_meal_plan_with_recipes", new_callable=mock.AsyncMock, return_value=[]) as plan,
+        ):
             run(mcp.tool_week_menu({"start_date": "2026-11-07", "days": 7}))
         plan.assert_awaited_once_with("2026-11-07", "2026-11-13")
 
@@ -287,7 +298,7 @@ class BrowserWiringTest(AppTestCase):
         self.assertIn("offersWeekStartChanged()", function_source(APP_JS, "applyWeekStart"))
 
     def test_the_owner_chooses_the_day_next_to_the_mealie_link(self):
-        body = TEMPLATE[TEMPLATE.index('id="mealie-login-body"'):TEMPLATE.index('id="ah-login-box"')]
+        body = TEMPLATE[TEMPLATE.index('id="mealie-login-body"') : TEMPLATE.index('id="ah-login-box"')]
         self.assertIn('id="mealie-week-start"', body)
         self.assertIn('$("#mealie-week-start").addEventListener("change", saveWeekStart);', APP_JS)
         save = function_source(APP_JS, "saveWeekStart")

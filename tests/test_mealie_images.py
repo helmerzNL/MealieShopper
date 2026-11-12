@@ -12,9 +12,10 @@ import respx
 
 os.environ["PASSKEY_AUTH_ENABLED"] = "false"
 
+from helpers import AppTestCase, run  # noqa: E402
+
 from mealieshopper import http_client, mealie, mealie_images  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
-from helpers import AppTestCase, run  # noqa: E402
 
 RECIPE_ID = "1b4e28ba-2fa1-11d2-883f-0016d3cca427"
 OTHER_ID = "2b4e28ba-2fa1-11d2-883f-0016d3cca427"
@@ -81,8 +82,10 @@ class MealPlanImageTest(MealieImagesTestCase):
             "soep": {"id": RECIPE_ID, "image": "v2", "name": "Soep", "recipeIngredient": []},
             "pasta": {"id": OTHER_ID, "image": None, "name": "Pasta", "recipeIngredient": []},
         }
-        with mock.patch.object(mealie, "get_meal_plan", new_callable=mock.AsyncMock, return_value=entries), \
-                mock.patch.object(mealie, "get_recipe", new_callable=mock.AsyncMock, side_effect=lambda slug: details[slug]):
+        with (
+            mock.patch.object(mealie, "get_meal_plan", new_callable=mock.AsyncMock, return_value=entries),
+            mock.patch.object(mealie, "get_recipe", new_callable=mock.AsyncMock, side_effect=lambda slug: details[slug]),
+        ):
             result = run(mealie.get_meal_plan_with_recipes("2026-10-19", "2026-10-25"))
         self.assertEqual(result[0]["imageUrl"], f"/api/mealie/recipes/{RECIPE_ID}/image?v=v2")
         self.assertIsNone(result[1]["imageUrl"])
@@ -90,8 +93,10 @@ class MealPlanImageTest(MealieImagesTestCase):
 
     def test_summary_image_is_used_when_the_detail_fails(self):
         entries = [{"date": "2026-10-19", "recipe": {"id": RECIPE_ID, "slug": "soep", "image": "v1"}}]
-        with mock.patch.object(mealie, "get_meal_plan", new_callable=mock.AsyncMock, return_value=entries), \
-                mock.patch.object(mealie, "get_recipe", new_callable=mock.AsyncMock, side_effect=RuntimeError("boem")):
+        with (
+            mock.patch.object(mealie, "get_meal_plan", new_callable=mock.AsyncMock, return_value=entries),
+            mock.patch.object(mealie, "get_recipe", new_callable=mock.AsyncMock, side_effect=RuntimeError("boem")),
+        ):
             result = run(mealie.get_meal_plan_with_recipes("2026-10-19", "2026-10-25"))
         self.assertEqual(result[0]["imageUrl"], f"/api/mealie/recipes/{RECIPE_ID}/image?v=v1")
 
@@ -114,7 +119,9 @@ class FetchAndCacheTest(MealieImagesTestCase):
         # Zoals requests met allow_redirects=False: een doorverwijzing is geen afbeelding, en het token gaat niet mee naar een ander adres.
         with respx.mock(assert_all_called=False) as router:
             elsewhere = router.get("https://elders.example/plaatje.webp").mock(return_value=response())
-            router.get(url__regex=IMAGE_URL.pattern).mock(return_value=httpx.Response(302, headers={"Location": "https://elders.example/plaatje.webp"}))
+            router.get(url__regex=IMAGE_URL.pattern).mock(
+                return_value=httpx.Response(302, headers={"Location": "https://elders.example/plaatje.webp"})
+            )
             with self.assertRaises(RuntimeError):
                 run(mealie_images.get_image(RECIPE_ID))
         self.assertFalse(elsewhere.called)
@@ -152,8 +159,7 @@ class FetchAndCacheTest(MealieImagesTestCase):
             with self.assertRaises(mealie_images.ImageNotFound):
                 run(mealie_images.get_image(RECIPE_ID))
         for content_type in ("text/html", "image/svg+xml"):
-            with self.subTest(content_type=content_type), \
-                    mealie_media(return_value=response(content_type=content_type)):
+            with self.subTest(content_type=content_type), mealie_media(return_value=response(content_type=content_type)):
                 with self.assertRaises(RuntimeError):
                     run(mealie_images.get_image(OTHER_ID))
 

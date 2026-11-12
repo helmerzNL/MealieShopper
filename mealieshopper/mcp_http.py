@@ -1,12 +1,13 @@
 """HTTP-kant van de MCP-server: /mcp, de OAuth-endpoints en het beheer ervan in de app."""
+
 from __future__ import annotations
 
 import json
 from typing import Any, Awaitable, Callable
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
-from quart import Quart, Response, jsonify, make_response, redirect, render_template, request
 from itsdangerous import BadSignature, URLSafeTimedSerializer
+from quart import Quart, Response, jsonify, make_response, redirect, render_template, request
 
 from . import audit, auth, mcp, oauth, server_settings
 from .i18n import current_lang, tr
@@ -148,7 +149,9 @@ def register_routes(app: Quart, base_url: Callable[[], Awaitable[str]]) -> None:
         except oauth.OAuthError as exc:
             return await error_page(exc.description)
         if info["error"]:
-            return redirect_with(info["redirect_uri"], error=info["error"].code, error_description=info["error"].description, state=info["state"], iss=await base_url())
+            return redirect_with(
+                info["redirect_uri"], error=info["error"].code, error_description=info["error"].description, state=info["state"], iss=await base_url()
+            )
         user = await auth.current_user()
         if not user:
             return redirect("/?" + urlencode({"next": request.full_path.rstrip("?")}), 302)
@@ -157,7 +160,9 @@ def register_routes(app: Quart, base_url: Callable[[], Awaitable[str]]) -> None:
             | {"client_id": info["client"]["client_id"], "user_id": user["id"]}
         )
         response = await make_response(
-            await render_template("oauth.html", error="", client=info["client"]["name"], signed=signed, base=await base_url(), username=user["username"])
+            await render_template(
+                "oauth.html", error="", client=info["client"]["name"], signed=signed, base=await base_url(), username=user["username"]
+            )
         )
         response.headers["Cache-Control"] = "no-store"
         response.headers["X-Frame-Options"] = "DENY"
@@ -177,9 +182,17 @@ def register_routes(app: Quart, base_url: Callable[[], Awaitable[str]]) -> None:
         try:
             data = (await serializer()).loads((await request.form).get("request", ""), max_age=600)
         except BadSignature:
-            return await error_page(tr("Dit verzoek is verlopen. Begin opnieuw vanuit de app.", "This request has expired. Start again from the app."))
+            return await error_page(
+                tr("Dit verzoek is verlopen. Begin opnieuw vanuit de app.", "This request has expired. Start again from the app.")
+            )
         if data.get("user_id") != user["id"]:  # tussendoor als iemand anders ingelogd
-            return await error_page(tr("Je bent ondertussen als iemand anders ingelogd. Begin opnieuw vanuit de app.", "You are now logged in as someone else. Start again from the app."), 403)
+            return await error_page(
+                tr(
+                    "Je bent ondertussen als iemand anders ingelogd. Begin opnieuw vanuit de app.",
+                    "You are now logged in as someone else. Start again from the app.",
+                ),
+                403,
+            )
         client = await oauth.get_client(data["client_id"])
         if not client or data["redirect_uri"] not in client["redirect_uris"]:
             return await error_page(tr("Onbekende app.", "Unknown app."))

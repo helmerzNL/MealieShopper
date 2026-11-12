@@ -6,6 +6,7 @@ Voorrang bij het publieke adres: wat de beheerder in de app instelt, dan de omge
 nooit gezet, dan bepaalt `MEALIESHOPPER_MCP` (standaard aan). De eerste dag van de week volgt standaard Mealie;
 de beheerder kan een vaste dag kiezen (zie `mealie.week_start`).
 """
+
 from __future__ import annotations
 
 import json
@@ -42,10 +43,12 @@ def normalize_base_url(value: Any) -> str:
     if parts.scheme not in ("http", "https") or not parts.hostname:
         raise ValueError(tr("Begin met http:// of https:// en geef een hostnaam op.", "Start with http:// or https:// and give a host name."))
     if parts.username or parts.password or parts.path or parts.query or parts.fragment:
-        raise ValueError(tr(
-            "Gebruik alleen het adres zelf, zonder pad, zoekopdracht of inloggegevens (bijvoorbeeld https://mealieshopper.jouwdomein.nl).",
-            "Use just the address itself, without path, query or credentials (for example https://mealieshopper.yourdomain.com).",
-        ))
+        raise ValueError(
+            tr(
+                "Gebruik alleen het adres zelf, zonder pad, zoekopdracht of inloggegevens (bijvoorbeeld https://mealieshopper.jouwdomein.nl).",
+                "Use just the address itself, without path, query or credentials (for example https://mealieshopper.yourdomain.com).",
+            )
+        )
     return f"{parts.scheme}://{parts.netloc}".lower()
 
 
@@ -97,7 +100,15 @@ async def tools_payload() -> list[dict[str, Any]]:
     from . import mcp  # lokaal: mcp importeert dit module
 
     off = await disabled_tools()
-    return [{"name": tool["name"], "title": tool["annotations"]["title"], "readOnly": tool["annotations"]["readOnlyHint"], "enabled": tool["name"] not in off} for tool in mcp.all_tool_descriptors()]
+    return [
+        {
+            "name": tool["name"],
+            "title": tool["annotations"]["title"],
+            "readOnly": tool["annotations"]["readOnlyHint"],
+            "enabled": tool["name"] not in off,
+        }
+        for tool in mcp.all_tool_descriptors()
+    ]
 
 
 async def settings_payload() -> dict[str, Any]:
@@ -150,10 +161,14 @@ def register_routes(app: Quart) -> None:
             elif mealie._weekday(day) is not None:
                 updates[mealie.SETTING_WEEK_START] = str(day)
             else:
-                return jsonify({"error": tr(
-                    "weekStart moet leeg zijn (zoals in Mealie) of een dag van 0 (zondag) t/m 6 (zaterdag).",
-                    "weekStart must be empty (as in Mealie) or a day from 0 (Sunday) to 6 (Saturday).",
-                )}), 400
+                return jsonify(
+                    {
+                        "error": tr(
+                            "weekStart moet leeg zijn (zoals in Mealie) of een dag van 0 (zondag) t/m 6 (zaterdag).",
+                            "weekStart must be empty (as in Mealie) or a day from 0 (Sunday) to 6 (Saturday).",
+                        )
+                    }
+                ), 400
         tool_changes: dict[str, bool] = {}
         if "mcpTools" in body:
             from . import mcp  # lokaal: mcp importeert dit module
@@ -161,7 +176,9 @@ def register_routes(app: Quart) -> None:
             changes = body["mcpTools"]
             known = {tool["name"] for tool in mcp.all_tool_descriptors()}
             if not isinstance(changes, dict) or not all(isinstance(value, bool) for value in changes.values()):
-                return jsonify({"error": tr("mcpTools moet een object met waar/onwaar per tool zijn.", "mcpTools must be an object with true/false per tool.")}), 400
+                return jsonify(
+                    {"error": tr("mcpTools moet een object met waar/onwaar per tool zijn.", "mcpTools must be an object with true/false per tool.")}
+                ), 400
             unknown = sorted(set(changes) - known)
             if unknown:
                 return jsonify({"error": tr(f"Onbekende tool: {', '.join(unknown)}", f"Unknown tool: {', '.join(unknown)}")}), 400

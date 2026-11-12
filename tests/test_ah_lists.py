@@ -5,26 +5,36 @@ from unittest import mock
 
 os.environ["PASSKEY_AUTH_ENABLED"] = "false"
 
+from helpers import AppTestCase, db, run  # noqa: E402
+
 from mealieshopper import ah, ah_lists  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
-from helpers import AppTestCase, db, run  # noqa: E402
 
 
 def live_list(list_id="abc", name="Favorieten", items=None):
-    items = items if items is not None else [
-        {
-            "id": "i1",
-            "productId": 10,
-            "url": "https://www.ah.nl/producten/product/wi10",
-            "quantity": 2,
-            "product": {
-                "id": 10, "title": "Melk", "brand": "AH", "unitSize": "1 l",
-                "price": 1.25, "image": "https://img/10.png", "isBonus": True,
+    items = (
+        items
+        if items is not None
+        else [
+            {
+                "id": "i1",
+                "productId": 10,
                 "url": "https://www.ah.nl/producten/product/wi10",
+                "quantity": 2,
+                "product": {
+                    "id": 10,
+                    "title": "Melk",
+                    "brand": "AH",
+                    "unitSize": "1 l",
+                    "price": 1.25,
+                    "image": "https://img/10.png",
+                    "isBonus": True,
+                    "url": "https://www.ah.nl/producten/product/wi10",
+                },
             },
-        },
-        {"id": "i2", "productId": 11, "url": "", "quantity": 1, "product": None},
-    ]
+            {"id": "i2", "productId": 11, "url": "", "quantity": 1, "product": None},
+        ]
+    )
     return {"id": list_id, "name": name, "totalSize": len(items), "items": items}
 
 
@@ -190,7 +200,6 @@ class QuantityTest(AhListsTestCase):
     def test_database_from_before_editable_quantities_is_upgraded(self):
         from contextlib import closing
 
-
         with closing(db()) as conn, conn:
             conn.executescript(
                 """
@@ -208,8 +217,13 @@ class QuantityTest(AhListsTestCase):
 
 
 def entry(item_id, product_id, quantity, title=None):
-    return {"id": item_id, "productId": product_id, "quantity": quantity, "url": "",
-            "product": {"title": title or f"Product {product_id}", "price": 1.0}}
+    return {
+        "id": item_id,
+        "productId": product_id,
+        "quantity": quantity,
+        "url": "",
+        "product": {"title": title or f"Product {product_id}", "price": 1.0},
+    }
 
 
 class SyncKeepsEditsTest(AhListsTestCase):
@@ -279,8 +293,8 @@ class ResetWarningTest(AppTestCase):
         from pathlib import Path
 
         source = (Path(__file__).resolve().parent.parent / "static" / "app.js").read_text(encoding="utf-8")
-        body = source[source.index("async function resetOpenAhList()"):]
-        body = body[:body.index("\n}\n")]
+        body = source[source.index("async function resetOpenAhList()") :]
+        body = body[: body.index("\n}\n")]
         self.assertIn('await confirmDialog(tn("list.reset_confirm", edited), { danger: true })', body)
         self.assertLess(body.index("confirmDialog"), body.index("/reset"))  # eerst vragen, dan terugzetten
 
@@ -311,8 +325,7 @@ class ListToCartTest(AhListsTestCase):
         self.assertEqual(sent[0]["title"], "Melk")
 
     async def test_unsynced_list_is_added_live(self):
-        with mock.patch.object(ah, "get_favorite_list_items", return_value=live_list("zzz")), \
-                mock.patch.object(ah, "add_to_shopping_list") as add:
+        with mock.patch.object(ah, "get_favorite_list_items", return_value=live_list("zzz")), mock.patch.object(ah, "add_to_shopping_list") as add:
             response = await self.client.post("/api/ah/lists/zzz/cart")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.get_json()["added"], 2)

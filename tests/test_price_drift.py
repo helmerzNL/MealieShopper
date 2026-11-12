@@ -66,9 +66,7 @@ class PairsTests(unittest.TestCase):
 
     def test_percentiles_use_nearest_rank(self) -> None:
         bucket = summary([(10, v / 100) for v in range(1, 101)])[0]
-        self.assertEqual(
-            (bucket["p50"], bucket["p90"], bucket["p95"]), (0.5, 0.9, 0.95)
-        )
+        self.assertEqual((bucket["p50"], bucket["p90"], bucket["p95"]), (0.5, 0.9, 0.95))
 
 
 class ChainTests(unittest.TestCase):
@@ -97,9 +95,7 @@ class ChainTests(unittest.TestCase):
         self.assertEqual(pairs(daily_points(offers)), [])
 
     def test_unparseable_day_is_skipped(self) -> None:
-        offers = chain_offers(
-            [row("", 2.0), row(None, 2.0), row("kapot", 2.0), row("2026-01-01", 2.0)]
-        )
+        offers = chain_offers([row("", 2.0), row(None, 2.0), row("kapot", 2.0), row("2026-01-01", 2.0)])
         self.assertEqual([o["day"] for o in offers], ["2026-01-01"])
 
     def test_offer_without_price_before_gives_no_point(self) -> None:
@@ -163,16 +159,10 @@ class ReportTests(unittest.TestCase):
             "2026-02-01",
             promo_label="2 voor: 0.79",
         )
-        add_offer(
-            conn, "ah", "300", "AH Boter", None, 1.00, "2026-01-01", valid_from=""
-        )
+        add_offer(conn, "ah", "300", "AH Boter", None, 1.00, "2026-01-01", valid_from="")
         add_offer(conn, "ah", "300", "AH Boter", None, 1.10, "2026-02-01")
-        add_offer(
-            conn, "ah", "folder:1", "Folder: AH Melk", "1 liter", 2.10, "2026-02-01"
-        )
-        add_offer(
-            conn, "ah", "folder:1", "Folder: AH Melk", "2 liter", 3.00, "2026-03-01"
-        )
+        add_offer(conn, "ah", "folder:1", "Folder: AH Melk", "1 liter", 2.10, "2026-02-01")
+        add_offer(conn, "ah", "folder:1", "Folder: AH Melk", "2 liter", 3.00, "2026-03-01")
         add_offer(conn, "ah", "folder:2", "Folder: Alle kaas", None, None, "2026-02-01")
         add_offer(conn, "jumbo", "J1", "Jumbo Kaas", "500 g", 4.00, "2026-01-01")
         add_offer(
@@ -185,17 +175,11 @@ class ReportTests(unittest.TestCase):
             "2026-02-01",
         )
         conn.execute("CREATE TABLE ah_orders (order_id INTEGER, kind TEXT)")
-        conn.execute(
-            "CREATE TABLE ah_order_items (order_id INTEGER, product_id INTEGER, title TEXT, unit_size TEXT)"
-        )
+        conn.execute("CREATE TABLE ah_order_items (order_id INTEGER, product_id INTEGER, title TEXT, unit_size TEXT)")
         conn.execute("INSERT INTO ah_orders VALUES (1, 'delivered')")
         conn.execute("INSERT INTO ah_order_items VALUES (1, 100, 'AH Melk', '1 l')")
-        conn.execute(
-            "CREATE TABLE imported_purchases (store TEXT, order_ref TEXT, position INTEGER, day TEXT, title TEXT, quantity REAL)"
-        )
-        conn.execute(
-            "INSERT INTO imported_purchases VALUES ('ah', 'o1', 1, '2026-02-02', 'AH Kaas', 1)"
-        )
+        conn.execute("CREATE TABLE imported_purchases (store TEXT, order_ref TEXT, position INTEGER, day TEXT, title TEXT, quantity REAL)")
+        conn.execute("INSERT INTO imported_purchases VALUES ('ah', 'o1', 1, '2026-02-02', 'AH Kaas', 1)")
         conn.commit()
         conn.close()
 
@@ -221,9 +205,7 @@ class ReportTests(unittest.TestCase):
         self.assertIn("Assortimentsregels: 1", text)
         self.assertIn("Folderregels met van-prijs: 2", text)
         self.assertIn("Folderproducten met meer dan een unit_size: 1", text)
-        self.assertIn(
-            "Folderproducten met meer dan een verpakking uit de tekst: 1", text
-        )
+        self.assertIn("Folderproducten met meer dan een verpakking uit de tekst: 1", text)
 
     def test_purchases_match_when_unit_spelling_differs(self) -> None:
         text: str = folder_price_margin.report(self.path)

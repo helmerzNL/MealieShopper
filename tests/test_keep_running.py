@@ -11,11 +11,11 @@ from typing import Any
 import pytest
 from hypercorn.asyncio import serve
 from hypercorn.config import Config
-from mealieshopper.keep_running import FinishAfterDisconnect
 from quart import Quart, Response, request
 
 from mealieshopper.app import create_app
 from mealieshopper.forwarded import ForwardedHeaders
+from mealieshopper.keep_running import FinishAfterDisconnect
 
 Message = dict[str, Any]
 STEPS: int = 5
@@ -71,9 +71,7 @@ def steps_app(steps: Steps, *, wrap: bool) -> Quart:
     return app
 
 
-def disconnect_after(
-    first: asyncio.Event, messages: list[Message]
-) -> Callable[[], Awaitable[Message]]:
+def disconnect_after(first: asyncio.Event, messages: list[Message]) -> Callable[[], Awaitable[Message]]:
     """`receive` dat eerst `messages` geeft en de client laat weggaan zodra `first` is gezet."""
     queue: list[Message] = list(messages)
 
@@ -103,27 +101,21 @@ async def drive(
         await asyncio.wait_for(app(scope or http_scope(), receive, send), WAIT)
 
 
-COMPLETE_BODY: list[Message] = [
-    {"type": "http.request", "body": b"", "more_body": False}
-]
+COMPLETE_BODY: list[Message] = [{"type": "http.request", "body": b"", "more_body": False}]
 
 
 async def test_without_the_wrapper_quart_stops_the_handler_halfway() -> None:
     """Het probleem zelf: zonder de middleware annuleert Quart de handler bij een disconnect."""
     steps: Steps = Steps()
     sent: list[Message] = []
-    await drive(
-        steps_app(steps, wrap=False), disconnect_after(steps.first, COMPLETE_BODY), sent
-    )
+    await drive(steps_app(steps, wrap=False), disconnect_after(steps.first, COMPLETE_BODY), sent)
     assert len(steps.done) < STEPS
 
 
 async def test_a_disconnect_after_the_first_step_lets_every_step_finish() -> None:
     steps: Steps = Steps()
     sent: list[Message] = []
-    await drive(
-        steps_app(steps, wrap=True), disconnect_after(steps.first, COMPLETE_BODY), sent
-    )
+    await drive(steps_app(steps, wrap=True), disconnect_after(steps.first, COMPLETE_BODY), sent)
     assert steps.done == list(range(STEPS))
     assert sent[0]["type"] == "http.response.start" and sent[0]["status"] == 200
 
@@ -151,9 +143,7 @@ async def test_a_body_that_is_still_coming_in_ends_when_the_client_goes_away(
         (b"host", b"localhost"),
         (b"content-length", b"1000"),
     ]
-    receive = disconnect_after(
-        reading, [{"type": "http.request", "body": b"x" * 10, "more_body": True}]
-    )
+    receive = disconnect_after(reading, [{"type": "http.request", "body": b"x" * 10, "more_body": True}])
     started: float = asyncio.get_running_loop().time()
     await drive(app, receive, [], http_scope(headers=headers))
     assert ended.is_set()
@@ -218,9 +208,7 @@ def free_port() -> int:
     return port
 
 
-async def test_a_real_hypercorn_finishes_the_handler_after_the_client_hangs_up() -> (
-    None
-):
+async def test_a_real_hypercorn_finishes_the_handler_after_the_client_hangs_up() -> None:
     steps: Steps = Steps()
     app: Quart = steps_app(steps, wrap=True)
     port: int = free_port()
@@ -229,9 +217,7 @@ async def test_a_real_hypercorn_finishes_the_handler_after_the_client_hangs_up()
     config.accesslog = None
     config.errorlog = None
     stop: asyncio.Event = asyncio.Event()
-    server: asyncio.Task[None] = asyncio.create_task(
-        serve(app, config, shutdown_trigger=stop.wait)
-    )  # type: ignore[arg-type]
+    server: asyncio.Task[None] = asyncio.create_task(serve(app, config, shutdown_trigger=stop.wait))  # type: ignore[arg-type]
     try:
         for _ in range(200):
             try:
@@ -241,9 +227,7 @@ async def test_a_real_hypercorn_finishes_the_handler_after_the_client_hangs_up()
                 await asyncio.sleep(0.01)
         else:
             raise AssertionError("hypercorn kwam niet op")
-        writer.write(
-            b"POST /fill HTTP/1.1\r\nHost: localhost\r\nContent-Length: 0\r\n\r\n"
-        )
+        writer.write(b"POST /fill HTTP/1.1\r\nHost: localhost\r\nContent-Length: 0\r\n\r\n")
         await writer.drain()
         await asyncio.wait_for(steps.first.wait(), WAIT)
         writer.close()  # de client gaat weg na de eerste stap

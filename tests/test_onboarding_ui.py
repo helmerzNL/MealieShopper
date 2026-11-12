@@ -10,8 +10,9 @@ from unittest import mock
 
 os.environ["PASSKEY_AUTH_ENABLED"] = "false"
 
-from mealieshopper.app import create_app  # noqa: E402
 from helpers import AppTestCase  # noqa: E402
+
+from mealieshopper.app import create_app  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 HTML = (ROOT / "templates" / "index.html").read_text(encoding="utf-8")
@@ -22,10 +23,18 @@ OB_JS = (ROOT / "static" / "onboarding.js").read_text(encoding="utf-8")
 
 class MarkupTest(AppTestCase):
     def test_login_page_has_password_mfa_and_passkey_parts(self):
-        gate = HTML[HTML.index('id="auth-gate"'):HTML.index('id="onboarding"')]
-        for needle in ('id="login-form"', 'id="login-username"', 'autocomplete="username"',
-                       'id="login-password"', 'autocomplete="current-password"', 'id="mfa-form"',
-                       'autocomplete="one-time-code"', 'id="mfa-recovery-toggle"', 'id="login-passkey"'):
+        gate = HTML[HTML.index('id="auth-gate"') : HTML.index('id="onboarding"')]
+        for needle in (
+            'id="login-form"',
+            'id="login-username"',
+            'autocomplete="username"',
+            'id="login-password"',
+            'autocomplete="current-password"',
+            'id="mfa-form"',
+            'autocomplete="one-time-code"',
+            'id="mfa-recovery-toggle"',
+            'id="login-passkey"',
+        ):
             self.assertIn(needle, gate, needle)
         self.assertRegex(gate, r'<input[^>]*id="login-password"[^>]*type="password"|<input[^>]*type="password"[^>]*id="login-password"')
         self.assertNotIn("auth-primary", HTML, "het oude passkey-aanmaakformulier is naar de installatiehulp verhuisd")
@@ -38,7 +47,7 @@ class MarkupTest(AppTestCase):
             self.assertIn(needle, HTML, needle)
 
     def test_security_tab_manages_password_and_mfa(self):
-        security = HTML[HTML.index('id="profile-security"'):HTML.index("</section>", HTML.index('id="profile-security"'))]
+        security = HTML[HTML.index('id="profile-security"') : HTML.index("</section>", HTML.index('id="profile-security"'))]
         for needle in ('id="password-form"', 'id="pw-current"', 'autocomplete="new-password"', 'id="mfa-panel"', 'id="credentials-list"'):
             self.assertIn(needle, security, needle)
 
@@ -74,8 +83,13 @@ class ScriptTest(AppTestCase):
         # Sinds 4.13.0: beveiliging, Mealie, de winkelkeuze, een stap per gekozen winkel (in vaste volgorde) en Klaar.
         if not shutil.which("node"):
             self.skipTest("Node is niet geïnstalleerd")
-        source = "\n".join(re.search(rf"^(?:const {name} = [^\n]*;|function {name}\(.*?^}})$", OB_JS, re.S | re.M).group(0) for name in ("OB_STORE_STEPS", "obSteps", "obNeighbour"))
-        script = source + """
+        source = "\n".join(
+            re.search(rf"^(?:const {name} = [^\n]*;|function {name}\(.*?^}})$", OB_JS, re.S | re.M).group(0)
+            for name in ("OB_STORE_STEPS", "obSteps", "obNeighbour")
+        )
+        script = (
+            source
+            + """
         const ob = { stores: null };
         const ids = (stores) => obSteps(stores).map((step) => step.id);
         console.log(JSON.stringify({
@@ -84,6 +98,7 @@ class ScriptTest(AppTestCase):
           back: [obNeighbour("jumbo", -1, ["jumbo"]), obNeighbour("done", -1, ["ah", "picnic"]), obNeighbour("auth", -1, [])],
         }));
         """
+        )
         result = subprocess.run(["node", "-e", script], capture_output=True, text=True, timeout=30, check=False)
         self.assertEqual(result.returncode, 0, result.stderr)
         out = json.loads(result.stdout.strip().splitlines()[-1])
@@ -112,7 +127,7 @@ class ScriptTest(AppTestCase):
         self.assertIn("Zonder beveiliging verder", NL["ob.skip_security"])
         # Zonder domeinnaam is het wachtwoord de aanbevolen keuze en is overslaan mogelijk;
         # met een domeinnaam staat de passkey bovenaan en is er geen 'zonder beveiliging'.
-        choose = OB_JS[OB_JS.index("body.innerHTML = status.passkeyAvailable"):OB_JS.index("function obBackButton")]
+        choose = OB_JS[OB_JS.index("body.innerHTML = status.passkeyAvailable") : OB_JS.index("function obBackButton")]
         domain_part, no_domain_part = choose.split(": `", 1)
         self.assertNotIn("go-open", domain_part)
         self.assertIn("go-open", no_domain_part)
@@ -133,19 +148,43 @@ class ScriptTest(AppTestCase):
 
     def test_mealie_and_ah_are_linked_inside_the_wizard(self):
         # Geen sprong naar Beheer: de formulieren staan in de stappen en je gaat daarna gewoon door.
-        for needle in ('data-ob-form="mealie"', 'data-ob-form="ah"', '"/api/mealie/auth"', '"/api/ah/auth"',
-                       "obIntegrationDone", 'id="ob-mealie-next"', 'id="ob-ah-next"', 'id="ob-mealie-skip"', 'id="ob-ah-skip"'):
+        for needle in (
+            'data-ob-form="mealie"',
+            'data-ob-form="ah"',
+            '"/api/mealie/auth"',
+            '"/api/ah/auth"',
+            "obIntegrationDone",
+            'id="ob-mealie-next"',
+            'id="ob-ah-next"',
+            'id="ob-mealie-skip"',
+            'id="ob-ah-skip"',
+        ):
             self.assertIn(needle, OB_JS, needle)
         self.assertNotIn("finish-mealie", OB_JS)
         self.assertNotIn("openSettings", OB_JS)
         self.assertNotIn("openProfile", OB_JS)
 
     def test_jumbo_and_picnic_are_linked_inside_the_wizard_and_can_be_skipped(self):
-        for needle in ('data-ob-form="jumbo"', '"/api/jumbo/auth"', '"/api/jumbo/auth/status"', 'href="/api/jumbo/auth/start"',
-                       'id="ob-jumbo-next"', 'id="ob-jumbo-skip"',
-                       'data-ob-form="picnic"', 'data-ob-form="picnic-code"', '"/api/picnic/auth"', '"/api/picnic/auth/status"',
-                       '"/api/picnic/auth/2fa/request"', '"/api/picnic/auth/2fa/verify"', "twoFactorRequired", "twoFactorPending",
-                       'id="ob-picnic-next"', 'id="ob-picnic-skip"', "refreshJumboStatus", "refreshPicnicStatus"):
+        for needle in (
+            'data-ob-form="jumbo"',
+            '"/api/jumbo/auth"',
+            '"/api/jumbo/auth/status"',
+            'href="/api/jumbo/auth/start"',
+            'id="ob-jumbo-next"',
+            'id="ob-jumbo-skip"',
+            'data-ob-form="picnic"',
+            'data-ob-form="picnic-code"',
+            '"/api/picnic/auth"',
+            '"/api/picnic/auth/status"',
+            '"/api/picnic/auth/2fa/request"',
+            '"/api/picnic/auth/2fa/verify"',
+            "twoFactorRequired",
+            "twoFactorPending",
+            'id="ob-picnic-next"',
+            'id="ob-picnic-skip"',
+            "refreshJumboStatus",
+            "refreshPicnicStatus",
+        ):
             self.assertIn(needle, OB_JS, needle)
         # Sinds 4.13.0 hangt de volgende stap af van de gekozen winkels: de knoppen heten next en back, en de samenvatting kan
         # naar elke gekozen stap terug.
@@ -180,14 +219,14 @@ class ScriptTest(AppTestCase):
         self.assertIn("!auth.setupRequired", APP_JS)
 
     def test_security_blocks_fold_away_when_a_passkey_exists(self):
-        self.assertIn('collapsible: hasPasskey', OB_JS)
+        self.assertIn("collapsible: hasPasskey", OB_JS)
         # Tweestapsverificatie is geen eigen blok meer: het zit in het wachtwoordblok.
         for name in ("password",):
             self.assertIn(f'id="{name}-toggle"', HTML)
             self.assertIn(f'id="{name}-body"', HTML)
             self.assertIn(f'id="{name}-badge"', HTML)
         self.assertNotIn('id="mfa-toggle"', HTML)
-        body = HTML[HTML.index('id="password-body"'):HTML.index('id="credentials-list"')]
+        body = HTML[HTML.index('id="password-body"') : HTML.index('id="credentials-list"')]
         self.assertIn('id="mfa-panel"', body)
         self.assertIn("Niet nodig", NL["sec.not_needed"])
         self.assertIn("Niet nodig", NL["sec.password.intro_passkey"])
@@ -208,8 +247,8 @@ class StyleTest(AppTestCase):
         self.assertRegex(re.search(r"\n\.qr \{(.*?)\n\}", CSS, re.S).group(1), r"background: #fff")
 
     def test_phone_layout_stacks_actions_and_single_qr_column(self):
-        phone = CSS[CSS.index(".onboarding__card {\n    padding: 18px 16px;"):]
-        phone = phone[:phone.index("\n}\n")]
+        phone = CSS[CSS.index(".onboarding__card {\n    padding: 18px 16px;") :]
+        phone = phone[: phone.index("\n}\n")]
         self.assertIn("flex-direction: column-reverse", phone)
         self.assertIn("grid-template-columns: 1fr;", phone)
 

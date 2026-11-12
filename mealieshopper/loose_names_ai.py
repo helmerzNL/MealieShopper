@@ -65,8 +65,7 @@ SCHEMA: dict[str, Any] = {
 # bevestigd, afgewezen of opnieuw opgezocht door de ronde, dan klopt het nummer van de AI niet meer. Parameters: het voorstel,
 # winkel, sleutel, kandidaten.
 _STORE_SQL: str = (
-    "UPDATE loose_names SET proposal = ? WHERE store = ? AND key = ? AND outcome IN ('candidates', 'exact') AND proposal IS NULL "
-    "AND candidates = ?"
+    "UPDATE loose_names SET proposal = ? WHERE store = ? AND key = ? AND outcome IN ('candidates', 'exact') AND proposal IS NULL AND candidates = ?"
 )
 
 
@@ -109,11 +108,7 @@ async def _pending(store: str, limit: int | None) -> list[dict[str, Any]]:
     cards: list[dict[str, Any]] = []
     for entry in loose:
         state: aiosqlite.Row | None = states.get(entry["key"])
-        if (
-            state is None
-            or state["outcome"] not in loose_names.CARD_OUTCOMES
-            or state["proposal"] is not None
-        ):
+        if state is None or state["outcome"] not in loose_names.CARD_OUTCOMES or state["proposal"] is not None:
             continue
         card: dict[str, Any] = loose_names._card(entry, state)
         if card["candidates"]:
@@ -134,13 +129,9 @@ def _valid(entry: Any, cards: list[dict[str, Any]]) -> bool:
     choice: Any = entry.get("choice")
     if type(number) is not int or type(choice) is not int:
         return False
-    if not isinstance(entry.get("surePack"), bool) or not isinstance(
-        entry.get("reason"), str
-    ):
+    if not isinstance(entry.get("surePack"), bool) or not isinstance(entry.get("reason"), str):
         return False
-    return 1 <= number <= len(cards) and 0 <= choice <= len(
-        cards[number - 1]["candidates"]
-    )
+    return 1 <= number <= len(cards) and 0 <= choice <= len(cards[number - 1]["candidates"])
 
 
 def _proposals(data: Any, cards: list[dict[str, Any]]) -> dict[int, dict[str, Any]]:
@@ -151,9 +142,7 @@ def _proposals(data: Any, cards: list[dict[str, Any]]) -> dict[int, dict[str, An
         if not _valid(entry, cards) or entry["id"] in found:
             continue
         choice: int = entry["choice"]
-        chosen: dict[str, Any] | None = (
-            cards[entry["id"] - 1]["candidates"][choice - 1] if choice else None
-        )
+        chosen: dict[str, Any] | None = cards[entry["id"] - 1]["candidates"][choice - 1] if choice else None
         found[entry["id"]] = {
             "productId": chosen["productId"] if chosen else None,
             "surePack": bool(entry["surePack"]) if chosen else False,
@@ -171,15 +160,11 @@ async def _save(store: str, card: dict[str, Any], proposal: dict[str, Any]) -> N
         await conn.commit()
 
 
-async def _ask(
-    store: str, group: list[dict[str, Any]], provider: str, key: str, model: str
-) -> tuple[dict[str, int], int]:
+async def _ask(store: str, group: list[dict[str, Any]], provider: str, key: str, model: str) -> tuple[dict[str, int], int]:
     """Vraag een groep aan de AI en bewaar de geldige voorstellen. Geeft ({proposed, none}, tokens)."""
     data: Any
     tokens: int
-    data, tokens = await ai_review._call(
-        provider, key, model, SYSTEM_PROMPT, payload(group), schema=SCHEMA, tool=TOOL
-    )
+    data, tokens = await ai_review._call(provider, key, model, SYSTEM_PROMPT, payload(group), schema=SCHEMA, tool=TOOL)
     counts: dict[str, int] = {"proposed": 0, "none": 0}
     for number, proposal in _proposals(data, group).items():
         await _save(store, group[number - 1], proposal)

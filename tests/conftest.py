@@ -20,7 +20,6 @@ os.environ.setdefault("MEALIESHOPPER_TESTING", "1")
 from mealieshopper import auth  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
 
-
 # Hosts die een test mag bereiken: alleen deze machine. De back-up- en TLS-tests draaien een lokale server, respx en de
 # testclient van Quart openen geen socket.
 LOOPBACK_NAMES: frozenset[str] = frozenset({"localhost"})
@@ -97,9 +96,7 @@ def network_guard() -> Iterator[None]:
 # De clients nemen proxy en CA's uit de omgeving over (zoals requests). Een proxy of CA-bestand van de ontwikkelaar mag de
 # tests niet sturen: de tests die het gedrag nagaan, zetten de variabelen zelf.
 CLIENT_ENVIRONMENT: tuple[str, ...] = tuple(
-    name
-    for base in ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY")
-    for name in (base, base.lower())
+    name for base in ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY") for name in (base, base.lower())
 ) + ("SSL_CERT_FILE", "SSL_CERT_DIR", "REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE")
 
 

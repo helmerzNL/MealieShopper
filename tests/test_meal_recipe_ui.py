@@ -39,7 +39,10 @@ RECIPE_ID = "6f1c8d1e-2b3a-4c5d-8e9f-0a1b2c3d4e5f"
 
 def recipe_entry(**extra):
     entry = {
-        "id": 7, "date": "2026-11-03", "entryType": "dinner", "recipeId": RECIPE_ID,
+        "id": 7,
+        "date": "2026-11-03",
+        "entryType": "dinner",
+        "recipeId": RECIPE_ID,
         "recipe": {"id": RECIPE_ID, "slug": "pasta", "name": "Pasta"},
         "recipeDetail": {
             "name": "Pasta <pesto>",
@@ -138,26 +141,34 @@ class MealRenderTest(unittest.TestCase):
 
     def test_a_meal_shows_its_kcal_per_serving_in_its_own_span(self):
         html = self.run_js(f"renderMeal({json.dumps(recipe_entry(kcal={'perServing': 490, 'total': 1960}))})")
-        self.assertIn('<small>plan.servings:4 · plan.ingredients_count:3<span class="kcal kcal--after">kcal.per_serving{&quot;kcal&quot;:&quot;490&quot;}</span></small>', html)
+        self.assertIn(
+            '<small>plan.servings:4 · plan.ingredients_count:3<span class="kcal kcal--after">kcal.per_serving{&quot;kcal&quot;:&quot;490&quot;}</span></small>',
+            html,
+        )
         self.assertNotIn("kcal", self.run_js(f"renderMeal({json.dumps(recipe_entry(kcal=None))})"))
         # Zonder andere feiten staat er geen punt voor de kcal (kcal--after zet die erbij, alleen na tekst).
-        alone = self.run_js(f"factsWithKcal(['', null], [['kcal.per_serving', 499.6], ['kcal.total', 0]])")
+        alone = self.run_js("factsWithKcal(['', null], [['kcal.per_serving', 499.6], ['kcal.total', 0]])")
         self.assertEqual(alone, '<span class="kcal">kcal.per_serving{&quot;kcal&quot;:&quot;500&quot;}</span>')
 
     def test_the_window_shows_the_nutrition_per_serving_and_for_the_planned_servings(self):
         nutrition = [
-            {"key": "calories", "quantity": 490, "unit": "kcal"}, {"key": "fatContent", "quantity": 23, "unit": "g"},
-            {"key": "saturatedFatContent", "quantity": 8, "unit": "g"}, {"key": "sodiumContent", "quantity": 200, "unit": "mg"},
+            {"key": "calories", "quantity": 490, "unit": "kcal"},
+            {"key": "fatContent", "quantity": 23, "unit": "g"},
+            {"key": "saturatedFatContent", "quantity": 8, "unit": "g"},
+            {"key": "sodiumContent", "quantity": 200, "unit": "mg"},
         ]
         html = self.run_js(f"renderMealRecipeBody({json.dumps(recipe_entry(nutrition=nutrition))})")
         rows = re.findall(r'<tr(?: class="([^"]+)")?><th scope="row">(.*?)</th><td>(.*?)</td><td>(.*?)</td></tr>', html)
         # Per portie en voor de 4 geplande porties; verzadigd vet ingesprongen; zout in gram uit natrium (200 mg = 0,5 g).
-        self.assertEqual(rows, [
-            ("", "nutrition.calories", "490 kcal", "1960 kcal"),
-            ("", "nutrition.fatContent", "23 g", "92 g"),
-            ("nutrition-table__sub", "nutrition.saturatedFatContent", "8 g", "32 g"),
-            ("", "nutrition.salt", "0.5 g", "2 g"),
-        ])
+        self.assertEqual(
+            rows,
+            [
+                ("", "nutrition.calories", "490 kcal", "1960 kcal"),
+                ("", "nutrition.fatContent", "23 g", "92 g"),
+                ("nutrition-table__sub", "nutrition.saturatedFatContent", "8 g", "32 g"),
+                ("", "nutrition.salt", "0.5 g", "2 g"),
+            ],
+        )
         self.assertIn("nutrition.total:4", html)
         self.assertIn('<h4 class="nutrition-facts__title">nutrition.title</h4>', html)
         single = self.run_js(f"renderMealRecipeBody({json.dumps(recipe_entry(nutrition=nutrition, servings={'planned': 1}))})")
@@ -172,21 +183,31 @@ class MealRenderTest(unittest.TestCase):
 class MealRecipeWiringTest(unittest.TestCase):
     def test_the_week_sends_a_tap_to_the_recipe_and_the_pencil_to_the_plan_window(self):
         start = APP_JS.index('$("#meal-days").addEventListener("click"')
-        handler = APP_JS[start:APP_JS.index("\n});", start)]
+        handler = APP_JS[start : APP_JS.index("\n});", start)]
         self.assertIn('closest("[data-plan-view], [data-plan-edit]")', handler)
         self.assertIn("openMealRecipe(entry)", handler)
         self.assertIn("openPlanDialog({ entry })", handler)
 
     def test_the_window_exists_with_edit_mealie_link_and_close(self):
-        for element in ('id="meal-recipe-dialog"', 'id="meal-recipe-title"', 'id="meal-recipe-body"', 'id="meal-recipe-image"',
-                        'id="meal-recipe-mealie"', 'id="meal-recipe-edit"', 'id="meal-recipe-close"'):
+        for element in (
+            'id="meal-recipe-dialog"',
+            'id="meal-recipe-title"',
+            'id="meal-recipe-body"',
+            'id="meal-recipe-image"',
+            'id="meal-recipe-mealie"',
+            'id="meal-recipe-edit"',
+            'id="meal-recipe-close"',
+        ):
             self.assertIn(element, HTML, element)
-        for wiring in ('$("#meal-recipe-edit").addEventListener', '$("#meal-recipe-close").addEventListener',
-                       '$("#meal-recipe-dialog").addEventListener'):
+        for wiring in (
+            '$("#meal-recipe-edit").addEventListener',
+            '$("#meal-recipe-close").addEventListener',
+            '$("#meal-recipe-dialog").addEventListener',
+        ):
             self.assertIn(wiring, APP_JS, wiring)
         # Wijzigen vanuit het venster sluit het eerst en opent dan het plan-venster met dezelfde maaltijd.
-        edit = APP_JS[APP_JS.index('$("#meal-recipe-edit").addEventListener'):]
-        edit = edit[:edit.index("\n});")]
+        edit = APP_JS[APP_JS.index('$("#meal-recipe-edit").addEventListener') :]
+        edit = edit[: edit.index("\n});")]
         self.assertLess(edit.index('$("#meal-recipe-dialog").close()'), edit.index("openPlanDialog({ entry })"))
 
     def test_opening_the_window_checks_the_screen_lock(self):

@@ -6,6 +6,7 @@ via `jumbo._persisted_query`. Een recept (`getRecipe`) kennen we uit een echt an
 zoekresultaten) lezen we aan hun vorm: een receptkaart is een object met een `id`, een `title` en een `link` naar
 `/recepten/...`, waar ook in het antwoord het staat. Zo breekt een andere nesting van Jumbo er niets aan af.
 """
+
 from __future__ import annotations
 
 import re
@@ -111,7 +112,9 @@ def summaries(data: Any) -> list[dict[str, Any]]:
                 "image": _image(node),
                 "minutes": _minutes(node.get("time")),
                 "portions": persons if isinstance(persons, int) and persons > 0 else None,
-                "rating": rating.get("value") if isinstance(rating, dict) and isinstance(rating.get("value"), (int, float)) and rating.get("value") else None,
+                "rating": rating.get("value")
+                if isinstance(rating, dict) and isinstance(rating.get("value"), (int, float)) and rating.get("value")
+                else None,
                 "ingredientCount": count if isinstance(count, int) and count > 0 else None,
                 "kcal": round(calories) if isinstance(calories, (int, float)) and not isinstance(calories, bool) and calories > 0 else None,
                 "course": node.get("course") or None,

@@ -7,9 +7,10 @@ from unittest import mock
 
 os.environ.setdefault("MEALIESHOPPER_DATA_DIR", tempfile.mkdtemp())
 
+from helpers import AppTestCase, run  # noqa: E402
+
 from mealieshopper import auth, jumbo, jumbo_explore, jumbo_lists  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
-from helpers import AppTestCase, run  # noqa: E402
 
 
 def list_data(*items, active=True, typename="ShoppingList"):
@@ -40,8 +41,10 @@ class ShoppingListApiTest(TempDataDirTest):
             result = run(jumbo.get_shopping_list())
         self.assertEqual(graphql.call_args.args[2], "GetShoppingList")
         self.assertEqual(graphql.call_args.args[3], jumbo.LOYALTY_CLIENT)
-        self.assertEqual([(i["term"], i["sku"], i["completed"]) for i in result["items"]],
-                         [("melk", None, False), ("brood", "131278BAK", False), ("kaas", None, True)])
+        self.assertEqual(
+            [(i["term"], i["sku"], i["completed"]) for i in result["items"]],
+            [("melk", None, False), ("brood", "131278BAK", False), ("kaas", None, True)],
+        )
         self.assertTrue(result["active"])
 
     def test_an_inactive_list_is_reported(self):
@@ -74,8 +77,11 @@ class ShoppingListApiTest(TempDataDirTest):
     def test_adding_sends_term_and_sku_and_skips_what_is_already_there(self):
         answers = [list_data(raw("1", "Melk")), {"editShoppingListItems": {"__typename": "EditShoppingListItemsResult"}}]
         with mock.patch.object(jumbo, "_graphql", side_effect=answers) as graphql:
-            result = run(jumbo.add_to_shopping_list([
-                {"term": "melk"}, {"term": "  Halfvolle   melk 1 l ", "sku": "SKU1"}, {"term": ""}, {"term": "Halfvolle melk 1 l"}]))
+            result = run(
+                jumbo.add_to_shopping_list(
+                    [{"term": "melk"}, {"term": "  Halfvolle   melk 1 l ", "sku": "SKU1"}, {"term": ""}, {"term": "Halfvolle melk 1 l"}]
+                )
+            )
         sent = graphql.call_args.args[1]["input"]["items"]
         self.assertEqual(sent, [{"term": "Halfvolle melk 1 l", "completed": False, "sku": "SKU1"}])
         self.assertEqual(result, {"added": ["Halfvolle melk 1 l"], "skipped": ["melk", "Halfvolle melk 1 l"]})
@@ -87,8 +93,11 @@ class ShoppingListApiTest(TempDataDirTest):
         self.assertEqual(result["added"], [])
 
     def test_an_inactive_list_is_switched_on_first(self):
-        answers = [list_data(active=False), {"toggleShoppingList": {"__typename": "ShoppingListState"}},
-                   {"editShoppingListItems": {"__typename": "EditShoppingListItemsResult"}}]
+        answers = [
+            list_data(active=False),
+            {"toggleShoppingList": {"__typename": "ShoppingListState"}},
+            {"editShoppingListItems": {"__typename": "EditShoppingListItemsResult"}},
+        ]
         with mock.patch.object(jumbo, "_graphql", side_effect=answers) as graphql:
             run(jumbo.add_to_shopping_list([{"term": "melk"}]))
         self.assertEqual([c.args[2] for c in graphql.call_args_list], ["GetShoppingList", "toggleShoppingList", "EditShoppingListItems"])
@@ -116,10 +125,19 @@ class ShoppingListApiTest(TempDataDirTest):
 
 
 class LocalCopyTest(TempDataDirTest):
-    LIVE = {"id": "JUMBO", "name": "Jumbo-lijstje", "items": [
-        {"id": "1", "sku": "S1", "term": "melk", "product": {"title": "Halfvolle melk", "price": 1.29, "unitSize": "1 l", "url": "https://www.jumbo.com/p/S1"}},
-        {"id": "2", "sku": None, "term": "brood", "product": None},
-    ]}
+    LIVE = {
+        "id": "JUMBO",
+        "name": "Jumbo-lijstje",
+        "items": [
+            {
+                "id": "1",
+                "sku": "S1",
+                "term": "melk",
+                "product": {"title": "Halfvolle melk", "price": 1.29, "unitSize": "1 l", "url": "https://www.jumbo.com/p/S1"},
+            },
+            {"id": "2", "sku": None, "term": "brood", "product": None},
+        ],
+    }
 
     def test_snapshot_shows_the_term_when_there_is_no_product(self):
         snapshot = run(jumbo_lists.save_snapshot(self.LIVE))
@@ -156,8 +174,17 @@ class LocalCopyTest(TempDataDirTest):
         self.assertIsNone(run(jumbo_lists.reset_quantities("ANDERS")))
 
     def test_search_folds_case_and_accents_and_needs_all_words(self):
-        run(jumbo_lists.save_snapshot({**self.LIVE, "items": [
-            {"id": "1", "sku": None, "term": "Crème fraîche", "product": None}, {"id": "2", "sku": None, "term": "melk", "product": None}]}))
+        run(
+            jumbo_lists.save_snapshot(
+                {
+                    **self.LIVE,
+                    "items": [
+                        {"id": "1", "sku": None, "term": "Crème fraîche", "product": None},
+                        {"id": "2", "sku": None, "term": "melk", "product": None},
+                    ],
+                }
+            )
+        )
         self.assertEqual(run(jumbo_lists.search_items("creme FRAICHE")), {"JUMBO": ["Crème fraîche"]})
         self.assertEqual(run(jumbo_lists.search_items("creme melk")), {})
         self.assertEqual(run(jumbo_lists.search_items("  ")), {})
@@ -200,20 +227,37 @@ class LocalCopyTest(TempDataDirTest):
             live = run(jumbo_lists.fetch_live())
         titles = [(item["term"], (item["product"] or {}).get("title")) for item in live["items"]]
         self.assertEqual(len(titles), count)
-        self.assertEqual(titles[:6], [("regel 0", "Product S0"), ("regel 1", "Product S1"), ("regel 2", "Product S2"),
-                                      ("regel 3", None), ("regel 4", "Product S4"), ("regel 5", None)])
+        self.assertEqual(
+            titles[:6],
+            [
+                ("regel 0", "Product S0"),
+                ("regel 1", "Product S1"),
+                ("regel 2", "Product S2"),
+                ("regel 3", None),
+                ("regel 4", "Product S4"),
+                ("regel 5", None),
+            ],
+        )
         self.assertEqual(titles[-2:], [(f"regel {count - 2}", None), (f"regel {count - 1}", None)], "voorbij de grens geen productgegevens")
         self.assertEqual(len(asked), jumbo.MAX_LIST_PRODUCTS - 1, "geen aanvraag voor een regel zonder SKU of voorbij de grens")
         self.assertEqual(peak, jumbo_lists.DETAIL_WORKERS)
         self.assertEqual(jumbo_lists.DETAIL_WORKERS, 6)
 
     def test_merged_lists_when_jumbo_is_up_down_or_never_synced(self):
-        with mock.patch.object(jumbo, "get_shopping_list", return_value={"active": True, "items": [{"term": "a", "completed": False}, {"term": "b", "completed": True}]}), \
-                mock.patch.object(jumbo, "get_product_lists", return_value=[]):
+        with (
+            mock.patch.object(
+                jumbo,
+                "get_shopping_list",
+                return_value={"active": True, "items": [{"term": "a", "completed": False}, {"term": "b", "completed": True}]},
+            ),
+            mock.patch.object(jumbo, "get_product_lists", return_value=[]),
+        ):
             up = run(jumbo_lists.merged_lists())
         self.assertEqual((up["lists"][0]["itemCount"], up["lists"][0]["synced"], up["lists"][0]["source"]), (1, False, "jumbo"))
-        with mock.patch.object(jumbo, "get_shopping_list", side_effect=RuntimeError("geheime details")), \
-                mock.patch.object(jumbo, "get_product_lists", side_effect=RuntimeError("geheime details")):
+        with (
+            mock.patch.object(jumbo, "get_shopping_list", side_effect=RuntimeError("geheime details")),
+            mock.patch.object(jumbo, "get_product_lists", side_effect=RuntimeError("geheime details")),
+        ):
             self.assertEqual(run(jumbo_lists.merged_lists()), {"lists": [], "storeError": "Jumbo fout"})
             run(jumbo_lists.save_snapshot(self.LIVE))
             down = run(jumbo_lists.merged_lists())
@@ -231,8 +275,10 @@ class ListRoutesTest(TempDataDirTest):
         self.client = self.client_for(create_app())
 
     async def test_overview_is_always_200(self):
-        with mock.patch.object(jumbo, "get_shopping_list", side_effect=RuntimeError("x")), \
-                mock.patch.object(jumbo, "get_product_lists", side_effect=RuntimeError("x")):
+        with (
+            mock.patch.object(jumbo, "get_shopping_list", side_effect=RuntimeError("x")),
+            mock.patch.object(jumbo, "get_product_lists", side_effect=RuntimeError("x")),
+        ):
             response = await self.client.get("/api/jumbo/lists")
         self.assertEqual((response.status_code, response.get_json()["lists"]), (200, []))
 
@@ -262,8 +308,10 @@ class ListRoutesTest(TempDataDirTest):
         await jumbo_lists.save_snapshot(LocalCopyTest.LIVE)
         await jumbo_lists.set_quantity("JUMBO", 1, 2)
         result = {"added": [], "failed": [], "cart": None}
-        with mock.patch.object(jumbo, "search_product", return_value={"id": "S9", "title": "Brood"}) as search, \
-                mock.patch.object(jumbo, "add_to_cart", return_value=result) as add:
+        with (
+            mock.patch.object(jumbo, "search_product", return_value={"id": "S9", "title": "Brood"}) as search,
+            mock.patch.object(jumbo, "add_to_cart", return_value=result) as add,
+        ):
             body = (await self.client.post("/api/jumbo/lists/JUMBO/cart")).get_json()
         search.assert_called_once_with("brood")
         self.assertEqual([(m["productId"], m["quantity"]) for m in add.call_args.args[0]], [("S1", 1), ("S9", 2)])
@@ -282,8 +330,12 @@ class ListRoutesTest(TempDataDirTest):
 
     async def test_ingredients_go_on_the_list_with_the_chosen_product(self):
         with mock.patch.object(jumbo, "add_to_shopping_list", return_value={"added": ["Halfvolle melk"], "skipped": ["eieren"]}) as add:
-            body = (await self.client.post("/api/jumbo/list", json={"items": [
-                {"query": "melk", "title": "Halfvolle melk", "productId": "S1", "quantity": 2}, {"query": "eieren"}]})).get_json()
+            body = (
+                await self.client.post(
+                    "/api/jumbo/list",
+                    json={"items": [{"query": "melk", "title": "Halfvolle melk", "productId": "S1", "quantity": 2}, {"query": "eieren"}]},
+                )
+            ).get_json()
         self.assertEqual(add.call_args.args[0], [{"term": "Halfvolle melk", "sku": "S1"}, {"term": "eieren", "sku": None}])
         self.assertEqual((body["added"], body["skipped"], body["skippedItems"]), (1, 1, ["eieren"]))
         self.assertEqual((await self.client.post("/api/jumbo/list", json={"items": []})).status_code, 400)

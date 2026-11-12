@@ -43,14 +43,19 @@ class RecipeCardTest(unittest.TestCase):
         self.assertIn('<div class="recipe-import-result"></div>', actions, "daar komt Ingepland op ...")
 
     def test_every_source_uses_the_shared_title(self):
-        for source, name in ((APP, "renderSavedRecipeCard"), (APP, "renderRecipeCard"), (SEARCH, "renderStoreRecipeCard"), (MEALKITS, "renderMealKitCard")):
+        for source, name in (
+            (APP, "renderSavedRecipeCard"),
+            (APP, "renderRecipeCard"),
+            (SEARCH, "renderStoreRecipeCard"),
+            (MEALKITS, "renderMealKitCard"),
+        ):
             body = function_source(source, name)
             self.assertIn("recipeCardTitle(", body, name)
             self.assertNotIn("<h3>${escapeHtml(", body, name)
             self.assertIn('alt=""', body, f"{name}: de titel staat naast de foto, de foto herhaalt hem niet")
 
     def test_the_whole_card_is_the_target_except_in_selection_mode(self):
-        self.assertIn(".recipe-card__open::after {\n  content: \"\";\n  position: absolute;\n  inset: 0;", CSS)
+        self.assertIn('.recipe-card__open::after {\n  content: "";\n  position: absolute;\n  inset: 0;', CSS)
         self.assertIn(".recipe-card:has(.recipe-card__open) {\n  position: relative;", CSS)
         self.assertIn(".recipe-card .card-actions,\n.recipe-card .recipe-import-result {\n  position: relative;\n  z-index: 1;", CSS)
         self.assertIn(".recipe-card:has(.recipe-card__open:focus-visible) {\n  outline: 3px solid var(--primary);", CSS)
@@ -58,7 +63,7 @@ class RecipeCardTest(unittest.TestCase):
         self.assertIn(".recipe-card.is-selectable .recipe-card__open::after {\n  content: none;", CSS)
 
     def test_compact_titles_do_not_hyphenate_and_long_words_still_fit(self):
-        rule = CSS[CSS.index(".recipe-grid--compact .recipe-card h3,\n.recipe-grid--compact .recipe-card__open {"):]
+        rule = CSS[CSS.index(".recipe-grid--compact .recipe-card h3,\n.recipe-grid--compact .recipe-card__open {") :]
         rule = rule[: rule.index("}")]
         self.assertIn("hyphens: manual;", rule)
         self.assertIn("overflow-wrap: anywhere;", rule)
@@ -67,7 +72,7 @@ class RecipeCardTest(unittest.TestCase):
 
 class OffersToolsTest(unittest.TestCase):
     def test_sorting_is_a_select_with_a_visible_label(self):
-        block = HTML[HTML.index('<label class="offers-sort">'):]
+        block = HTML[HTML.index('<label class="offers-sort">') :]
         block = block[: block.index("</label>")]
         self.assertIn('<span data-i18n="offers.sort.label">Sorteren</span>', block)
         self.assertEqual(re.findall(r'<option value="(\w+)"', block), ["best", "store", "discount", "unit", "lowest"])
@@ -112,7 +117,7 @@ class BasketStatsNodeTest(unittest.TestCase):
 
 class BasketMarkupTest(unittest.TestCase):
     def test_the_explanation_folds_away(self):
-        block = HTML[HTML.index('<details class="help" id="basket-help">'):]
+        block = HTML[HTML.index('<details class="help" id="basket-help">') :]
         block = block[: block.index("</details>")]
         self.assertIn('<summary data-i18n="common.help">Hoe werkt dit?</summary>', block)
         self.assertIn('id="basket-intro"', block)
@@ -122,7 +127,7 @@ class BasketMarkupTest(unittest.TestCase):
         for name in ("picnic.js", "jumbo.js", "crisp.js"):
             self.assertIn("basketStats([", (STATIC / name).read_text(encoding="utf-8"), name)
         self.assertIn(".stats dd {\n  margin: 2px 0 0;", CSS)
-        self.assertIn("font-variant-numeric: tabular-nums;", CSS[CSS.index(".stats dd {"):CSS.index(".stats dd {") + 200])
+        self.assertIn("font-variant-numeric: tabular-nums;", CSS[CSS.index(".stats dd {") : CSS.index(".stats dd {") + 200])
 
     def test_ah_refreshes_with_the_button_next_to_the_title(self):
         # De knop Synchroniseren deed hetzelfde als Vernieuwen naast de titel (die opent het mandje opnieuw en synchroniseert).
@@ -152,11 +157,14 @@ class WeekNavigationTest(unittest.TestCase):
         self.assertIn('id="mealkits-this-week" type="button" data-i18n="mealkits.this_week" hidden>', HTML)
         self.assertIn('$("#this-week").hidden = state.weekOffset === 0;', APP)
         self.assertIn('bar.querySelector("[data-offers-week-today]").hidden = offset === 0;', OFFERS)
-        self.assertIn('offersChangeWeek(-offersWeekOffset())', OFFERS)
+        self.assertIn("offersChangeWeek(-offersWeekOffset())", OFFERS)
         self.assertIn('$("#mealkits-this-week").hidden = !menu || menu.week === menu.currentWeek;', MEALKITS)
 
     def test_meal_kits_refresh_is_an_icon_button_like_the_week_menu(self):
-        self.assertRegex(HTML, r'<button class="icon-button" id="mealkits-refresh" type="button" aria-label="Vernieuwen" title="Vernieuwen" data-i18n-attr="aria-label:mealkits.refresh;title:mealkits.refresh"><svg[^>]*data-mdi="mdiSync">')
+        self.assertRegex(
+            HTML,
+            r'<button class="icon-button" id="mealkits-refresh" type="button" aria-label="Vernieuwen" title="Vernieuwen" data-i18n-attr="aria-label:mealkits.refresh;title:mealkits.refresh"><svg[^>]*data-mdi="mdiSync">',
+        )
 
 
 if __name__ == "__main__":

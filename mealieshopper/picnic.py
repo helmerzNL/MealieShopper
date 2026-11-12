@@ -11,6 +11,7 @@ nooit het wachtwoord. Picnic kan die key bij elk antwoord vernieuwen; die nieuwe
 In tegenstelling tot AH schrijft `add_to_cart` direct in het echte winkelmandje van Picnic. Er wordt
 nooit een bestelling geplaatst: de gebruiker rondt dat zelf af in de app.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -26,7 +27,8 @@ import httpx
 
 from . import auth, deals, http_client, tasks
 from .i18n import tr
-from .packs import MAX_CART_QUANTITY as MAX_QUANTITY, assess_packs, normalize_quantity
+from .packs import MAX_CART_QUANTITY as MAX_QUANTITY
+from .packs import assess_packs, normalize_quantity
 
 API_VERSION = "15"
 BASE_URL = "https://storefront-prod.{country}.picnicinternational.com/api/{version}"
@@ -77,9 +79,7 @@ def _not_linked() -> RuntimeError:
     )
 
 
-async def _call(
-    method: str, path: str, *, token: str | None = None, body: Any = None, text: bool = False
-) -> tuple[Any, str | None]:
+async def _call(method: str, path: str, *, token: str | None = None, body: Any = None, text: bool = False) -> tuple[Any, str | None]:
     """Eén verzoek aan Picnic. Geeft (antwoord, nieuwe auth-key uit de headers) terug.
 
     Met `text` komt een antwoord dat geen JSON is (sommige pagina's) als tekst terug in plaats van als None.
@@ -87,9 +87,7 @@ async def _call(
     headers = dict(HEADERS)
     if token:
         headers[AUTH_HEADER] = token
-    response: httpx.Response = await http_client.client("picnic").request(
-        method, base_url() + path, headers=headers, json=body, timeout=30
-    )
+    response: httpx.Response = await http_client.client("picnic").request(method, base_url() + path, headers=headers, json=body, timeout=30)
     new_token = response.headers.get(AUTH_HEADER)
 
     data: Any = None
@@ -185,9 +183,7 @@ async def login(email: str, password: str) -> dict[str, Any]:
     """Log in. Vraagt Picnic om een tweestapscode, dan is `twoFactorRequired` waar."""
     email = str(email or "").strip()
     if not email or not password:
-        raise ValueError(
-            tr("E-mailadres en wachtwoord zijn verplicht", "Email address and password are required")
-        )
+        raise ValueError(tr("E-mailadres en wachtwoord zijn verplicht", "Email address and password are required"))
     secret = md5(password.encode("utf-8")).hexdigest()
     try:
         data, token = await _call(
@@ -357,10 +353,7 @@ def _product(unit: dict[str, Any]) -> dict[str, Any] | None:
         # en Picnic noemt geen looptijd op de zoektegel.
         regular = _euros(unit.get("price"))
         product["promo"] = {
-            "label": " | ".join(
-                str(d.get("text") or d.get("label")) for d in promo_decorators if d.get("text") or d.get("label")
-            )
-            or None,
+            "label": " | ".join(str(d.get("text") or d.get("label")) for d in promo_decorators if d.get("text") or d.get("label")) or None,
             "priceBefore": regular if regular is not None and price is not None and regular > price else None,
             "validFrom": None,
             "validUntil": None,
@@ -391,6 +384,7 @@ def page_events(page: Any):
 
     Zo zie je onder welke kop een product staat, zoals de app het toont.
     """
+
     def has_tile(node: Any) -> bool:
         return any(n.get("type") == "SELLING_UNIT_TILE" for n in _walk(node))
 
@@ -442,7 +436,9 @@ async def bootstrap_tabs() -> list[dict[str, Any]]:
                 "type": tab.get("tab_type"),
                 "title": tab["title"][:60] if isinstance(tab.get("title"), str) else None,
                 "label": accessibility["label"][:60] if isinstance(accessibility.get("label"), str) else None,
-                "reference": target.get("reference") if target.get("type") == "PICNIC_PAGE_REFERENCE" and isinstance(target.get("reference"), str) else None,
+                "reference": target.get("reference")
+                if target.get("type") == "PICNIC_PAGE_REFERENCE" and isinstance(target.get("reference"), str)
+                else None,
             }
         )
     return tabs
@@ -728,8 +724,7 @@ def _offer(unit: dict[str, Any], texts: tuple[str, ...] = ()) -> dict[str, Any] 
         return None
     paid, listed = _line_prices(unit)
     promo_decorators = [
-        d for d in unit.get("decorators") or []
-        if isinstance(d, dict) and any(word in str(d.get("type", "")).upper() for word in _PROMO_TYPES)
+        d for d in unit.get("decorators") or [] if isinstance(d, dict) and any(word in str(d.get("type", "")).upper() for word in _PROMO_TYPES)
     ]
     labels = [str(d["text"]).strip() for d in promo_decorators if isinstance(d.get("text"), str) and d["text"].strip()]
     labels += [text for text in texts if len(text) <= 40 and _PROMO_TEXT.search(text)]
@@ -791,10 +786,7 @@ def promo_groups(page: Any) -> dict[str, str]:
 
 def lazy_pages(page: Any) -> list[str]:
     """De pagina's die een pagina later zelf laadt (`pageConfig`): daar zit vaak de eigenlijke inhoud."""
-    found = [
-        n["pageConfig"]["id"] for n in _walk(page)
-        if isinstance(n.get("pageConfig"), dict) and isinstance(n["pageConfig"].get("id"), str)
-    ]
+    found = [n["pageConfig"]["id"] for n in _walk(page) if isinstance(n.get("pageConfig"), dict) and isinstance(n["pageConfig"].get("id"), str)]
     return [ref for ref in dict.fromkeys(found) if _PAGE_REFERENCE.match(ref)]
 
 
@@ -893,8 +885,12 @@ async def get_offers() -> list[dict[str, Any]]:
             return [{key: value for key, value in offer.items() if key != "promo"} for offer in chosen]
     raise RuntimeError(
         tr(
-            "Picnic gaf geen aanbiedingen" + (f" ({errors[0]})" if errors else "") + ". Draai onder Instellingen > Koppelen > Picnic de verkenner en deel het rapport.",
-            "Picnic returned no offers" + (f" ({errors[0]})" if errors else "") + ". Run the explorer under Settings > Link > Picnic and share the report.",
+            "Picnic gaf geen aanbiedingen"
+            + (f" ({errors[0]})" if errors else "")
+            + ". Draai onder Instellingen > Koppelen > Picnic de verkenner en deel het rapport.",
+            "Picnic returned no offers"
+            + (f" ({errors[0]})" if errors else "")
+            + ". Run the explorer under Settings > Link > Picnic and share the report.",
         )
     )
 
@@ -1093,9 +1089,7 @@ async def set_quantity(product_id: Any, quantity: Any) -> dict[str, Any]:
     except (TypeError, ValueError):
         raise ValueError(tr("Het aantal moet een heel getal zijn", "The quantity must be a whole number")) from None
     if not 0 <= target <= MAX_QUANTITY:
-        raise ValueError(
-            tr(f"Het aantal moet tussen 0 en {MAX_QUANTITY} liggen", f"The quantity must be between 0 and {MAX_QUANTITY}")
-        )
+        raise ValueError(tr(f"Het aantal moet tussen 0 en {MAX_QUANTITY} liggen", f"The quantity must be between 0 and {MAX_QUANTITY}"))
     cart = await get_cart()
     limit = next((item["maxCount"] for item in cart["items"] if item["id"] == product_id), None)
     if limit and target > limit:

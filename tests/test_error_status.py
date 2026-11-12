@@ -5,9 +5,10 @@ from unittest import mock
 
 os.environ["PASSKEY_AUTH_ENABLED"] = "false"
 
+from helpers import AppTestCase  # noqa: E402
+
 from mealieshopper import ah, mealie  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
-from helpers import AppTestCase  # noqa: E402
 
 
 class ExternalErrorStatusTest(AppTestCase):
@@ -36,9 +37,7 @@ class ExternalErrorStatusTest(AppTestCase):
 
     async def test_mealplan(self):
         with mock.patch.object(mealie, "get_meal_plan_with_recipes", new_callable=mock.AsyncMock, side_effect=RuntimeError("Mealie onbereikbaar")):
-            self.assert_424(
-                await self.client.get("/api/mealplan?start=2026-10-19&end=2026-10-25"), "Mealie onbereikbaar"
-            )
+            self.assert_424(await self.client.get("/api/mealplan?start=2026-10-19&end=2026-10-25"), "Mealie onbereikbaar")
 
 
 if __name__ == "__main__":

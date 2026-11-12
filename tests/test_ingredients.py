@@ -7,8 +7,9 @@ import httpx
 
 os.environ["PASSKEY_AUTH_ENABLED"] = "false"
 
-from mealieshopper import ingredients, mealie  # noqa: E402
 from helpers import routes, run, sent_json  # noqa: E402
+
+from mealieshopper import ingredients, mealie  # noqa: E402
 
 
 def unparsed(note, quantity=1):
@@ -102,7 +103,13 @@ class NormalizeTest(unittest.TestCase):
 
 def parsed(quantity, food, unit=None, note="", **food_extra):
     """Een regel die Mealie analyseerde, met eenheid en ingrediënt als object."""
-    return {"quantity": quantity, "unit": unit, "food": {"name": food, **food_extra}, "note": note, "display": f"{quantity} {food}" if quantity else food}
+    return {
+        "quantity": quantity,
+        "unit": unit,
+        "food": {"name": food, **food_extra},
+        "note": note,
+        "display": f"{quantity} {food}" if quantity else food,
+    }
 
 
 GRAM = {"name": "gram", "abbreviation": "g", "useAbbreviation": True}
@@ -248,8 +255,11 @@ class ImportParseTest(unittest.TestCase):
 
 class ImportHookTest(unittest.TestCase):
     def test_every_import_path_ends_in_the_parse(self):
-        with mock.patch.object(mealie, "_endpoint", new_callable=mock.AsyncMock, return_value=("http://m", "t")), routes() as api, \
-                mock.patch.object(mealie, "parse_imported_ingredients", new_callable=mock.AsyncMock, return_value="geparsed") as parse:
+        with (
+            mock.patch.object(mealie, "_endpoint", new_callable=mock.AsyncMock, return_value=("http://m", "t")),
+            routes() as api,
+            mock.patch.object(mealie, "parse_imported_ingredients", new_callable=mock.AsyncMock, return_value="geparsed") as parse,
+        ):
             api.post(url__regex=r"^http://m/api/recipes/create/(url|html-or-json)$").mock(return_value=httpx.Response(200, json="slug"))
             self.assertEqual(run(mealie.import_via_url("https://x.nl/r")), "geparsed")
             self.assertEqual(run(mealie.import_via_jsonld("https://x.nl/r", {"name": "x"})), "geparsed")

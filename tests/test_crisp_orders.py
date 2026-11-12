@@ -4,6 +4,7 @@ De fixtures hebben de vorm die de broncode van de Crisp-app laat zien (`/order/h
 ids, titels en bedragen. `crisp.order_history_page` en `crisp.get_order` worden nagebootst; hun eigen vorm testen we in
 tests/test_crisp.py.
 """
+
 import json
 import os
 import tempfile
@@ -13,20 +14,42 @@ from unittest import mock
 
 os.environ.setdefault("MEALIESHOPPER_DATA_DIR", tempfile.mkdtemp())
 
-from mealieshopper import auth, crisp, crisp_orders  # noqa: E402
 from helpers import db, run  # noqa: E402
+
+from mealieshopper import auth, crisp, crisp_orders  # noqa: E402
 
 
 def header(order_id, status="done", date="2026-10-10"):
-    return {"id": str(order_id), "status": status, "deliveryDate": date,
-            "windowStart": f"{date}T17:00:00+02:00", "windowEnd": f"{date}T19:00:00+02:00", "total": None}
+    return {
+        "id": str(order_id),
+        "status": status,
+        "deliveryDate": date,
+        "windowStart": f"{date}T17:00:00+02:00",
+        "windowEnd": f"{date}T19:00:00+02:00",
+        "total": None,
+    }
 
 
 def detail(order_id, *names, status="done", date="2026-10-10", total=15.0):
-    items = [{"id": str(100 + n), "title": name, "quantity": 2 if n == 1 else 1, "unitSize": "1 liter", "price": 1.5 + n,
-              "listPrice": None, "image": "https://crispapp.nl/blob/x?thumb=512"} for n, name in enumerate(names, 1)]
-    return {**header(order_id, status, date), "total": total, "items": items,
-            "itemCount": sum(item["quantity"] for item in items), "itemsSynced": True}
+    items = [
+        {
+            "id": str(100 + n),
+            "title": name,
+            "quantity": 2 if n == 1 else 1,
+            "unitSize": "1 liter",
+            "price": 1.5 + n,
+            "listPrice": None,
+            "image": "https://crispapp.nl/blob/x?thumb=512",
+        }
+        for n, name in enumerate(names, 1)
+    ]
+    return {
+        **header(order_id, status, date),
+        "total": total,
+        "items": items,
+        "itemCount": sum(item["quantity"] for item in items),
+        "itemsSynced": True,
+    }
 
 
 class CrispOrdersTest(unittest.TestCase):
@@ -54,8 +77,7 @@ class CrispOrdersTest(unittest.TestCase):
                 raise result
             return result
 
-        with mock.patch.object(crisp, "order_history_page", side_effect=page), \
-                mock.patch.object(crisp, "get_order", side_effect=get_order):
+        with mock.patch.object(crisp, "order_history_page", side_effect=page), mock.patch.object(crisp, "get_order", side_effect=get_order):
             return run(crisp_orders.sync_orders())
 
     def test_delivered_orders_are_stored_with_their_products_over_pages(self):
@@ -119,10 +141,19 @@ class CrispOrdersTest(unittest.TestCase):
 
     def test_no_personal_data_ends_up_in_the_database(self):
         page = {"data": [{"type": "order", "item": {"id": 1, "fulfillStatus": "done", "deliverySlot": {"date": "2026-10-10"}}}]}
-        full = {"data": {"id": 1, "fulfillStatus": "done", "deliverySlot": {"date": "2026-10-10"}, "paidPrice": "9.99",
-                         "address": {"street": "Dorpsstraat", "postal": "1234AB"}, "mandateIban": "NL00BANK0123456789",
-                         "invoiceUrl": "https://crispapp.nl/factuur/geheim", "deliveryLink": "https://crispapp.nl/volg/geheim",
-                         "products": [{"id": 5, "title": "Melk", "count": 1, "totalPrice": "1.00"}]}}
+        full = {
+            "data": {
+                "id": 1,
+                "fulfillStatus": "done",
+                "deliverySlot": {"date": "2026-10-10"},
+                "paidPrice": "9.99",
+                "address": {"street": "Dorpsstraat", "postal": "1234AB"},
+                "mandateIban": "NL00BANK0123456789",
+                "invoiceUrl": "https://crispapp.nl/factuur/geheim",
+                "deliveryLink": "https://crispapp.nl/volg/geheim",
+                "products": [{"id": 5, "title": "Melk", "count": 1, "totalPrice": "1.00"}],
+            }
+        }
         run(auth.set_secret(crisp.CLIENT_SECRET, "CLIENTabc1234567890x"))
         answers = {"/order/history": page, "/order/1": full}
         with mock.patch.object(crisp, "_call", side_effect=lambda method, path, client_id, body=None: answers[path]):

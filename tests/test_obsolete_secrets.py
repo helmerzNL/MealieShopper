@@ -6,10 +6,10 @@ from unittest import mock
 
 os.environ["PASSKEY_AUTH_ENABLED"] = "false"
 
-from mealieshopper import auth  # noqa: E402
-from mealieshopper.app import create_app  # noqa: E402
 from helpers import AppTestCase, run, start_app  # noqa: E402
 
+from mealieshopper import auth  # noqa: E402
+from mealieshopper.app import create_app  # noqa: E402
 
 
 class PurgeObsoleteSecretsTest(AppTestCase):

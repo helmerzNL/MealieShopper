@@ -63,12 +63,12 @@ class AggregateIngredientsTest(unittest.TestCase):
         self.assertEqual([(r["quantity"], r["display"], r["note"]) for r in rows], [(800, "800 g spaghetti", "")])
 
     def test_a_single_line_keeps_its_own_text(self):
-        self.assertEqual(self.displays([meal(line(400, "spaghetti", GRAM, note="volkoren", display="400 g spaghetti, volkoren"))]),
-                         ["400 g spaghetti, volkoren"])
+        self.assertEqual(
+            self.displays([meal(line(400, "spaghetti", GRAM, note="volkoren", display="400 g spaghetti, volkoren"))]), ["400 g spaghetti, volkoren"]
+        )
 
     def test_another_unit_stays_a_separate_line(self):
-        self.assertEqual(self.displays([meal(line(1, "ui"), line(100, "ui", GRAM)), meal(line(2, "ui", pluralName="uien"))]),
-                         ["3 ui", "100 g ui"])
+        self.assertEqual(self.displays([meal(line(1, "ui"), line(100, "ui", GRAM)), meal(line(2, "ui", pluralName="uien"))]), ["3 ui", "100 g ui"])
         self.assertEqual(self.displays([meal(line(1, "ui", pluralName="uien")), meal(line(2, "ui", pluralName="uien"))]), ["3 uien"])
 
     def test_decimals_follow_the_language(self):
@@ -79,9 +79,18 @@ class AggregateIngredientsTest(unittest.TestCase):
 
     def test_lines_without_an_amount(self):
         # Zonder aantal één keer; komt het ingrediënt ook met een aantal voor, dan geldt dat.
-        self.assertEqual(self.displays([meal(line(None, "peper", display="peper")), meal(line(None, "peper", display="peper naar smaak"))]), ["peper"])
-        self.assertEqual(self.displays([meal(line(None, "peper", display="peper")), meal(line(1, "peper", {"name": "theelepel", "abbreviation": "tl", "useAbbreviation": True}))]),
-                         ["1 tl peper"])
+        self.assertEqual(
+            self.displays([meal(line(None, "peper", display="peper")), meal(line(None, "peper", display="peper naar smaak"))]), ["peper"]
+        )
+        self.assertEqual(
+            self.displays(
+                [
+                    meal(line(None, "peper", display="peper")),
+                    meal(line(1, "peper", {"name": "theelepel", "abbreviation": "tl", "useAbbreviation": True})),
+                ]
+            ),
+            ["1 tl peper"],
+        )
         self.assertEqual(self.displays([meal(line(2, "peper", GRAM)), meal(line(None, "peper", display="peper"))]), ["2 g peper"])
 
     def test_text_only_lines_are_deduplicated_as_before(self):

@@ -7,6 +7,7 @@ beperkt tot 60 per uur per IP-adres, en een server die dat adres deelt (of veel 
 daardoor "HTTP 403 (rate limit)". Het antwoord blijft in het geheugen staan, zodat
 GitHub niet bij elke paginaweergave wordt gevraagd. Uitzetten kan met `MEALIESHOPPER_UPDATE_CHECK=false`.
 """
+
 from __future__ import annotations
 
 import asyncio

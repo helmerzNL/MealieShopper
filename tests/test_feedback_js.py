@@ -279,7 +279,7 @@ class OffersFeedbackTest(unittest.TestCase):
 
     def test_an_empty_grid_says_so_and_offers_the_way_back(self):
         grid = function_source(OFFERS_JS, "renderOfferGrid")
-        self.assertIn('empty.hidden = Boolean(units.length) || !offersState.offers.length;', grid)
+        self.assertIn("empty.hidden = Boolean(units.length) || !offersState.offers.length;", grid)
         self.assertRegex(INDEX_HTML, r'<div class="message info message--action" id="offers-empty" role="status" hidden>')
         self.assertIn('id="offers-empty-clear"', INDEX_HTML)
         self.assertIn('$("#offers-empty-clear").addEventListener("click", offersShowAll);', OFFERS_JS)
@@ -362,7 +362,13 @@ class StaticFeedbackTest(unittest.TestCase):
         ]
         self.assertEqual(
             run_node(self, "\n".join(parts)),
-            ["MealieShopper", "Weekmenu \u00b7 Recepten \u00b7 MealieShopper", "Mandje \u00b7 MealieShopper", "Koppelen \u00b7 Instellingen \u00b7 MealieShopper", "Over MealieShopper"],
+            [
+                "MealieShopper",
+                "Weekmenu \u00b7 Recepten \u00b7 MealieShopper",
+                "Mandje \u00b7 MealieShopper",
+                "Koppelen \u00b7 Instellingen \u00b7 MealieShopper",
+                "Over MealieShopper",
+            ],
         )
 
     def test_unlinking_and_signing_out_cannot_fail_silently(self):

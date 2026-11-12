@@ -23,6 +23,7 @@ Een stuk past ruim in de standaardgrens van 16 MiB per verzoek (body_limits.py).
 geheel, wel op de stilte: komt er READ_TIMEOUT_SECONDS niets binnen, dan geeft de server het stuk op met 408. Gaat de client
 weg terwijl het stuk binnenkomt, dan annuleert Quart de route (keep_running.py) voordat er iets geschreven is.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -199,7 +200,10 @@ async def _read_chunk(body: AsyncIterable[bytes], token: str) -> bytes:
     except RequestTimeout:
         log.warning(
             "Upload %s: stuk afgebroken na %d bytes en %.0f s (de verbinding bleef %d s stil)",
-            token[:8], len(data), time.monotonic() - started, READ_TIMEOUT_SECONDS,
+            token[:8],
+            len(data),
+            time.monotonic() - started,
+            READ_TIMEOUT_SECONDS,
         )
         raise UploadError("stalled", 408) from None
     return bytes(data)

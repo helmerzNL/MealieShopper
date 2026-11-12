@@ -7,9 +7,10 @@ from unittest import mock
 
 os.environ["PASSKEY_AUTH_ENABLED"] = "false"
 
+from helpers import AppTestCase, run  # noqa: E402
+
 from mealieshopper import about, auth_password  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
-from helpers import AppTestCase, run  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 HTML = (ROOT / "templates" / "index.html").read_text(encoding="utf-8")
@@ -40,23 +41,28 @@ class VersionTest(AppTestCase):
             self.assertEqual(run(about.build_info())["version"], expected)
 
     def test_unknown_commit_from_the_image_falls_back_to_git_or_nothing(self):
-        with mock.patch.dict(os.environ, {"MEALIESHOPPER_COMMIT": "unknown"}), \
-                mock.patch.object(about.subprocess, "run", side_effect=OSError("geen git")):
+        with (
+            mock.patch.dict(os.environ, {"MEALIESHOPPER_COMMIT": "unknown"}),
+            mock.patch.object(about.subprocess, "run", side_effect=OSError("geen git")),
+        ):
             self.assertEqual(about.read_commit(), "")
-        with mock.patch.dict(os.environ, {"MEALIESHOPPER_COMMIT": ""}), \
-                mock.patch.object(about, "ROOT", Path(tempfile.gettempdir()) / "geen-repo"):
+        with mock.patch.dict(os.environ, {"MEALIESHOPPER_COMMIT": ""}), mock.patch.object(about, "ROOT", Path(tempfile.gettempdir()) / "geen-repo"):
             self.assertEqual(about.read_commit(), "", "zonder .git ook niets")
 
     def test_label_without_a_commit_has_no_brackets(self):
-        with mock.patch.dict(os.environ, {"MEALIESHOPPER_VERSION": "1.0.0", "MEALIESHOPPER_COMMIT": "unknown"}), \
-                mock.patch.object(about, "read_commit", return_value=""):
+        with (
+            mock.patch.dict(os.environ, {"MEALIESHOPPER_VERSION": "1.0.0", "MEALIESHOPPER_COMMIT": "unknown"}),
+            mock.patch.object(about, "read_commit", return_value=""),
+        ):
             self.assertEqual(run(about.build_info())["label"], "v1.0.0")
 
     async def test_git_runs_in_a_thread_and_once(self):
         # `git rev-parse` mag de event loop niet vasthouden: build_info vraagt het via asyncio.to_thread, een keer.
-        with mock.patch.dict(os.environ, {"MEALIESHOPPER_VERSION": "1.0.0", "MEALIESHOPPER_COMMIT": ""}), \
-                mock.patch.object(about.asyncio, "to_thread", wraps=about.asyncio.to_thread) as to_thread, \
-                mock.patch.object(about, "read_commit", return_value="abc1234") as read_commit:
+        with (
+            mock.patch.dict(os.environ, {"MEALIESHOPPER_VERSION": "1.0.0", "MEALIESHOPPER_COMMIT": ""}),
+            mock.patch.object(about.asyncio, "to_thread", wraps=about.asyncio.to_thread) as to_thread,
+            mock.patch.object(about, "read_commit", return_value="abc1234") as read_commit,
+        ):
             first = await about.build_info()
             second = await about.build_info()
         self.assertEqual(first, second)
@@ -67,8 +73,18 @@ class VersionTest(AppTestCase):
         # crisp, hellofresh, marleyspoon, lidl en aldi zetten de versie in hun User-Agent bij elk verzoek: het bestand niet elke keer lezen.
         from mealieshopper import aldi, crisp, hellofresh, lidl, marleyspoon
 
-        with mock.patch.dict(os.environ, {"MEALIESHOPPER_VERSION": "7.8.9"}), mock.patch.object(about, "read_version", wraps=about.read_version) as read:
-            agents = {crisp._user_agent(), hellofresh._user_agent(), marleyspoon._user_agent(), crisp._user_agent(), lidl._user_agent(), aldi._user_agent()}
+        with (
+            mock.patch.dict(os.environ, {"MEALIESHOPPER_VERSION": "7.8.9"}),
+            mock.patch.object(about, "read_version", wraps=about.read_version) as read,
+        ):
+            agents = {
+                crisp._user_agent(),
+                hellofresh._user_agent(),
+                marleyspoon._user_agent(),
+                crisp._user_agent(),
+                lidl._user_agent(),
+                aldi._user_agent(),
+            }
         self.assertEqual(agents, {"MealieShopper/7.8.9 (+https://github.com/helmerzNL/MealieShopper)"})
         self.assertEqual(read.call_count, 1)
 
@@ -98,7 +114,14 @@ class VersionTest(AppTestCase):
 
 class ChannelTest(AppTestCase):
     def test_tag_decides_the_channel(self):
-        for tag, channel in (("beta", "beta"), ("2.70.0-beta", "beta"), (" Beta ", "beta"), ("latest", "stable"), ("2.70.0", "stable"), ("", "stable")):
+        for tag, channel in (
+            ("beta", "beta"),
+            ("2.70.0-beta", "beta"),
+            (" Beta ", "beta"),
+            ("latest", "stable"),
+            ("2.70.0", "stable"),
+            ("", "stable"),
+        ):
             with mock.patch.dict(os.environ, {"MEALIESHOPPER_TAG": tag}):
                 self.assertEqual(about.build_channel(), channel, tag)
 
@@ -115,8 +138,9 @@ class ChannelTest(AppTestCase):
         self.assertIn("MEALIESHOPPER_TAG=latest", (ROOT / ".env.example").read_text(encoding="utf-8"))
 
     async def _index(self, tag):
-        with tempfile.TemporaryDirectory() as tmp, mock.patch.dict(
-            os.environ, {"MEALIESHOPPER_TAG": tag, "MEALIESHOPPER_DATA_DIR": tmp, "PASSKEY_AUTH_ENABLED": "false"}
+        with (
+            tempfile.TemporaryDirectory() as tmp,
+            mock.patch.dict(os.environ, {"MEALIESHOPPER_TAG": tag, "MEALIESHOPPER_DATA_DIR": tmp, "PASSKEY_AUTH_ENABLED": "false"}),
         ):
             return (await self.client_for(create_app()).get("/")).get_data(as_text=True)
 
@@ -174,7 +198,7 @@ class ComponentsTest(AppTestCase):
         self.assertIn('href="https://github.com/helmerzNL/MealieShopper"', link)
         self.assertIn('rel="noopener noreferrer"', link)
         self.assertIn('target="_blank"', link)
-        self.assertIn('data-i18n="about.repo"', HTML[HTML.index('id="about-repo"'):])
+        self.assertIn('data-i18n="about.repo"', HTML[HTML.index('id="about-repo"') :])
         for lang in ("nl", "en"):
             self.assertIn('"about.repo": "MealieShopper o', (ROOT / "static" / "i18n" / f"{lang}.js").read_text(encoding="utf-8"), lang)
 
@@ -209,22 +233,25 @@ class RouteTest(AppTestCase):
 
 class PageTest(AppTestCase):
     def test_about_page_has_versions_components_and_coffee_in_that_order_and_sits_in_the_avatar_menu(self):
-        section = HTML[HTML.index('<section id="about"'):HTML.index("</main>")]
+        section = HTML[HTML.index('<section id="about"') : HTML.index("</main>")]
         self.assertLess(section.index('id="about-version"'), section.index('id="about-repo"'))
         self.assertLess(section.index('id="about-repo"'), section.index('id="about-components"'))
         self.assertLess(section.index('id="about-components"'), section.index('id="about-coffee"'))
         self.assertNotIn('data-tab="about"', HTML)
-        menu = HTML[HTML.index('id="user-menu-list"'):HTML.index("</div>\n\n    <main")]
-        self.assertEqual(re.findall(r'data-user-action="(\w+)"', menu), ["basket", "profile", "settings", "about", "theme", "lang", "reload"],
-                         "Over staat na Instellingen, en voor thema, taal, Vernieuwen (alleen in de app) en Uitloggen")
+        menu = HTML[HTML.index('id="user-menu-list"') : HTML.index("</div>\n\n    <main")]
+        self.assertEqual(
+            re.findall(r'data-user-action="(\w+)"', menu),
+            ["basket", "profile", "settings", "about", "theme", "lang", "reload"],
+            "Over staat na Instellingen, en voor thema, taal, Vernieuwen (alleen in de app) en Uitloggen",
+        )
         self.assertLess(menu.index('data-user-action="about"'), menu.index('id="auth-logout"'))
 
     def test_script_loads_the_details_once_and_redraws_on_a_language_change(self):
         self.assertIn('panelId === "about" && !state.aboutLoaded', APP_JS)
         self.assertIn('jsonFetch("/api/about")', APP_JS)
-        handler = APP_JS[APP_JS.index('addEventListener("ms:languagechange"'):]
+        handler = APP_JS[APP_JS.index('addEventListener("ms:languagechange"') :]
         self.assertIn("renderAbout()", handler)
-        self.assertIn('rel="noopener noreferrer"', APP_JS[APP_JS.index("function renderAbout"):])
+        self.assertIn('rel="noopener noreferrer"', APP_JS[APP_JS.index("function renderAbout") :])
 
     def test_every_component_has_a_description_in_both_languages(self):
         from test_i18n import EN, NL

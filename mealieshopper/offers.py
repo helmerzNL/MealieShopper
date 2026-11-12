@@ -12,6 +12,7 @@ webwinkel: van hen hebben we alleen de aanbiedingen (`OFFER_ONLY_STORES`), zonde
 Bij AH horen daar ook je persoonlijke aanbiedingen bij, de Bonus Box (zie `ah.get_bonus_box`), zodra je AH-account gekoppeld is. Die staan
 tussen de gewone aanbiedingen met `personal` (en `activated`: of je ze in de AH-app geactiveerd hebt), zodat je erop kunt filteren.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -25,7 +26,26 @@ from typing import Any, Callable, Iterable, TypeVar
 
 import aiosqlite
 
-from . import about, ah, ah_lists, aldi, deals, lidl, offer_categories, offer_courses, offer_translate, ah_recipes, auth, crisp, jumbo, jumbo_recipes, mealie, mealie_images, picnic, picnic_recipes
+from . import (
+    about,
+    ah,
+    ah_lists,
+    ah_recipes,
+    aldi,
+    auth,
+    crisp,
+    deals,
+    jumbo,
+    jumbo_recipes,
+    lidl,
+    mealie,
+    mealie_images,
+    offer_categories,
+    offer_courses,
+    offer_translate,
+    picnic,
+    picnic_recipes,
+)
 from .i18n import tr
 
 # Winkels waarvan we aanbiedingen kunnen ophalen, met de functie die dat doet.
@@ -68,6 +88,7 @@ async def personal_linked(store: str) -> bool:
         return bool(await ah.configured_refresh_token())
     return False
 
+
 MEALIE_RECIPE_LIMIT = 300
 OTHER_RECIPE_LIMIT = 60
 AH_NEW_RECIPES_PER_SYNC = 60
@@ -97,7 +118,9 @@ CREATE TABLE IF NOT EXISTS {name} (
 )
 """
 
-SCHEMA = OFFERS_TABLE.format(name="offers") + """;
+SCHEMA = (
+    OFFERS_TABLE.format(name="offers")
+    + """;
 
 -- Elke keer dat een product in de aanbieding was, voor altijd bewaard. Een rij is een aaneengesloten periode met dezelfde
 -- prijs en hetzelfde label; zie `_record_history`. Daaruit volgt hoe vaak iets in de aanbieding was en wat de details waren.
@@ -207,6 +230,7 @@ CREATE TABLE IF NOT EXISTS offer_recipes_meta (
   summary TEXT NOT NULL
 );
 """
+)
 
 
 # De kolommen die er later bij kwamen, in de volgorde waarin `prepare` ze toevoegt: (tabel, kolom, soort).
@@ -374,7 +398,9 @@ async def signature(store: Any, week: Any = None) -> str:
         meta = await auth.fetchone(conn, "SELECT synced_at FROM offers_meta WHERE store = ?", (store,))
     # Een nieuwe of verbroken koppeling verandert wat er over de persoonlijke aanbiedingen (de Bonus Box) bij de lijst staat.
     personal = "personal" if await personal_linked(store) else ""
-    return "|".join((store, meta["synced_at"] if meta else "", date.today().isoformat(), monday, personal, about.version(), await about.build_commit()))
+    return "|".join(
+        (store, meta["synced_at"] if meta else "", date.today().isoformat(), monday, personal, about.version(), await about.build_commit())
+    )
 
 
 def _for_week(offers: list[dict[str, Any]], week: Any) -> tuple[list[dict[str, Any]], dict[str, Any]]:
@@ -414,6 +440,7 @@ def _one_per_product(offers: list[dict[str, Any]], prefer_current: bool = False)
     weekactie gaat voor een actie die tot de feestdagen loopt). Met `prefer_current` gaat een actie die nu loopt voor een die nog moet
     beginnen; zo krijgt de AI van `ai_match` bij elk product de actie van nu. Een persoonlijke aanbieding (Bonus Box) telt apart: staat
     hetzelfde product ook in de gewone bonus, dan blijven ze allebei staan, want het zijn twee verschillende acties."""
+
     def rank(offer: dict[str, Any]) -> tuple[bool, int, int]:
         start = deals.parse_date(offer["validFrom"]) or date.min
         end = deals.parse_date(offer["validUntil"]) or date.max
@@ -465,14 +492,18 @@ async def load(store: Any, week: Any = None) -> dict[str, Any]:
             "validFrom": row["valid_from"],
             "validUntil": row["valid_until"],
             # Een kopie van vóór de categorieën krijgt de categorie alsnog uit de titel en de bewaarde hint.
-            "category": row["category"] or offer_categories.offer_category(store, row["title"], row["category_hint"] if "category_hint" in row.keys() else None),
+            "category": row["category"]
+            or offer_categories.offer_category(store, row["title"], row["category_hint"] if "category_hint" in row.keys() else None),
             # Een persoonlijke aanbieding (AH: de Bonus Box) en of je die geactiveerd hebt (None: onbekend, of geen persoonlijke aanbieding).
             "personal": bool(row["personal"]),
             "activated": None if row["activated"] is None or not row["personal"] else bool(row["activated"]),
             # Wat de aanbieding inhoudt: soort, minimumaantal, prijs per stuk bij de voorwaarde en of ze nog geldt.
             **deals.describe(
-                row["promo_label"], price_now=row["price"], price_before=row["price_before"],
-                valid_from=row["valid_from"], valid_until=row["valid_until"],
+                row["promo_label"],
+                price_now=row["price"],
+                price_before=row["price_before"],
+                valid_from=row["valid_from"],
+                valid_until=row["valid_until"],
             ),
         }
         for row in rows
@@ -531,10 +562,21 @@ async def _previous_personal(store: str) -> list[dict[str, Any]]:
     async with _connect() as conn:
         rows = await conn.execute_fetchall("SELECT * FROM offers WHERE store = ? AND personal = 1 ORDER BY position", (store,))
     return [
-        {"id": row["product_id"], "title": row["title"], "brand": row["brand"], "unitSize": row["unit_size"], "price": row["price"],
-         "priceBefore": row["price_before"], "promoLabel": row["promo_label"], "image": row["image"], "url": row["url"],
-         "validFrom": row["valid_from"], "validUntil": row["valid_until"], "storedCategory": row["category"],
-         "activated": None if row["activated"] is None else bool(row["activated"])}
+        {
+            "id": row["product_id"],
+            "title": row["title"],
+            "brand": row["brand"],
+            "unitSize": row["unit_size"],
+            "price": row["price"],
+            "priceBefore": row["price_before"],
+            "promoLabel": row["promo_label"],
+            "image": row["image"],
+            "url": row["url"],
+            "validFrom": row["valid_from"],
+            "validUntil": row["valid_until"],
+            "storedCategory": row["category"],
+            "activated": None if row["activated"] is None else bool(row["activated"]),
+        }
         for row in rows
     ]
 
@@ -589,9 +631,23 @@ async def sync(store: Any) -> dict[str, Any]:
         )
     rows = [
         (
-            store, item["id"], position, item["title"], item["brand"], item["unitSize"], item["price"], item["priceBefore"],
-            item["promoLabel"], item["image"], item["url"], item["validFrom"], item["validUntil"], item["category"],
-            1 if item["personal"] else 0, None if item["activated"] is None else int(item["activated"]), item.get("categoryHint"),
+            store,
+            item["id"],
+            position,
+            item["title"],
+            item["brand"],
+            item["unitSize"],
+            item["price"],
+            item["priceBefore"],
+            item["promoLabel"],
+            item["image"],
+            item["url"],
+            item["validFrom"],
+            item["validUntil"],
+            item["category"],
+            1 if item["personal"] else 0,
+            None if item["activated"] is None else int(item["activated"]),
+            item.get("categoryHint"),
         )
         for position, item in enumerate(items)
     ]
@@ -654,21 +710,38 @@ async def _record_history(conn: aiosqlite.Connection, store: str, items: list[di
     current = {item["id"]: item for item in items}
     handled: set[str] = set()
     changed: set[str] = set()
-    for row in await conn.execute_fetchall("SELECT id, product_id, price, price_before, promo_label, valid_from FROM offer_history WHERE store = ? AND ended_at IS NULL", (store,)):
+    for row in await conn.execute_fetchall(
+        "SELECT id, product_id, price, price_before, promo_label, valid_from FROM offer_history WHERE store = ? AND ended_at IS NULL", (store,)
+    ):
         item = current.get(row["product_id"])
         new_period = item is not None and bool(row["valid_from"]) and bool(item["validFrom"]) and row["valid_from"] != item["validFrom"]
         if new_period:
             await conn.execute("UPDATE offer_history SET ended_at = last_seen WHERE id = ?", (row["id"],))
             continue
-        if item is not None and row["product_id"] not in handled and _details(item["price"], item["priceBefore"], item["promoLabel"]) == _details(row["price"], row["price_before"], row["promo_label"]):
+        if (
+            item is not None
+            and row["product_id"] not in handled
+            and _details(item["price"], item["priceBefore"], item["promoLabel"]) == _details(row["price"], row["price_before"], row["promo_label"])
+        ):
             handled.add(row["product_id"])
             await conn.execute(
                 """
                 UPDATE offer_history SET last_seen = ?, syncs = syncs + 1, title = ?, brand = ?, unit_size = ?, category = ?,
                   image = ?, url = ?, valid_from = COALESCE(?, valid_from), valid_until = ?, personal = ? WHERE id = ?
                 """,
-                (now, item["title"], item["brand"], item["unitSize"], item["category"], item["image"], item["url"], item["validFrom"], item["validUntil"],
-                 1 if item.get("personal") else 0, row["id"]),
+                (
+                    now,
+                    item["title"],
+                    item["brand"],
+                    item["unitSize"],
+                    item["category"],
+                    item["image"],
+                    item["url"],
+                    item["validFrom"],
+                    item["validUntil"],
+                    1 if item.get("personal") else 0,
+                    row["id"],
+                ),
             )
             continue
         if item is not None:
@@ -682,9 +755,25 @@ async def _record_history(conn: aiosqlite.Connection, store: str, items: list[di
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         [
-            (store, item["id"], item["title"], item["brand"], item["unitSize"], item["category"], item["price"], item["priceBefore"],
-             item["promoLabel"], item["image"], item["url"], item["validFrom"], item["validUntil"], now, now, 1 if item["id"] in changed else 0,
-             1 if item.get("personal") else 0)
+            (
+                store,
+                item["id"],
+                item["title"],
+                item["brand"],
+                item["unitSize"],
+                item["category"],
+                item["price"],
+                item["priceBefore"],
+                item["promoLabel"],
+                item["image"],
+                item["url"],
+                item["validFrom"],
+                item["validUntil"],
+                now,
+                now,
+                1 if item["id"] in changed else 0,
+                1 if item.get("personal") else 0,
+            )
             for item in items
             if item["id"] not in handled
         ],
@@ -744,17 +833,19 @@ async def history_of(store: Any, product_ids: Iterable[Any]) -> dict[str, dict[s
     rows: list[Any] = []
     async with _connect() as conn:
         for start in range(0, len(ids), 500):
-            chunk = ids[start:start + 500]
+            chunk = ids[start : start + 500]
             marks = ",".join("?" * len(chunk))
             rows += await conn.execute_fetchall(
                 f"SELECT * FROM offer_history WHERE store = ? AND product_id IN ({marks}) ORDER BY product_id, first_seen, id",
                 (store, *chunk),
             )
-            rows += _not_yet_recorded(await conn.execute_fetchall(
-                f"""SELECT * FROM offers WHERE store = ? AND product_id IN ({marks}) AND product_id NOT IN
+            rows += _not_yet_recorded(
+                await conn.execute_fetchall(
+                    f"""SELECT * FROM offers WHERE store = ? AND product_id IN ({marks}) AND product_id NOT IN
                     (SELECT product_id FROM offer_history WHERE store = ? AND ended_at IS NULL) ORDER BY personal""",
-                (store, *chunk, store),
-            ))
+                    (store, *chunk, store),
+                )
+            )
     rows.sort(key=lambda row: (row["product_id"], row["first_seen"]))
     return {product["productId"]: product for product in _history_products(rows).values()}
 
@@ -775,8 +866,11 @@ def _not_yet_recorded(rows: Iterable[Any]) -> list[dict[str, Any]]:
             continue
         found[row["product_id"]] = {
             **{key: row[key] for key in row.keys()},  # noqa: SIM118 - sqlite3.Row: `in row` zoekt in de waarden
-            "first_seen": f"{start.isoformat()}T00:00:00+00:00" if start else now, "last_seen": now, "ended_at": None,
-            "syncs": 0, "continued": 0,
+            "first_seen": f"{start.isoformat()}T00:00:00+00:00" if start else now,
+            "last_seen": now,
+            "ended_at": None,
+            "syncs": 0,
+            "continued": 0,
         }
     return list(found.values())
 
@@ -807,9 +901,17 @@ def _history_products(rows: Iterable[Any]) -> dict[tuple[str, str], dict[str, An
         )
         product["timesOnOffer"] += 0 if row["continued"] else 1
         # De nieuwste rij geeft titel en plaatje.
-        product.update(title=row["title"], brand=row["brand"], unitSize=row["unit_size"], category=row["category"] or offer_categories.offer_category(row["store"], row["title"]),
-                       image=row["image"] or "", url=row["url"] or "", firstSeen=product.get("firstSeen") or row["first_seen"],
-                       lastSeen=row["last_seen"], onOfferNow=row["ended_at"] is None)
+        product.update(
+            title=row["title"],
+            brand=row["brand"],
+            unitSize=row["unit_size"],
+            category=row["category"] or offer_categories.offer_category(row["store"], row["title"]),
+            image=row["image"] or "",
+            url=row["url"] or "",
+            firstSeen=product.get("firstSeen") or row["first_seen"],
+            lastSeen=row["last_seen"],
+            onOfferNow=row["ended_at"] is None,
+        )
     for product in products.values():
         prices = [e["price"] for e in product["episodes"] if isinstance(e["price"], (int, float))]
         product["lowestPrice"] = min(prices) if prices else None
@@ -844,7 +946,10 @@ async def overview() -> dict[str, Any]:
     """Per winkel: wanneer de aanbiedingen voor het laatst zijn opgehaald en hoeveel er staan."""
     async with _connect() as conn:
         metas = {row["store"]: row for row in await conn.execute_fetchall("SELECT store, synced_at, personal_error FROM offers_meta")}
-        counts = {row["store"]: (row["n"], row["p"]) for row in await conn.execute_fetchall("SELECT store, COUNT(*) AS n, SUM(personal) AS p FROM offers GROUP BY store")}
+        counts = {
+            row["store"]: (row["n"], row["p"])
+            for row in await conn.execute_fetchall("SELECT store, COUNT(*) AS n, SUM(personal) AS p FROM offers GROUP BY store")
+        }
     result: dict[str, Any] = {}
     for store in STORES:
         meta = metas.get(store)
@@ -852,7 +957,11 @@ async def overview() -> dict[str, Any]:
         result[store] = {"linked": await linked(store), "syncedAt": meta["synced_at"] if meta else None, "total": total}
         if store in PERSONAL_FETCHERS:
             # De persoonlijke aanbiedingen (AH: de Bonus Box) tellen mee in `total`.
-            result[store]["personal"] = {"linked": await personal_linked(store), "count": personal or 0, "error": (meta["personal_error"] if meta else None) or None}
+            result[store]["personal"] = {
+                "linked": await personal_linked(store),
+                "count": personal or 0,
+                "error": (meta["personal_error"] if meta else None) or None,
+            }
     return result
 
 
@@ -860,32 +969,181 @@ async def overview() -> dict[str, Any]:
 
 # Woorden die geen ingrediënt zijn: eenheden, hoeveelheden, bijwoorden en bereidingswoorden.
 NOISE = {
-    "g", "gr", "gram", "kg", "kilo", "mg", "ml", "cl", "dl", "l", "liter", "el", "eetlepel", "eetlepels",
-    "tl", "theelepel", "theelepels", "koffielepel", "stuk", "stuks", "st", "teen", "tenen", "teentje", "teentjes",
-    "blik", "blikje", "blikken", "pak", "pakje", "pakken", "zak", "zakje", "bos", "bosje", "snuf", "snufje",
-    "plak", "plakje", "plakjes", "fles", "flesje", "bakje", "portie", "handvol", "scheutje", "scheut", "beetje",
-    "naar", "smaak", "eventueel", "optioneel", "ca", "circa", "of", "en", "de", "het", "een", "in", "van", "met",
-    "voor", "uit", "op", "per", "zonder", "plus", "extra", "vers", "verse", "gesneden", "fijngesneden",
-    "gesnipperd", "geraspt", "gepeld", "gewassen", "grof", "fijn", "groot", "grote", "klein", "kleine",
-    "middelgrote", "gekookt", "gebakken", "gerookt", "diepvries", "bijvoorbeeld", "bv", "uitgelekt", "halve",
-    "hele", "heel", "half", "tot", "ongeveer", "stukje", "stukjes", "blad", "blaadjes",
+    "g",
+    "gr",
+    "gram",
+    "kg",
+    "kilo",
+    "mg",
+    "ml",
+    "cl",
+    "dl",
+    "l",
+    "liter",
+    "el",
+    "eetlepel",
+    "eetlepels",
+    "tl",
+    "theelepel",
+    "theelepels",
+    "koffielepel",
+    "stuk",
+    "stuks",
+    "st",
+    "teen",
+    "tenen",
+    "teentje",
+    "teentjes",
+    "blik",
+    "blikje",
+    "blikken",
+    "pak",
+    "pakje",
+    "pakken",
+    "zak",
+    "zakje",
+    "bos",
+    "bosje",
+    "snuf",
+    "snufje",
+    "plak",
+    "plakje",
+    "plakjes",
+    "fles",
+    "flesje",
+    "bakje",
+    "portie",
+    "handvol",
+    "scheutje",
+    "scheut",
+    "beetje",
+    "naar",
+    "smaak",
+    "eventueel",
+    "optioneel",
+    "ca",
+    "circa",
+    "of",
+    "en",
+    "de",
+    "het",
+    "een",
+    "in",
+    "van",
+    "met",
+    "voor",
+    "uit",
+    "op",
+    "per",
+    "zonder",
+    "plus",
+    "extra",
+    "vers",
+    "verse",
+    "gesneden",
+    "fijngesneden",
+    "gesnipperd",
+    "geraspt",
+    "gepeld",
+    "gewassen",
+    "grof",
+    "fijn",
+    "groot",
+    "grote",
+    "klein",
+    "kleine",
+    "middelgrote",
+    "gekookt",
+    "gebakken",
+    "gerookt",
+    "diepvries",
+    "bijvoorbeeld",
+    "bv",
+    "uitgelekt",
+    "halve",
+    "hele",
+    "heel",
+    "half",
+    "tot",
+    "ongeveer",
+    "stukje",
+    "stukjes",
+    "blad",
+    "blaadjes",
     # Engelse recepten (veel Mealie-imports): eenheden, voegwoorden en bijwoorden.
-    "tbsp", "tsp", "cup", "cups", "pinch", "slice", "slices", "clove", "cloves", "piece", "pieces", "can", "cans",
-    "bunch", "handful", "and", "with", "to", "the", "an", "some", "taste", "optional", "about", "fresh", "chopped",
-    "sliced", "diced", "minced", "grated", "large", "small", "medium", "pound", "lb", "oz",
+    "tbsp",
+    "tsp",
+    "cup",
+    "cups",
+    "pinch",
+    "slice",
+    "slices",
+    "clove",
+    "cloves",
+    "piece",
+    "pieces",
+    "can",
+    "cans",
+    "bunch",
+    "handful",
+    "and",
+    "with",
+    "to",
+    "the",
+    "an",
+    "some",
+    "taste",
+    "optional",
+    "about",
+    "fresh",
+    "chopped",
+    "sliced",
+    "diced",
+    "minced",
+    "grated",
+    "large",
+    "small",
+    "medium",
+    "pound",
+    "lb",
+    "oz",
 }
 
 
 def _is_noise(word: str) -> bool:
     """Een eenheid of bijwoord, of de verbogen vorm van een bijvoeglijk woord uit de lijst ("geraspte" naast "geraspt")."""
     return word in NOISE or (word.endswith("e") and word[:-1] in NOISE)
+
+
 # Basisingrediënten die altijd in huis zijn: een aanbieding daarvoor maakt een recept niet interessanter en ze tellen niet mee in
 # "x van y ingrediënten in de aanbieding". Een ingrediënt is basis als het hoofdwoord er een is of erop eindigt (zeezout, roomboter,
 # olijfolie, balsamicoazijn).
 PANTRY = (
-    "zout", "peper", "water", "ijs", "olie", "boter", "bloem", "suiker", "azijn", "bouillon", "bouillonblokje",
+    "zout",
+    "peper",
+    "water",
+    "ijs",
+    "olie",
+    "boter",
+    "bloem",
+    "suiker",
+    "azijn",
+    "bouillon",
+    "bouillonblokje",
     # Kruidenpoeders (knoflookpoeder, onion powder) en de Engelse basis.
-    "poeder", "powder", "salt", "pepper", "oil", "butter", "flour", "sugar", "vinegar", "stock", "broth", "cornstarch", "maizena",
+    "poeder",
+    "powder",
+    "salt",
+    "pepper",
+    "oil",
+    "butter",
+    "flour",
+    "sugar",
+    "vinegar",
+    "stock",
+    "broth",
+    "cornstarch",
+    "maizena",
 )
 # Een aanbieding waarvan het woord hiermee verder gaat is een ander product dan het ingrediënt (tomatenpuree, kippensoep).
 DERIVED_PREFIXES = ("puree", "saus", "soep", "sap", "drank", "chips", "reep", "koek", "taart", "pizza", "ketchup", "jam", "smaak")
@@ -933,8 +1191,8 @@ SEASONING_QUANTITY = re.compile(r"\b(?:tsp|tl|theelepels?|teaspoons?|snuf(?:je)?
 # dus zo'n regel zoekt geen paprika of kerriesaus bij de aanbiedingen.
 SPOON_QUANTITY = re.compile(r"\b(?:tbsp|el|eetlepels?|tablespoons?)\b")
 DRIED_SPICES = {
-    _stem(word) for word in ("paprika", "kurkuma", "turmeric", "komijn", "cumin", "kaneel", "cinnamon", "cayenne", "nootmuskaat", "nutmeg",
-                             "kerrie", "curry")
+    _stem(word)
+    for word in ("paprika", "kurkuma", "turmeric", "komijn", "cumin", "kaneel", "cinnamon", "cayenne", "nootmuskaat", "nutmeg", "kerrie", "curry")
 }
 # Een regel die naar een ander deel van het recept verwijst ("Spice mixture (below)") is een kopje en geen ingrediënt.
 HEADING_NOTE = re.compile(r"\((?:see\s+)?(?:below|above|hieronder|hierboven|zie[^)]*)\)")
@@ -964,7 +1222,7 @@ def matches(head: str, offer_stems: set[str]) -> bool:
         return False
     for stem in offer_stems:
         if len(stem) > len(head) and stem.startswith(head):
-            rest = stem[len(head):]
+            rest = stem[len(head) :]
             linked = re.sub(r"^(?:en|s)", "", rest)  # tomaten|puree, kippen|soep: een voegklank hoort niet bij het woord
             # Beide kanten controleren: bij sinaasappel|sap is de s geen voegklank maar het begin van "sap".
             if not any(part in rest or part in linked for part in DERIVED_STEMS):
@@ -1006,8 +1264,29 @@ CONNECTORS = {"met", "in", "op", "zonder", "voor", "en", "of", "&"}
 # Een woord in de titel dat hiermee eindigt maakt het product een bereide variant (champignonsaus, kruidenmix,
 # sinaasappelsap). Zo'n product is het ingrediënt alleen als het ingrediënt zelf dat woord noemt.
 PRODUCT_TYPES = (
-    "saus", "soep", "mix", "maaltijd", "salade", "dressing", "pesto", "bouillon", "chips", "koek", "taart",
-    "pizza", "ketchup", "jam", "sap", "drank", "snack", "gerecht", "spread", "dip", "burger", "nugget", "schotel",
+    "saus",
+    "soep",
+    "mix",
+    "maaltijd",
+    "salade",
+    "dressing",
+    "pesto",
+    "bouillon",
+    "chips",
+    "koek",
+    "taart",
+    "pizza",
+    "ketchup",
+    "jam",
+    "sap",
+    "drank",
+    "snack",
+    "gerecht",
+    "spread",
+    "dip",
+    "burger",
+    "nugget",
+    "schotel",
 )
 # Dezelfde bewerking als de woorden in de titel, anders komt "maaltijd" (titel: "maltijd") er nooit mee overeen.
 PRODUCT_STEMS = tuple(_stem(kind) for kind in PRODUCT_TYPES)
@@ -1016,9 +1295,27 @@ WEAK_HEADS = {_stem(word) for word in ("kruiden", "specerijen", "smaakmakers", "
 # Een soort in plaats van een product: bij "curry sauce" of "bread roll" bepaalt het andere woord welk product het is. Zo'n ingrediënt
 # past alleen bij een aanbieding waar die andere woorden ook in staan (niet "Sweet chilli sauce" of "Bifi Roll").
 GENERIC_HEADS = {
-    _stem(word) for word in (
-        "saus", "sauce", "soep", "soup", "kaas", "cheese", "worst", "sausage", "brood", "bread", "rol", "roll", "broodje", "dressing",
-        "drank", "vlees", "vis", "groente", "fruit",
+    _stem(word)
+    for word in (
+        "saus",
+        "sauce",
+        "soep",
+        "soup",
+        "kaas",
+        "cheese",
+        "worst",
+        "sausage",
+        "brood",
+        "bread",
+        "rol",
+        "roll",
+        "broodje",
+        "dressing",
+        "drank",
+        "vlees",
+        "vis",
+        "groente",
+        "fruit",
     )
 }
 
@@ -1061,13 +1358,69 @@ def _variant_key(word: str) -> str:
 # Noemen ingrediënt én aanbieding een eigenschap uit dezelfde groep en zijn die verschillend, dan is het een ander product.
 _VARIANT_WORDS: tuple[tuple[str, ...], ...] = (
     # kleur
-    ("rood", "rode", "geel", "gele", "groen", "groene", "oranje", "wit", "witte", "zwart", "zwarte", "bruin", "bruine", "paars", "paarse",
-     "blauw", "blauwe"),
+    (
+        "rood",
+        "rode",
+        "geel",
+        "gele",
+        "groen",
+        "groene",
+        "oranje",
+        "wit",
+        "witte",
+        "zwart",
+        "zwarte",
+        "bruin",
+        "bruine",
+        "paars",
+        "paarse",
+        "blauw",
+        "blauwe",
+    ),
     # keuken of streek
-    ("chinees", "chinese", "provencaals", "provencaalse", "italiaans", "italiaanse", "mexicaans", "mexicaanse", "thai", "thais", "thaise",
-     "indiaas", "indiase", "grieks", "griekse", "spaans", "spaanse", "frans", "franse", "hollands", "hollandse", "oosters", "oosterse",
-     "mediterraan", "mediterrane", "japans", "japanse", "koreaans", "koreaanse", "turks", "turkse", "marokkaans", "marokkaanse",
-     "amerikaans", "amerikaanse", "surinaams", "surinaamse", "indonesisch", "indonesische", "aziatisch", "aziatische"),
+    (
+        "chinees",
+        "chinese",
+        "provencaals",
+        "provencaalse",
+        "italiaans",
+        "italiaanse",
+        "mexicaans",
+        "mexicaanse",
+        "thai",
+        "thais",
+        "thaise",
+        "indiaas",
+        "indiase",
+        "grieks",
+        "griekse",
+        "spaans",
+        "spaanse",
+        "frans",
+        "franse",
+        "hollands",
+        "hollandse",
+        "oosters",
+        "oosterse",
+        "mediterraan",
+        "mediterrane",
+        "japans",
+        "japanse",
+        "koreaans",
+        "koreaanse",
+        "turks",
+        "turkse",
+        "marokkaans",
+        "marokkaanse",
+        "amerikaans",
+        "amerikaanse",
+        "surinaams",
+        "surinaamse",
+        "indonesisch",
+        "indonesische",
+        "aziatisch",
+        "aziatische",
+    ),
     # vetgehalte
     ("mager", "magere", "halfvol", "halfvolle", "vol", "volle"),
 )
@@ -1096,9 +1449,7 @@ def variant_clash(ingredient_stems: Iterable[str], title_stems: Iterable[str]) -
     return False
 
 
-def match_offer(
-    head: str, ingredient_stems: set[str], core: list[str], rest: list[str], main_stems: set[str] | None = None
-) -> int | None:
+def match_offer(head: str, ingredient_stems: set[str], core: list[str], rest: list[str], main_stems: set[str] | None = None) -> int | None:
     """Of een aanbieding het ingrediënt is. None: nee. Anders het aantal woorden in de titel dat niet bij het ingrediënt
     hoort; hoe minder, hoe beter de aanbieding past.
 
@@ -1268,8 +1619,16 @@ async def list_mismatches(store: Any = None, limit: int = 100) -> dict[str, Any]
     return {
         "total": total,
         "reports": [
-            {"store": r["store"], "offerId": r["product_id"], "ingredient": r["ingredient"], "mainWord": r["head"], "product": r["title"],
-             "reportedAt": r["reported_at"], "reason": r["reason"] or "", "source": r["source"] or "app"}
+            {
+                "store": r["store"],
+                "offerId": r["product_id"],
+                "ingredient": r["ingredient"],
+                "mainWord": r["head"],
+                "product": r["title"],
+                "reportedAt": r["reported_at"],
+                "reason": r["reason"] or "",
+                "source": r["source"] or "app",
+            }
             for r in rows
         ],
     }
@@ -1306,8 +1665,9 @@ async def _rejections(store: str) -> set[tuple[str, str]]:
     return {(row["product_id"], row["head"]) for row in rows}
 
 
-async def suggest(store: Any, limit: int = 30, course: Any = None, cap: int = 100, week: Any = None,
-                  courses: Any = None, courses_out: Any = None) -> dict[str, Any]:
+async def suggest(
+    store: Any, limit: int = 30, course: Any = None, cap: int = 100, week: Any = None, courses: Any = None, courses_out: Any = None
+) -> dict[str, Any]:
     """Recepten uit de index die zoveel mogelijk met de aanbiedingen van deze winkel te maken zijn, de beste eerst.
 
     Basisingrediënten (zout, olie, boter ...) tellen niet mee. De volgorde is: het grootste deel van de ingrediënten in de aanbieding,
@@ -1426,12 +1786,19 @@ async def suggest(store: Any, limit: int = 30, course: Any = None, cap: int = 10
             }
         )
     results.sort(
-        key=lambda item: (-item["matchedCount"] / item["ingredientCount"], -item["matchedCount"], -item["saving"], SOURCE_RANK.get(item["source"], 9), item["title"])
+        key=lambda item: (
+            -item["matchedCount"] / item["ingredientCount"],
+            -item["matchedCount"],
+            -item["saving"],
+            SOURCE_RANK.get(item["source"], 9),
+            item["title"],
+        )
     )
     results = merge_duplicates(results)
     courses = offer_courses.summarize([item["course"] for item in results])
     shown = [
-        item for item in results
+        item
+        for item in results
         if (not course or item["course"] == course) and item["course"] not in without and (not only or item["course"] in only)
     ]
     return {
@@ -1444,8 +1811,10 @@ async def suggest(store: Any, limit: int = 30, course: Any = None, cap: int = 10
         "week": offers["week"],
         # Hoeveel van de unieke koppelingen in de voorstellen een AI al beoordeeld heeft (zie ai_review.py).
         "ai": {
-            "judged": sum(pair_judged.values()), "unjudged": len(pair_judged) - sum(pair_judged.values()),
-            "searched": ai_searched, "recipes": len(rows),
+            "judged": sum(pair_judged.values()),
+            "unjudged": len(pair_judged) - sum(pair_judged.values()),
+            "searched": ai_searched,
+            "recipes": len(rows),
         },
         "indexedAt": meta["synced_at"] if meta else None,
         "sources": json.loads(meta["summary"]) if meta else {},
@@ -1560,9 +1929,14 @@ async def _collect_jumbo() -> list[dict[str, Any]]:
         lines = [i["name"] for i in recipe["ingredients"] if i.get("name")]
         if not lines:
             return None
-        return {"id": recipe["id"], "title": recipe["name"], "image": recipe.get("image") or "",
-                "url": jumbo_recipes.source_url(recipe), "ingredients": lines,
-                "course": offer_courses.course_of(recipe.get("course"), card.get("course"))}
+        return {
+            "id": recipe["id"],
+            "title": recipe["name"],
+            "image": recipe.get("image") or "",
+            "url": jumbo_recipes.source_url(recipe),
+            "ingredients": lines,
+            "course": offer_courses.course_of(recipe.get("course"), card.get("course")),
+        }
 
     return await _each(one, cards[:OTHER_RECIPE_LIMIT])
 
@@ -1587,9 +1961,14 @@ async def _collect_picnic() -> list[dict[str, Any]]:
         lines = [line for line in lines if line]
         if not lines:
             return None
-        return {"id": recipe["id"], "title": recipe["name"], "image": recipe.get("image") or "",
-                "url": picnic_recipes.source_url(recipe["id"]), "ingredients": lines,
-                "course": offer_courses.course_of(card.get("tags"))}
+        return {
+            "id": recipe["id"],
+            "title": recipe["name"],
+            "image": recipe.get("image") or "",
+            "url": picnic_recipes.source_url(recipe["id"]),
+            "ingredients": lines,
+            "course": offer_courses.course_of(card.get("tags")),
+        }
 
     return await _each(one, cards[:OTHER_RECIPE_LIMIT])
 
@@ -1610,9 +1989,14 @@ async def _collect_crisp() -> list[dict[str, Any]]:
         if not lines:
             return None
         # Crisp heeft geen receptpagina op het web; de deellink van de app (als die er is) opent het recept wel.
-        return {"id": recipe["id"], "title": recipe["name"], "image": recipe.get("image") or "",
-                "url": recipe.get("url") or crisp.source_url(recipe["id"]), "ingredients": lines,
-                "course": offer_courses.course_of(card.get("tags"))}
+        return {
+            "id": recipe["id"],
+            "title": recipe["name"],
+            "image": recipe.get("image") or "",
+            "url": recipe.get("url") or crisp.source_url(recipe["id"]),
+            "ingredients": lines,
+            "course": offer_courses.course_of(card.get("tags")),
+        }
 
     return await _each(one, cards[:OTHER_RECIPE_LIMIT])
 
@@ -1627,7 +2011,12 @@ async def _indexed(source: str) -> dict[str, tuple[list[str], str | None]]:
 async def _collect_ah() -> list[dict[str, Any]]:
     saved = await ah_recipes.load()
     if not saved or not saved["recipes"]:
-        raise LookupError(tr("geen bewaarde recepten (haal ze eerst op bij Winkels > Albert Heijn > Recepten)", "no saved recipes (fetch them first under Stores > Albert Heijn > Recipes)"))
+        raise LookupError(
+            tr(
+                "geen bewaarde recepten (haal ze eerst op bij Winkels > Albert Heijn > Recepten)",
+                "no saved recipes (fetch them first under Stores > Albert Heijn > Recipes)",
+            )
+        )
     known = await _indexed("ah")
     fetched = 0
     items: list[dict[str, Any]] = []
@@ -1650,8 +2039,16 @@ async def _collect_ah() -> list[dict[str, Any]]:
                     if lines is None:
                         continue
         if lines:
-            items.append({"id": recipe_id, "title": recipe["title"], "image": recipe.get("image") or "",
-                          "url": recipe.get("url") or "", "ingredients": list(lines), "course": course})
+            items.append(
+                {
+                    "id": recipe_id,
+                    "title": recipe["title"],
+                    "image": recipe.get("image") or "",
+                    "url": recipe.get("url") or "",
+                    "ingredients": list(lines),
+                    "course": course,
+                }
+            )
     return items
 
 
@@ -1685,8 +2082,10 @@ async def sync_recipes() -> dict[str, Any]:
                 ON CONFLICT(source, recipe_id) DO UPDATE SET title = excluded.title, image = excluded.image, url = excluded.url,
                   ingredients = excluded.ingredients, course = excluded.course
                 """,
-                [(source, item["id"], item["title"], item["image"], item["url"], json.dumps(item["ingredients"]), item.get("course"))
-                 for item in items],
+                [
+                    (source, item["id"], item["title"], item["image"], item["url"], json.dumps(item["ingredients"]), item.get("course"))
+                    for item in items
+                ],
             )
         await conn.execute(
             """

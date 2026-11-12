@@ -20,6 +20,7 @@ alleen iets bij in Mealie. Staat een recept op die dag al in het weekmenu, dan b
 op de knop drukken niets dubbel zet. MealieShopper bewaart zelf geen planning (zie docs/onderzoek-weekmenu-plannen.md en
 docs/onderzoek-ah-weekplanner.md).
 """
+
 from __future__ import annotations
 
 import datetime
@@ -134,12 +135,22 @@ def clean_day(body: Any) -> dict[str, Any]:
     if not isinstance(body, dict):
         raise ValueError(tr("Ongeldige invoer.", "Invalid input."))
     recipe_ids: list[int] = []
-    for value in _list(body.get("recipeIds"), MAX_RECIPES, f"Te veel recepten in één keer (hooguit {MAX_RECIPES}).", f"Too many recipes at once (at most {MAX_RECIPES})."):
+    for value in _list(
+        body.get("recipeIds"),
+        MAX_RECIPES,
+        f"Te veel recepten in één keer (hooguit {MAX_RECIPES}).",
+        f"Too many recipes at once (at most {MAX_RECIPES}).",
+    ):
         number = _number(value, "Ongeldig receptnummer van AH.", "Invalid AH recipe number.")
         if number not in recipe_ids:
             recipe_ids.append(number)
     products: list[dict[str, Any]] = []
-    for value in _list(body.get("products"), MAX_PRODUCTS, f"Te veel producten in één keer (hooguit {MAX_PRODUCTS}).", f"Too many products at once (at most {MAX_PRODUCTS})."):
+    for value in _list(
+        body.get("products"),
+        MAX_PRODUCTS,
+        f"Te veel producten in één keer (hooguit {MAX_PRODUCTS}).",
+        f"Too many products at once (at most {MAX_PRODUCTS}).",
+    ):
         if not isinstance(value, dict):
             raise ValueError(tr("Ongeldige invoer.", "Invalid input."))
         number = _number(value.get("productId"), "Ongeldig productnummer van AH.", "Invalid AH product number.")
@@ -216,12 +227,14 @@ async def _product_details(products: list[dict[str, Any]]) -> list[dict[str, Any
     for product in products:
         item = found.get(product["productId"]) or {}
         title = _text(item.get("title") if isinstance(item.get("title"), str) else "") or product["title"]
-        details.append({
-            "productId": product["productId"],
-            "title": title or tr(f"Product {product['productId']}", f"Product {product['productId']}"),
-            "image": item.get("image") or "",
-            "unitSize": item.get("unitSize") if isinstance(item.get("unitSize"), str) else "",
-        })
+        details.append(
+            {
+                "productId": product["productId"],
+                "title": title or tr(f"Product {product['productId']}", f"Product {product['productId']}"),
+                "image": item.get("image") or "",
+                "unitSize": item.get("unitSize") if isinstance(item.get("unitSize"), str) else "",
+            }
+        )
     return details
 
 

@@ -13,9 +13,10 @@ import httpx
 
 os.environ["PASSKEY_AUTH_ENABLED"] = "false"
 
+from helpers import AppTestCase, routes, sent_params  # noqa: E402
+
 from mealieshopper import ah, auth, mealie, recipe_nutrition, tasks  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
-from helpers import AppTestCase, routes, sent_params  # noqa: E402
 
 URL = "https://mealie.example.nl"
 LIST = f"{URL}/api/recipes"
@@ -160,8 +161,11 @@ class SearchTest(NutritionCase):
     def setUp(self):
         super().setUp()
         self.add(
-            recipe(1, "Lasagne", 490), recipe(2, "curry", 650), recipe(3, "Appeltaart", 380),
-            recipe(4, "Zonder calorieën", None), recipe(5, "Bami", "2092 kJ"),
+            recipe(1, "Lasagne", 490),
+            recipe(2, "curry", 650),
+            recipe(3, "Appeltaart", 380),
+            recipe(4, "Zonder calorieën", None),
+            recipe(5, "Bami", "2092 kJ"),
         )
 
     async def test_without_a_query_all_recipes_by_name_within_the_bounds(self):
@@ -239,19 +243,26 @@ class SearchTest(NutritionCase):
             recipe_nutrition.bounds({"proteinMin": "30", "sugarMax": "12.7", "saltMax": "1,55", "fiberMin": "4", "carbsMax": "80", "fatMax": "25"}),
             {"protein": (30, None), "fat": (None, 25), "carbs": (None, 80), "sugar": (None, 12), "fiber": (4, None), "salt": (None, 1.6)},
         )
-        self.assertEqual(recipe_nutrition.bounds({"protein_min": 30, "salt_max": 1.5, "proteinMin": 99}, mcp=True), {"protein": (30, None), "salt": (None, 1.5)})
+        self.assertEqual(
+            recipe_nutrition.bounds({"protein_min": 30, "salt_max": 1.5, "proteinMin": 99}, mcp=True), {"protein": (30, None), "salt": (None, 1.5)}
+        )
         for bad in ({"kcalMin": "veel"}, {"saltMax": "nan"}, {"proteinMin": "inf"}):
             with self.assertRaises(ValueError):
                 recipe_nutrition.bounds(bad)
 
     async def test_on_every_nutrition_value_and_salt_from_sodium(self):
         self.recipes.clear()
-        n = lambda kcal, protein, sugar, sodium: {"calories": str(kcal), "proteinContent": str(protein), "sugarContent": sugar, "sodiumContent": sodium}  # noqa: E731
+        n = lambda kcal, protein, sugar, sodium: {
+            "calories": str(kcal),
+            "proteinContent": str(protein),
+            "sugarContent": sugar,
+            "sodiumContent": sodium,
+        }  # noqa: E731
         self.add(
-            recipe(1, "Kip", nutrition=n(600, 42, "5", "400")),       # 1 g zout
-            recipe(2, "Pasta", nutrition=n(700, 20, "15", "800")),    # 2 g zout
-            recipe(3, "Salade", nutrition=n(350, 31, "4", None)),     # geen natrium
-            recipe(4, "Vis", nutrition=n(500, 35, "3", "560")),       # 1,4 g zout
+            recipe(1, "Kip", nutrition=n(600, 42, "5", "400")),  # 1 g zout
+            recipe(2, "Pasta", nutrition=n(700, 20, "15", "800")),  # 2 g zout
+            recipe(3, "Salade", nutrition=n(350, 31, "4", None)),  # geen natrium
+            recipe(4, "Vis", nutrition=n(500, 35, "3", "560")),  # 1,4 g zout
         )
         with routes() as api:
             self.mock_mealie(api)
@@ -350,8 +361,11 @@ class BackfillTest(NutritionCase):
         await asyncio.gather(*tasks.running().values())
 
     async def test_old_ah_recipes_get_their_nutrition_and_what_is_there_stays(self):
-        with routes() as api, mock.patch.object(ah, "get_recipe_jsonld", side_effect=self.ah_recipe), \
-                mock.patch.object(recipe_nutrition.audit, "record", new_callable=mock.AsyncMock) as record:
+        with (
+            routes() as api,
+            mock.patch.object(ah, "get_recipe_jsonld", side_effect=self.ah_recipe),
+            mock.patch.object(recipe_nutrition.audit, "record", new_callable=mock.AsyncMock) as record,
+        ):
             self.mock_mealie(api)
             self.mock_patch(api)
             self.assertEqual(recipe_nutrition.start_backfill()["state"], "running")
@@ -371,8 +385,11 @@ class BackfillTest(NutritionCase):
 
     async def test_a_refusal_of_ah_stops(self):
         refused = ah.AhHttpError("te veel", 429)
-        with routes() as api, mock.patch.object(ah, "get_recipe_jsonld", side_effect=refused), \
-                mock.patch.object(recipe_nutrition.audit, "record", new_callable=mock.AsyncMock):
+        with (
+            routes() as api,
+            mock.patch.object(ah, "get_recipe_jsonld", side_effect=refused),
+            mock.patch.object(recipe_nutrition.audit, "record", new_callable=mock.AsyncMock),
+        ):
             self.mock_mealie(api)
             self.mock_patch(api)
             recipe_nutrition.start_backfill()
@@ -383,9 +400,12 @@ class BackfillTest(NutritionCase):
         self.assertEqual(self.patched, {})
 
     async def test_too_many_failures_in_a_row_stop(self):
-        with routes() as api, mock.patch.object(ah, "get_recipe_jsonld", side_effect=self.ah_recipe), \
-                mock.patch.object(recipe_nutrition, "MAX_FAILURES_IN_A_ROW", 1), \
-                mock.patch.object(recipe_nutrition.audit, "record", new_callable=mock.AsyncMock):
+        with (
+            routes() as api,
+            mock.patch.object(ah, "get_recipe_jsonld", side_effect=self.ah_recipe),
+            mock.patch.object(recipe_nutrition, "MAX_FAILURES_IN_A_ROW", 1),
+            mock.patch.object(recipe_nutrition.audit, "record", new_callable=mock.AsyncMock),
+        ):
             self.mock_mealie(api)
             self.mock_patch(api, status=500)
             recipe_nutrition.start_backfill()
@@ -398,8 +418,11 @@ class BackfillTest(NutritionCase):
         self.assertTrue(auth.admin_only("/api/mealie/nutrition/backfill"))
         client = self.client_for(create_app())
         self.assertEqual((await client.get("/api/mealie/nutrition/backfill")).get_json()["state"], "idle")
-        with routes() as api, mock.patch.object(ah, "get_recipe_jsonld", side_effect=self.ah_recipe), \
-                mock.patch.object(recipe_nutrition.audit, "record", new_callable=mock.AsyncMock):
+        with (
+            routes() as api,
+            mock.patch.object(ah, "get_recipe_jsonld", side_effect=self.ah_recipe),
+            mock.patch.object(recipe_nutrition.audit, "record", new_callable=mock.AsyncMock),
+        ):
             self.mock_mealie(api)
             self.mock_patch(api)
             gate = asyncio.Event()
