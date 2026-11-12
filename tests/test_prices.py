@@ -814,60 +814,76 @@ class VerdictTest(PricesCase):
         badge = (await self.annotate(deal("1", "AH Kaas", 1.12, 1.50, "nu 1,12")))["1"]["badge"]
         self.assertEqual((badge["percent"], badge["inflated"]), (0, True))
 
-    async def test_receipt_of_four_months_ago_gives_a_dated_badge(self):
-        day = prices._days_ago(TODAY, 120)
+    async def test_receipt_of_four_months_ago_gives_a_dated_badge(self) -> None:
+        day: str = prices._days_ago(TODAY, 120)
         self.ah_receipt("R1", f"{day}T10:00:00", (1, "AH PINDAKAAS", 1, 2.50, 2.50))
-        found = (await self.annotate(deal("1", "AH Pindakaas", 2.00, 2.99, "nu 2,00")))["1"]
+        found: dict = (await self.annotate(deal("1", "AH Pindakaas", 2.00, 2.99, "nu 2,00")))["1"]
         self.assertEqual(found["badge"]["source"], "dated")
         self.assertEqual(found["badge"]["regular"], {"price": 2.50, "day": day, "source": "receipt"})
         self.assertEqual(found["verdict"]["regular"], found["badge"]["regular"])
         self.assertEqual((found["verdict"]["lowestRegular"], found["verdict"]["percent"]), (2.50, 20))
         self.assertIs(found["verdict"]["inflated"], True)
 
-    async def test_own_from_price_is_not_a_source_next_to_a_dated_price(self):
+    async def test_own_from_price_is_not_a_source_next_to_a_dated_price(self) -> None:
         # De van-prijs van de lopende aanbieding (2,29) is lager dan de bon, maar telt alleen nog voor `inflated`.
         self.ah_receipt("R1", f"{prices._days_ago(TODAY, 120)}T10:00:00", (1, "AH PINDAKAAS", 1, 2.50, 2.50))
-        found = (await self.annotate(deal("1", "AH Pindakaas", 2.00, 2.29, "nu 2,00")))["1"]
+        found: dict = (await self.annotate(deal("1", "AH Pindakaas", 2.00, 2.29, "nu 2,00")))["1"]
         self.assertEqual((found["verdict"]["lowestRegular"], found["verdict"]["percent"], found["verdict"]["inflated"]), (2.50, 20, False))
         self.assertEqual(found["badge"]["source"], "dated")
 
-    async def test_from_price_of_an_earlier_offer_counts(self):
+    async def test_from_price_of_an_earlier_offer_counts(self) -> None:
         await self.sync_offer("2026-09-01T05:00:00+00:00", offer("1", "AH Pindakaas", 1.99, 2.49, "nu 1,99", validFrom="2026-09-01", validUntil="2026-09-07"))
         await self.sync_offer("2026-09-08T05:00:00+00:00")
-        found = (await self.annotate(deal("1", "AH Pindakaas", 1.99, 2.99, "nu 1,99")))["1"]
+        found: dict = (await self.annotate(deal("1", "AH Pindakaas", 1.99, 2.99, "nu 1,99")))["1"]
         self.assertEqual(found["badge"]["source"], "dated")
         self.assertEqual(found["badge"]["regular"], {"price": 2.49, "day": "2026-09-07", "source": "offer"})
         self.assertEqual(found["verdict"]["lowestRegular"], 2.49)
 
-    async def test_regular_older_than_a_year_is_shown_without_verdict(self):
+    async def test_regular_older_than_a_year_is_shown_without_verdict(self) -> None:
         # Een van-prijs van een periode van vier jaar terug. Ook als de lopende aanbieding zelf een van-prijs noemt: de oude bekende
         # prijs gaat voor de claim van de winkel, en is te oud voor een oordeel.
         await self.sync_offer("2022-10-03T05:00:00+00:00", offer("1", "AH Pindakaas", 1.99, 2.49, "nu 1,99", validFrom="2022-10-03", validUntil="2022-10-09"))
         await self.sync_offer("2022-10-10T05:00:00+00:00")
         for before in (None, 2.99):
             with self.subTest(priceBefore=before):
-                found = (await self.annotate(deal("1", "AH Pindakaas", 1.99, before, "nu 1,99")))["1"]
+                found: dict = (await self.annotate(deal("1", "AH Pindakaas", 1.99, before, "nu 1,99")))["1"]
                 self.assertEqual(found["verdict"]["kind"], "unknown")
                 self.assertEqual(found["verdict"]["regular"], {"price": 2.49, "day": "2022-10-09", "source": "offer"})
                 self.assertIs(found["verdict"]["inflated"], False)
                 self.assertIsNone(found["verdict"]["lowestRegular"])
                 self.assertIsNone(found["badge"])
 
-    async def test_own_from_price_only_keeps_the_store_badge(self):
+    async def test_own_from_price_only_keeps_the_store_badge(self) -> None:
         # De lopende aanbiedingen staan zelf in offer_history (een met einddatum, een zonder): hun van-prijs is geen bron.
         await self.sync_offer(
             "2026-10-19T05:00:00+00:00",
             offer("1", "AH Rijst", 1.50, 2.00, "25% korting", validFrom="2026-10-19", validUntil="2026-10-25"),
             offer("2", "AH Thee", 1.50, 2.00, "25% korting"),
         )
-        found = await self.annotate(deal("1", "AH Rijst", 1.50, 2.00, "25% korting"), deal("2", "AH Thee", 1.50, 2.00, "25% korting"))
+        found: dict = await self.annotate(deal("1", "AH Rijst", 1.50, 2.00, "25% korting"), deal("2", "AH Thee", 1.50, 2.00, "25% korting"))
         for product_id in ("1", "2"):
             self.assertEqual(found[product_id]["badge"], {"percent": 25, "source": "store", "claimed": 25, "inflated": False})
             self.assertEqual((found[product_id]["verdict"]["regular"], found[product_id]["verdict"]["lowestRegular"]), (None, 2.00))
 
-    async def test_fresh_search_keeps_history(self):
+    async def test_a_running_offer_that_changed_halfway_is_not_its_own_source(self) -> None:
+        # Zonder einddatum (Picnic, Crisp, de doorlopende bonus van AH) sluit een wijziging halverwege de eerste rij en opent een
+        # `continued` rij. De gesloten rij is dezelfde lopende aanbieding: haar van-prijs is nog steeds de claim van de winkel.
+        await self.sync_offer(
+            "2026-10-10T05:00:00+00:00", offer("1", "AH Thee", 1.50, 2.00, "25% korting"), offer("2", "AH Koffie", 1.50, 2.00, "25% korting")
+        )
+        await self.sync_offer(
+            "2026-10-15T05:00:00+00:00", offer("1", "AH Thee", 1.50, 2.00, "nu 1,50"), offer("2", "AH Koffie", 1.50, 2.20, "25% korting")
+        )
+        found: dict = await self.annotate(deal("1", "AH Thee", 1.50, 2.00, "nu 1,50"), deal("2", "AH Koffie", 1.50, 2.20, "25% korting"))
+        for product_id in ("1", "2"):  # 1: het label veranderde, 2: de van-prijs
+            with self.subTest(product_id=product_id):
+                self.assertEqual(found[product_id]["badge"]["source"], "store")
+                self.assertNotIn("regular", found[product_id]["badge"])
+                self.assertIsNone(found[product_id]["verdict"]["regular"])
+
+    async def test_fresh_search_keeps_history(self) -> None:
         await self.observe("2026-10-19", "1", "AH Penne", 1.19)
-        found = (await self.annotate(deal("1", "AH Penne", 0.89, 1.19, "nu 0,89")))["1"]
+        found: dict = (await self.annotate(deal("1", "AH Penne", 0.89, 1.19, "nu 0,89")))["1"]
         self.assertEqual(found["badge"]["source"], "history")
         self.assertEqual(found["badge"]["regular"], {"price": 1.19, "day": "2026-10-19", "source": "search"})
 
@@ -1579,6 +1595,30 @@ class RegularPointsTest(PricesCase):
             self.line("import", day="2026-10-21", regular=2.89),
         ]
         self.assertEqual(await self.points(receipts), {})
+
+    async def test_a_closed_continued_chain_gives_one_point_at_its_end(self) -> None:
+        # Zonder einddatum: de wijziging op 5 september sluit de eerste rij en opent een `continued` rij, die op 10 september
+        # verdwijnt. Een aanbieding, dus een punt: de laatste van-prijs, op het einde van de laatste rij.
+        await self.sync_offer("2026-09-01T05:00:00+00:00", offer("1", "AH Pindakaas", 1.99, 2.49, "nu 1,99"))
+        await self.sync_offer("2026-09-05T05:00:00+00:00", offer("1", "AH Pindakaas", 1.89, 2.59, "nu 1,89"))
+        await self.sync_offer("2026-09-10T05:00:00+00:00")
+        self.assertEqual((await self.points())["1"], [regular_price.RegularPoint("2026-09-05", 2.59, "offer")])
+
+    async def test_a_running_continued_chain_is_dated_until(self) -> None:
+        # De van-prijs veranderde halverwege een aanbieding die nog loopt: de hele keten loopt nog, dus `until`.
+        await self.sync_offer("2026-10-10T05:00:00+00:00", offer("1", "AH Pindakaas", 1.50, 2.00, "25% korting"))
+        await self.sync_offer("2026-10-15T05:00:00+00:00", offer("1", "AH Pindakaas", 1.50, 2.20, "25% korting"))
+        self.assertEqual((await self.points())["1"], [regular_price.RegularPoint(self.UNTIL, 2.20, "offer")])
+
+    async def test_a_new_period_after_a_chain_is_its_own_point(self) -> None:
+        # Een nieuwe periode (`continued` is 0) begint een nieuwe keten, ook direct na de vorige.
+        await self.sync_offer("2026-09-01T05:00:00+00:00", offer("1", "AH Pindakaas", 1.99, 2.49, "nu 1,99"))
+        await self.sync_offer("2026-09-05T05:00:00+00:00")
+        await self.sync_offer("2026-09-08T05:00:00+00:00", offer("1", "AH Pindakaas", 1.89, 2.59, "nu 1,89"))
+        self.assertEqual(
+            (await self.points())["1"],
+            [regular_price.RegularPoint("2026-09-01", 2.49, "offer"), regular_price.RegularPoint(self.UNTIL, 2.59, "offer")],
+        )
 
 
 if __name__ == "__main__":

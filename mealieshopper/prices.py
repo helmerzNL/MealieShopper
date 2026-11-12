@@ -1425,7 +1425,7 @@ async def history(store: Any = None, query: Any = "", limit: Any = 50, today: st
 
 # --- prijs per eenheid, oordeel en verpakkingen vergelijken (deel 2) ----------------------------------------------------
 
-VERDICT_DAYS = 30  # de gewone prijs om mee te vergelijken: de laagste van de laatste 30 dagen (zoals de regel voor een "van"-prijs)
+VERDICT_DAYS = 30  # de gewone prijs bij een aankoop (regular_before, fill_regular_prices): de laagste van de 30 dagen ervoor
 YEAR_DAYS = 365
 EVER_DAYS = 365  # "laagste prijs ooit" pas als de app het product minstens zo lang volgt
 HALF_YEAR_DAYS = 182  # "laagste in 6 maanden" pas bij een half jaar dekking
@@ -1793,24 +1793,41 @@ def _receipt_points(
     return found
 
 
+def _offer_chains(rows: list[Any]) -> list[list[Any]]:
+    """De rijen van `offer_history` per aanbieding. Verandert de prijs of het label halverwege, dan sluit `offers._record_history`
+    de rij en opent een rij met `continued`: die hoort bij de rij ervoor van hetzelfde product. `rows` is gesorteerd op product,
+    `first_seen` en id."""
+    chains: list[list[Any]] = []
+    for row in rows:
+        if chains and row["continued"] and chains[-1][-1]["product_id"] == row["product_id"]:
+            chains[-1].append(row)
+        else:
+            chains.append([row])
+    return chains
+
+
 async def _offer_points(
     conn: aiosqlite.Connection, store: str, since: str, until: str, ids: list[str] | None
 ) -> list[tuple[Any, Any, Any]]:
-    """De prijs vóór de actie van elke aanbieding, op de dag dat de periode eindigde (`until` als ze nog loopt of later eindigt).
+    """De prijs vóór de actie van elke aanbieding, op de dag dat ze eindigde (`until` als ze nog loopt of later eindigt).
 
-    Een rij van een folder (`folder:...`) is geen product en telt niet. De voorselectie in SQL is ruim (een jaar voor `since`):
+    Een aanbieding is een keten van rijen (`_offer_chains`): ze geeft een punt, met de laatste prijs vóór de actie van de keten,
+    op het einde van de laatste rij. Zo telt een aanbieding die nog loopt maar halverwege veranderde niet als afgelopen. Een rij
+    van een folder (`folder:...`) is geen product en telt niet. De voorselectie in SQL is ruim (een jaar voor `since`):
     `_episode_span` bepaalt het einde ook uit `ended_at`, wat de SQL niet ziet."""
-    wanted = f" AND {_WANTED_SQL}" if ids is not None else ""
+    wanted: str = f" AND {_WANTED_SQL}" if ids is not None else ""
     args: tuple[Any, ...] = (store, _days_ago(since, YEAR_DAYS)) + ((json.dumps(ids),) if ids is not None else ())
+    rows: list[Any] = list(await conn.execute_fetchall(
+        "SELECT * FROM offer_history WHERE store = ? AND product_id NOT LIKE 'folder:%' "
+        f"AND COALESCE(valid_until, substr(last_seen, 1, 10)) >= ?{wanted} ORDER BY product_id, first_seen, id", args
+    ))
     found: list[tuple[Any, Any, Any]] = []
-    for row in await conn.execute_fetchall(
-        "SELECT * FROM offer_history WHERE store = ? AND price_before IS NOT NULL AND product_id NOT LIKE 'folder:%' "
-        f"AND COALESCE(valid_until, substr(last_seen, 1, 10)) >= ?{wanted}", args
-    ):
-        end = offers._episode_span(row)["end"]
-        day = until if end is None or end > until else end
-        if since <= day:
-            found.append((row["product_id"], day, row["price_before"]))
+    for chain in _offer_chains(rows):
+        claimed: list[Any] = [row for row in chain if row["price_before"] is not None]
+        end: str | None = offers._episode_span(chain[-1])["end"]
+        day: str = until if end is None or end > until else end
+        if claimed and since <= day:
+            found.append((claimed[-1]["product_id"], day, claimed[-1]["price_before"]))
     return found
 
 
@@ -1887,9 +1904,9 @@ async def _regulars_between(
 def _regular_for_verdict(points: list[RegularPoint], today: str) -> Chosen | None:
     """De gewone prijs voor het oordeel op `today` (`regular_price.choose`), zonder de van-prijs van een aanbieding die nog loopt.
 
-    `_offer_points` dateert een periode op haar einde, of op `until` (hier `today`) als ze nog loopt of later eindigt. Een punt
-    `offer` van `today` is dus de van-prijs van een lopende aanbieding: de claim van de winkel die we beoordelen, geen bron. De
-    van-prijs van een periode die voor vandaag eindigde telt wel."""
+    `_offer_points` dateert een aanbieding (een keten van rijen) op haar einde, of op `until` (hier `today`) als ze nog loopt of
+    later eindigt. Een punt `offer` van `today` is dus de van-prijs van een lopende aanbieding: de claim van de winkel die we
+    beoordelen, geen bron. De van-prijs van een aanbieding die voor vandaag eindigde telt wel."""
     return choose([point for point in points if point.source != "offer" or point.day < today], today)
 
 
@@ -1968,8 +1985,8 @@ async def _annotate(store: str, items: list[dict[str, Any]], today: str) -> None
     latest: dict[str, Any] = {}
     ids = sorted({str(offer.get("id")) for offer in items})  # alleen de geschiedenis van deze producten telt, zie _WANTED_SQL
     async with _connect() as conn:
-        catalogue = await _catalogue_or_none(conn, store, today)
-        regulars = await _regular_points(
+        catalogue: _Catalogue | None = await _catalogue_or_none(conn, store, today)
+        regulars: dict[str, list[RegularPoint]] = await _regular_points(
             conn, store, _days_ago(today, REGULAR_HISTORY_DAYS), today, receipts=catalogue.receipts if catalogue else [], ids=ids
         )
         for row in await conn.execute_fetchall(
@@ -2034,6 +2051,8 @@ async def _annotate(store: str, items: list[dict[str, Any]], today: str) -> None
             offer["unitPrice"] = effective  # zo toont de kaart ook bij "1+1 gratis" van AH wat een stuk kost
         offer["unitPricePer"] = unit_price(effective if effective is not None else offer.get("price"), offer.get("unitSize"))
         # De badge op de kaart: het verschil met de gekozen gewone prijs, of de claim van de winkel als de app er geen kent.
+        verdict: dict[str, Any]
+        badge: dict[str, Any] | None
         verdict, badge = _verdict_of(effective, stated, _regular_for_verdict(regulars.get(product_id, []), today))
         offer["badge"] = None if badge is None else {**badge, "claimed": _claimed_percent(offer)}
         mine = [row for row in episodes.get(product_id, []) if not row["continued"]]
