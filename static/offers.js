@@ -73,7 +73,7 @@ function offersRemember(key, value) {
   }
 }
 
-// De filters in de zijbalk: merken en categorieën (elk een lijst om te tonen en een om te verbergen, offers_facets.js), eerder gekocht, minimale korting (procent onder de laagste gewone prijs van 30 dagen),
+// De filters in de zijbalk: merken en categorieën (elk een lijst om te tonen en een om te verbergen, offers_facets.js), eerder gekocht, minimale korting (procent onder de gewone prijs, het getal van de badge),
 // prijs per eenheid hooguit (in een eenheid), laagste prijs in een jaar (yearLow) en zelden in de aanbieding (minder dan zes keer per
 // jaar, folderacties meegeteld). Per winkel onthouden, want merken verschillen per winkel.
 function offersEmptyFilters() {
@@ -262,7 +262,7 @@ const OFFER_LABEL_ORDER = { lowest_ever: 0, lowest_12m: 1, lowest_6m: 2, lowest_
 function offerDiscountKey(offer) {
   const badge = offer.badge;
   if (!badge || typeof badge.percent !== "number") return [1, 0, 1];
-  return [0, -badge.percent, badge.source === "history" ? 0 : 1];
+  return [0, -badge.percent, { history: 0, dated: 1 }[badge.source] ?? 2];
 }
 
 // Beste eerst: wat nu op of onder de laagste prijs van de afgelopen twaalf maanden staat (prices.yearLow) en per eenheid niet
@@ -559,6 +559,11 @@ function offerVerdictLines(offer) {
   const verdict = offer.verdict;
   if (!verdict) return [];
   const lines = [];
+  // Een gewone prijs van meer dan een jaar oud (judged false) geeft geen oordeel, maar de app toont wel wat ze nog weet. Noemt de
+  // aanbieding een van-prijs, dan staat de gestippelde badge van de winkel erboven (prices._verdict_of) en deze regel eronder.
+  if (verdict.regular && verdict.regular.judged === false) {
+    lines.push({ cls: "verdict verdict--regular-old", text: t("offers.verdict.regular_old", offerRegularSourceParams(verdict.regular)) });
+  }
   const yearLow = offerYearLowLine(offer);
   if (yearLow) lines.push(yearLow);
   if (verdict.often) {
@@ -574,20 +579,41 @@ function offerVerdictLines(offer) {
   return lines;
 }
 
-// De uitleg bij de badge: het oordeel, de laagste gewone prijs van 30 dagen waarmee vergeleken is, en de claim van de winkel als die
-// hoger is. Kent de app geen gewone prijs, dan is het getal de claim van de winkel en zegt de uitleg dat. Een regel van een aankoop
-// heeft geen oordeel, alleen { badge: { percent, source } }: dan het percentage met het oordeel dat bij dat getal hoort, zonder
-// de vergelijkingsprijs.
+// De waarden voor de tekst over een gewone prijs met herkomst: de prijs, de bron (bestelling, kassabon ...) en de dag.
+function offerRegularSourceParams(regular) {
+  return { price: formatPrice(regular.price), source: t(`offers.regular.source.${regular.source}`), date: offerDateText(regular.day) };
+}
+
+// De uitleg bij de badge: het oordeel, de gewone prijs waarmee vergeleken is (de laagste van 30 dagen, of met bron en datum), en de
+// claim van de winkel als die hoger is. Kent de app geen gewone prijs, dan is het getal de claim van de winkel en zegt de uitleg dat,
+// en is de bekende prijs te oud voor een oordeel, dan zegt ze dat. Kent ze wel een, maar is de
+// prijs ervoor van de winkel lager (badge.known, prices._stated_is_stricter), dan telt de winkel en noemt de uitleg de hogere prijs
+// met zijn bron en datum. Een regel van een aankoop heeft geen oordeel, alleen { badge: { percent, source } }: dan het percentage met
+// het oordeel dat bij dat getal hoort, zonder de vergelijkingsprijs en zonder "30 dagen" (die gewone prijs kan tot een jaar ouder
+// zijn dan de aankoop).
 function offerBadgeTitle(offer) {
   const badge = offer.badge;
   const verdict = offer.verdict || { kind: badge.percent >= 20 ? "good" : badge.percent >= 1 ? "small" : "none" };
-  // Alleen de claim van de winkel, en die niet opgepompt: dan zegt de uitleg dat de app geen gewone prijs kent.
-  if (badge.source === "store" && !badge.inflated) return t("offers.badge.title_store", { percent: badge.percent });
-  const kind ={ good: "offers.verdict.good", small: "offers.verdict.small", none: "offers.verdict.none" }[verdict.kind];
+  // Alleen de claim van de winkel, en die niet opgepompt: dan zegt de uitleg dat de app geen (lagere) gewone prijs kent.
+  if (badge.source === "store" && !badge.inflated) {
+    if (badge.known) return t("offers.badge.title_store_lower", { percent: badge.percent, ...offerRegularSourceParams(badge.known) });
+    // De bekende gewone prijs is ouder dan een jaar: de regel "Te oud voor een oordeel" staat eronder met prijs en datum.
+    if (offer.verdict && offer.verdict.regular && offer.verdict.regular.judged === false) return t("offers.badge.title_store_old", { percent: badge.percent });
+    return t("offers.badge.title_store", { percent: badge.percent });
+  }
+  // Een gewone prijs met bron en datum (dated): de prijs en zijn datum staan er zelf bij. Is hij ouder dan 30 dagen (niet fresh), of
+  // is het een regel van een aankoop, dan zegt de uitleg niet "de laatste 30 dagen" maar "de gewone prijs" of "de laatst bekende".
+  const sourced = badge.source === "dated" && Boolean(badge.regular);
+  const windowless = !offer.verdict || (sourced && badge.regular.fresh !== true);
+  const kinds = windowless
+    ? { good: "offers.verdict.good_dated", small: "offers.verdict.small_dated", none: "offers.verdict.none_dated" }
+    : { good: "offers.verdict.good", small: "offers.verdict.small", none: "offers.verdict.none" };
+  const kind = kinds[verdict.kind];
   const parts = [kind ? t(kind, { percent: badge.percent }) : ""];
-  if (typeof verdict.lowestRegular === "number") parts.push(t("offers.verdict.reference", { price: formatPrice(verdict.lowestRegular) }));
+  if (sourced) parts.push(t("offers.verdict.reference_dated", offerRegularSourceParams(badge.regular)));
+  else if (typeof verdict.lowestRegular === "number") parts.push(t("offers.verdict.reference", { price: formatPrice(verdict.lowestRegular) }));
   if (badge.inflated && typeof offer.priceBefore === "number") {
-    parts.push(t("offers.verdict.inflated", { before: formatPrice(offer.priceBefore), price: formatPrice(verdict.lowestRegular) }));
+    parts.push(t(windowless ? "offers.verdict.inflated_dated" : "offers.verdict.inflated", { before: formatPrice(offer.priceBefore), price: formatPrice(verdict.lowestRegular) }));
   }
   return parts.filter(Boolean).join(" ");
 }
@@ -603,7 +629,7 @@ function offerBadge(offer, extraClass = "") {
   if (!badge || typeof badge.percent !== "number") return "";
   const verdict = offer.verdict && ["good", "small", "none"].includes(offer.verdict.kind) ? offer.verdict.kind : "";
   const kind = verdict || (badge.percent >= 20 ? "good" : badge.percent >= 1 ? "small" : "none");
-  const cls = `offer-badge offer-badge--${kind}${badge.source === "store" ? " offer-badge--store" : ""}${extraClass ? ` ${extraClass}` : ""}`;
+  const cls = `offer-badge offer-badge--${kind}${badge.source === "store" || badge.source === "dated" ? " offer-badge--store" : ""}${extraClass ? ` ${extraClass}` : ""}`;
   const text = badge.percent > 0 ? `-${badge.percent}%` : t("offers.badge.none");
   return `<span class="${cls}" title="${escapeHtml(offerBadgeTitle(offer))}">${escapeHtml(text)}</span>`;
 }
@@ -752,13 +778,17 @@ function offerThumb(offer, extraClass = "", bare = false, withLabel = true) {
   return `<div class="offer-card__thumb${offer.image ? "" : " offer-card__thumb--empty"}${extraClass ? ` ${extraClass}` : ""}" data-zoom="${escapeHtml(offer.id)}">${link}${overlay}</div>`;
 }
 
-// De prijs op de kaart: wat een stuk met de actie kost, met daarnaast doorgestreept de laagste gewone prijs van 30 dagen als de app
-// die kent, anders de "van"-prijs van de winkel.
+// De prijs op de kaart: wat een stuk met de actie kost, met daarnaast doorgestreept de laagste gewone prijs van 30 dagen als die uit
+// een verse meting of aankoop komt (badge history), anders de "van"-prijs van de winkel. Een oudere prijs staat hier niet: zonder zijn
+// datum zou hij er als de prijs van nu uitzien. Bij een actie met een minimumaantal noemt AH geen prijs ervoor maar de gewone prijs
+// als prijs (prices._stated_regular): die is dan de "van"-prijs. Zelfde regel in de kop van de popup (offerHistoryHead).
 function offerPriceHtml(offer) {
   const now = typeof offer.unitPrice === "number" && offer.unitPrice > 0 ? offer.unitPrice : offer.price;
   if (!now) return "";
   const verdict = offer.verdict || {};
-  const before = typeof verdict.lowestRegular === "number" ? verdict.lowestRegular : offer.priceBefore;
+  const stated = typeof offer.priceBefore === "number" ? offer.priceBefore : typeof offer.price === "number" && offer.price > now ? offer.price : null;
+  const fresh = offer.badge && offer.badge.source === "history" && typeof verdict.lowestRegular === "number";
+  const before = fresh ? verdict.lowestRegular : stated;
   const was = before && before > now + 0.005 ? ` <s>${escapeHtml(formatPrice(before))}</s>` : "";
   return `<small class="product-card__price">${escapeHtml(formatPrice(now))}${was}</small>`;
 }

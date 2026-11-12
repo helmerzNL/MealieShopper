@@ -606,12 +606,14 @@ class OfferBadgeForALineTest(unittest.TestCase):
         )
         self.assertIn("offer-badge--good", history, "zonder oordeel volgt de soort uit het getal (20% of meer)")
         self.assertIn("-25%", history)
-        self.assertIn("offers.verdict.good", history)
+        # Eindreview 2026-11-12: de gewone prijs van een aankoop kan tot een jaar ouder zijn dan de aankoop: geen "30 dagen".
+        self.assertIn("offers.verdict.good_dated", history)
+        self.assertNotIn("offers.verdict.good {", history)
         self.assertNotIn("offers.verdict.reference", history)
         small = self.run_js(
             'console.log(JSON.stringify(offerBadge({ badge: { percent: 5, source: "history" } })));'
         )
-        self.assertIn("offers.verdict.small", small)
+        self.assertIn("offers.verdict.small_dated", small)
         self.assertIn("offer-badge--small", small)
         store = self.run_js(
             'console.log(JSON.stringify(offerBadge({ badge: { percent: 12, source: "store" } })));'

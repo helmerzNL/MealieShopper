@@ -440,10 +440,13 @@ function offerHistoryHead(product, { compact = false, offer = null, links = true
     ? `<button class="link-button" type="button" data-compare="${escapeHtml(product.productId)}" data-store="${escapeHtml(product.store)}">${escapeHtml(t("offers.compare.open"))}</button>`
     : "";
   // De prijsregel van de aanbieding zelf (de popup), zoals op de kaart (offerPriceHtml): wat een stuk met de actie kost, doorgestreept
-  // de laagste gewone prijs die de app kent (anders de "van"-prijs van de winkel) en de actietekst.
+  // de laagste gewone prijs van 30 dagen als die uit een verse meting of aankoop komt (badge history), anders de "van"-prijs van de
+  // winkel (bij een actie met een minimumaantal de prijs zelf), en de actietekst.
   const now = offer && typeof offer.unitPrice === "number" && offer.unitPrice > 0 ? offer.unitPrice : offer ? offer.price : null;
   const lowestRegular = offer && offer.verdict ? offer.verdict.lowestRegular : null;
-  const before = typeof lowestRegular === "number" ? lowestRegular : offer ? offer.priceBefore : null;
+  const fresh = Boolean(offer && offer.badge && offer.badge.source === "history") && typeof lowestRegular === "number";
+  const stated = !offer ? null : typeof offer.priceBefore === "number" ? offer.priceBefore : typeof offer.price === "number" && offer.price > now ? offer.price : null;
+  const before = fresh ? lowestRegular : stated;
   const price = typeof now === "number"
     ? `<p class="ohc-head__price"><b>${escapeHtml(offerHistoryPrice(now))}</b>${typeof before === "number" && before > now + 0.005 ? ` <s>${escapeHtml(offerHistoryPrice(before))}</s>` : ""}${offer.promoLabel || offer.personal ? ` <small>${escapeHtml(offer.promoLabel || t("offers.personal.badge"))}</small>` : ""}</p>`
     : "";
@@ -457,6 +460,20 @@ function offerHistoryHead(product, { compact = false, offer = null, links = true
         ${compare}
       </div>
     </div>`;
+}
+
+// De stat Gewone prijs, met eronder de bron van de nieuwste gewone prijs en de dag van dat punt zelf: het einde van de laatste periode
+// (`regular[-1].to`), niet het begin (`regularSince`), want de periode kan dezelfde prijs uit meer dan een bron en dag omvatten.
+function offerHistoryRegularStat(product) {
+  const price = offerHistoryPrice(product.regularPrice);
+  const last = (product.regular || []).at(-1);
+  const day = offerHistoryDay(last && last.to ? last.to : product.regularSince);
+  if (!product.regularSource || day === null) return offerHistoryStat(t("offers.history.stat.regular"), price);
+  const from = t("offers.history.stat.regular_from", {
+    source: t(`offers.regular.source.${product.regularSource}`),
+    date: offerHistoryDayText(day, true),
+  });
+  return `<div class="ohc-stat"><dt>${escapeHtml(t("offers.history.stat.regular"))}</dt><dd>${escapeHtml(price)}<small class="ohc-stat__from">${escapeHtml(from)}</small></dd></div>`;
 }
 
 // De kerncijfers: keer in de aanbieding, laagste en hoogste actieprijs, gewone prijs, wat je betaalde, laatst gezien.
@@ -474,7 +491,7 @@ function offerHistoryStats(product) {
     number(product.highestPrice) && product.highestPrice !== product.lowestPrice
       ? offerHistoryStat(t("offers.history.stat.highest"), offerHistoryPrice(product.highestPrice))
       : "",
-    number(product.regularPrice) ? offerHistoryStat(t("offers.history.stat.regular"), offerHistoryPrice(product.regularPrice)) : "",
+    number(product.regularPrice) ? offerHistoryRegularStat(product) : "",
     product.regularPerUnit ? offerHistoryStat(t("offers.history.stat.regular_per_unit"), offerPerUnitText(product.regularPerUnit)) : "",
     number(product.lowestRegular) && number(product.highestRegular) && product.lowestRegular !== product.highestRegular
       ? offerHistoryStat(t("offers.history.stat.regular_range"), `${offerHistoryPrice(product.lowestRegular)} – ${offerHistoryPrice(product.highestRegular)}`)

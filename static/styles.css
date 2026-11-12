@@ -7970,6 +7970,14 @@ html.is-standalone .user-menu__item--standalone:not([hidden]) {
   font-weight: 600;
 }
 
+/* Onder de gewone prijs: uit welke bron hij komt en sinds wanneer. */
+.ohc-stat__from {
+  display: block;
+  color: var(--muted);
+  font-size: var(--text-xs);
+  font-weight: 400;
+}
+
 .ohc-chart {
   overflow-x: hidden;
 }
@@ -9854,6 +9862,18 @@ html.is-standalone .user-menu__item--standalone:not([hidden]) {
 
 .product-card .verdict--year-above {
   white-space: normal;
+}
+
+/* De regel over een gewone prijs die te oud is voor een oordeel: gewone kleine tekst, geen pil (hij loopt over drie regels). */
+.product-card .verdict--regular-old {
+  width: auto;
+  border-radius: 0;
+  padding: 0;
+  background: none;
+  box-shadow: none;
+  text-align: left;
+  white-space: normal;
+  font-weight: 400;
 }
 
 /* De rij met inzichten onder de prijs op een kaart: het prijslabel (niet meer op het plaatje) en de chips, naast elkaar. */

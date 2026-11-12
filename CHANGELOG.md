@@ -2,6 +2,31 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub; een stabiele release krijgt de teksten van alle versies sinds de vorige stabiele release.
 
+## v4.18.0
+
+*English summary: The regular price a verdict compares with now comes from every source MealieShopper has, with its date and source in the tooltip of a dashed badge. **Sources**: receipts, confirmation emails, orders, measured prices and the from-price of earlier offers. **Fresh and old**: a price of the last 30 days is fresh (the lowest counts), an older price still counts up to a year, and a price older than a year is shown as *Last known regular price* without a verdict of its own, under the dashed badge of the store's claim when the offer states a from-price. **Confirmed links only**: a receipt line or confirmation email counts for the verdict and for the regular price of a purchase only through your own link, a shared link or AH's article number link, not through a name match or an article number that happens to equal a webshop product id, which stays in the price history. **Badge**: on a dashed badge with an older price or the from-price of an earlier offer the tooltip names the regular price, its source and its date, and the dashed border now means the price is older than 30 days or a claim of the store. **Never more generous than the store**: when the store's from-price is lower than the regular price MealieShopper knows, the verdict uses the store's from-price, and the tooltip names the higher known price with its date. **Card**: the struck-through price is the lowest of 30 days only when it comes from a fresh purchase or measurement, otherwise the store's from-price. **Own from-price**: the from-price of a running offer is no source for its own verdict, also when the offer changed halfway. **Purchases**: the regular price of a purchase uses the same sources, up to a year before the purchase, and its badge no longer mentions 30 days. Opening a purchase reads the catalogue only when a line needs it. **Price history**: the key figure Regular price names its source and date.*
+
+### Nieuw in 4.18.0
+
+Pull request: [#319](https://github.com/helmerzNL/MealieShopper/pull/319), van wolph.
+
+- De gewone prijs waarmee het oordeel vergelijkt komt uit alle bronnen die MealieShopper heeft: kassabonnen, bevestigingsmails, bestellingen, gemeten prijzen en de van-prijs van eerdere aanbiedingen. Bij een gestippelde badge met een oudere prijs of de van-prijs van een eerdere aanbieding noemt de tooltip de gewone prijs met de bron en de datum.
+- Een prijs van de laatste 30 dagen is vers, en van de verse prijzen telt de laagste. Zonder verse prijs telt de nieuwste prijs tot een jaar terug. Is die ouder, dan staat op de kaart *Laatst bekende gewone prijs ... Te oud voor een oordeel.* Noemt de winkel bij de aanbieding een van-prijs, dan staat erboven de gestippelde badge met de claim van de winkel, net als bij een product zonder bekende prijs. Zonder van-prijs is er geen badge.
+- Een regel van een kassabon of bevestigingsmail telt voor het oordeel en voor de gewone prijs van een aankoop alleen met een bevestigde koppeling: je eigen koppeling, een gedeelde koppeling of de koppeling van AH op het artikelnummer. Een regel die alleen op naam bij het product hoort kan een andere verpakking zijn, en een artikelnummer dat toevallig gelijk is aan het nummer van een product in de webwinkel kan een ander product zijn: zulke regels staan alleen in de prijsgeschiedenis.
+- De gestippelde rand van de badge betekent nu dat de gewone prijs ouder is dan 30 dagen of de van-prijs van een eerdere aanbieding is, of dat het percentage een claim van de winkel is. In de sortering op korting komt een badge met een verse prijs voor een met een oudere prijs, en die voor een claim.
+- Op de pagina Prijsgeschiedenis staat onder het kerncijfer *Gewone prijs* de bron en de datum.
+
+### Opgelost in 4.18.0
+
+- De van-prijs van een lopende aanbieding telt niet meer als bron voor het oordeel over diezelfde aanbieding, ook niet als de aanbieding halverwege wijzigde.
+- Het oordeel rekent met de nieuwste gewone prijs uit elke bron in plaats van alleen met de laagste van de laatste 30 dagen.
+- De gewone prijs bij een aankoop komt uit dezelfde bronnen als het oordeel, uit hooguit een jaar voor de aankoop. Een al bewaarde prijs blijft staan als er alleen nog een oudere bron is.
+- Noemt de winkel een van-prijs die lager is dan de gewone prijs die MealieShopper kent, dan rekent het oordeel met die van-prijs: een oudere prijs maakt het oordeel nooit ruimer dan de winkel zelf. De badge is dan gestippeld en de tooltip noemt de hogere bekende prijs met de bron en de datum.
+- Op de kaart en in de popup staat de laagste gewone prijs van 30 dagen alleen doorgestreept als die uit een verse aankoop of meting komt, anders de van-prijs van de winkel. Een oude prijs stond er zonder datum, alsof hij van nu was.
+- De tooltip zegt *laatst bekende gewone prijs* alleen bij een prijs van meer dan 30 dagen oud. Is de van-prijs van een eerdere aanbieding de laagste van de laatste 30 dagen, dan krijgt hij de tekst met de 30 dagen, met de bron en de datum erbij.
+- De kortingsbadge bij een regel van een aankoop noemt geen 30 dagen meer: de gewone prijs van een aankoop kan tot een jaar ouder zijn dan de aankoop.
+- Een bestelling of kassabon openen leest de catalogus pas als er een regel te vullen is. Is de catalogus niet te lezen, dan wordt geen regel met een product als bepaald gemarkeerd, zodat hij later alsnog met de bonnen en bevestigingsmails wordt gevuld.
+
 ## v4.17.0
 
 ### Nieuw in 4.17.0
