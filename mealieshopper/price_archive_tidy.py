@@ -29,6 +29,7 @@ regels). De Prijsgeschiedenis toont zo'n lijnactie bij elk product waarvan de na
 De koppeling en het lezen van verpakkingen komen uit `import_archive.py` van wolph, in het pakket met zijn folderarchief
 (`fold`, `size`, `match_product` en `catalogue_from`).
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -67,7 +68,9 @@ def size(text: str) -> tuple[str, Decimal] | None:
     """De verpakking als (soort, hoeveelheid) als de tekst er precies één noemt, anders None."""
     if re.search(r"\d+(?:[.,]\d+)?\s*(?:-|/|tot|t/m|of|en)\s*\d+(?:[.,]\d+)?\s*(?:gram|gr|g|kg|kilo|ml|cl|liter|l)\b", text, re.I):
         return None
-    if re.search(r"\d\s*[x×]\s*\d|\b[2-9]\d*\s*(?:flesjes?|flessen|blikken?|blikjes?|pakken?|zakken?|dozen?|cups?|kuipjes?)\b|\b\d+\s*-?\s*pack\b", text, re.I):
+    if re.search(
+        r"\d\s*[x×]\s*\d|\b[2-9]\d*\s*(?:flesjes?|flessen|blikken?|blikjes?|pakken?|zakken?|dozen?|cups?|kuipjes?)\b|\b\d+\s*-?\s*pack\b", text, re.I
+    ):
         return None
     if fold(text) == "per stuk":
         return "count", Decimal(1)
@@ -90,7 +93,7 @@ def source_title(row: dict[str, Any]) -> str:
     title = str(row.get("source_title") or row.get("title") or "")
     for prefix in ("Folder: ", "Archief: "):
         if title.startswith(prefix):
-            return title[len(prefix):]
+            return title[len(prefix) :]
     return title
 
 
@@ -143,8 +146,16 @@ def detach(row: dict[str, Any]) -> dict[str, Any] | None:
         return None
     key = f"detached|{row.get('store')}|{fold(title)}"
     product_id = DETACHED_PREFIX + hashlib.sha256(key.encode("utf-8")).hexdigest()[:24]
-    return {**row, "product_id": product_id, "title": f"Folder: {title}", "brand": FOLDER_BRAND, "unit_size": None, "category": None,
-            "image": "", "match_kind": None}
+    return {
+        **row,
+        "product_id": product_id,
+        "title": f"Folder: {title}",
+        "brand": FOLDER_BRAND,
+        "unit_size": None,
+        "category": None,
+        "image": "",
+        "match_kind": None,
+    }
 
 
 def short_label(label: Any) -> Any:
@@ -206,7 +217,10 @@ class Linker:
         tables = {row[0] for row in self.conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
         queries = [
             (f"SELECT DISTINCT product_id, title, unit_size FROM offer_history WHERE store = ? AND NOT {ARCHIVE_OFFERS_SQL}", "offer_history"),
-            (f"SELECT DISTINCT product_id, title, unit_size FROM price_observations WHERE store = ? AND NOT {ARCHIVE_PRICES_SQL}", "price_observations"),
+            (
+                f"SELECT DISTINCT product_id, title, unit_size FROM price_observations WHERE store = ? AND NOT {ARCHIVE_PRICES_SQL}",
+                "price_observations",
+            ),
             (f'SELECT DISTINCT product_id, title, unit_size FROM "{store}_order_items"', f"{store}_order_items"),
         ]
         for sql, table in queries:
@@ -273,8 +287,18 @@ class Tidy:
         # pricesExact en pricesUnlinked: hetzelfde voor prijzen uit een archief (Picnic, Crisp).
         # detached: een onzekere koppeling, met keep_unlinked los van het product gezet (`detach`).
         # lineOffers: een combi-aanbieding, met keep_unlinked bewaard als eigen folderproduct (`_line_offer`).
-        self.stats = {"exact": 0, "linkedByArchive": 0, "unlinked": 0, "uncertain": 0, "detached": 0, "groups": 0, "lineOffers": 0,
-                      "unknownPack": 0, "pricesExact": 0, "pricesUnlinked": 0}
+        self.stats = {
+            "exact": 0,
+            "linkedByArchive": 0,
+            "unlinked": 0,
+            "uncertain": 0,
+            "detached": 0,
+            "groups": 0,
+            "lineOffers": 0,
+            "unknownPack": 0,
+            "pricesExact": 0,
+            "pricesUnlinked": 0,
+        }
 
     def _line_offer(self, row: dict[str, Any]) -> dict[str, Any] | None:
         """Een combi-aanbieding als eigen folderproduct, of None (zonder `keep_unlinked`, of zonder naam uit de folder).

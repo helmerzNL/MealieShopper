@@ -6,6 +6,7 @@ komen ze samen in de velden van schema.org (en van Mealie), elk met een vaste ee
 cholesterol, gram voor de rest. Alle bronnen geven waarden per portie (per persoon), dus dat doen wij ook: het totaal van een
 maaltijd is de waarde per portie maal het aantal porties.
 """
+
 from __future__ import annotations
 
 import math
@@ -33,7 +34,16 @@ SODIUM_MG_PER_SALT_G = 400  # zout is voor 40% natrium: 1 g zout = 400 mg natriu
 MAX_KCAL = 10_000  # per portie; meer is een tikfout of het hele recept, en dat filteren we niet mee
 
 _NUMBER = re.compile(r"\d+(?:[.,]\d+)?")
-_UNIT_ALIASES = {"gr": "g", "gram": "g", "grams": "g", "milligram": "mg", "milligrams": "mg", "kilojoule": "kj", "kilocalorie": "kcal", "kilocalories": "kcal"}
+_UNIT_ALIASES = {
+    "gr": "g",
+    "gram": "g",
+    "grams": "g",
+    "milligram": "mg",
+    "milligrams": "mg",
+    "kilojoule": "kj",
+    "kilocalorie": "kcal",
+    "kilocalories": "kcal",
+}
 
 
 def number(value: Any) -> float | None:

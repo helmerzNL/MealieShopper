@@ -10,10 +10,10 @@ os.environ.setdefault("MEALIESHOPPER_DATA_DIR", tempfile.mkdtemp())
 
 import httpx
 import pytest
+from helpers import AppTestCase, db, run, served, settle_audit  # noqa: E402
 
 from mealieshopper import audit, auth, hellofresh, marleyspoon, mealie  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
-from helpers import AppTestCase, db, run, served, settle_audit  # noqa: E402
 
 SLUG = "710152-bulgurbowl-met-kikkererwten-en-bloemkool-met-tahin-granaatappel-en-amandelen"
 SLUG_B = "710142-butter-chicken-gehaktballen-met-jasmijnrijst-en-komkommersalade"
@@ -21,8 +21,12 @@ SLUG_B = "710142-butter-chicken-gehaktballen-met-jasmijnrijst-en-komkommersalade
 
 def recipe(slug, title, **extra):
     data = {
-        "id": 1, "slug": slug, "title": title, "subtitle": "met tahin en amandelen",
-        "recipeServingTime": "30-40 minuten", "category": {"displayText": "vegetarisch"},
+        "id": 1,
+        "slug": slug,
+        "title": title,
+        "subtitle": "met tahin en amandelen",
+        "recipeServingTime": "30-40 minuten",
+        "category": {"displayText": "vegetarisch"},
         "image": {"url": "https://marleyspoon.com/media/recipes/383922/main_photos/medium/bowl.jpeg"},
     }
     data.update(extra)
@@ -31,9 +35,19 @@ def recipe(slug, title, **extra):
 
 TOKEN = "eyJ" + "a" * 60
 DETAIL = {
-    "id": 710152, "title": "Bulgurbowl met kikkererwten", "subtitle": "met tahin", "description": "Alles uit __één__ kom.",
-    "duration": {"from": 20, "to": 30, "unit": "minuten"}, "image": {"url": "https://marleyspoon.com/media/recipes/1/large/a.jpeg"},
-    "nutritionalInformation": [{"key": "energy_kcal", "perPortion": 945.0}, {"key": "total_fat", "perPortion": 44.5}, {"key": "sodium", "perPortion": 145.5}, {"key": "salt", "perPortion": 1.0}, {"key": "fiber", "perPortion": None}],
+    "id": 710152,
+    "title": "Bulgurbowl met kikkererwten",
+    "subtitle": "met tahin",
+    "description": "Alles uit __één__ kom.",
+    "duration": {"from": 20, "to": 30, "unit": "minuten"},
+    "image": {"url": "https://marleyspoon.com/media/recipes/1/large/a.jpeg"},
+    "nutritionalInformation": [
+        {"key": "energy_kcal", "perPortion": 945.0},
+        {"key": "total_fat", "perPortion": 44.5},
+        {"key": "sodium", "perPortion": 145.5},
+        {"key": "salt", "perPortion": 1.0},
+        {"key": "fiber", "perPortion": None},
+    ],
     "shippedIngredients": [{"nameWithQuantity": "150g bulgur"}, {"nameWithQuantity": "1 kleine bloemkool"}],
     "assumedIngredients": [{"name": "peper en zout"}],
     "steps": [{"title": "Bulgur koken", "description": "Voeg de __bulgur__ toe.\nRoer door."}, {"title": "", "description": "Serveren."}],
@@ -48,7 +62,9 @@ def foreign(url):
 def page(token=TOKEN, url=None):
     if url:
         return foreign(url)
-    return httpx.Response(200, text=f'<script>gon.current_brand="ms";gon.api_token="{token}";gon.api_host="x";</script>' if token else "<html></html>")
+    return httpx.Response(
+        200, text=f'<script>gon.current_brand="ms";gon.api_token="{token}";gon.api_host="x";</script>' if token else "<html></html>"
+    )
 
 
 def detail_requests(recipe=DETAIL):
@@ -115,10 +131,14 @@ class SearchLoadTest(TempDataDirTest):
         with served(side_effect=detail_requests()):
             body = (await client.get(f"/api/marleyspoon/recipes/{SLUG}")).get_json()
         self.assertEqual((body["id"], body["portions"], body["url"]), (SLUG, "2", f"https://marleyspoon.nl/menu/{SLUG}"))
-        self.assertEqual(body["nutrition"], [
-            {"key": "calories", "quantity": 945, "unit": "kcal"}, {"key": "fatContent", "quantity": 44.5, "unit": "g"},
-            {"key": "sodiumContent", "quantity": 145.5, "unit": "mg"},
-        ])
+        self.assertEqual(
+            body["nutrition"],
+            [
+                {"key": "calories", "quantity": 945, "unit": "kcal"},
+                {"key": "fatContent", "quantity": 44.5, "unit": "g"},
+                {"key": "sodiumContent", "quantity": 145.5, "unit": "mg"},
+            ],
+        )
         self.assertEqual(body["ingredients"][0], {"line": "150g bulgur"})
         self.assertEqual(body["steps"][0], "Bulgur koken: Voeg de bulgur toe.\nRoer door.")
         with served(side_effect=AssertionError("geen verzoek")):
@@ -137,14 +157,19 @@ class RecipeTest(TempDataDirTest):
         self.assertEqual(json.loads(detail_call.content)["variables"], {"recipeId": "710152"})
         self.assertEqual(recipe["ingredients"], ["150g bulgur", "1 kleine bloemkool", "peper en zout"])
         self.assertEqual(recipe["steps"], ["Bulgur koken: Voeg de bulgur toe.\nRoer door.", "Serveren."])
-        self.assertEqual((recipe["name"], recipe["minutes"], recipe["portions"], recipe["description"]), ("Bulgurbowl met kikkererwten met tahin", 30, "2", "Alles uit één kom."))
+        self.assertEqual(
+            (recipe["name"], recipe["minutes"], recipe["portions"], recipe["description"]),
+            ("Bulgurbowl met kikkererwten met tahin", 30, "2", "Alles uit één kom."),
+        )
         self.assertEqual(recipe["nutrition"], {"calories": "945 kcal", "fatContent": "44.5 g", "sodiumContent": "145.5 mg"})
 
     def test_the_recipe_becomes_a_schema_org_recipe_for_mealie(self):
         with served(side_effect=detail_requests()):
             recipe = run(marleyspoon.get_recipe(SLUG))
         data = marleyspoon.jsonld(recipe)
-        self.assertEqual((data["@type"], data["url"], data["recipeYield"], data["totalTime"]), ("Recipe", f"https://marleyspoon.nl/menu/{SLUG}", "2", "PT30M"))
+        self.assertEqual(
+            (data["@type"], data["url"], data["recipeYield"], data["totalTime"]), ("Recipe", f"https://marleyspoon.nl/menu/{SLUG}", "2", "PT30M")
+        )
         self.assertEqual(data["nutrition"]["calories"], "945 kcal")
         self.assertEqual(data["image"], ["https://marleyspoon.com/media/recipes/1/large/a.jpeg"])
         minimal = marleyspoon.jsonld(recipe, minimal=True)
@@ -178,7 +203,9 @@ class RecipeTest(TempDataDirTest):
 
 class HelperTest(AppTestCase):
     def test_a_range_of_minutes_becomes_its_upper_bound(self):
-        self.assertEqual([marleyspoon.minutes(v) for v in ("30-40 minuten", "20-30 minuten", "45 minuten", "", None, "snel")], [40, 30, 45, None, None, None])
+        self.assertEqual(
+            [marleyspoon.minutes(v) for v in ("30-40 minuten", "20-30 minuten", "45 minuten", "", None, "snel")], [40, 30, 45, None, None, None]
+        )
 
     def test_the_key_is_the_slug_with_its_id(self):
         self.assertEqual(marleyspoon.recipe_key(SLUG), SLUG)
@@ -187,7 +214,10 @@ class HelperTest(AppTestCase):
 
     def test_summary_needs_a_title_and_a_slug(self):
         card = marleyspoon.summary(recipe(SLUG, "Bulgurbowl"))
-        self.assertEqual((card["key"], card["name"], card["headline"], card["minutes"], card["label"]), (SLUG, "Bulgurbowl", "met tahin en amandelen", 40, "vegetarisch"))
+        self.assertEqual(
+            (card["key"], card["name"], card["headline"], card["minutes"], card["label"]),
+            (SLUG, "Bulgurbowl", "met tahin en amandelen", 40, "vegetarisch"),
+        )
         self.assertEqual(card["url"], f"https://marleyspoon.nl/menu/{SLUG}")
         self.assertTrue(card["image"].startswith("https://marleyspoon.com/"))
         self.assertIsNone(marleyspoon.summary(recipe(SLUG, "")))
@@ -245,8 +275,13 @@ class MenuTest(TempDataDirTest):
             self.assertEqual(run(marleyspoon.get_menu("2026-W44"))["recipes"], [])
 
     def test_a_foreign_redirect_an_error_and_another_format_are_refused(self):
-        for reply in (answer([], url="https://evil.example/graphql"), answer([], status=403),
-                      answer([], body={"errors": [{"message": "nope"}]}), answer([], body={"data": {"menu": {}}}), answer([], body=["x"])):
+        for reply in (
+            answer([], url="https://evil.example/graphql"),
+            answer([], status=403),
+            answer([], body={"errors": [{"message": "nope"}]}),
+            answer([], body={"data": {"menu": {}}}),
+            answer([], body=["x"]),
+        ):
             with served(return_value=reply):
                 with self.assertRaises(marleyspoon.MarleySpoonError):
                     run(marleyspoon.get_menu("2026-W44", refresh=True))
@@ -296,10 +331,17 @@ class PauseTest(TempDataDirTest):
             return page()
 
         async def both() -> list[object]:
-            return await asyncio.gather(marleyspoon._send("GET", "https://marleyspoon.nl/menu/a", marleyspoon.HOST), marleyspoon._send("GET", "https://marleyspoon.nl/menu/b", marleyspoon.HOST))
+            return await asyncio.gather(
+                marleyspoon._send("GET", "https://marleyspoon.nl/menu/a", marleyspoon.HOST),
+                marleyspoon._send("GET", "https://marleyspoon.nl/menu/b", marleyspoon.HOST),
+            )
 
-        with mock.patch.object(marleyspoon, "MIN_GAP", 0.5), mock.patch.object(marleyspoon, "_last_request", 0.0), \
-                mock.patch.object(marleyspoon, "_wait", wait), served(side_effect=reply):
+        with (
+            mock.patch.object(marleyspoon, "MIN_GAP", 0.5),
+            mock.patch.object(marleyspoon, "_last_request", 0.0),
+            mock.patch.object(marleyspoon, "_wait", wait),
+            served(side_effect=reply),
+        ):
             run(both())
         self.assertEqual(events, ["start /menu/a", "end /menu/a", "pauze", "start /menu/b", "end /menu/b"])
         self.assertEqual(len(waits), 1)
@@ -327,11 +369,13 @@ class RoutesTest(TempDataDirTest):
         self.assertIn("503", reply.get_json()["error"])
 
     async def test_import_sends_a_schema_org_recipe_to_mealie(self):
-        with mock.patch.object(mealie, "ensure_configured", new_callable=mock.AsyncMock), \
-                mock.patch.object(mealie, "mealie_url", new_callable=mock.AsyncMock, return_value="https://mealie.example"), \
-                mock.patch.object(mealie, "group_slug", new_callable=mock.AsyncMock, return_value="home"), \
-                served(side_effect=detail_requests()), \
-                mock.patch.object(mealie, "import_via_jsonld", new_callable=mock.AsyncMock, return_value="bulgurbowl") as send:
+        with (
+            mock.patch.object(mealie, "ensure_configured", new_callable=mock.AsyncMock),
+            mock.patch.object(mealie, "mealie_url", new_callable=mock.AsyncMock, return_value="https://mealie.example"),
+            mock.patch.object(mealie, "group_slug", new_callable=mock.AsyncMock, return_value="home"),
+            served(side_effect=detail_requests()),
+            mock.patch.object(mealie, "import_via_jsonld", new_callable=mock.AsyncMock, return_value="bulgurbowl") as send,
+        ):
             body = (await self.client.post(f"/api/marleyspoon/recipes/{SLUG}/import")).get_json()
         self.assertEqual(body, {"slug": "bulgurbowl", "mealieUrl": "https://mealie.example/g/home/r/bulgurbowl"})
         url, data = send.call_args.args
@@ -339,8 +383,10 @@ class RoutesTest(TempDataDirTest):
         self.assertEqual(data["recipeIngredient"], ["150g bulgur", "1 kleine bloemkool", "peper en zout"])
 
     async def test_import_without_mealie_says_so_and_asks_marley_spoon_nothing(self):
-        with mock.patch.object(mealie, "ensure_configured", new_callable=mock.AsyncMock, side_effect=RuntimeError("Mealie is niet gekoppeld.")), \
-                served(side_effect=AssertionError("niet ophalen")):
+        with (
+            mock.patch.object(mealie, "ensure_configured", new_callable=mock.AsyncMock, side_effect=RuntimeError("Mealie is niet gekoppeld.")),
+            served(side_effect=AssertionError("niet ophalen")),
+        ):
             reply = await self.client.post(f"/api/marleyspoon/recipes/{SLUG}/import")
         self.assertEqual((reply.status_code, reply.get_json()), (400, {"error": "Mealie is niet gekoppeld."}))
 
@@ -351,10 +397,13 @@ class RoutesTest(TempDataDirTest):
 
     async def test_a_refusal_is_retried_smaller_never_by_page_and_the_answer_of_mealie_stays_out(self):
         refused = mealie.MealieImportError("Mealie import mislukt (400): geheim", 400)
-        with mock.patch.object(mealie, "ensure_configured", new_callable=mock.AsyncMock), mock.patch.object(mealie, "recipe_page_url", new_callable=mock.AsyncMock, return_value="u"), \
-                served(side_effect=detail_requests() * 2), \
-                mock.patch.object(mealie, "import_via_jsonld", new_callable=mock.AsyncMock, side_effect=[refused, "slim"]) as send, \
-                mock.patch.object(mealie, "import_via_url", new_callable=mock.AsyncMock) as by_page:
+        with (
+            mock.patch.object(mealie, "ensure_configured", new_callable=mock.AsyncMock),
+            mock.patch.object(mealie, "recipe_page_url", new_callable=mock.AsyncMock, return_value="u"),
+            served(side_effect=detail_requests() * 2),
+            mock.patch.object(mealie, "import_via_jsonld", new_callable=mock.AsyncMock, side_effect=[refused, "slim"]) as send,
+            mock.patch.object(mealie, "import_via_url", new_callable=mock.AsyncMock) as by_page,
+        ):
             self.assertEqual((await self.client.post(f"/api/marleyspoon/recipes/{SLUG}/import")).get_json()["slug"], "slim")
             self.assertIn("image", send.call_args_list[0].args[1])
             self.assertNotIn("image", send.call_args_list[1].args[1])
@@ -365,9 +414,12 @@ class RoutesTest(TempDataDirTest):
         self.assertNotIn("geheim", reply.get_data(as_text=True))
 
     async def test_a_successful_and_a_failed_import_are_in_the_audit_log_without_the_token(self):
-        with mock.patch.object(mealie, "ensure_configured", new_callable=mock.AsyncMock), mock.patch.object(mealie, "recipe_page_url", new_callable=mock.AsyncMock, return_value="u"), \
-                served(side_effect=detail_requests() * 2), \
-                mock.patch.object(mealie, "import_via_jsonld", new_callable=mock.AsyncMock, side_effect=["pasta", KeyError("x")]):
+        with (
+            mock.patch.object(mealie, "ensure_configured", new_callable=mock.AsyncMock),
+            mock.patch.object(mealie, "recipe_page_url", new_callable=mock.AsyncMock, return_value="u"),
+            served(side_effect=detail_requests() * 2),
+            mock.patch.object(mealie, "import_via_jsonld", new_callable=mock.AsyncMock, side_effect=["pasta", KeyError("x")]),
+        ):
             await self.client.post(f"/api/marleyspoon/recipes/{SLUG}/import")
             await self.client.post(f"/api/marleyspoon/recipes/{SLUG}/import")
         rows = (await audit.list_entries(service="marleyspoon", query="Mealie import"))["entries"]

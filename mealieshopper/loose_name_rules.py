@@ -17,19 +17,13 @@ from typing import Any
 from . import ah, crisp, jumbo, name_keys, picnic, product_links
 
 # Een multipack: "6-pack" in de titel of "4 x 1,5 l" in de titel of de inhoud.
-MULTIPACK: re.Pattern[str] = re.compile(
-    r"\b\d+\s*-\s*pack\b|\b\d+\s*x\s*\d", re.IGNORECASE
-)
+MULTIPACK: re.Pattern[str] = re.compile(r"\b\d+\s*-\s*pack\b|\b\d+\s*x\s*\d", re.IGNORECASE)
 _STATUS_TEXT: re.Pattern[str] = re.compile(r"^(\d{3}):")
 _DIGITS: re.Pattern[str] = re.compile(r"\d+")
 
 
 def _text(value: Any, limit: int) -> str:
-    return (
-        " ".join(str(value).split())[:limit]
-        if isinstance(value, (str, int)) and not isinstance(value, bool)
-        else ""
-    )
+    return " ".join(str(value).split())[:limit] if isinstance(value, (str, int)) and not isinstance(value, bool) else ""
 
 
 def _price(value: Any) -> float | None:
@@ -44,11 +38,7 @@ def _price(value: Any) -> float | None:
 def _https(value: Any) -> str | None:
     """Alleen een gewoon webadres: de foto komt in een `<img>` op de pagina."""
     text: str = value.strip() if isinstance(value, str) else ""
-    usable: bool = (
-        text.startswith("https://")
-        and len(text) <= product_links.MAX_IMAGE_CHARS
-        and not any(ch.isspace() for ch in text)
-    )
+    usable: bool = text.startswith("https://") and len(text) <= product_links.MAX_IMAGE_CHARS and not any(ch.isspace() for ch in text)
     return text if usable else None
 
 
@@ -72,16 +62,13 @@ def candidate(store: str, product: Any) -> dict[str, Any] | None:
         product_links.MAX_ID_CHARS,
     )
     title: str = _text(product.get("title"), product_links.MAX_NAME_CHARS)
-    if (
-        not product_id or product_id == "None" or not title
-    ):  # "None": `ah._search_product_dict` zonder id
+    if not product_id or product_id == "None" or not title:  # "None": `ah._search_product_dict` zonder id
         return None
     return {
         "productId": product_id,
         "title": title,
         "brand": _text(product.get("brand"), product_links.MAX_NAME_CHARS) or None,
-        "unitSize": _text(product.get("unitSize"), product_links.MAX_SIZE_CHARS)
-        or None,
+        "unitSize": _text(product.get("unitSize"), product_links.MAX_SIZE_CHARS) or None,
         "price": _price(product.get("price")),
         "image": _image(store, product),
     }
@@ -105,9 +92,7 @@ def _without_multipacks(name: str, found: list[dict[str, Any]]) -> list[dict[str
     """Noemt de oude naam geen multipack, dan vallen de multipacks af, zolang er daarna nog een kandidaat over is."""
     if is_multipack(name):
         return found
-    singles: list[dict[str, Any]] = [
-        c for c in found if not is_multipack(c["title"], c["unitSize"])
-    ]
+    singles: list[dict[str, Any]] = [c for c in found if not is_multipack(c["title"], c["unitSize"])]
     return singles or found
 
 
@@ -120,9 +105,7 @@ def _literal(name: str, found: dict[str, Any]) -> bool:
     """Of een kandidaat met dezelfde sleutel letterlijk de losse naam `name` is. De sleutel laat getallen weg ("Melk 1 L" en
     "Melk 2 L" hebben dezelfde), dus ook de getallen van de naam en de titel moeten gelijk zijn, en de naam en de kandidaat (titel
     en inhoud) zijn allebei een multipack of allebei niet: bij AH staat "6 x 0,33 l" vaak alleen in de inhoud."""
-    return _digits(name) == _digits(found["title"]) and is_multipack(name) == is_multipack(
-        found["title"], found["unitSize"]
-    )
+    return _digits(name) == _digits(found["title"]) and is_multipack(name) == is_multipack(found["title"], found["unitSize"])
 
 
 def literal_for_all(spellings: list[str], found: dict[str, Any]) -> bool:
@@ -132,9 +115,7 @@ def literal_for_all(spellings: list[str], found: dict[str, Any]) -> bool:
     return all(_literal(spelling, found) for spelling in spellings)
 
 
-def outcome_of(
-    key: str, name: str, found: list[dict[str, Any]]
-) -> tuple[str, list[dict[str, Any]]]:
+def outcome_of(key: str, name: str, found: list[dict[str, Any]]) -> tuple[str, list[dict[str, Any]]]:
     """De uitkomst van een zoekopdracht naar de losse naam `name` (sleutel `key`) en de kandidaten die blijven.
 
     Precies een kandidaat met dezelfde sleutel (`name_keys.key` van de titel) die letterlijk de naam is (`_literal`) is `exact`.
@@ -156,11 +137,7 @@ def kept_proposal(raw: Any, found: list[dict[str, Any]]) -> str | None:
     except ValueError:
         return None
     ids: set[str] = {c["productId"] for c in found}
-    return (
-        raw
-        if isinstance(proposal, dict) and str(proposal.get("productId")) in ids
-        else None
-    )
+    return raw if isinstance(proposal, dict) and str(proposal.get("productId")) in ids else None
 
 
 def status_of(error: Exception) -> int | None:
@@ -176,7 +153,5 @@ def status_of(error: Exception) -> int | None:
         return int(error.where) if error.where.isdigit() else None
     if isinstance(error, (picnic.PicnicBlockedError, crisp.CrispAuthError)):
         return 403  # Crisp geeft bij 401 en 403 dezelfde fout: liever 12 uur te lang wachten dan aandringen
-    match: re.Match[str] | None = (
-        _STATUS_TEXT.match(str(error)) if isinstance(error, RuntimeError) else None
-    )
+    match: re.Match[str] | None = _STATUS_TEXT.match(str(error)) if isinstance(error, RuntimeError) else None
     return int(match.group(1)) if match else None

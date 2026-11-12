@@ -5,38 +5,52 @@ kan door de echte routes (`/api/offers`, `/api/prices/history`, `/healthz`) en d
 nieuwe versie die het gedrag terugdraait hier rood wordt. Een nieuwe melding krijgt hier een nieuwe test.
 """
 
+import inspect
 import json
 import os
+import re
 import shutil
 import subprocess
 import tempfile
-import inspect
-import re
 import unittest
 from contextlib import closing
 from datetime import date, timedelta
 from pathlib import Path
 from unittest import mock
 
-import jwt
-
-from helpers import AppTestCase, db, returned, run, sent_json, served  # helpers zet ook het pad naar de app
 import httpx
-
+import jwt
 import test_ah_orders  # als module: de opzet van het AH-mandje
-import test_shared_links  # idem: de gedeelde lijst en zijn opzet
-import test_price_import  # idem
-import test_loose_names  # idem: de opzet van de losse aankoopnamen
 import test_history_chart_js  # als module, voor de Node-opbouw van offers_history.js
 import test_history_stores_js  # als module: anders draait pytest die tests hier nog een keer
+import test_loose_names  # idem: de opzet van de losse aankoopnamen
 import test_offers  # idem: de opzet van de receptvoorstellen
 import test_offers_scan_js  # idem: de Node-opbouw van offers.js
-from test_auth_password import PASSWORD, AuthPasswordTestCase
 import test_order_views  # idem: de Node-opbouw van order_views.js en de gedeelde keuzelijst
+import test_price_import  # idem
+import test_shared_links  # idem: de gedeelde lijst en zijn opzet
+from helpers import AppTestCase, db, run, sent_json, served  # helpers zet ook het pad naar de app
+from test_auth_password import PASSWORD, AuthPasswordTestCase
 from test_prices import PricesCase, offer
 
-from mealieshopper import ah, ah_orders, assets, auth, deals, image_cache, line_offers, offer_categories, offer_ranking, offers, offers_schedule, price_archive_tidy, price_import, prices
-from mealieshopper import loose_names, product_links
+from mealieshopper import (
+    ah,
+    ah_orders,
+    assets,
+    auth,
+    deals,
+    image_cache,
+    line_offers,
+    loose_names,
+    offer_categories,
+    offer_ranking,
+    offers,
+    offers_schedule,
+    price_archive_tidy,
+    price_import,
+    prices,
+    product_links,
+)
 from mealieshopper.app import create_app
 
 ROOT: Path = Path(__file__).resolve().parents[1]
@@ -47,9 +61,7 @@ def days(n: int) -> str:
     return (date.today() + timedelta(days=n)).isoformat()
 
 
-def order_item(
-    product_id: int, title: str, price: float, unit_size: str = "500 g"
-) -> dict:
+def order_item(product_id: int, title: str, price: float, unit_size: str = "500 g") -> dict:
     return {
         "productId": product_id,
         "title": title,
@@ -118,9 +130,7 @@ class PriceHistoryLinkTest(PricesCase):
         )
         # Ook als de naam in de link anders is dan in de geschiedenis, en met "Alleen eerder gekocht" aan.
         self.assertEqual(
-            (await self.linked("een heel andere naam", "233387", bought="1"))[0][
-                "productId"
-            ],
+            (await self.linked("een heel andere naam", "233387", bought="1"))[0]["productId"],
             "233387",
         )
 
@@ -157,9 +167,7 @@ class PriceHistoryLinkTest(PricesCase):
                 "'AH Gekoelde sinaasappeldrank', '2026-11-06T09:42:43+00:00', '')"
             )
         self.assertEqual(
-            (await self.linked("AH Gekoelde sinaasappeldrank", "100845"))[0][
-                "productId"
-            ],
+            (await self.linked("AH Gekoelde sinaasappeldrank", "100845"))[0]["productId"],
             "100845",
         )
 
@@ -177,16 +185,24 @@ class PriceHistoryLinkTest(PricesCase):
                 validUntil=days(7),
             ),
         )
-        found = (
-            await prices.history("ah", "bospeen", 30, today=days(1), pin="188141")
-        )["products"]
+        found = (await prices.history("ah", "bospeen", 30, today=days(1), pin="188141"))["products"]
         self.assertEqual(found[0]["productId"], "188141")  # hoe hij dan telt: zie de test hieronder
 
     async def test_2026_11_09_offer_that_started_at_midnight_counts_and_has_a_chart(self):
         # "werkt nogsteeds niet zo te zien. ik zie hier staan 0 keer in de aanbieding en ik zie geen prijs grafiek" (4.1.8): de
         # bonusweek begon om middernacht, offer_history krijgt hem pas bij de synchronisatie van die nacht.
-        await self.sync_offer(f"{TODAY}T05:00:00+00:00", offer("233387", "Dr. Oetker Casa di mama pizza salame extra piccante", 3.65, 4.29,
-                                                              "Bonus Box 15% korting", validFrom=days(1), validUntil=days(7)))
+        await self.sync_offer(
+            f"{TODAY}T05:00:00+00:00",
+            offer(
+                "233387",
+                "Dr. Oetker Casa di mama pizza salame extra piccante",
+                3.65,
+                4.29,
+                "Bonus Box 15% korting",
+                validFrom=days(1),
+                validUntil=days(7),
+            ),
+        )
 
         class Tomorrow(date):
             @classmethod
@@ -203,8 +219,18 @@ class PriceHistoryLinkTest(PricesCase):
         # "maar dan nog klopt het niet, die dr. oetker pizza's zijn zeer regelmatig in de aanbieding, waar is de geschiedenis?"
         # (4.1.9). Het folderarchief noemt ze als actie voor de hele lijn ("Alle Dr. Oetker Casa di Mama pizza's"): de import gooide
         # die als combi weg, en een folderproduct "Dr. Oetker Casa di Mama" hoorde bij geen enkele pizza.
-        await self.sync_offer(f"{TODAY}T05:00:00+00:00", offer("233387", "Dr. Oetker Casa di mama pizza salame extra piccante", 3.65, 4.29,
-                                                              "Bonus Box 15% korting", validFrom=TODAY, validUntil=days(6)))
+        await self.sync_offer(
+            f"{TODAY}T05:00:00+00:00",
+            offer(
+                "233387",
+                "Dr. Oetker Casa di mama pizza salame extra piccante",
+                3.65,
+                4.29,
+                "Bonus Box 15% korting",
+                validFrom=TODAY,
+                validUntil=days(6),
+            ),
+        )
         folder = [
             ("folder:a", "Folder: Alle Dr. Oetker Casa di Mama pizza's", "2009-10-26", "2009-11-01", "2 dozen, actie 3.50, was 2 stuks 5.38"),
             ("folder:b", "Folder: Dr. Oetker Casa di Mama", "2016-11-14", "2016-11-20", "2 voor 4.00"),
@@ -221,10 +247,13 @@ class PriceHistoryLinkTest(PricesCase):
                 )
         product = (await self.linked("Dr. Oetker Casa di mama pizza salame extra piccante", "233387"))[0]
         self.assertEqual(product["productId"], "233387")
-        self.assertEqual([(line["start"], line["title"], line["promoLabel"]) for line in product["lineOffers"]], [
-            ("2009-10-26", "Folder: Alle Dr. Oetker Casa di Mama pizza's", "2 dozen, actie 3.50, was 2 stuks 5.38"),
-            ("2016-11-14", "Folder: Dr. Oetker Casa di Mama", "2 voor 4.00"),
-        ])
+        self.assertEqual(
+            [(line["start"], line["title"], line["promoLabel"]) for line in product["lineOffers"]],
+            [
+                ("2009-10-26", "Folder: Alle Dr. Oetker Casa di Mama pizza's", "2 dozen, actie 3.50, was 2 stuks 5.38"),
+                ("2016-11-14", "Folder: Dr. Oetker Casa di Mama", "2 voor 4.00"),
+            ],
+        )
         self.assertEqual((product["timesInLineOffer"], product["timesOnOffer"]), (2, 1))
 
     async def test_2026_11_09_line_offers_have_a_price_per_piece_and_purchases_give_the_regular_price(self):
@@ -232,8 +261,19 @@ class PriceHistoryLinkTest(PricesCase):
         # ook dat mist hierbij. de prijsgrafiek is ook stuk nu." (4.1.10, Dr. Oetker Casa di mama pizza salami, 514010). Het archief
         # gaf "2 voor 6.00" de ene week als 3.00 per stuk en de andere als 6.00 voor twee, de import gooide de prijs zonder
         # verpakking weg, en de gewone prijs kwam alleen uit de bestelling van de laatste tien dagen.
-        await self.sync_offer(f"{TODAY}T05:00:00+00:00", offer("514010", "Dr. Oetker Casa di mama pizza salami", 3.65, 4.29, "Bonus Box 15% korting",
-                                                              unitSize="390 g", validFrom=TODAY, validUntil=days(6)))
+        await self.sync_offer(
+            f"{TODAY}T05:00:00+00:00",
+            offer(
+                "514010",
+                "Dr. Oetker Casa di mama pizza salami",
+                3.65,
+                4.29,
+                "Bonus Box 15% korting",
+                unitSize="390 g",
+                validFrom=TODAY,
+                validUntil=days(6),
+            ),
+        )
         folder = [
             ("folder:a", "Folder: Alle Dr. Oetker Casa di Mama en Tradizionale", "2024-07-01", 3.0, 4.29, "2 voor: 6.00, was 8.58"),
             ("folder:a", "Folder: Alle Dr. Oetker Casa di Mama en Tradizionale", "2024-09-30", 6.0, 8.58, "Diepvries2 voor: 6.00, was 2 stuks 8.58"),
@@ -246,27 +286,50 @@ class PriceHistoryLinkTest(PricesCase):
                 conn.execute(
                     "INSERT INTO offer_history (store, product_id, title, brand, price, price_before, promo_label, valid_from, valid_until, "
                     "first_seen, last_seen, ended_at) VALUES ('ah', ?, ?, 'Folderarchief', ?, ?, ?, ?, ?, ?, ?, ?)",
-                    (product_id, title, price, before, label, start, end, f"{start}T00:00:00+00:00", f"{end}T23:59:59+00:00", f"{end}T23:59:59+00:00"),
+                    (
+                        product_id,
+                        title,
+                        price,
+                        before,
+                        label,
+                        start,
+                        end,
+                        f"{start}T00:00:00+00:00",
+                        f"{end}T23:59:59+00:00",
+                        f"{end}T23:59:59+00:00",
+                    ),
                 )
         with closing(db(price_import)) as conn, conn:
             conn.execute(
                 "INSERT INTO imported_purchases (store, order_ref, position, day, title, quantity, paid, regular, imported_at) "
-                "VALUES ('ah', '232668613', 1, '2024-07-04', 'Dr. Oetker Casa di mama pizza salami', 1, 3.0, 4.29, ?)", (f"{TODAY}T00:00:00+00:00",),
+                "VALUES ('ah', '232668613', 1, '2024-07-04', 'Dr. Oetker Casa di mama pizza salami', 1, 3.0, 4.29, ?)",
+                (f"{TODAY}T00:00:00+00:00",),
             )
         product = (await self.linked("Dr. Oetker Casa di mama pizza salami", "514010"))[0]
         self.assertEqual(product["productId"], "514010")
-        self.assertEqual([(line["start"], line["price"], line["priceBefore"]) for line in product["lineOffers"]],
-                         [("2024-07-01", 3.0, 4.29), ("2024-09-30", 3.0, 4.29), ("2026-08-31", 2.15, 4.29)], "per stuk, zonder de brownies")
+        self.assertEqual(
+            [(line["start"], line["price"], line["priceBefore"]) for line in product["lineOffers"]],
+            [("2024-07-01", 3.0, 4.29), ("2024-09-30", 3.0, 4.29), ("2026-08-31", 2.15, 4.29)],
+            "per stuk, zonder de brownies",
+        )
         self.assertEqual([(purchase["date"], purchase["price"]) for purchase in product["purchases"]], [("2024-07-04", 3.0)])
         self.assertEqual(product["regular"][0]["from"], "2024-07-04", "de gewone prijs uit de ingelezen aankoop")
         self.assertEqual(product["unitSize"], "390 g")
 
     def test_2026_11_09_line_offers_from_the_archive_are_kept_on_import(self):
         # Dezelfde melding: met "Ook regels bewaren die bij geen product van jou horen" blijft een combi als eigen folderproduct.
-        line = {"store": "ah", "product_id": "folder:x", "title": "Folder: Alle Dr. Oetker Casa di Mama pizza's", "price": None,
-                "price_before": None, "unit_size": None, "description": "2 dozen", "source_title": "Alle Dr. Oetker Casa di Mama pizza's",
-                "promo_label": "Folder | 2 dozen | bron: oud=2 stuks 5.38, actie=3.50 | prijs onzeker",
-                "url": "https://www.supermarktaanbiedingen.com/folders/albert_heijn/2009/44/x"}
+        line = {
+            "store": "ah",
+            "product_id": "folder:x",
+            "title": "Folder: Alle Dr. Oetker Casa di Mama pizza's",
+            "price": None,
+            "price_before": None,
+            "unit_size": None,
+            "description": "2 dozen",
+            "source_title": "Alle Dr. Oetker Casa di Mama pizza's",
+            "promo_label": "Folder | 2 dozen | bron: oud=2 stuks 5.38, actie=3.50 | prijs onzeker",
+            "url": "https://www.supermarktaanbiedingen.com/folders/albert_heijn/2009/44/x",
+        }
         with closing(db(prices)) as conn:
             kept = price_archive_tidy.Tidy(conn, keep_unlinked=True).offer(dict(line))
             dropped = price_archive_tidy.Tidy(conn).offer(dict(line))
@@ -275,9 +338,7 @@ class PriceHistoryLinkTest(PricesCase):
 
     async def test_an_unknown_id_changes_nothing(self):
         await prices.record("ah", [{"id": "1", "title": "AH Pindakaas", "price": 2.99}])
-        self.assertEqual(
-            [p["productId"] for p in await self.linked("pindakaas", "99999999")], ["1"]
-        )
+        self.assertEqual([p["productId"] for p in await self.linked("pindakaas", "99999999")], ["1"])
 
 
 class SameNameTwoProductsTest(PricesCase):
@@ -355,8 +416,12 @@ class ReceiptLinkedPackSizeTest(PricesCase):
     def link(self, **columns: str | None) -> None:
         self.ah_receipt("R1", "2025-06-06T12:00:00", (526638, "PUNTPAPRIKA", 1, 1.69, 1.69))
         row: dict[str, str | int | None] = {
-            "receipt_product_id": 526638, "product_id": 123865, "title": "AH Sweet palermo rode puntpaprika", "checked_at": "x",
-            "image": "https://static.ah.nl/p.png", **columns,
+            "receipt_product_id": 526638,
+            "product_id": 123865,
+            "title": "AH Sweet palermo rode puntpaprika",
+            "checked_at": "x",
+            "image": "https://static.ah.nl/p.png",
+            **columns,
         }
         with closing(db(ah_orders)) as conn, conn:
             conn.execute(f"INSERT INTO ah_receipt_products ({', '.join(row)}) VALUES ({', '.join('?' * len(row))})", tuple(row.values()))
@@ -387,11 +452,21 @@ class ReceiptLinkedPackSizeTest(PricesCase):
 
     async def test_an_old_link_with_a_photo_still_gets_its_pack_size(self) -> None:
         self.link()  # van voor deze fix: wel een foto, geen inhoud
-        answer: list[dict] = [{"id": 123865, "title": "AH Sweet palermo rode puntpaprika", "brand": "AH", "unitSize": "2 stuks", "image": "https://static.ah.nl/new.png"}]
+        answer: list[dict] = [
+            {
+                "id": 123865,
+                "title": "AH Sweet palermo rode puntpaprika",
+                "brand": "AH",
+                "unitSize": "2 stuks",
+                "image": "https://static.ah.nl/new.png",
+            }
+        ]
         with mock.patch.object(ah, "get_products_by_ids", new_callable=mock.AsyncMock, return_value=answer) as lookup:
             first: dict | None = await ah_orders.backfill_receipt_images_nightly("2026-11-10T03:00:00+00:00")
             second: dict | None = await ah_orders.backfill_receipt_images_nightly("2026-11-11T03:00:00+00:00")
-        self.assertEqual((lookup.call_count, first, second), (1, {"products": 0, "requests": 1, "failed": 0}, None), "een keer, daarna is het compleet")
+        self.assertEqual(
+            (lookup.call_count, first, second), (1, {"products": 0, "requests": 1, "failed": 0}, None), "een keer, daarna is het compleet"
+        )
         with closing(db(ah_orders)) as conn:
             saved: tuple = tuple(conn.execute("SELECT brand, unit_size, image FROM ah_receipt_products WHERE product_id = 123865").fetchone())
         self.assertEqual(saved, ("AH", "2 stuks", "https://static.ah.nl/p.png"), "de foto die er al was blijft")
@@ -411,11 +486,13 @@ class OrdersSyncedNightlyTest(PricesCase):
     producten ontbraken in de prijsgeschiedenis. Bestellingen en kassabonnen kwamen alleen binnen via de knop op de bestelpagina."""
 
     async def run_daily(self, **kwargs: bool) -> dict:
-        with mock.patch.object(offers, "sync_all", new_callable=mock.AsyncMock, return_value={"stores": {}}), \
-             mock.patch.object(ah_orders, "resolve_receipt_products_nightly", new_callable=mock.AsyncMock, return_value=None), \
-             mock.patch.object(ah_orders, "backfill_receipt_images_nightly", new_callable=mock.AsyncMock, return_value=None), \
-             mock.patch.object(image_cache, "prefetch_nightly", new_callable=mock.AsyncMock, return_value=None), \
-             mock.patch.object(image_cache, "prefetch_async", new_callable=mock.AsyncMock, return_value=None):
+        with (
+            mock.patch.object(offers, "sync_all", new_callable=mock.AsyncMock, return_value={"stores": {}}),
+            mock.patch.object(ah_orders, "resolve_receipt_products_nightly", new_callable=mock.AsyncMock, return_value=None),
+            mock.patch.object(ah_orders, "backfill_receipt_images_nightly", new_callable=mock.AsyncMock, return_value=None),
+            mock.patch.object(image_cache, "prefetch_nightly", new_callable=mock.AsyncMock, return_value=None),
+            mock.patch.object(image_cache, "prefetch_async", new_callable=mock.AsyncMock, return_value=None),
+        ):
             return await offers_schedule.run_all("scheduled", **kwargs)
 
     async def test_the_daily_run_marks_a_delivered_order_as_delivered(self) -> None:
@@ -423,10 +500,12 @@ class OrdersSyncedNightlyTest(PricesCase):
         item: dict = order_item(579310, "AH Sweet Palermo rode puntpaprika", 3.49)
         await self.ah_order(913252041, "open", days(-7), item)
         delivered: dict = {"id": 913252041, "deliveryDate": days(-7), "deliveryStatus": "DELIVERED"}
-        with mock.patch.object(ah, "get_open_fulfillments", new_callable=mock.AsyncMock, return_value=[]), \
-             mock.patch.object(ah_orders, "_closed_orders", new_callable=mock.AsyncMock, return_value=[delivered]), \
-             mock.patch.object(ah_orders, "_details_or_none", new_callable=mock.AsyncMock, return_value={"items": [item]}), \
-             mock.patch.object(ah_orders, "sync_receipts", new_callable=mock.AsyncMock, return_value={"new": 0}):
+        with (
+            mock.patch.object(ah, "get_open_fulfillments", new_callable=mock.AsyncMock, return_value=[]),
+            mock.patch.object(ah_orders, "_closed_orders", new_callable=mock.AsyncMock, return_value=[delivered]),
+            mock.patch.object(ah_orders, "_details_or_none", new_callable=mock.AsyncMock, return_value={"items": [item]}),
+            mock.patch.object(ah_orders, "sync_receipts", new_callable=mock.AsyncMock, return_value={"new": 0}),
+        ):
             result: dict = await self.run_daily()
         self.assertNotIn("error", result["purchases"]["ah"]["orders"])
         self.assertEqual(result["purchases"]["ah"]["receipts"], {"new": 0})
@@ -454,12 +533,38 @@ class BestOffersTest(PricesCase):
                 conn.execute(
                     "INSERT INTO offer_history (store, product_id, title, brand, price, price_before, promo_label, valid_from, valid_until, first_seen, last_seen, ended_at) "
                     "VALUES ('ah', 'folder:a', 'Folder: Alle Dr. Oetker Casa di Mama', 'Folderarchief', 2.15, 4.29, '1+1 gratis', ?, ?, ?, ?, ?)",
-                    (days(start), days(start + 6), f"{days(start)}T00:00:00+00:00", f"{days(start + 6)}T23:59:59+00:00", f"{days(start + 6)}T23:59:59+00:00"),
+                    (
+                        days(start),
+                        days(start + 6),
+                        f"{days(start)}T00:00:00+00:00",
+                        f"{days(start + 6)}T23:59:59+00:00",
+                        f"{days(start + 6)}T23:59:59+00:00",
+                    ),
                 )
         await self.sync_offer(
             f"{TODAY}T05:00:00+00:00",
-            offer("514010", "Dr. Oetker Casa di mama pizza salami", 2.15, 4.29, "nu 2,15", unitSize="390 g", brand="Dr. Oetker", validFrom=TODAY, validUntil=days(6)),
-            offer("233387", "Dr. Oetker Casa di mama pizza salame extra piccante", 3.65, 4.29, "nu 3,65", unitSize="415 g", brand="Dr. Oetker", validFrom=TODAY, validUntil=days(6)),
+            offer(
+                "514010",
+                "Dr. Oetker Casa di mama pizza salami",
+                2.15,
+                4.29,
+                "nu 2,15",
+                unitSize="390 g",
+                brand="Dr. Oetker",
+                validFrom=TODAY,
+                validUntil=days(6),
+            ),
+            offer(
+                "233387",
+                "Dr. Oetker Casa di mama pizza salame extra piccante",
+                3.65,
+                4.29,
+                "nu 3,65",
+                unitSize="415 g",
+                brand="Dr. Oetker",
+                validFrom=TODAY,
+                validUntil=days(6),
+            ),
         )
         client = self.client_for(create_app())
         response = await client.get("/api/offers?store=ah")
@@ -541,7 +646,9 @@ class SessionLifetimeTest(AuthPasswordTestCase):
         self.assertTrue(fresh.get_json()["authenticated"])
         self.assertEqual(self.session_token(fresh), (None, ""))
         # Een sessie van twee dagen oud: de aanvraag krijgt een verse cookie met opnieuw 90 dagen, voor dezelfde gebruiker.
-        old = jwt.encode({**claims, "iat": claims["iat"] - 2 * 86400, "exp": claims["exp"] - 2 * 86400}, await auth.signing_secret(), algorithm="HS256")
+        old = jwt.encode(
+            {**claims, "iat": claims["iat"] - 2 * 86400, "exp": claims["exp"] - 2 * 86400}, await auth.signing_secret(), algorithm="HS256"
+        )
         client = self.new_client()
         renewed = await client.get("/api/auth/status", headers={"Cookie": f"ms_session={old}"})
         self.assertTrue(renewed.get_json()["authenticated"])
@@ -560,7 +667,6 @@ class SessionLifetimeTest(AuthPasswordTestCase):
         self.assertEqual(len(cookies), 1, cookies)
         self.assertIn("ms_session=;", cookies[0])
 
-
     async def test_2026_11_09_logout_revokes_the_session_and_renewal_keeps_what_was_checked(self):
         # Uit de beveiligingsreview van de fix: de verlenging neemt de sessieteller uit de gecontroleerde cookie mee (niet de
         # nieuwste uit de database), houdt dezelfde sessie-id en inlogtijd, stopt een jaar na de inlog, en uitloggen trekt de
@@ -578,12 +684,18 @@ class SessionLifetimeTest(AuthPasswordTestCase):
         new_claims = jwt.decode(new_token, options={"verify_signature": False})
         self.assertEqual((new_claims["ep"], new_claims["sid"], new_claims["auth_time"]), (claims["ep"], claims["sid"], claims["auth_time"]))
         # Een jaar na de inlog: de sessie geldt nog tot hij verloopt, maar wordt niet meer verlengd.
-        aged_token = jwt.encode({**claims, "iat": claims["iat"] - 2 * 86400, "exp": claims["exp"] - 2 * 86400, "auth_time": claims["iat"] - 400 * 86400}, secret, algorithm="HS256")
+        aged_token = jwt.encode(
+            {**claims, "iat": claims["iat"] - 2 * 86400, "exp": claims["exp"] - 2 * 86400, "auth_time": claims["iat"] - 400 * 86400},
+            secret,
+            algorithm="HS256",
+        )
         aged = await client.get("/api/auth/status", headers={"Cookie": f"ms_session={aged_token}"})
         self.assertTrue(aged.get_json()["authenticated"])
         self.assertEqual(self.session_token(aged), (None, ""))
         # Uitloggen met de oude cookie: daarna zijn de oude en de verlengde cookie allebei ongeldig, een andere sessie niet.
-        other_token, _ = self.session_token(await self.post("/api/auth/password/login", {"username": "admin", "password": PASSWORD}, self.new_client()))
+        other_token, _ = self.session_token(
+            await self.post("/api/auth/password/login", {"username": "admin", "password": PASSWORD}, self.new_client())
+        )
         self.assertEqual((await client.post("/api/auth/logout", headers={"Cookie": f"ms_session={old}"})).status_code, 200)
         for name, cookie in (("oud", old), ("verlengd", new_token)):
             with self.subTest(name):
@@ -628,7 +740,17 @@ class OffersFiltersTest(unittest.TestCase):
             {"id": "3", "brand": "Unox", "title": "Rookworst", "badge": {"percent": 50}, "family": {"key": "c", "packs": []}},
             {"id": "4", "brand": "Dr. Oetker", "title": "Brownies", "badge": {"percent": 10}, "family": {"key": "d", "packs": []}},
         ]
-        filters = {"brands": ["Dr. Oetker"], "brandsOut": [], "categories": [], "categoriesOut": [], "bought": False, "minDiscount": 15, "maxUnitPrice": {"value": None, "unit": "kg"}, "yearLow": False, "rare": False}
+        filters = {
+            "brands": ["Dr. Oetker"],
+            "brandsOut": [],
+            "categories": [],
+            "categoriesOut": [],
+            "bought": False,
+            "minDiscount": 15,
+            "maxUnitPrice": {"value": None, "unit": "kg"},
+            "yearLow": False,
+            "rare": False,
+        }
         script = f"""{test_offers_scan_js.PRELUDE}
 offersState.filters = {json.dumps(filters)};
 const shown = offersFilteredWithFamilies({json.dumps(offers)});
@@ -642,7 +764,13 @@ console.log(JSON.stringify({{ ids: shown.map((o) => o.id), chips: offersActiveFi
         # "met een hover wil ik direct de volledige prijshistorie en aankopen zien in een popup": de popup bij een aanbieding
         # bevat de kerncijfers, de grafiek en de aankopen, en de link naar de volledige pagina.
         offer = {"id": "514010", "title": "Dr. Oetker Casa di mama pizza salami", "brand": "Dr. Oetker", "unitSize": "390 g", "price": 3.65}
-        product = {"store": "ah", "productId": "514010", "title": offer["title"], "purchases": [{"date": "2026-09-01", "price": 2.15}], "episodes": []}
+        product = {
+            "store": "ah",
+            "productId": "514010",
+            "title": offer["title"],
+            "purchases": [{"date": "2026-09-01", "price": 2.15}],
+            "episodes": [],
+        }
         script = f"""{test_offers_scan_js.PRELUDE}
 console.log(JSON.stringify(offerPopupHtml({json.dumps(offer)}, {json.dumps(product)}, [])));"""
         result = subprocess.run(["node", "-e", script], capture_output=True, text=True, timeout=30, check=False)
@@ -676,7 +804,9 @@ console.log(JSON.stringify({{ thumb: offerThumb(offer), title: offerTitleLink(of
         return json.loads(result.stdout)
 
     def test_2026_11_09_photo_and_title_open_the_price_history_and_an_icon_opens_the_store(self):
-        html = self.render({"id": "234871", "title": "Mutti Pizzasaus aromatica", "image": "i.png", "url": "https://www.ah.nl/producten/product/wi234871"})
+        html = self.render(
+            {"id": "234871", "title": "Mutti Pizzasaus aromatica", "image": "i.png", "url": "https://www.ah.nl/producten/product/wi234871"}
+        )
         for part in ("thumb", "title"):
             self.assertIn('href="/offers/history?product=234871" data-route', html[part], part)
             self.assertNotIn("ah.nl", html[part], part)
@@ -704,7 +834,13 @@ class OfferPopupLegendTest(unittest.TestCase):
 
     def test_2026_11_10_the_popup_has_the_legend_under_the_chart(self):
         offer = {"id": "234871", "title": "Mutti Pizzasaus aromatica", "price": 2.49}
-        product = {"store": "ah", "productId": "234871", "title": offer["title"], "purchases": [{"date": "2026-03-07", "price": 1.87}], "episodes": []}
+        product = {
+            "store": "ah",
+            "productId": "234871",
+            "title": offer["title"],
+            "purchases": [{"date": "2026-03-07", "price": 1.87}],
+            "episodes": [],
+        }
         script = f"""{test_offers_scan_js.PRELUDE}
 console.log(JSON.stringify(offerPopupHtml({json.dumps(offer)}, {json.dumps(product)}, [])));"""
         result = subprocess.run(["node", "-e", script], capture_output=True, text=True, timeout=30, check=False)
@@ -765,7 +901,9 @@ console.log(JSON.stringify({{ popup: offerPopupHtml(...args, {{ preview: true }}
         css = (ROOT / "static" / "styles.css").read_text(encoding="utf-8")
         self.assertIn(".offer-popup {\n  pointer-events: none;\n}", css, "de kaart onder de popup blijft aan te wijzen")
         self.assertNotIn(".offer-popup:focus-within", css, "er valt in de popup niets meer te klikken")
-        self.assertNotIn("pointer-events", css[css.index(".offer-popup__dialog") :].split("}")[0], "het venster op een aanraakscherm blijft gewoon klikbaar")
+        self.assertNotIn(
+            "pointer-events", css[css.index(".offer-popup__dialog") :].split("}")[0], "het venster op een aanraakscherm blijft gewoon klikbaar"
+        )
 
 
 class OfferCartQuantityTest(test_ah_orders.AhOrdersTestCase):
@@ -773,7 +911,10 @@ class OfferCartQuantityTest(test_ah_orders.AhOrdersTestCase):
     zien wat er al in de winkelwagen zit? (i.e. aantallen invulveld met +/- erbij)". Het AH-mandje is de boodschappenlijst: het
     aantal in de PATCH vervangt wat er stond en 0 haalt de regel weg (gemeten bij AH op 2026-11-10)."""
 
-    LIST: dict = {"id": "x", "items": [test_ah_orders.shopping_entry("Halfvolle melk", 2), {"type": "FREE_TEXT", "description": "Bloemen", "quantity": 1}]}
+    LIST: dict = {
+        "id": "x",
+        "items": [test_ah_orders.shopping_entry("Halfvolle melk", 2), {"type": "FREE_TEXT", "description": "Bloemen", "quantity": 1}],
+    }
 
     async def test_2026_11_10_the_cart_gives_the_quantity_per_product(self):
         with mock.patch.object(ah, "_get_json", return_value=self.LIST):
@@ -783,13 +924,18 @@ class OfferCartQuantityTest(test_ah_orders.AhOrdersTestCase):
         self.assertEqual((await self.client.get("/api/ah/basket")).get_json()["itemCount"], 2, "het tabblad Mandje loopt mee")
 
     async def test_2026_11_10_a_quantity_is_set_exactly_and_zero_removes(self):
-        for quantity, answer, expected in ((3, {"items": [test_ah_orders.shopping_entry("Halfvolle melk", 3)]}, [("111", 3)]), (0, {"items": []}, [])):
+        for quantity, answer, expected in (
+            (3, {"items": [test_ah_orders.shopping_entry("Halfvolle melk", 3)]}, [("111", 3)]),
+            (0, {"items": []}, []),
+        ):
             with mock.patch.object(ah, "get_user_token", return_value="tok"), served(httpx.Response(200, json=answer)) as patch:
                 response = await self.client.put("/api/ah/cart/items/111", json={"quantity": quantity, "title": "Halfvolle melk"})
             self.assertEqual(response.status_code, 200, response.get_json())
             self.assertEqual(patch.calls.last.request.method, "PATCH")
             sent = sent_json(patch.calls.last)["items"]
-            self.assertEqual([(line["productId"], line["quantity"], line["description"]) for line in sent], [(111, quantity, "Halfvolle melk")], "0 blijft 0")
+            self.assertEqual(
+                [(line["productId"], line["quantity"], line["description"]) for line in sent], [(111, quantity, "Halfvolle melk")], "0 blijft 0"
+            )
             self.assertEqual([(item["id"], item["quantity"]) for item in response.get_json()["items"]], expected)
             self.assertEqual((await self.client.get("/api/ah/basket")).get_json()["itemCount"], len(expected))
 
@@ -889,10 +1035,15 @@ console.log(JSON.stringify(out));
         self.assertEqual(found["both"], ["4", "5"])
         self.assertEqual(found["categories"], ["4", "5", "6"])
         self.assertEqual(found["minusWins"], [])
-        self.assertEqual(found["chips"], [
-            ["cat:vlees", "cat vlees"], ["catOut:huishouden", 'offers.filters.excluded {"name":"cat huishouden"}'],
-            ["brand:Mutti", "Mutti"], ["brandOut:Lenor", 'offers.filters.excluded {"name":"Lenor"}'],
-        ])
+        self.assertEqual(
+            found["chips"],
+            [
+                ["cat:vlees", "cat vlees"],
+                ["catOut:huishouden", 'offers.filters.excluded {"name":"cat huishouden"}'],
+                ["brand:Mutti", "Mutti"],
+                ["brandOut:Lenor", 'offers.filters.excluded {"name":"Lenor"}'],
+            ],
+        )
 
     def test_2026_11_10_the_lists_show_the_count_sorted_by_it_with_the_chosen_ones_on_top(self):
         found = self.run_js("""
@@ -908,13 +1059,24 @@ console.log(JSON.stringify(out));
 """)
         self.assertEqual(found["brands"], [["AH", 3, ""], ["Mutti", 2, ""], ["Lenor", 1, ""]], "op aantal, meeste eerst")
         self.assertEqual(found["categories"], [["huishouden", 2, ""], ["sauzen_conserven", 2, ""], ["vlees", 2, ""]])
-        self.assertEqual(found["active"], [["Lenor", 1, "out"], ["Verdwenen", 0, "in"], ["AH", 3, ""], ["Mutti", 2, ""]], "gekozen bovenaan, ook met 0")
+        self.assertEqual(
+            found["active"], [["Lenor", 1, "out"], ["Verdwenen", 0, "in"], ["AH", 3, ""], ["Mutti", 2, ""]], "gekozen bovenaan, ook met 0"
+        )
         self.assertEqual(found["withCategory"], [["AH", 2, ""]], "het aantal is wat er met de andere filters over is")
         self.assertEqual(found["categoryKeepsItsOwnCounts"], [["vlees", 2, "in"], ["huishouden", 2, ""], ["sauzen_conserven", 2, ""]])
         self.assertEqual(found["search"], [["Mutti", 2, ""]], "het zoekveld boven de merken")
         self.assertEqual(found["none"], [])
         self.assertEqual(found["pageSearch"], [["AH", 1, ""]], "het zoekveld van de pagina telt mee")
-        for marker in ('data-facet="category"', 'data-value="vlees"', 'data-mode="in" aria-pressed="false"', 'data-mode="out" aria-pressed="true"', "is-out", "offers.filters.include", "offers.filters.exclude", ">2</span>"):
+        for marker in (
+            'data-facet="category"',
+            'data-value="vlees"',
+            'data-mode="in" aria-pressed="false"',
+            'data-mode="out" aria-pressed="true"',
+            "is-out",
+            "offers.filters.include",
+            "offers.filters.exclude",
+            ">2</span>",
+        ):
             self.assertIn(marker, found["html"], marker)
 
     def test_2026_11_10_a_second_click_clears_and_saved_brand_filters_become_plus(self):
@@ -958,7 +1120,11 @@ console.log(JSON.stringify({{ afterOne, closedPage, farAway, end: {{ shown: offe
         result = subprocess.run(["node", "-e", script], capture_output=True, text=True, timeout=30, check=False)
         self.assertEqual(result.returncode, 0, result.stderr)
         found = json.loads(result.stdout)
-        self.assertEqual(found["afterOne"], {"writes": [["all", 24], ["add", 24]], "shown": 48, "hidden": False, "watched": 1}, "de tweede lading komt erbij, de eerste blijft staan")
+        self.assertEqual(
+            found["afterOne"],
+            {"writes": [["all", 24], ["add", 24]], "shown": 48, "hidden": False, "watched": 1},
+            "de tweede lading komt erbij, de eerste blijft staan",
+        )
         self.assertEqual(found["closedPage"], 48, "een pagina die niet open staat laadt niets")
         self.assertEqual(found["farAway"], 48, "het einde is nog ver: niets")
         self.assertEqual(found["end"], {"shown": 60, "hidden": True, "writes": 3}, "bij het einde in de buurt tot de lijst op is")
@@ -986,7 +1152,9 @@ class FiltersEverywhereTest(unittest.TestCase):
 
     @unittest.skipUnless(shutil.which("node"), "Node is not installed")
     def test_2026_11_10_an_order_filters_on_category_and_brand_and_counts_with_the_other_list(self):
-        found = test_order_views.OrderViewsNodeTest.run_js(self, """
+        found = test_order_views.OrderViewsNodeTest.run_js(
+            self,
+            """
 const lines = [line("vis", 1, 2, 0, { brand: "AH", title: "Zalm" }), line("vis", 1, 3, 0, { brand: "Fish Tales", title: "Tonijn" }),
   line("zuivel_eieren", 1, 1, 0, { brand: "AH", title: "Melk" }), line("zuivel_eieren", 1, 1, 0, { brand: "", title: "Eieren" })];
 const sel = (shown = [], hidden = []) => ({ shown, hidden });
@@ -1001,7 +1169,8 @@ console.log(JSON.stringify({
   brands: rows.brand.map((row) => [row.value, row.count]),
   found: orderFacetRows(lines, orderFacetsEmpty(), "fish").brand.map((row) => row.value),
 }));
-""")
+""",
+        )
         self.assertEqual(found["plus"], ["Zalm", "Tonijn"])
         self.assertEqual(found["minus"], ["Tonijn", "Eieren"], "een regel zonder merk valt niet weg met een min op een ander merk")
         self.assertEqual((found["both"], found["search"]), (["Tonijn"], 0))
@@ -1031,13 +1200,19 @@ console.log(JSON.stringify(out));"""
 
 
 class FiltersEverywhereHistoryTest(PricesCase):
-    PRODUCTS: tuple[tuple[str, str, str], ...] = (("1", "Unox Rookworst", "Unox"), ("2", "Unox Tomatensoep", "Unox"), ("3", "AH Halfvolle melk", "AH"))
+    PRODUCTS: tuple[tuple[str, str, str], ...] = (
+        ("1", "Unox Rookworst", "Unox"),
+        ("2", "Unox Tomatensoep", "Unox"),
+        ("3", "AH Halfvolle melk", "AH"),
+    )
 
     async def filtered(self, **chosen):
         return await prices.history("ah", "", 50, **chosen)
 
     async def test_2026_11_10_the_price_history_filters_and_counts_brands_and_categories(self):
-        await prices.record("ah", [{"id": pid, "title": title, "price": 2.0, "unitSize": "500 g", "brand": brand} for pid, title, brand in self.PRODUCTS])
+        await prices.record(
+            "ah", [{"id": pid, "title": title, "price": 2.0, "unitSize": "500 g", "brand": brand} for pid, title, brand in self.PRODUCTS]
+        )
         category = {pid: offer_categories.offer_category("ah", title) for pid, title, _ in self.PRODUCTS}
         ids = lambda data: sorted(product["productId"] for product in data["products"])  # noqa: E731
         plain = await self.filtered()
@@ -1046,7 +1221,9 @@ class FiltersEverywhereHistoryTest(PricesCase):
         unox = await self.filtered(brands=["Unox"])
         self.assertEqual((ids(unox), unox["total"]), (["1", "2"], 2))
         self.assertEqual(unox["facets"]["brands"], plain["facets"]["brands"], "de eigen keuze telt niet mee in de eigen lijst")
-        self.assertEqual({row["value"] for row in unox["facets"]["categories"]}, {category["1"], category["2"]}, "de categorieen tellen binnen het merk")
+        self.assertEqual(
+            {row["value"] for row in unox["facets"]["categories"]}, {category["1"], category["2"]}, "de categorieen tellen binnen het merk"
+        )
         self.assertEqual(ids(await self.filtered(brands_out=["Unox"])), ["3"])
         self.assertEqual(ids(await self.filtered(brands=["Unox"], brands_out=["Unox"])), [], "de min wint")
         self.assertEqual(ids(await self.filtered(categories=[category["3"]])), sorted(pid for pid in category if category[pid] == category["3"]))
@@ -1099,7 +1276,8 @@ class TwoNumbersOneProductTest(PricesCase):
         with closing(db(ah_orders)) as conn, conn:
             conn.execute(
                 "INSERT INTO ah_receipt_products (receipt_product_id, product_id, title, checked_at, brand, unit_size) "
-                "VALUES (794881, 230786, ?, 'x', 'AH', 'per stuk')", (self.NAME,)
+                "VALUES (794881, 230786, ?, 'x', 'AH', 'per stuk')",
+                (self.NAME,),
             )
         await self.ah_order(101, "delivered", days(-10), order_item(446408, self.NAME, 2.39, "per stuk"))
 
@@ -1120,8 +1298,11 @@ class TwoNumbersOneProductTest(PricesCase):
             conn.executemany(
                 "INSERT INTO imported_purchases (store, order_ref, position, day, title, quantity, paid, regular, imported_at) "
                 "VALUES ('ah', ?, 1, ?, ?, 1, 2.39, 2.39, 'x')",
-                (("M1", "2022-05-31", "AH Les pain triomphe heel"), ("M2", "2022-12-14", "AH Les pain triomphe heel online"),
-                 ("M3", "2023-02-11", "AH Les pain triomphe blanc heel")),
+                (
+                    ("M1", "2022-05-31", "AH Les pain triomphe heel"),
+                    ("M2", "2022-12-14", "AH Les pain triomphe heel online"),
+                    ("M3", "2023-02-11", "AH Les pain triomphe blanc heel"),
+                ),
             )
         found: dict = await prices.history("ah", "triomphe", 50, today=TODAY)
         bought: dict[str, int] = {product["productId"]: product["timesBought"] for product in found["products"]}
@@ -1133,11 +1314,16 @@ class TwoNumbersOneProductTest(PricesCase):
         self.assertEqual(sorted(product["productId"] for product in found["products"]), ["446408", "999"])
 
     def test_2026_11_10_a_leaflet_word_naming_the_category_may_be_missing_from_the_name(self) -> None:
-        index = line_offers.LineIndex([
-            ("folder:1", "Folder: Alle AH Bakkersbrood Les Pains heel"), ("folder:2", "Folder: Alle AH Bakkersbrood"),
-            ("folder:3", "Folder: AH Les Pains heel"), ("folder:4", "Folder: AH Bakkersbrood Les Pains half"),
-            ("folder:5", "Folder: Alle AH Bakkersbrood tijgerbrood heel"), ("folder:6", "Folder: AH Tijgerbrood heel"),
-        ])
+        index = line_offers.LineIndex(
+            [
+                ("folder:1", "Folder: Alle AH Bakkersbrood Les Pains heel"),
+                ("folder:2", "Folder: Alle AH Bakkersbrood"),
+                ("folder:3", "Folder: AH Les Pains heel"),
+                ("folder:4", "Folder: AH Bakkersbrood Les Pains half"),
+                ("folder:5", "Folder: Alle AH Bakkersbrood tijgerbrood heel"),
+                ("folder:6", "Folder: AH Tijgerbrood heel"),
+            ]
+        )
         bread: frozenset[str] = line_offers.category_words("brood_bakkerij")
         self.assertEqual(bread, {"brood", "bakkerij"})
         self.assertEqual(index.lines_for(["ah les pains triomphe heel ah"], (), bread), ["folder:1", "folder:3"])
@@ -1152,8 +1338,14 @@ class OfferPerWeightTest(PricesCase):
     LABEL = "per 100 GRAM voor \u20ac1.59"
 
     def item(self, size):
-        return {"webshopId": 3994, "title": "AH Greenfields Runder riblap", "salesUnitSize": size, "currentPrice": 1.59, "priceBeforeBonus": 15.49,
-                "discountLabels": [{"defaultDescription": self.LABEL}]}
+        return {
+            "webshopId": 3994,
+            "title": "AH Greenfields Runder riblap",
+            "salesUnitSize": size,
+            "currentPrice": 1.59,
+            "priceBeforeBonus": 15.49,
+            "discountLabels": [{"defaultDescription": self.LABEL}],
+        }
 
     def test_2026_11_10_a_price_per_100_gram_becomes_the_price_of_the_pack(self):
         product = ah._bonus_product(self.item("ca. 755 g"))
@@ -1169,11 +1361,16 @@ class OfferPerWeightTest(PricesCase):
 
     async def test_2026_11_10_rows_stored_with_the_price_per_100_gram_are_repaired(self):
         async with offers._connect() as conn:
-            await conn.execute("INSERT INTO offers (store, product_id, position, title, unit_size, price, price_before, promo_label) VALUES ('ah', '3994', 1, 'Riblap', 'ca. 755 g', 1.59, 15.49, ?)", (self.LABEL,))
+            await conn.execute(
+                "INSERT INTO offers (store, product_id, position, title, unit_size, price, price_before, promo_label) VALUES ('ah', '3994', 1, 'Riblap', 'ca. 755 g', 1.59, 15.49, ?)",
+                (self.LABEL,),
+            )
             for product_id, size, price in (("3994", "ca. 755 g", 1.59), ("4002", "per stuk", 1.59), ("3996", "ca. 700 g", 11.13)):
                 await conn.execute(
                     "INSERT INTO offer_history (store, product_id, title, unit_size, price, price_before, promo_label, first_seen, last_seen) "
-                    "VALUES ('ah', ?, 'Vlees', ?, ?, 15.49, ?, '2026-11-10T04:04:41+00:00', '2026-11-10T04:04:41+00:00')", (product_id, size, price, self.LABEL))
+                    "VALUES ('ah', ?, 'Vlees', ?, ?, 15.49, ?, '2026-11-10T04:04:41+00:00', '2026-11-10T04:04:41+00:00')",
+                    (product_id, size, price, self.LABEL),
+                )
             await conn.commit()
             await offers._repair_measure_prices(conn)
             current = [row["price"] for row in await conn.execute_fetchall("SELECT price FROM offers")]
@@ -1229,13 +1426,25 @@ console.log(JSON.stringify({ before, loaded, html, optimistic, calls, after: sho
         self.assertEqual(found["loaded"], [["111", False, "2", False], ["222", False, "0", True]])
         self.assertIn('value="2"', found["html"])
         self.assertNotIn(" hidden", found["html"])
-        for marker in ('data-cart="111"', 'data-cart-step="-1"', 'data-cart-step="1"', 'min="0"', "offers.cart.quantity", "list.qty_minus", "offers.cart.plus"):
+        for marker in (
+            'data-cart="111"',
+            'data-cart-step="-1"',
+            'data-cart-step="1"',
+            'min="0"',
+            "offers.cart.quantity",
+            "list.qty_minus",
+            "offers.cart.plus",
+        ):
             self.assertIn(marker, found["html"], marker)
         self.assertEqual(found["optimistic"][1], ["222", False, "3", False], "het aantal staat er meteen")
-        self.assertEqual(found["calls"], [
-            {"url": "/api/ah/cart", "method": "GET", "body": None},
-            {"url": "/api/ah/cart/items/222", "method": "PUT", "body": {"quantity": 3, "title": "Product 222"}},
-        ], "drie keer plus is een verzoek met het exacte aantal")
+        self.assertEqual(
+            found["calls"],
+            [
+                {"url": "/api/ah/cart", "method": "GET", "body": None},
+                {"url": "/api/ah/cart/items/222", "method": "PUT", "body": {"quantity": 3, "title": "Product 222"}},
+            ],
+            "drie keer plus is een verzoek met het exacte aantal",
+        )
         self.assertEqual(found["after"], [["111", False, "2", False], ["222", False, "3", False]])
         self.assertEqual(found["folder"], "", "een folderactie voor een hele lijn is geen product")
 
@@ -1266,8 +1475,17 @@ class PackFamiliesTest(PricesCase):
     is, dat maakt het nog niet goedkoper dan de bulk 1000gr verpakking"."""
 
     async def test_2026_11_09_packs_of_one_product_share_a_card_with_the_cheapest_per_unit(self):
-        await prices.record("ah", [{"id": "1000", "title": "AH Rundergehakt 1000 g", "price": 7.49, "unitSize": "1000 g", "brand": "AH"}], now="2026-11-08T08:00:00+00:00")
-        found = {item["id"]: item for item in await prices.annotate("ah", [offer("300", "AH Rundergehakt 300 g", 3.65, 4.29, "nu 3,65", unitSize="300 g", brand="AH")], today="2026-11-09")}
+        await prices.record(
+            "ah",
+            [{"id": "1000", "title": "AH Rundergehakt 1000 g", "price": 7.49, "unitSize": "1000 g", "brand": "AH"}],
+            now="2026-11-08T08:00:00+00:00",
+        )
+        found = {
+            item["id"]: item
+            for item in await prices.annotate(
+                "ah", [offer("300", "AH Rundergehakt 300 g", 3.65, 4.29, "nu 3,65", unitSize="300 g", brand="AH")], today="2026-11-09"
+            )
+        }
         family = found["300"]["family"]
         self.assertEqual([(p["productId"], p["cheapest"]) for p in family["packs"]], [("300", False), ("1000", True)])
         self.assertEqual(found["300"]["verdict"]["cheaperPack"]["productId"], "1000", "de 300 g in de aanbieding is per kilo duurder dan de 1000 g")
@@ -1280,8 +1498,15 @@ class ConditionalOfferPriceTest(PricesCase):
     noemt (2,49): als actieprijs van vandaag, als laagste actieprijs en als balk in de grafiek."""
 
     def mutti(self) -> dict:
-        return {"id": "234871", "title": "Mutti Pizzasaus aromatica", "price": 2.49, "priceBefore": None, "promoLabel": "2e halve prijs",
-                "unitSize": "388 ml", "brand": "Mutti"}
+        return {
+            "id": "234871",
+            "title": "Mutti Pizzasaus aromatica",
+            "price": 2.49,
+            "priceBefore": None,
+            "promoLabel": "2e halve prijs",
+            "unitSize": "388 ml",
+            "brand": "Mutti",
+        }
 
     async def test_2026_11_09_the_history_gives_what_a_piece_costs_with_the_offer(self):
         await self.sync_offer(f"{TODAY}T05:00:00+00:00", self.mutti())
@@ -1300,10 +1525,29 @@ class ConditionalOfferPriceTest(PricesCase):
     @unittest.skipUnless(shutil.which("node"), "Node is not installed")
     def test_2026_11_09_the_chart_and_the_popup_show_the_price_per_piece(self):
         product = {
-            "store": "ah", "productId": "234871", "title": "Mutti Pizzasaus aromatica", "unitSize": "388 ml", "onOfferNow": True,
-            "episodes": [{"start": days(0), "end": days(6), "open": False, "price": 2.49, "perPiece": 1.87, "priceBefore": None, "promoLabel": "2e halve prijs"}],
-            "timesOnOffer": 1, "lowestPrice": 1.87, "regularPrice": 2.49, "regular": [{"from": days(-300), "to": days(0), "price": 2.49}],
-            "purchases": [{"date": days(-247), "price": 1.87, "quantity": 1, "source": "import", "ref": "1"}], "observed": [], "lineOffers": [],
+            "store": "ah",
+            "productId": "234871",
+            "title": "Mutti Pizzasaus aromatica",
+            "unitSize": "388 ml",
+            "onOfferNow": True,
+            "episodes": [
+                {
+                    "start": days(0),
+                    "end": days(6),
+                    "open": False,
+                    "price": 2.49,
+                    "perPiece": 1.87,
+                    "priceBefore": None,
+                    "promoLabel": "2e halve prijs",
+                }
+            ],
+            "timesOnOffer": 1,
+            "lowestPrice": 1.87,
+            "regularPrice": 2.49,
+            "regular": [{"from": days(-300), "to": days(0), "price": 2.49}],
+            "purchases": [{"date": days(-247), "price": 1.87, "quantity": 1, "source": "import", "ref": "1"}],
+            "observed": [],
+            "lineOffers": [],
         }
         shown = {"price": 2.49, "unitPrice": 1.87, "promoLabel": "2e halve prijs", "verdict": {"lowestRegular": 2.49}}
         html = test_history_chart_js.HistoryChartTest().render(product, offer=shown)
@@ -1369,22 +1613,16 @@ class SpeedTest(PricesCase):
             offer("1", "AH Penne", 0.89, 1.19, "25% korting", unitSize="500 g"),
         )
         client = self.client_for(create_app())
-        with mock.patch.object(
-            prices, "annotate", side_effect=prices.annotate
-        ) as annotate:
+        with mock.patch.object(prices, "annotate", side_effect=prices.annotate) as annotate:
             for _ in range(3):
-                self.assertEqual(
-                    (await client.get("/api/offers?store=ah")).status_code, 200
-                )
+                self.assertEqual((await client.get("/api/offers?store=ah")).status_code, 200)
         self.assertEqual(annotate.call_count, 1)
 
     async def test_2026_11_08_price_history_builds_the_catalogue_once(self):
         # "deze pagina is veel trager dan dat hij redelijkerwijs zou moeten zijn: /offers/history?..." (4.1.5).
         await prices.record("ah", [{"id": "1", "title": "AH Pindakaas", "price": 2.99}])
         client = self.client_for(create_app())
-        with mock.patch.object(
-            prices, "_known_products", wraps=prices._known_products
-        ) as built:
+        with mock.patch.object(prices, "_known_products", wraps=prices._known_products) as built:
             for query in ("pindakaas", "pinda", "kaas"):
                 self.assertEqual(
                     (
@@ -1412,12 +1650,8 @@ class SpeedTest(PricesCase):
             ),
         )
         await self.sync_offer("2026-01-11T23:00:00+00:00")
-        with mock.patch.object(
-            prices, "_episode_effective", wraps=prices._episode_effective
-        ) as read:
-            await prices.annotate(
-                "ah", [offer("1", "AH Penne", 0.89, 1.19, "25% korting")], today=TODAY
-            )
+        with mock.patch.object(prices, "_episode_effective", wraps=prices._episode_effective) as read:
+            await prices.annotate("ah", [offer("1", "AH Penne", 0.89, 1.19, "25% korting")], today=TODAY)
         self.assertEqual(read.call_count, 0, "AH Hagelslag is niet in de aanbieding")
 
 
@@ -1445,9 +1679,7 @@ class ArchiveTest(unittest.TestCase):
         }
         with closing(__import__("sqlite3").connect(":memory:")) as conn:
             kept = price_archive_tidy.Tidy(conn, keep_unlinked=True).offer(dict(row))
-            dropped = price_archive_tidy.Tidy(conn, keep_unlinked=False).offer(
-                dict(row)
-            )
+            dropped = price_archive_tidy.Tidy(conn, keep_unlinked=False).offer(dict(row))
         self.assertIsNone(dropped)
         assert kept is not None
         self.assertTrue(kept["product_id"].startswith("folder:"))
@@ -1461,9 +1693,7 @@ class ArchiveTest(unittest.TestCase):
             price_archive.site_document("picnic/observations/2022-001.json"),
             ("price", "picnic"),
         )
-        self.assertEqual(
-            price_archive.site_document("observations/2021-001.json"), ("price", None)
-        )
+        self.assertEqual(price_archive.site_document("observations/2021-001.json"), ("price", None))
 
 
 @unittest.skipUnless(shutil.which("node"), "Node is niet geïnstalleerd")
@@ -1471,7 +1701,6 @@ class BrowserTest(unittest.TestCase):
     """Meldingen over wat de pagina doet, met de echte router, tabknoppen en winkelkeuze in Node (zie test_history_stores_js)."""
 
     run_script = test_history_stores_js.HistoryStoreNavigationTest.run_script  # dezelfde nagebootste pagina, zonder die tests nog eens te draaien
-
 
     def test_2026_11_08_unlinked_store_stays_reachable_in_price_history(self):
         # 3.13.1 in productie, overgezet in 4.1.2: prijzen uit een archief van een winkel zonder koppeling waren onbereikbaar.
@@ -1481,12 +1710,7 @@ routerApply('http://localhost/offers/history?store=crisp'); await settle();
 console.log(JSON.stringify({store: offersState.store, requests}));
 """)
         self.assertEqual(result["store"], "crisp")
-        self.assertTrue(
-            any(
-                "/api/prices/history?store=crisp&" in path
-                for path in result["requests"]
-            )
-        )
+        self.assertTrue(any("/api/prices/history?store=crisp&" in path for path in result["requests"]))
 
     def test_2026_11_08_offers_page_asks_once_for_the_right_week(self):
         # Drie aanvragen bij het openen van /offers (4.1.3): twee voor dezelfde week en een voor de week uit Mealie.
@@ -1508,9 +1732,7 @@ routerApply('http://localhost/offers/history?q=Dr.+Oetker&product=233387'); awai
 console.log(JSON.stringify({requests: requests.filter(path => path.startsWith('/api/prices/history'))}));
 """)
         self.assertTrue(result["requests"])
-        self.assertTrue(
-            all("pin=233387" in path for path in result["requests"]), result["requests"]
-        )
+        self.assertTrue(all("pin=233387" in path for path in result["requests"]), result["requests"])
 
 
 @unittest.skipUnless(shutil.which("node"), "Node is niet geïnstalleerd")
@@ -1540,11 +1762,7 @@ class StaleTabTest(unittest.TestCase):
     def test_a_stale_tab_loads_the_whole_page_on_the_next_click(self):
         router = (ROOT / "static" / "router.js").read_text(encoding="utf-8")
         block = router[router.index("// ---- een tabblad van voor een nieuwe versie") :]
-        navigate = router[
-            router.index("function routerNavigate(href) {") : router.index(
-                "// Een winkel die in het adres staat"
-            )
-        ]
+        navigate = router[router.index("function routerNavigate(href) {") : router.index("// Een winkel die in het adres staat")]
         script = (
             r"""
 const document = {querySelector: () => ({content: "oud"}), addEventListener: () => {}, visibilityState: "visible"};
@@ -1565,9 +1783,7 @@ routerNavigate("/offers/history?product=2");
 console.log(JSON.stringify({assigned, applied}));
 """
         )
-        result = subprocess.run(
-            ["node", "-e", script], check=False, capture_output=True, text=True, timeout=30
-        )
+        result = subprocess.run(["node", "-e", script], check=False, capture_output=True, text=True, timeout=30)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(
             json.loads(result.stdout),
@@ -1576,7 +1792,6 @@ console.log(JSON.stringify({assigned, applied}));
                 "applied": ["http://localhost/offers/history?product=1"],
             },
         )
-
 
 
 class CookingIngredientsFitOnAPhoneTest(unittest.TestCase):
@@ -1613,7 +1828,10 @@ class LooseNamesSharedListTest(test_shared_links.SharedListCase):
         is en of we dit goed automatisch kunnen regelen". Een oude naam uit een bestelmail die in het gedeelde bestand staat, hoort
         bij het product van nu."""
         await self.seed_catalogue()
-        orders = (test_price_import.mail_order(number=f"N{n}", day=f"2026-09-1{n}", items=test_shared_links.mail_lines("AH Doosjevol kersen")) for n in range(3))
+        orders = (
+            test_price_import.mail_order(number=f"N{n}", day=f"2026-09-1{n}", items=test_shared_links.mail_lines("AH Doosjevol kersen"))
+            for n in range(3)
+        )
         await self.run_import(*orders)
         products = (await prices.history("ah", "", 50, today="2026-10-20", product="1234"))["products"]
         self.assertEqual(sum(p["timesBought"] for p in products if p["productId"] == "1234"), 1, "zonder het bestand is het een losse naam")

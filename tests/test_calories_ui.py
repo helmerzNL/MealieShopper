@@ -85,7 +85,9 @@ class PureFunctionsTest(unittest.TestCase):
         self.assertIsNone(self.run_js("recipeKcal(null)"))
 
     def test_the_note_of_a_search_on_nutrition(self):
-        self.assertEqual(self.run_js("kcalSearchNote({ indexing: { done: 12, total: 80 }, withoutValues: 3 })"), 'kcal.indexing{"done":"12","total":"80"}')
+        self.assertEqual(
+            self.run_js("kcalSearchNote({ indexing: { done: 12, total: 80 }, withoutValues: 3 })"), 'kcal.indexing{"done":"12","total":"80"}'
+        )
         self.assertEqual(self.run_js("kcalSearchNote({ indexing: null, withoutValues: 3, withoutKcal: 3 })"), "kcal.without:3")
         self.assertEqual(self.run_js("kcalSearchNote({ withoutKcal: 2 })"), "kcal.without:2", "een antwoord van 4.4")
         self.assertEqual(self.run_js("kcalSearchNote({ withoutValues: 0 })"), "")
@@ -94,10 +96,18 @@ class PureFunctionsTest(unittest.TestCase):
         items = [{"key": "proteinContent", "quantity": 27}, {"key": "sugarContent", "quantity": 6.04}, {"key": "sodiumContent", "quantity": 180}]
         html = self.run_js(f"nutritionBrief({json.dumps(items)})")
         part = lambda text: f'<span class="nutrition-brief__part">{text}</span>'  # noqa: E731
-        self.assertEqual(html, '<span class="kcal nutrition-brief kcal--after">' + " · ".join([
-            part("nutrition.brief_protein{&quot;amount&quot;:&quot;27 g&quot;}"), part("nutrition.brief_sugar{&quot;amount&quot;:&quot;6 g&quot;}"),
-            part("nutrition.brief_salt{&quot;amount&quot;:&quot;0.45 g&quot;}"),
-        ]) + "</span>")
+        self.assertEqual(
+            html,
+            '<span class="kcal nutrition-brief kcal--after">'
+            + " · ".join(
+                [
+                    part("nutrition.brief_protein{&quot;amount&quot;:&quot;27 g&quot;}"),
+                    part("nutrition.brief_sugar{&quot;amount&quot;:&quot;6 g&quot;}"),
+                    part("nutrition.brief_salt{&quot;amount&quot;:&quot;0.45 g&quot;}"),
+                ]
+            )
+            + "</span>",
+        )
         self.assertNotIn("kcal--after", self.run_js(f"nutritionBrief({json.dumps(items)}, false)"))
         self.assertEqual(self.run_js("nutritionBrief([])"), "")
 

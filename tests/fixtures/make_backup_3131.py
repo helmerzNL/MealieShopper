@@ -26,12 +26,30 @@ from typing import Any
 
 OFFERS: list[dict[str, Any]] = [
     {
-        "id": "wi1001", "title": "Spam in blik", "brand": "Hormel", "unitSize": "340 g", "price": 2.49, "priceBefore": 3.29,
-        "promoLabel": "25% korting", "image": "", "url": "", "validFrom": "2026-11-02", "validUntil": "2026-11-08",
+        "id": "wi1001",
+        "title": "Spam in blik",
+        "brand": "Hormel",
+        "unitSize": "340 g",
+        "price": 2.49,
+        "priceBefore": 3.29,
+        "promoLabel": "25% korting",
+        "image": "",
+        "url": "",
+        "validFrom": "2026-11-02",
+        "validUntil": "2026-11-08",
     },
     {
-        "id": "wi1002", "title": "Scharreleieren", "brand": "AH", "unitSize": "10 stuks", "price": 2.99, "priceBefore": None,
-        "promoLabel": "2e halve prijs", "image": "", "url": "", "validFrom": "2026-11-02", "validUntil": "2026-11-08",
+        "id": "wi1002",
+        "title": "Scharreleieren",
+        "brand": "AH",
+        "unitSize": "10 stuks",
+        "price": 2.99,
+        "priceBefore": None,
+        "promoLabel": "2e halve prijs",
+        "image": "",
+        "url": "",
+        "validFrom": "2026-11-02",
+        "validUntil": "2026-11-08",
     },
 ]
 

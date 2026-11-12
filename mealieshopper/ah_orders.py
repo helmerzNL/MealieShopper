@@ -12,6 +12,7 @@ niet bereikbaar is. Alleen een synchronisatie praat met AH.
 - **Kassabonnen** (aankopen in de winkel) worden aangevuld: alleen nieuwe bonnen worden opgehaald.
 Het afleveradres bewaren we bewust niet; alleen datum en tijdvak.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -178,9 +179,17 @@ def _now() -> str:
 
 def _item_values(item: dict[str, Any]) -> tuple:
     return (
-        item.get("productId"), item.get("title"), item.get("brand"), item.get("unitSize"), item.get("quantity"),
-        item.get("amount"), item.get("price"), item.get("priceBeforeBonus"), 1 if item.get("bonus") else 0,
-        item.get("taxonomy"), item.get("image"),
+        item.get("productId"),
+        item.get("title"),
+        item.get("brand"),
+        item.get("unitSize"),
+        item.get("quantity"),
+        item.get("amount"),
+        item.get("price"),
+        item.get("priceBeforeBonus"),
+        1 if item.get("bonus") else 0,
+        item.get("taxonomy"),
+        item.get("image"),
     )
 
 
@@ -193,10 +202,17 @@ def _line_amount(row: Any) -> float | None:
 
 def _item_json(row: Any) -> dict[str, Any]:
     return {
-        "productId": row["product_id"], "title": row["title"], "brand": row["brand"], "unitSize": row["unit_size"],
-        "quantity": row["quantity"], "amount": _line_amount(row), "price": row["price"],
-        "priceBeforeBonus": row["price_before_bonus"], "bonus": bool(row["bonus"]),
-        "taxonomy": row["taxonomy"], "image": row["image"],
+        "productId": row["product_id"],
+        "title": row["title"],
+        "brand": row["brand"],
+        "unitSize": row["unit_size"],
+        "quantity": row["quantity"],
+        "amount": _line_amount(row),
+        "price": row["price"],
+        "priceBeforeBonus": row["price_before_bonus"],
+        "bonus": bool(row["bonus"]),
+        "taxonomy": row["taxonomy"],
+        "image": row["image"],
     }
 
 
@@ -215,6 +231,7 @@ async def synced_at(key: str) -> str | None:
 
 # --- bestelmandje ---------------------------------------------------------------------------------
 
+
 async def save_basket(basket: dict[str, Any]) -> None:
     async with _connect() as conn:
         await conn.execute("DELETE FROM ah_basket")
@@ -224,8 +241,17 @@ async def save_basket(basket: dict[str, Any]) -> None:
             INSERT INTO ah_basket (id, order_id, state, shopping_type, total, discount, delivery_date, slot_start, slot_end, synced_at)
             VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (basket.get("id"), basket.get("state"), basket.get("shoppingType"), basket.get("total"), basket.get("discount"),
-             basket.get("deliveryDate"), basket.get("slotStart"), basket.get("slotEnd"), _now()),
+            (
+                basket.get("id"),
+                basket.get("state"),
+                basket.get("shoppingType"),
+                basket.get("total"),
+                basket.get("discount"),
+                basket.get("deliveryDate"),
+                basket.get("slotStart"),
+                basket.get("slotEnd"),
+                _now(),
+            ),
         )
         await conn.executemany(
             f"INSERT INTO ah_basket_items (position, {', '.join(ITEM_COLUMNS)}) VALUES (?{', ?' * len(ITEM_COLUMNS)})",
@@ -243,9 +269,16 @@ async def get_basket() -> dict[str, Any]:
         return {"syncedAt": None, "items": [], "itemCount": 0, "units": 0}
     items = [_item_json(row) for row in rows]
     return {
-        "syncedAt": head["synced_at"], "orderId": head["order_id"], "state": head["state"], "total": head["total"],
-        "discount": head["discount"], "deliveryDate": head["delivery_date"], "slotStart": head["slot_start"],
-        "slotEnd": head["slot_end"], "items": items, "itemCount": len(items),
+        "syncedAt": head["synced_at"],
+        "orderId": head["order_id"],
+        "state": head["state"],
+        "total": head["total"],
+        "discount": head["discount"],
+        "deliveryDate": head["delivery_date"],
+        "slotStart": head["slot_start"],
+        "slotEnd": head["slot_end"],
+        "items": items,
+        "itemCount": len(items),
         "units": sum(item["quantity"] or 0 for item in items),
     }
 
@@ -261,9 +294,16 @@ def cart_summary(basket: dict[str, Any]) -> dict[str, Any]:
     Een vrije tekstregel heeft geen product en telt alleen mee in `totalCount`."""
     lines: list[dict[str, Any]] = basket.get("items") or []
     items: list[dict[str, Any]] = [
-        {"id": str(line["productId"]), "title": line.get("title"), "quantity": line.get("quantity") or 0, "unitSize": line.get("unitSize") or None,
-         "price": line.get("price"), "image": line.get("image") or None}
-        for line in lines if line.get("productId")
+        {
+            "id": str(line["productId"]),
+            "title": line.get("title"),
+            "quantity": line.get("quantity") or 0,
+            "unitSize": line.get("unitSize") or None,
+            "price": line.get("price"),
+            "image": line.get("image") or None,
+        }
+        for line in lines
+        if line.get("productId")
     ]
     return {"items": items, "totalCount": sum(line.get("quantity") or 0 for line in lines)}
 
@@ -284,6 +324,7 @@ async def set_cart_quantity(product_id: Any, quantity: Any, title: Any = "") -> 
 
 # --- bestellingen ---------------------------------------------------------------------------------
 
+
 async def _save_order(conn: aiosqlite.Connection, header: dict[str, Any], kind: str, items: list[dict[str, Any]] | None) -> None:
     """Bewaar of werk een bestelling bij. `items=None` laat de bewaarde producten staan. Wie aanroept, commit."""
     now = _now()
@@ -302,10 +343,21 @@ async def _save_order(conn: aiosqlite.Connection, header: dict[str, Any], kind: 
           slot_end = COALESCE(NULLIF(excluded.slot_end, ''), ah_orders.slot_end),
           items_synced = excluded.items_synced, synced_at = excluded.synced_at
         """,
-        (header["id"], kind, header.get("state"), header.get("stateText"), header.get("shoppingType"), header.get("method"),
-         header.get("total"), header.get("deliveryDate"), header.get("slotStart"), header.get("slotEnd"),
-         1 if items is not None else (existing["items_synced"] if existing else 0),
-         existing["first_seen"] if existing else now, now),
+        (
+            header["id"],
+            kind,
+            header.get("state"),
+            header.get("stateText"),
+            header.get("shoppingType"),
+            header.get("method"),
+            header.get("total"),
+            header.get("deliveryDate"),
+            header.get("slotStart"),
+            header.get("slotEnd"),
+            1 if items is not None else (existing["items_synced"] if existing else 0),
+            existing["first_seen"] if existing else now,
+            now,
+        ),
     )
     if items is not None:
         await conn.execute("DELETE FROM ah_order_items WHERE order_id = ?", (header["id"],))
@@ -361,8 +413,12 @@ async def sync_orders() -> dict[str, Any]:
     listed_open = await ah.get_open_fulfillments()
     async with _connect() as conn:
         previously_open = [row["order_id"] for row in await conn.execute_fetchall("SELECT order_id FROM ah_orders WHERE kind = 'open'")]
-        complete = {row["order_id"] for row in await conn.execute_fetchall("SELECT order_id FROM ah_orders WHERE kind = 'delivered' AND items_synced = 1")}
-        incomplete = [row["order_id"] for row in await conn.execute_fetchall("SELECT order_id FROM ah_orders WHERE kind = 'delivered' AND items_synced = 0")]
+        complete = {
+            row["order_id"] for row in await conn.execute_fetchall("SELECT order_id FROM ah_orders WHERE kind = 'delivered' AND items_synced = 1")
+        }
+        incomplete = [
+            row["order_id"] for row in await conn.execute_fetchall("SELECT order_id FROM ah_orders WHERE kind = 'delivered' AND items_synced = 0")
+        ]
     closed_orders = await _closed_orders(complete)
     cancelled = {order["id"] for order in listed_open + closed_orders if order.get("deliveryStatus") == "CANCELLED"}
     open_orders = [order for order in listed_open if order["id"] not in cancelled]
@@ -417,10 +473,18 @@ async def add_order_by_id(order_id: int) -> dict[str, Any]:
 
 def _order_json(row: Any, count: int | None = None) -> dict[str, Any]:
     return {
-        "id": row["order_id"], "kind": row["kind"], "state": row["state"], "stateText": row["state_text"],
-        "shoppingType": row["shopping_type"], "method": row["method"], "total": row["total"],
-        "deliveryDate": row["delivery_date"], "slotStart": row["slot_start"], "slotEnd": row["slot_end"],
-        "itemsSynced": bool(row["items_synced"]), "syncedAt": row["synced_at"],
+        "id": row["order_id"],
+        "kind": row["kind"],
+        "state": row["state"],
+        "stateText": row["state_text"],
+        "shoppingType": row["shopping_type"],
+        "method": row["method"],
+        "total": row["total"],
+        "deliveryDate": row["delivery_date"],
+        "slotStart": row["slot_start"],
+        "slotEnd": row["slot_end"],
+        "itemsSynced": bool(row["items_synced"]),
+        "syncedAt": row["synced_at"],
         **({"itemCount": count} if count is not None else {}),
     }
 
@@ -445,8 +509,10 @@ _ORDER_SUMMARY_SQL = f"""
 def _order_summary(row: Any) -> dict[str, Any]:
     savings = row["summary_savings"]
     return {
-        "images": price_import.split_lines(row["summary_images"]), "productNames": price_import.split_lines(row["summary_names"]),
-        "savings": round(float(savings), 2) if savings is not None else None, "bonusCount": int(row["summary_bonus"] or 0),
+        "images": price_import.split_lines(row["summary_images"]),
+        "productNames": price_import.split_lines(row["summary_names"]),
+        "savings": round(float(savings), 2) if savings is not None else None,
+        "bonusCount": int(row["summary_bonus"] or 0),
         **_status_fields("order", row),
     }
 
@@ -498,6 +564,7 @@ async def get_order(order_id: int) -> dict[str, Any] | None:
 
 # --- kassabonnen ----------------------------------------------------------------------------------
 
+
 async def sync_receipts() -> dict[str, Any]:
     """Vul de kassabonnen aan: nieuwe bonnen ophalen, daarna van een aantal bonnen de regels."""
     listed: list[dict[str, Any]] = []
@@ -514,8 +581,12 @@ async def sync_receipts() -> dict[str, Any]:
             "INSERT INTO ah_receipts (receipt_id, date_time, total, first_seen) VALUES (?, ?, ?, ?)",
             [(receipt["id"], receipt["dateTime"], receipt["total"], now) for receipt in new],
         )
-        pending = [row["receipt_id"] for row in await conn.execute_fetchall(
-            "SELECT receipt_id FROM ah_receipts WHERE details_synced = 0 ORDER BY date_time DESC LIMIT ?", (RECEIPT_DETAILS_PER_SYNC,))]
+        pending = [
+            row["receipt_id"]
+            for row in await conn.execute_fetchall(
+                "SELECT receipt_id FROM ah_receipts WHERE details_synced = 0 ORDER BY date_time DESC LIMIT ?", (RECEIPT_DETAILS_PER_SYNC,)
+            )
+        ]
         await conn.commit()
     failed = 0
     for receipt_id in pending:
@@ -532,8 +603,10 @@ async def sync_receipts() -> dict[str, Any]:
             await conn.execute("DELETE FROM ah_receipt_items WHERE receipt_id = ?", (receipt_id,))
             await conn.executemany(
                 "INSERT INTO ah_receipt_items (receipt_id, position, product_id, name, quantity, price, amount) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                [(receipt_id, position, line["productId"], line["name"], line["quantity"], line["price"], line["amount"])
-                 for position, line in enumerate(detail["items"])],
+                [
+                    (receipt_id, position, line["productId"], line["name"], line["quantity"], line["price"], line["amount"])
+                    for position, line in enumerate(detail["items"])
+                ],
             )
             await conn.commit()
     async with _connect() as conn:
@@ -791,9 +864,13 @@ async def _record_round(now: str, trigger: str, counts: dict[str, int]) -> None:
         await auth.set_setting(SETTING_LAST_ROUND, json.dumps(last))
 
 
-async def resolve_receipt_products(now: str | None = None, searches: int = RECEIPT_PRODUCTS_SEARCHES,
-                             deadline_seconds: float = RECEIPT_PRODUCTS_DEADLINE_SECONDS, only: set[str] | None = None,
-                             trigger: str = "sync") -> dict[str, Any]:
+async def resolve_receipt_products(
+    now: str | None = None,
+    searches: int = RECEIPT_PRODUCTS_SEARCHES,
+    deadline_seconds: float = RECEIPT_PRODUCTS_DEADLINE_SECONDS,
+    only: set[str] | None = None,
+    trigger: str = "sync",
+) -> dict[str, Any]:
     """Koppel de artikelnummers op de bonnen aan producten van de webwinkel.
 
     Per naam op de bon zoeken we bij AH en koppelen een artikelnummer alleen aan het resultaat met precies dat artikelnummer (`hqId`):
@@ -865,8 +942,14 @@ async def _resolve_groups(now: str, searches: int, deadline_seconds: float, only
     return result
 
 
-async def resolve_receipt_names(names: list[str], searches: int = RECEIPT_PRODUCTS_LOOKUP_SEARCHES, *, now: str | None = None,
-                          deadline_seconds: float = 10, trigger: str = "lookup") -> dict[str, Any]:
+async def resolve_receipt_names(
+    names: list[str],
+    searches: int = RECEIPT_PRODUCTS_LOOKUP_SEARCHES,
+    *,
+    now: str | None = None,
+    deadline_seconds: float = 10,
+    trigger: str = "lookup",
+) -> dict[str, Any]:
     """Koppel de artikelnummers van deze namen op de bon meteen, bijvoorbeeld omdat je ze zoekt in de Prijsgeschiedenis ("REDBAND")
     of een bon opent (`get_receipt`).
     Hooguit `searches` zoekopdrachten, binnen dezelfde pauze en hetzelfde uurbudget. Een naam die net is opgezocht, slaat het over
@@ -877,8 +960,9 @@ async def resolve_receipt_names(names: list[str], searches: int = RECEIPT_PRODUC
     return await resolve_receipt_products(now, searches=searches, deadline_seconds=deadline_seconds, only=keys, trigger=trigger)
 
 
-async def backfill_receipt_images(now: str | None = None, batches: int = RECEIPT_IMAGES_BATCHES, only: set[int] | None = None,
-                            trigger: str = "open") -> dict[str, Any]:
+async def backfill_receipt_images(
+    now: str | None = None, batches: int = RECEIPT_IMAGES_BATCHES, only: set[int] | None = None, trigger: str = "open"
+) -> dict[str, Any]:
     """De foto bij koppelingen van vóór de bonfoto's (`image` NULL): per `RECEIPT_IMAGES_BATCH` webwinkel-id's een verzoek aan AH,
     hooguit `batches` verzoeken, binnen het tempo, het uurbudget en de pauze van het koppelen. Met `only` alleen die webwinkel-id's
     (de producten van een bon die opengaat). Een id dat AH niet teruggeeft krijgt "" (geen foto), zodat het niet elke nacht opnieuw
@@ -925,7 +1009,13 @@ async def _backfill_images(now: str, batches: int, only: set[int] | None) -> dic
                 product: dict[str, Any] = known.get(product_id, {})  # AH kent het product niet meer: "" en niet opnieuw vragen
                 await conn.execute(
                     _DETAILS_SAVE_SQL,
-                    (images.get(product_id, ""), str(product.get("brand") or ""), str(product.get("unitSize") or ""), product.get("title"), product_id),
+                    (
+                        images.get(product_id, ""),
+                        str(product.get("brand") or ""),
+                        str(product.get("unitSize") or ""),
+                        product.get("title"),
+                        product_id,
+                    ),
                 )
             await conn.commit()
         result["products"] += sum(1 for product_id in ids if product_id in unimaged and images.get(product_id))  # met een nieuwe foto
@@ -1044,7 +1134,9 @@ async def _todo(now: str) -> dict[str, int]:
         receipts = 0
         if ids:
             marks = ",".join("?" * len(ids))
-            receipts = (await auth.fetchone(conn, f"SELECT COUNT(DISTINCT receipt_id) FROM ah_receipt_items WHERE product_id IN ({marks})", tuple(ids)))[0]
+            receipts = (
+                await auth.fetchone(conn, f"SELECT COUNT(DISTINCT receipt_id) FROM ah_receipt_items WHERE product_id IN ({marks})", tuple(ids))
+            )[0]
         images = (await auth.fetchone(conn, f"SELECT COUNT(DISTINCT product_id) {_IMAGES_MISSING_FROM}"))[0]
     return {"lines": len(ids), "receipts": int(receipts), "images": int(images)}
 
@@ -1101,8 +1193,12 @@ async def _receipt_round(receipt_id: str, now: str) -> dict[str, Any]:
     """Een ronde voor een bon: de namen op die bon die nog niet gekoppeld zijn, elk met al zijn zoekopdrachten (de naam en het
     langste woord), en daarna de foto's die nog ontbreken bij de webwinkelproducten van die bon (`_RECEIPT_IMAGES_MISSING_SQL`)."""
     async with _connect() as conn:
-        on_receipt = {int(row[0]) for row in await conn.execute_fetchall(
-            "SELECT DISTINCT product_id FROM ah_receipt_items WHERE receipt_id = ? AND product_id IS NOT NULL", (receipt_id,))}
+        on_receipt = {
+            int(row[0])
+            for row in await conn.execute_fetchall(
+                "SELECT DISTINCT product_id FROM ah_receipt_items WHERE receipt_id = ? AND product_id IS NOT NULL", (receipt_id,)
+            )
+        }
         names = [group["name"] for group in await _todo_by_name(conn, now) if on_receipt.intersection(group["ids"])]
     searches = sum(len(_receipt_queries(name)) for name in names)
     products = await resolve_receipt_names(
@@ -1112,7 +1208,8 @@ async def _receipt_round(receipt_id: str, now: str) -> dict[str, Any]:
         missing = {int(row[0]) for row in await conn.execute_fetchall(_RECEIPT_IMAGES_MISSING_SQL, (receipt_id,))}
     images = (
         await backfill_receipt_images(now, batches=2, only=missing, trigger=_on_demand_trigger(receipt_id))
-        if missing else {"products": 0, "requests": 0, "failed": 0}
+        if missing
+        else {"products": 0, "requests": 0, "failed": 0}
     )
     return {"products": products, "images": images}
 
@@ -1164,8 +1261,12 @@ async def _linking_worker(receipt_id: str | None, now: str, actor: str, images: 
     action = "images" if images else "receipt linking" if receipt_id else "linking"
     try:
         await audit.record(
-            kind="task", service="ah", action=action, ok=problem is None,
-            duration_ms=round((time.perf_counter() - started) * 1000), actor=actor,
+            kind="task",
+            service="ah",
+            action=action,
+            ok=problem is None,
+            duration_ms=round((time.perf_counter() - started) * 1000),
+            actor=actor,
             error=f"{type(problem).__name__}: {problem}" if problem else "",
             detail={"receiptId": receipt_id, **(result or {})},
         )
@@ -1195,8 +1296,11 @@ async def run_linking(receipt_id: str | None = None, force: bool = False, images
 
 def _receipt_json(row: Any, count: int | None = None) -> dict[str, Any]:
     return {
-        "id": row["receipt_id"], "dateTime": row["date_time"], "total": row["total"],
-        "detailsSynced": bool(row["details_synced"]), **({"itemCount": count} if count is not None else {}),
+        "id": row["receipt_id"],
+        "dateTime": row["date_time"],
+        "total": row["total"],
+        "detailsSynced": bool(row["details_synced"]),
+        **({"itemCount": count} if count is not None else {}),
     }
 
 
@@ -1227,7 +1331,8 @@ _RECEIPT_SUMMARY_SQL = f"""
 def _receipt_summary(row: Any) -> dict[str, Any]:
     savings = row["summary_savings"]
     return {
-        "images": price_import.split_lines(row["summary_images"]), "productNames": price_import.split_lines(row["summary_names"]),
+        "images": price_import.split_lines(row["summary_images"]),
+        "productNames": price_import.split_lines(row["summary_names"]),
         # De bonusregels plus wat de regels met een gewone prijs bij de aankoop scheelden, met als prijs per stuk het bedrag gedeeld door
         # het aantal als de bon geen prijs noemt (bij één stuk). Dezelfde som als de detailroute: die geeft een regel hooguit zijn eigen
         # bedrag aan bonus en telt de rest in het totaal. Alleen als de gewone prijs onder de prijs vóór bonus ligt, kan het verschillen.
@@ -1269,7 +1374,11 @@ async def _receipt_lines(conn: aiosqlite.Connection, receipt_id: str) -> list[di
     )
     return [
         {
-            "productId": row["product_id"], "name": row["name"], "quantity": row["quantity"], "price": row["price"], "amount": row["amount"],
+            "productId": row["product_id"],
+            "name": row["name"],
+            "quantity": row["quantity"],
+            "price": row["price"],
+            "amount": row["amount"],
             "product": {"id": row["webshop_id"], "title": row["webshop_title"], "image": row["webshop_image"] or ""} if row["webshop_id"] else None,
             "regularPrice": row["regular_price"],
             "link": {"kind": row["link_kind"], "key": row["link_key"]} if row["link_kind"] else None,
@@ -1307,9 +1416,7 @@ WHERE l.receipt_id = ? AND (p.image IS NULL OR p.unit_size IS NULL) AND p.produc
 """
 
 
-async def get_receipt(
-    receipt_id: str, lookup: Callable[[list[str]], Awaitable[Any]] | None = None, images: bool = False
-) -> dict[str, Any] | None:
+async def get_receipt(receipt_id: str, lookup: Callable[[list[str]], Awaitable[Any]] | None = None, images: bool = False) -> dict[str, Any] | None:
     """Een bon met zijn regels. Met `lookup` (bij het openen van de bon) worden de regels die nog bij geen webwinkelproduct horen
     eerst bij AH opgezocht (`resolve_receipt_names`, hooguit `RECEIPT_PRODUCTS_OPEN_SEARCHES` zoekopdrachten); het resultaat staat
     in `products`, of None als het opzoeken zelf misging: de bon komt er dan gewoon zonder koppelingen. Met `images` komen daarna
@@ -1353,6 +1460,7 @@ async def get_receipt(
 
 # --- zoeken in alles wat je kocht -----------------------------------------------------------------
 
+
 async def search_receipts(query: Any, limit: int = 200) -> dict[str, Any]:
     """Op welke kassabonnen staat een product? Per bon de regels die passen (alle woorden moeten erin staan), nieuwste eerst.
 
@@ -1363,7 +1471,8 @@ async def search_receipts(query: Any, limit: int = 200) -> dict[str, Any]:
         receipts = await conn.execute_fetchall("SELECT * FROM ah_receipts ORDER BY date_time DESC, receipt_id DESC")
         lines = (
             await conn.execute_fetchall("SELECT receipt_id, name, quantity, amount FROM ah_receipt_items ORDER BY receipt_id, position")
-            if words else []
+            if words
+            else []
         )
     unsearched = sum(1 for row in receipts if not row["details_synced"])
     matches: dict[str, list[dict[str, Any]]] = {}
@@ -1388,24 +1497,41 @@ async def search_purchases(query: Any, limit: int = 50) -> dict[str, Any]:
             """
         ):
             if all(word in ah_lists._fold(f"{row['title']} {row['brand'] or ''}") for word in words):
-                occurrences.append({
-                    "source": "bestelling", "product": row["title"], "brand": row["brand"], "quantity": row["quantity"],
-                    "amount": _line_amount(row), "date": (row["delivery_date"] or row["first_seen"] or "")[:10], "id": str(row["order_id"]),
-                    "open": row["kind"] == "open",
-                })
+                occurrences.append(
+                    {
+                        "source": "bestelling",
+                        "product": row["title"],
+                        "brand": row["brand"],
+                        "quantity": row["quantity"],
+                        "amount": _line_amount(row),
+                        "date": (row["delivery_date"] or row["first_seen"] or "")[:10],
+                        "id": str(row["order_id"]),
+                        "open": row["kind"] == "open",
+                    }
+                )
         for row in await conn.execute_fetchall(
             "SELECT l.name, l.quantity, l.amount, r.receipt_id, r.date_time FROM ah_receipt_items l JOIN ah_receipts r ON r.receipt_id = l.receipt_id"
         ):
             if all(word in ah_lists._fold(row["name"]) for word in words):
-                occurrences.append({
-                    "source": "kassabon", "product": row["name"], "brand": None, "quantity": row["quantity"],
-                    "amount": row["amount"], "date": (row["date_time"] or "")[:10], "id": row["receipt_id"], "open": False,
-                })
+                occurrences.append(
+                    {
+                        "source": "kassabon",
+                        "product": row["name"],
+                        "brand": None,
+                        "quantity": row["quantity"],
+                        "amount": row["amount"],
+                        "date": (row["date_time"] or "")[:10],
+                        "id": row["receipt_id"],
+                        "open": False,
+                    }
+                )
         # Bonnen en bestellingen waarvan de regels nog niet zijn opgehaald: die kunnen nog niet worden doorzocht.
-        unsearched = (await auth.fetchone(
-            conn,
-            "SELECT (SELECT COUNT(*) FROM ah_receipts WHERE details_synced = 0) + (SELECT COUNT(*) FROM ah_orders WHERE items_synced = 0)",
-        ))[0]
+        unsearched = (
+            await auth.fetchone(
+                conn,
+                "SELECT (SELECT COUNT(*) FROM ah_receipts WHERE details_synced = 0) + (SELECT COUNT(*) FROM ah_orders WHERE items_synced = 0)",
+            )
+        )[0]
         # Oude bestellingen uit je bevestigingsmails.
         occurrences += await price_import.search_lines(conn, "ah", words, ah_lists._fold)
     occurrences.sort(key=lambda entry: entry["date"], reverse=True)

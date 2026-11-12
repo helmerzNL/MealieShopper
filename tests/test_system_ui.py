@@ -35,7 +35,7 @@ class SegmentedTest(unittest.TestCase):
         self.assertIn("min-height: var(--control-height);", item)
         track = re.search(r"\n\.segmented \{(.*?)\n\}", CSS, re.S).group(1)
         self.assertNotIn("overflow: hidden", track, "anders valt de focusring weg")
-        self.assertIn(".segmented__item.is-active,\n.segmented__item[aria-pressed=\"true\"],\n.segmented__item:has(input:checked) {", CSS)
+        self.assertIn('.segmented__item.is-active,\n.segmented__item[aria-pressed="true"],\n.segmented__item:has(input:checked) {', CSS)
         self.assertIn(".segmented__item:focus-visible,\n.segmented__item:has(input:focus-visible) {\n  outline: 2px solid var(--primary);", CSS)
 
     def test_a_view_button_is_no_longer_a_subtab(self):
@@ -46,9 +46,13 @@ class SegmentedTest(unittest.TestCase):
 
 class SubtabsTest(unittest.TestCase):
     def test_the_open_tab_is_announced(self):
-        self.assertEqual(len(re.findall(r'<a class="subtab[^"]*is-active[^"]*"', HTML)), 5, "Recepten, Aanbiedingen, Winkels, Profiel en Instellingen")
-        self.assertIn('document.querySelectorAll(".subtab.is-active[data-subtab]").forEach((subtab) => subtab.setAttribute("aria-current", "page"));', APP)
-        handler = APP[APP.index('document.querySelectorAll(".subtab[data-subtab], .subtab-menu__item[data-subtab]").forEach'):]
+        self.assertEqual(
+            len(re.findall(r'<a class="subtab[^"]*is-active[^"]*"', HTML)), 5, "Recepten, Aanbiedingen, Winkels, Profiel en Instellingen"
+        )
+        self.assertIn(
+            'document.querySelectorAll(".subtab.is-active[data-subtab]").forEach((subtab) => subtab.setAttribute("aria-current", "page"));', APP
+        )
+        handler = APP[APP.index('document.querySelectorAll(".subtab[data-subtab], .subtab-menu__item[data-subtab]").forEach') :]
         handler = handler[: handler.index("const target = panel.querySelector")]
         self.assertIn('item.removeAttribute("aria-current");', handler)
         self.assertIn('subtab.setAttribute("aria-current", "page");', handler)
@@ -70,20 +74,41 @@ class HelpFoldTest(unittest.TestCase):
     def test_one_visible_line_before_each_fold(self):
         # Wat zichtbaar blijft is één korte regel; de rest staat in het uitklapblok.
         nl = dict(re.findall(r'^  "([^"]+)": "((?:[^"\\]|\\.)*)",$', (STATIC / "i18n" / "nl.js").read_text(encoding="utf-8"), re.M))
-        for key in ("search.intro", "ah.planner.intro", "picnic.orders.intro", "crisp.orders.intro", "orders.intro", "aireview.intro",
-                    "backup.intro", "price_archive.intro", "price_export.intro", "audit.intro", "users.intro", "jumbo.intro", "explore.short"):
+        for key in (
+            "search.intro",
+            "ah.planner.intro",
+            "picnic.orders.intro",
+            "crisp.orders.intro",
+            "orders.intro",
+            "aireview.intro",
+            "backup.intro",
+            "price_archive.intro",
+            "price_export.intro",
+            "audit.intro",
+            "users.intro",
+            "jumbo.intro",
+            "explore.short",
+        ):
             self.assertLessEqual(len(nl[key]), 150, key)
 
     def test_warnings_stay_visible(self):
         folded = "".join(self.blocks())
-        for key in ("backup.links_hint", "backup.confirm_warning", "system.reset_loses_data", "plan.mealie_missing", "price_archive.keep_unlinked_note",
-                    "aireview.privacy"):
+        for key in (
+            "backup.links_hint",
+            "backup.confirm_warning",
+            "system.reset_loses_data",
+            "plan.mealie_missing",
+            "price_archive.keep_unlinked_note",
+            "aireview.privacy",
+        ):
             self.assertNotIn(f'data-i18n="{key}"', folded, key)
         self.assertIn('data-i18n="aireview.privacy"', HTML)
 
     def test_the_shared_recipe_sentence_is_one_key(self):
         self.assertEqual(HTML.count('data-i18n="recipes.plan_note"'), 4, "Picnic, Jumbo, Crisp en Maaltijdboxen")
-        self.assertNotIn("Bekijk een recept voor de ingrediënten en de bereiding, of plan het in je weekmenu; dan komt het ook in Mealie. Zoeken", HTML)
+        self.assertNotIn(
+            "Bekijk een recept voor de ingrediënten en de bereiding, of plan het in je weekmenu; dan komt het ook in Mealie. Zoeken", HTML
+        )
 
     def test_the_orders_explanation_follows_the_store(self):
         orders = (STATIC / "orders.js").read_text(encoding="utf-8")

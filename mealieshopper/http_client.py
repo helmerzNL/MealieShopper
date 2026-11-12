@@ -43,9 +43,7 @@ logger: logging.Logger = logging.getLogger(__name__)
 # Chrome 157 op Android, stabiel sinds 2026-11-03, opgezocht 2026-11-06
 DEFAULT_USER_AGENT: str = "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/157.0.0.0 Mobile Safari/537.36"
 
-_clients: weakref.WeakKeyDictionary[
-    asyncio.AbstractEventLoop, dict[str, httpx.AsyncClient]
-] = weakref.WeakKeyDictionary()
+_clients: weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, dict[str, httpx.AsyncClient]] = weakref.WeakKeyDictionary()
 
 
 def _headers(headers: dict[str, str] | None) -> httpx.Headers:
@@ -82,9 +80,7 @@ def client(
     existing: httpx.AsyncClient | None = clients.get(name)
     if existing is not None and not existing.is_closed:
         return existing
-    made: httpx.AsyncClient = _new_client(
-        wanted, timeout, follow_redirects, forget_cookies=True
-    )
+    made: httpx.AsyncClient = _new_client(wanted, timeout, follow_redirects, forget_cookies=True)
     clients[name] = made
     return made
 
@@ -94,9 +90,7 @@ def _verify() -> ssl.SSLContext | bool:
 
     Zonder die twee `True`: dan kiest httpx met `trust_env` zelf SSL_CERT_FILE, SSL_CERT_DIR of de CA's van certifi. We lezen
     de omgeving bij het maken van de client."""
-    bundle: str = (
-        environ.get("REQUESTS_CA_BUNDLE") or environ.get("CURL_CA_BUNDLE") or ""
-    ).strip()
+    bundle: str = (environ.get("REQUESTS_CA_BUNDLE") or environ.get("CURL_CA_BUNDLE") or "").strip()
     if not bundle:
         return True
     if Path(bundle).is_dir():
@@ -154,9 +148,7 @@ async def session(
     logboek, er wordt niets onder bewaard.
     """
     logger.debug("Sessie %s geopend", name)
-    async with _new_client(
-        _headers(headers), timeout, follow_redirects, forget_cookies=False
-    ) as made:
+    async with _new_client(_headers(headers), timeout, follow_redirects, forget_cookies=False) as made:
         yield made
 
 

@@ -14,6 +14,7 @@ Mealie-adres, dan begint hij opnieuw.
 Recepten die je vroeger uit Allerhande importeerde, hebben geen voedingswaarden: die vroeg MealieShopper toen niet aan AH.
 `start_backfill` (alleen de beheerder) haalt ze voor die recepten bij AH op en zet ze in Mealie.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -92,7 +93,11 @@ def _values(row: Any) -> dict[str, float]:
         found = json.loads(raw)
     except ValueError:
         return {}
-    return {key: float(amount) for key, amount in found.items() if key in nutrition.UNITS and isinstance(amount, (int, float))} if isinstance(found, dict) else {}
+    return (
+        {key: float(amount) for key, amount in found.items() if key in nutrition.UNITS and isinstance(amount, (int, float))}
+        if isinstance(found, dict)
+        else {}
+    )
 
 
 def _stamp(recipe: dict[str, Any]) -> str:
@@ -209,9 +214,7 @@ async def _run_refresh() -> None:
         ids = [str(summary.get("id")) for summary in summaries if summary.get("id")]
         async with _connect() as conn:
             if len(summaries) < MAX_RECIPES:  # anders weten we niet welke er weg zijn
-                await conn.execute(
-                    f"DELETE FROM mealie_recipe_nutrition WHERE recipe_id NOT IN ({','.join('?' * len(ids)) or 'NULL'})", ids
-                )
+                await conn.execute(f"DELETE FROM mealie_recipe_nutrition WHERE recipe_id NOT IN ({','.join('?' * len(ids)) or 'NULL'})", ids)
             await conn.execute(
                 """
                 INSERT INTO mealie_recipe_nutrition_meta (id, base, synced_at) VALUES (1, ?, ?)
@@ -298,7 +301,11 @@ def card_with(card: dict[str, Any], found: dict[str, float]) -> dict[str, Any]:
 
 
 async def search(
-    query: Any, limits: Limits, page: Any = 1, per_page: int = mealie.SEARCH_PAGE, wait: float = SEARCH_WAIT,
+    query: Any,
+    limits: Limits,
+    page: Any = 1,
+    per_page: int = mealie.SEARCH_PAGE,
+    wait: float = SEARCH_WAIT,
 ) -> dict[str, Any]:
     """Je recepten in Mealie die binnen de grenzen vallen (`limits`, zie `bounds`), per portie.
 
@@ -329,7 +336,7 @@ async def search(
     missing = sum(1 for _, found in candidates if any(nutrition.value_of(found, name) is None for name in limits))
     start = (number - 1) * size
     return {
-        "recipes": matches[start:start + size],
+        "recipes": matches[start : start + size],
         "total": len(matches),
         "page": number,
         "more": start + size < len(matches),
@@ -431,7 +438,9 @@ async def _run_backfill() -> None:
                 failures = 0
             except ah.AhHttpError as exc:
                 if exc.status in (403, 429):
-                    _finish("stopped", tr("AH weigert even verzoeken; probeer het later opnieuw.", "AH refuses requests for a while; try again later."))
+                    _finish(
+                        "stopped", tr("AH weigert even verzoeken; probeer het later opnieuw.", "AH refuses requests for a while; try again later.")
+                    )
                     return
                 failures += 1
                 _backfill["failed"] += 1

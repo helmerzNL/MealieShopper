@@ -24,9 +24,7 @@ def popover_source(name):
 
 
 def function_source(name):
-    match = re.search(
-        rf"^(?:async )?function {re.escape(name)}\(.*?^}}$", OFFERS_JS, re.DOTALL | re.MULTILINE
-    )
+    match = re.search(rf"^(?:async )?function {re.escape(name)}\(.*?^}}$", OFFERS_JS, re.DOTALL | re.MULTILINE)
     if not match:
         raise AssertionError(f"functie {name} niet gevonden")
     return match.group(0)
@@ -40,7 +38,20 @@ def const_source(name):
 
 
 PRELUDE = "\n".join(
-    [const_source(name) for name in ("OFFER_UNIT_ORDER", "OFFER_LABEL_ORDER", "OFFERS_OFTEN_PER_YEAR", "offersDimmedIds", "OFFER_POPUP_WIDTH", "OFFER_POPUP_PURCHASES", "OFFER_POPUP_DELAY", "OFFER_POPUP_SWITCH", "offerPopup")]
+    [
+        const_source(name)
+        for name in (
+            "OFFER_UNIT_ORDER",
+            "OFFER_LABEL_ORDER",
+            "OFFERS_OFTEN_PER_YEAR",
+            "offersDimmedIds",
+            "OFFER_POPUP_WIDTH",
+            "OFFER_POPUP_PURCHASES",
+            "OFFER_POPUP_DELAY",
+            "OFFER_POPUP_SWITCH",
+            "offerPopup",
+        )
+    ]
     + [
         function_source(name)
         for name in (
@@ -141,9 +152,7 @@ class OffersScanNodeTest(unittest.TestCase):
         return json.loads(result.stdout)
 
     def sorted_ids(self, sort):
-        return self.run_js(
-            f"offersState.sort = '{sort}'; console.log(JSON.stringify(offersSorted(OFFERS).map((o) => o.id)));"
-        )
+        return self.run_js(f"offersState.sort = '{sort}'; console.log(JSON.stringify(offersSorted(OFFERS).map((o) => o.id)));")
 
     def test_sorting_by_discount_puts_the_biggest_first_measured_before_claimed_and_unknown_last(
         self,
@@ -190,13 +199,43 @@ class OffersScanNodeTest(unittest.TestCase):
         "packs": [
             {"productId": "300", "unitSize": "300 g", "price": 2.49, "unitPrice": {"value": 8.3, "unit": "kg"}, "onOffer": True, "cheapest": False},
             {"productId": "500", "unitSize": "500 g", "price": 4.19, "unitPrice": {"value": 8.38, "unit": "kg"}, "onOffer": True, "cheapest": False},
-            {"productId": "1000", "unitSize": "1000 g", "price": 7.49, "unitPrice": {"value": 7.49, "unit": "kg"}, "onOffer": False, "cheapest": True},
+            {
+                "productId": "1000",
+                "unitSize": "1000 g",
+                "price": 7.49,
+                "unitPrice": {"value": 7.49, "unit": "kg"},
+                "onOffer": False,
+                "cheapest": True,
+            },
         ],
     }
     FAMILY_OFFERS = [
-        {"id": "300", "title": "AH Rundergehakt 300 g", "family": FAMILY, "yearLow": {"status": "lowest"}, "badge": {"percent": 30}, "verdict": {"cheaperPack": {"productId": "1000", "title": "AH Rundergehakt", "unitSize": "1000 g", "unitPrice": {"value": 7.49, "unit": "kg"}}}},
-        {"id": "x", "title": "AH Pindakaas", "family": {"key": "ah|pindakaas|ah", "packs": [], "unknownPacks": False}, "yearLow": {"status": "lowest"}, "badge": {"percent": 10}, "verdict": {"cheaperPack": None}},
-        {"id": "500", "title": "AH Rundergehakt 500 g", "family": FAMILY, "yearLow": {"status": "above", "above": 0.2}, "badge": {"percent": 20}, "verdict": {"cheaperPack": None}},
+        {
+            "id": "300",
+            "title": "AH Rundergehakt 300 g",
+            "family": FAMILY,
+            "yearLow": {"status": "lowest"},
+            "badge": {"percent": 30},
+            "verdict": {
+                "cheaperPack": {"productId": "1000", "title": "AH Rundergehakt", "unitSize": "1000 g", "unitPrice": {"value": 7.49, "unit": "kg"}}
+            },
+        },
+        {
+            "id": "x",
+            "title": "AH Pindakaas",
+            "family": {"key": "ah|pindakaas|ah", "packs": [], "unknownPacks": False},
+            "yearLow": {"status": "lowest"},
+            "badge": {"percent": 10},
+            "verdict": {"cheaperPack": None},
+        },
+        {
+            "id": "500",
+            "title": "AH Rundergehakt 500 g",
+            "family": FAMILY,
+            "yearLow": {"status": "above", "above": 0.2},
+            "badge": {"percent": 20},
+            "verdict": {"cheaperPack": None},
+        },
     ]
 
     def families(self, offers, sort="best"):
@@ -207,7 +246,11 @@ class OffersScanNodeTest(unittest.TestCase):
         # De familie staat op de plek van de 500 g: de 300 g is laagste van het jaar maar per kilo duurder dan de 1000 g, dus niet beste.
         self.assertEqual([group["head"]["id"] for group in groups], ["x", "500"])
         self.assertEqual([offer["id"] for offer in groups[1]["offers"]], ["500", "300"])
-        self.assertEqual([group["head"]["id"] for group in self.families(self.FAMILY_OFFERS, "store")], ["300", "x"], "in winkelvolgorde staat de familie bij haar eerste aanbieding")
+        self.assertEqual(
+            [group["head"]["id"] for group in self.families(self.FAMILY_OFFERS, "store")],
+            ["300", "x"],
+            "in winkelvolgorde staat de familie bij haar eerste aanbieding",
+        )
 
     def test_the_pack_rows_list_every_pack_and_mark_the_cheapest(self):
         html = self.run_js(f"console.log(JSON.stringify(offerPackRows({json.dumps(self.FAMILY_OFFERS[0])})));")
@@ -232,9 +275,29 @@ class OffersScanNodeTest(unittest.TestCase):
         self.assertIn("1000 g", self.run_js(f"console.log(JSON.stringify(offerPackWarning({json.dumps(self.FAMILY_OFFERS[0])})));"))
         self.assertEqual(self.run_js(f"console.log(JSON.stringify(offerPackWarning({json.dumps(self.FAMILY_OFFERS[2])})));"), "")
 
-    FILTER_OFFER = {"id": "1", "brand": "Dr. Oetker", "title": "Pizza", "bought": True, "badge": {"percent": 25}, "unitPricePer": {"value": 9.36, "unit": "kg"},
-                    "yearLow": {"status": "lowest"}, "verdict": {"timesThisYear": 3}, "personal": False, "family": {"key": "f1", "packs": []}}
-    EMPTY_FILTERS = {"brands": [], "brandsOut": [], "categories": [], "categoriesOut": [], "bought": False, "minDiscount": 0, "maxUnitPrice": {"value": None, "unit": "kg"}, "yearLow": False, "rare": False}
+    FILTER_OFFER = {
+        "id": "1",
+        "brand": "Dr. Oetker",
+        "title": "Pizza",
+        "bought": True,
+        "badge": {"percent": 25},
+        "unitPricePer": {"value": 9.36, "unit": "kg"},
+        "yearLow": {"status": "lowest"},
+        "verdict": {"timesThisYear": 3},
+        "personal": False,
+        "family": {"key": "f1", "packs": []},
+    }
+    EMPTY_FILTERS = {
+        "brands": [],
+        "brandsOut": [],
+        "categories": [],
+        "categoriesOut": [],
+        "bought": False,
+        "minDiscount": 0,
+        "maxUnitPrice": {"value": None, "unit": "kg"},
+        "yearLow": False,
+        "rare": False,
+    }
 
     def match(self, offer, filters):
         return self.run_js(f"console.log(JSON.stringify(offersFilterMatch({json.dumps(offer)}, {json.dumps(filters)})));")
@@ -246,7 +309,9 @@ class OffersScanNodeTest(unittest.TestCase):
         self.assertFalse(self.match(offer, {**empty, "brands": ["Unox"]}))
         self.assertFalse(self.match(offer, {**empty, "minDiscount": 30}))
         self.assertFalse(self.match(offer, {**empty, "maxUnitPrice": {"value": 9.0, "unit": "kg"}}))
-        self.assertTrue(self.match(offer, {**empty, "maxUnitPrice": {"value": 9.0, "unit": "l"}}), "een grens in een andere eenheid raakt dit product niet")
+        self.assertTrue(
+            self.match(offer, {**empty, "maxUnitPrice": {"value": 9.0, "unit": "l"}}), "een grens in een andere eenheid raakt dit product niet"
+        )
         self.assertFalse(self.match({**offer, "unitPricePer": None}, {**empty, "maxUnitPrice": {"value": 9.0, "unit": "kg"}}))
         self.assertFalse(self.match({**offer, "badge": None}, {**empty, "minDiscount": 5}))
         self.assertFalse(self.match({**offer, "verdict": {"timesThisYear": 6}}, {**empty, "rare": True}))
@@ -255,21 +320,30 @@ class OffersScanNodeTest(unittest.TestCase):
         self.assertEqual(self.run_js("console.log(JSON.stringify(offersEmptyFilters()));"), empty)
 
     def test_a_brand_filter_that_matches_nothing_stays_active(self):
-        chips = self.run_js(f"offersState.filters = {json.dumps({**self.EMPTY_FILTERS, 'brands': ['Verdwenen'], 'minDiscount': 25})}; console.log(JSON.stringify(offersActiveFilterChips()));")
+        chips = self.run_js(
+            f"offersState.filters = {json.dumps({**self.EMPTY_FILTERS, 'brands': ['Verdwenen'], 'minDiscount': 25})}; console.log(JSON.stringify(offersActiveFilterChips()));"
+        )
         self.assertEqual([chip["key"] for chip in chips], ["brand:Verdwenen", "minDiscount"])
         self.assertIn("Verdwenen", chips[0]["label"])
 
     def test_the_family_stays_when_one_pack_matches_and_the_other_is_dimmed(self):
         fam = {"key": "ah|rundergehakt|ah", "packs": []}
-        offers = [{**self.FILTER_OFFER, "id": "a", "family": fam, "badge": {"percent": 30}}, {**self.FILTER_OFFER, "id": "b", "family": fam, "badge": {"percent": 5}},
-                  {**self.FILTER_OFFER, "id": "c", "badge": {"percent": 5}}]
-        found = self.run_js(f"offersState.filters = {json.dumps({**self.EMPTY_FILTERS, 'minDiscount': 25})}; const shown = offersFilteredWithFamilies({json.dumps(offers)}); console.log(JSON.stringify({{ ids: shown.map((o) => o.id), dimmed: shown.filter((o) => offersDimmed(o)).map((o) => o.id) }}));")
+        offers = [
+            {**self.FILTER_OFFER, "id": "a", "family": fam, "badge": {"percent": 30}},
+            {**self.FILTER_OFFER, "id": "b", "family": fam, "badge": {"percent": 5}},
+            {**self.FILTER_OFFER, "id": "c", "badge": {"percent": 5}},
+        ]
+        found = self.run_js(
+            f"offersState.filters = {json.dumps({**self.EMPTY_FILTERS, 'minDiscount': 25})}; const shown = offersFilteredWithFamilies({json.dumps(offers)}); console.log(JSON.stringify({{ ids: shown.map((o) => o.id), dimmed: shown.filter((o) => offersDimmed(o)).map((o) => o.id) }}));"
+        )
         self.assertEqual(found, {"ids": ["a", "b"], "dimmed": ["b"]})
 
     def test_a_dimmed_offer_does_not_head_the_card(self):
         fam = {"key": "ah|rundergehakt|ah", "packs": []}
         offers = [{"id": "b", "family": fam, "verdict": {}}, {"id": "a", "family": fam, "verdict": {}}]
-        found = self.run_js(f"offersState.sort = 'best'; offersDimmedIds.add('b'); console.log(JSON.stringify(offerFamilies({json.dumps(offers)}).map((g) => g.head.id)));")
+        found = self.run_js(
+            f"offersState.sort = 'best'; offersDimmedIds.add('b'); console.log(JSON.stringify(offerFamilies({json.dumps(offers)}).map((g) => g.head.id)));"
+        )
         self.assertEqual(found, ["a"])
 
     def test_bought_counts_for_the_whole_family(self):
@@ -277,7 +351,9 @@ class OffersScanNodeTest(unittest.TestCase):
         self.assertTrue(self.match(offer, {**self.EMPTY_FILTERS, "bought": True}))
 
     def test_filters_follow_the_store(self):
-        found = self.run_js("offersState.store = 'ah'; offersFilters().brands.push('Unox'); offersState.store = 'jumbo'; const jumbo = offersFilters().brands.slice(); offersState.store = 'ah'; console.log(JSON.stringify({ jumbo, ah: offersFilters().brands }));")
+        found = self.run_js(
+            "offersState.store = 'ah'; offersFilters().brands.push('Unox'); offersState.store = 'jumbo'; const jumbo = offersFilters().brands.slice(); offersState.store = 'ah'; console.log(JSON.stringify({ jumbo, ah: offersFilters().brands }));"
+        )
         self.assertEqual(found, {"jumbo": [], "ah": []})
 
     def test_a_failed_history_fetch_is_not_cached_and_shows_a_line(self):
@@ -296,22 +372,47 @@ class OffersScanNodeTest(unittest.TestCase):
         self.assertIn("if (!thumb || offerPopupAllowed()) return;", OFFERS_JS)
 
     def test_brand_counts_ignore_the_brand_filter_itself(self):
-        offers = [{**self.FILTER_OFFER, "id": "a"}, {**self.FILTER_OFFER, "id": "b", "brand": "Unox", "badge": {"percent": 5}}, {**self.FILTER_OFFER, "id": "c", "brand": "Unox"}]
-        found = self.run_js(f"offersState.filters = {json.dumps({**self.EMPTY_FILTERS, 'brands': ['Unox'], 'minDiscount': 25})}; console.log(JSON.stringify(offersBrandCounts({json.dumps(offers)})));")
+        offers = [
+            {**self.FILTER_OFFER, "id": "a"},
+            {**self.FILTER_OFFER, "id": "b", "brand": "Unox", "badge": {"percent": 5}},
+            {**self.FILTER_OFFER, "id": "c", "brand": "Unox"},
+        ]
+        found = self.run_js(
+            f"offersState.filters = {json.dumps({**self.EMPTY_FILTERS, 'brands': ['Unox'], 'minDiscount': 25})}; console.log(JSON.stringify(offersBrandCounts({json.dumps(offers)})));"
+        )
         self.assertEqual(found, [{"brand": "Dr. Oetker", "count": 1}, {"brand": "Unox", "count": 1}])
 
-    POPUP_OFFER = {"id": "514010", "title": "Dr. Oetker Casa di mama pizza salami", "brand": "Dr. Oetker", "unitSize": "390 g", "image": "x.png", "url": "https://ah.nl/x", "price": 3.65}
-    POPUP_PRODUCT = {"store": "ah", "productId": "514010", "title": "Dr. Oetker Casa di mama pizza salami", "purchases": [{"date": "2026-09-01", "price": 2.15}], "episodes": []}
+    POPUP_OFFER = {
+        "id": "514010",
+        "title": "Dr. Oetker Casa di mama pizza salami",
+        "brand": "Dr. Oetker",
+        "unitSize": "390 g",
+        "image": "x.png",
+        "url": "https://ah.nl/x",
+        "price": 3.65,
+    }
+    POPUP_PRODUCT = {
+        "store": "ah",
+        "productId": "514010",
+        "title": "Dr. Oetker Casa di mama pizza salami",
+        "purchases": [{"date": "2026-09-01", "price": 2.15}],
+        "episodes": [],
+    }
 
     def place(self, anchor, size, viewport):
         return self.run_js(f"console.log(JSON.stringify(offerPopupPlace({json.dumps(anchor)}, {json.dumps(size)}, {json.dumps(viewport)})));")
 
     def popup(self, offer, product, packs, active=None):
-        return self.run_js(f"console.log(JSON.stringify(offerPopupHtml({json.dumps(offer)}, {json.dumps(product)}, {json.dumps(packs)}, {json.dumps(active)})));")
+        return self.run_js(
+            f"console.log(JSON.stringify(offerPopupHtml({json.dumps(offer)}, {json.dumps(product)}, {json.dumps(packs)}, {json.dumps(active)})));"
+        )
 
     def test_popup_placement_prefers_right_then_left_then_below_then_above(self):
         size = {"width": 640, "height": 500}
-        self.assertEqual(self.place({"left": 100, "right": 400, "top": 100, "bottom": 400}, size, {"width": 1280, "height": 900}), {"left": 408, "top": 100, "width": 640})
+        self.assertEqual(
+            self.place({"left": 100, "right": 400, "top": 100, "bottom": 400}, size, {"width": 1280, "height": 900}),
+            {"left": 408, "top": 100, "width": 640},
+        )
         self.assertEqual(self.place({"left": 800, "right": 1100, "top": 100, "bottom": 400}, size, {"width": 1280, "height": 900})["left"], 152)
         self.assertEqual(self.place({"left": 300, "right": 600, "top": 100, "bottom": 300}, size, {"width": 900, "height": 900})["top"], 308)
         self.assertEqual(self.place({"left": 300, "right": 600, "top": 700, "bottom": 880}, size, {"width": 900, "height": 900})["top"], 192)
@@ -325,13 +426,29 @@ class OffersScanNodeTest(unittest.TestCase):
         # Een kaart in het midden van een scherm van 1280 px: rechts is 481 px over, dus de popup wordt zo breed en staat ernaast
         # in plaats van over de kaart heen. Onder 420 px gaat hij alsnog eronder, op volle breedte.
         size = {"width": 640, "height": 500}
-        self.assertEqual(self.place({"left": 561, "right": 775, "top": 443, "bottom": 899}, size, {"width": 1280, "height": 900}), {"left": 783, "top": 384, "width": 481})
-        self.assertEqual(self.place({"left": 400, "right": 460, "top": 100, "bottom": 300}, size, {"width": 1100, "height": 900}), {"left": 468, "top": 100, "width": 616})
-        self.assertEqual(self.place({"left": 300, "right": 600, "top": 100, "bottom": 300}, size, {"width": 900, "height": 900}), {"left": 244, "top": 308, "width": 640})
+        self.assertEqual(
+            self.place({"left": 561, "right": 775, "top": 443, "bottom": 899}, size, {"width": 1280, "height": 900}),
+            {"left": 783, "top": 384, "width": 481},
+        )
+        self.assertEqual(
+            self.place({"left": 400, "right": 460, "top": 100, "bottom": 300}, size, {"width": 1100, "height": 900}),
+            {"left": 468, "top": 100, "width": 616},
+        )
+        self.assertEqual(
+            self.place({"left": 300, "right": 600, "top": 100, "bottom": 300}, size, {"width": 900, "height": 900}),
+            {"left": 244, "top": 308, "width": 640},
+        )
 
     def test_popup_html_has_head_stats_chart_purchases_and_the_link(self):
         html = self.popup(self.POPUP_OFFER, self.POPUP_PRODUCT, [])
-        for marker in ('class="ohc-head"', 'class="ohc-stats"', 'class="ohc-block"', 'class="ohc-table"', "offers.popup.full_history", "/offers/history?product=514010"):
+        for marker in (
+            'class="ohc-head"',
+            'class="ohc-stats"',
+            'class="ohc-block"',
+            'class="ohc-table"',
+            "offers.popup.full_history",
+            "/offers/history?product=514010",
+        ):
             self.assertIn(marker, html)
         self.assertNotIn("offer-popup__packs", html)
 
@@ -348,19 +465,44 @@ class OffersScanNodeTest(unittest.TestCase):
         self.assertIn('data-popup-pack="514010" aria-pressed="true"', html)
 
     def pack(self, pid, size, price, per_kg, on_offer, cheapest=False):
-        return {"productId": pid, "unitSize": size, "price": price, "unitPrice": {"value": per_kg, "unit": "kg"}, "onOffer": on_offer, "cheapest": cheapest}
+        return {
+            "productId": pid,
+            "unitSize": size,
+            "price": price,
+            "unitPrice": {"value": per_kg, "unit": "kg"},
+            "onOffer": on_offer,
+            "cheapest": cheapest,
+        }
 
     def test_a_pack_within_the_margin_is_not_pricier(self):
         # 500 g 4,19 (8,38/kg) naast 1000 g 8,30 (8,30/kg): binnen twee procent, dus geen "duurder". 300 g 3,67/kg naast 500 g 3,04/kg wel.
-        within = {"id": "a", "family": {"key": "f", "packs": [self.pack("500", "500 g", 4.19, 8.38, True), self.pack("1000", "1000 g", 8.30, 8.30, True, cheapest=True)]}}
+        within = {
+            "id": "a",
+            "family": {
+                "key": "f",
+                "packs": [self.pack("500", "500 g", 4.19, 8.38, True), self.pack("1000", "1000 g", 8.30, 8.30, True, cheapest=True)],
+            },
+        }
         html = self.run_js(f"offersState.packMargin = 0.02; console.log(JSON.stringify(offerPackRows({json.dumps(within)})));")
         self.assertNotIn("offers.pack.pricier_than", html)
-        beyond = {"id": "b", "family": {"key": "g", "packs": [self.pack("300", "300 g", 1.10, 3.67, True), self.pack("500", "500 g", 1.52, 3.04, False, cheapest=True)]}}
+        beyond = {
+            "id": "b",
+            "family": {
+                "key": "g",
+                "packs": [self.pack("300", "300 g", 1.10, 3.67, True), self.pack("500", "500 g", 1.52, 3.04, False, cheapest=True)],
+            },
+        }
         html = self.run_js(f"offersState.packMargin = 0.02; console.log(JSON.stringify(offerPackRows({json.dumps(beyond)})));")
         self.assertEqual(html.count("offers.pack.pricier_than"), 1)
 
     def test_without_pack_margin_the_client_uses_two_percent(self):
-        within = {"id": "a", "family": {"key": "f", "packs": [self.pack("500", "500 g", 4.19, 8.38, True), self.pack("1000", "1000 g", 8.30, 8.30, True, cheapest=True)]}}
+        within = {
+            "id": "a",
+            "family": {
+                "key": "f",
+                "packs": [self.pack("500", "500 g", 4.19, 8.38, True), self.pack("1000", "1000 g", 8.30, 8.30, True, cheapest=True)],
+            },
+        }
         html = self.run_js(f"delete offersState.packMargin; console.log(JSON.stringify(offerPackRows({json.dumps(within)})));")
         self.assertNotIn("offers.pack.pricier_than", html)
 
@@ -369,7 +511,12 @@ class OffersScanNodeTest(unittest.TestCase):
         html = self.popup(self.POPUP_OFFER, self.POPUP_PRODUCT, packs, "1")
         self.assertIn(">3 stuks · EUR 14.52<", html)
         self.assertIn("3 stuks · EUR 26.16", html)
-        plain = self.popup(self.POPUP_OFFER, self.POPUP_PRODUCT, [{"productId": "1", "unitSize": "300 g", "price": 2.49}, {"productId": "2", "unitSize": "500 g", "price": 4.19}], "1")
+        plain = self.popup(
+            self.POPUP_OFFER,
+            self.POPUP_PRODUCT,
+            [{"productId": "1", "unitSize": "300 g", "price": 2.49}, {"productId": "2", "unitSize": "500 g", "price": 4.19}],
+            "1",
+        )
         self.assertNotIn("EUR", plain)
 
     def test_the_popup_passes_the_offer_and_its_own_ranges(self):
@@ -383,11 +530,20 @@ class OffersScanNodeTest(unittest.TestCase):
         self.assertEqual(self.run_js(f"console.log(JSON.stringify(offersUnitsInList({json.dumps(offers)})));"), ["kg", "stuk"])
 
     def test_an_unknown_remembered_unit_falls_back_to_the_first(self):
-        self.assertEqual(self.run_js("console.log(JSON.stringify([offersUnitChoice({ maxUnitPrice: { unit: 'l' } }, ['kg', 'stuk']), offersUnitChoice({ maxUnitPrice: { unit: 'stuk' } }, ['kg', 'stuk']), offersUnitChoice({ maxUnitPrice: { unit: 'l' } }, [])]));"), ["kg", "stuk", "kg"])
+        self.assertEqual(
+            self.run_js(
+                "console.log(JSON.stringify([offersUnitChoice({ maxUnitPrice: { unit: 'l' } }, ['kg', 'stuk']), offersUnitChoice({ maxUnitPrice: { unit: 'stuk' } }, ['kg', 'stuk']), offersUnitChoice({ maxUnitPrice: { unit: 'l' } }, [])]));"
+            ),
+            ["kg", "stuk", "kg"],
+        )
 
     def test_the_counter_counts_cards_after_switches(self):
         fam = {"key": "f", "packs": []}
-        offers = [{"id": "a", "family": fam, "verdict": {}}, {"id": "b", "family": fam, "verdict": {}}, {"id": "c", "family": {"key": "g", "packs": []}, "verdict": {}}]
+        offers = [
+            {"id": "a", "family": fam, "verdict": {}},
+            {"id": "b", "family": fam, "verdict": {}},
+            {"id": "c", "family": {"key": "g", "packs": []}, "verdict": {}},
+        ]
         self.assertEqual(self.run_js(f"console.log(offersCardCount({json.dumps(offers)}));"), 2)
         body = function_source("renderOffersStatusGood")
         self.assertIn("offersCardCount(offersFiltered({ search: false }))", body)
@@ -413,10 +569,23 @@ class OffersScanNodeTest(unittest.TestCase):
         const offerZoomCache = new Map(); const offerPopupProducts = new Map();
         const anchor = element("card"); anchor.dataset.offer = "514010";
     """
-    POPUP_FUNCTIONS = ("openOfferZoomDialog", "showOfferPopup", "scheduleOfferPopup", "hideOfferPopup", "delayHideOfferPopup", "hideOfferPopupFromKeyboard", "offerPopupTabTarget", "offerFocusables", "offerPopupKeepsFocus", "offerPopupScrolled")
+    POPUP_FUNCTIONS = (
+        "openOfferZoomDialog",
+        "showOfferPopup",
+        "scheduleOfferPopup",
+        "hideOfferPopup",
+        "delayHideOfferPopup",
+        "hideOfferPopupFromKeyboard",
+        "offerPopupTabTarget",
+        "offerFocusables",
+        "offerPopupKeepsFocus",
+        "offerPopupScrolled",
+    )
 
     def popup_js(self, body):
-        return self.run_js(f"{self.POPUP_DOM}\nofferPopup.ranges = {{}};\nofferPopup.anchor = null;\nofferPopup.id = '';\n{body}", extra=self.POPUP_FUNCTIONS)
+        return self.run_js(
+            f"{self.POPUP_DOM}\nofferPopup.ranges = {{}};\nofferPopup.anchor = null;\nofferPopup.id = '';\n{body}", extra=self.POPUP_FUNCTIONS
+        )
 
     def test_the_window_starts_a_new_offer_without_a_period_choice_and_keeps_it_per_pack(self):
         found = self.popup_js(
@@ -446,7 +615,11 @@ class OffersScanNodeTest(unittest.TestCase):
             "console.log(JSON.stringify([offerPopupKeepsFocus(anchor, inside), offerPopupKeepsFocus(anchor, anchor), offerPopupKeepsFocus(anchor, elsewhere), offerPopupKeepsFocus(anchor, null)]));"
         )
         self.assertEqual(found, [True, True, False, False])
-        for listener in ('$("#offers-products").addEventListener("focusout"', '$("#offer-popup").addEventListener("focusout"', '$("#offers-products").addEventListener("mouseout"'):
+        for listener in (
+            '$("#offers-products").addEventListener("focusout"',
+            '$("#offer-popup").addEventListener("focusout"',
+            '$("#offers-products").addEventListener("mouseout"',
+        ):
             self.assertIn("offerPopupKeepsFocus(", OFFERS_JS.split(listener)[1].split("});")[0], listener)
 
     def test_tab_goes_from_the_card_into_the_popup_and_shift_tab_back(self):
@@ -495,28 +668,47 @@ class OffersScanNodeTest(unittest.TestCase):
             "  console.log(JSON.stringify(states));"
             "}, POPOVER_DELAY + 50);"
         )
-        self.assertEqual(found, [
-            {"hidden": True, "timer": True},
-            {"hidden": False, "none": True, "loading": False, "head": True},
-            {"hidden": True, "focused": 1, "quiet": True},
-        ])
+        self.assertEqual(
+            found,
+            [
+                {"hidden": True, "timer": True},
+                {"hidden": False, "none": True, "loading": False, "head": True},
+                {"hidden": True, "focused": 1, "quiet": True},
+            ],
+        )
         focusin = OFFERS_JS.split('$("#offers-products").addEventListener("focusin"')[1].split("\n});")[0]
         self.assertIn("offerPopup.quiet", focusin, "de focus die Escape terugzet opent de popup niet opnieuw")
 
     def test_a_pack_without_its_own_offer_gets_no_deal_in_the_popup(self):
         # De 1000 g tegen gewone prijs naast de 500 g in de aanbieding: geen 15% korting of Bonus Box van de 500 g op haar regel.
-        offer = {**self.POPUP_OFFER, "priceBefore": 4.29, "promoLabel": "15% korting", "personal": True,
-                 "family": {"key": "f", "packs": [{"productId": "514010", "unitSize": "390 g", "price": 3.65}, {"productId": "1000", "unitSize": "1000 g", "price": 8.30}]}}
+        offer = {
+            **self.POPUP_OFFER,
+            "priceBefore": 4.29,
+            "promoLabel": "15% korting",
+            "personal": True,
+            "family": {
+                "key": "f",
+                "packs": [{"productId": "514010", "unitSize": "390 g", "price": 3.65}, {"productId": "1000", "unitSize": "1000 g", "price": 8.30}],
+            },
+        }
         found = self.run_js(f"offersState.offers = []; console.log(JSON.stringify(offerForPack({json.dumps(offer)}, '1000')));")
         self.assertEqual((found["id"], found["price"], found["priceBefore"], found["promoLabel"], found["personal"]), ("1000", 8.30, None, "", False))
 
     def test_the_unit_choice_keeps_a_remembered_unit_with_a_limit(self):
-        self.assertEqual(self.run_js("console.log(JSON.stringify([offersUnitChoice({ maxUnitPrice: { unit: 'l', value: 5 } }, ['kg', 'stuk']), offersUnitChoice({ maxUnitPrice: { unit: 'l', value: null } }, ['kg', 'stuk'])]));"), ["l", "kg"])
+        self.assertEqual(
+            self.run_js(
+                "console.log(JSON.stringify([offersUnitChoice({ maxUnitPrice: { unit: 'l', value: 5 } }, ['kg', 'stuk']), offersUnitChoice({ maxUnitPrice: { unit: 'l', value: null } }, ['kg', 'stuk'])]));"
+            ),
+            ["l", "kg"],
+        )
         self.assertNotIn("filters.maxUnitPrice.unit = ", function_source("renderOffersFilters"), "de keuzelijst verandert de bewaarde eenheid niet")
 
     def test_an_offer_becomes_a_product_for_the_head(self):
         product = self.run_js(f"console.log(JSON.stringify(offerAsProduct('ah', {json.dumps(self.POPUP_OFFER)})));")
-        self.assertEqual((product["store"], product["productId"], product["title"], product["onOfferNow"]), ("ah", "514010", "Dr. Oetker Casa di mama pizza salami", True))
+        self.assertEqual(
+            (product["store"], product["productId"], product["title"], product["onOfferNow"]),
+            ("ah", "514010", "Dr. Oetker Casa di mama pizza salami", True),
+        )
 
     def test_lower_before_disappears_when_year_low_is_known(self):
         label = {"kind": "lower_before", "price": 1.99, "month": "2010-03", "coveredSince": "2009-01-01"}
@@ -703,9 +895,7 @@ class OffersScanMarkupTest(unittest.TestCase):
 
     def test_the_bonus_box_label_stands_under_the_deal(self):
         card = function_source("offerProductCard")
-        self.assertLess(
-            card.index("offer.promoLabel"), card.index("offerPersonalBadge(offer)")
-        )
+        self.assertLess(card.index("offer.promoLabel"), card.index("offerPersonalBadge(offer)"))
 
     def test_an_empty_thumb_shows_an_icon(self):
         self.assertIn(
@@ -729,8 +919,10 @@ class OffersScanMarkupTest(unittest.TestCase):
 
     def test_the_badge_takes_status_colours_and_never_red(self):
         # De groene statuskleuren volgen de accentkleur niet; rood is voor fouten, niet voor een kleine korting.
-        badge = CSS[CSS.index("\n.offer-badge {"):CSS.index("/* Het prijslabel uit de geschiedenis")]
-        self.assertIn(".offer-badge--good {\n  border-color: var(--success-text);\n  background: var(--success-text);\n  color: var(--surface);", badge)
+        badge = CSS[CSS.index("\n.offer-badge {") : CSS.index("/* Het prijslabel uit de geschiedenis")]
+        self.assertIn(
+            ".offer-badge--good {\n  border-color: var(--success-text);\n  background: var(--success-text);\n  color: var(--surface);", badge
+        )
         self.assertIn(".offer-badge--none {\n  border-color: var(--border);\n  background: var(--surface-muted);\n  color: var(--muted);", badge)
         self.assertIn(".offer-badge--store {\n  border: 2px dashed currentColor;", badge)
         self.assertNotIn("danger", badge)

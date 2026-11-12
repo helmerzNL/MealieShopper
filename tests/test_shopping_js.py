@@ -173,11 +173,15 @@ class ReviewModelTest(unittest.TestCase):
             console.log(JSON.stringify(selection.map(({ query, productId, quantity, remember }) => ({ query, productId, quantity, remember: remember === true }))));
             """
         )
-        self.assertEqual(out, [
-            {"query": "spaghetti", "productId": "b", "quantity": 99, "remember": True},
-            {"query": "pesto", "productId": "c", "quantity": 2, "remember": False},
-            {"query": "paksoi", "productId": "e", "quantity": 1, "remember": True},
-        ], "het voorstel onthouden we niet; de zoekterm pak choi verandert het ingrediënt paksoi niet")
+        self.assertEqual(
+            out,
+            [
+                {"query": "spaghetti", "productId": "b", "quantity": 99, "remember": True},
+                {"query": "pesto", "productId": "c", "quantity": 2, "remember": False},
+                {"query": "paksoi", "productId": "e", "quantity": 1, "remember": True},
+            ],
+            "het voorstel onthouden we niet; de zoekterm pak choi verandert het ingrediënt paksoi niet",
+        )
 
     def test_what_was_not_searched_is_counted_apart(self):
         out = self.run_js(
@@ -233,7 +237,9 @@ class ReviewStorageTest(unittest.TestCase):
         self.assertEqual(out["drawn"], 1)
         rows = out["review"]["rows"]
         self.assertEqual((rows[0]["packs"], rows[0]["state"]), (2, "found"))
-        self.assertEqual((rows[1]["state"], rows[1]["skipped"], rows[1]["error"]), ("missing", True, "cart.not_searched"), "wat nog gezocht werd, is niet gezocht")
+        self.assertEqual(
+            (rows[1]["state"], rows[1]["skipped"], rows[1]["error"]), ("missing", True, "cart.not_searched"), "wat nog gezocht werd, is niet gezocht"
+        )
 
     def test_another_week_an_old_list_or_an_unknown_store_is_not_shown(self):
         out = self.run_js(
@@ -271,7 +277,9 @@ class ReviewStorageTest(unittest.TestCase):
             """
         )
         self.assertEqual(out, {"before": True, "after": False})
-        self.assertIn("shopping.review = null;\n  reviewSave();\n  showCartResult(data, notFound, store);", function_source(SHOPPING_JS, "submitCart"))
+        self.assertIn(
+            "shopping.review = null;\n  reviewSave();\n  showCartResult(data, notFound, store);", function_source(SHOPPING_JS, "submitCart")
+        )
         discard = function_source(SHOPPING_JS, "discardCartReview")
         self.assertIn("reviewAbort?.abort();", discard, "een lopende zoekronde stopt mee")
         self.assertIn("reviewSave();", discard)

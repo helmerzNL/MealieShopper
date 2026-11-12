@@ -13,9 +13,10 @@ import respx
 
 os.environ["PASSKEY_AUTH_ENABLED"] = "false"
 
+from helpers import AppTestCase, db, returned  # noqa: E402
+
 from mealieshopper import ai_review, auth_password, http_client, offers  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
-from helpers import AppTestCase, db, returned  # noqa: E402
 
 T = TypeVar("T")
 
@@ -40,7 +41,13 @@ def answer(provider: str, verdicts: list[tuple[int, str, str]], tokens: tuple[in
     """Het antwoord van een aanbieder met deze oordelen: [(id, oordeel, reden)]."""
     payload = {"verdicts": [{"id": i, "verdict": v, "reason": r} for i, v, r in verdicts]}
     if provider == "anthropic":
-        return reply(200, {"content": [{"type": "tool_use", "name": "report_verdicts", "input": payload}], "usage": {"input_tokens": tokens[0], "output_tokens": tokens[1]}})
+        return reply(
+            200,
+            {
+                "content": [{"type": "tool_use", "name": "report_verdicts", "input": payload}],
+                "usage": {"input_tokens": tokens[0], "output_tokens": tokens[1]},
+            },
+        )
     return reply(200, {"choices": [{"message": {"content": json.dumps(payload)}}], "usage": {"total_tokens": sum(tokens)}})
 
 
@@ -125,7 +132,15 @@ class AiTestCase(AppTestCase):
 
 class RequestAndAnswerTest(AiTestCase):
     def pair(self):
-        return {"ingredient": "400 g kipfilet", "product": "AH Kipfilet", "brand": "AH", "unitSize": "500 g", "category": "vlees", "recipes": 9, "exampleRecipes": ["Geheim recept"]}
+        return {
+            "ingredient": "400 g kipfilet",
+            "product": "AH Kipfilet",
+            "brand": "AH",
+            "unitSize": "500 g",
+            "category": "vlees",
+            "recipes": 9,
+            "exampleRecipes": ["Geheim recept"],
+        }
 
     async def test_claude_gets_a_forced_tool_call_with_only_ingredient_and_product_text(self):
         with provider(return_value=answer("anthropic", [(1, "ok", "kip is kip")])) as route:
@@ -141,9 +156,15 @@ class RequestAndAnswerTest(AiTestCase):
         text = json.dumps(body)
         self.assertIn("kipfilet", text)
         self.assertNotIn("Geheim recept", text, "geen recepttitels naar de aanbieder")
-        self.assertEqual(items_of(sent)[0], {"id": 1, "ingredient": "400 g kipfilet", "product": "AH Kipfilet", "brand": "AH", "size": "500 g", "productCategory": "vlees"})
+        self.assertEqual(
+            items_of(sent)[0],
+            {"id": 1, "ingredient": "400 g kipfilet", "product": "AH Kipfilet", "brand": "AH", "size": "500 g", "productCategory": "vlees"},
+        )
         self.assertEqual((verdicts, tokens), ({1: ("ok", "kip is kip")}, 120))
-        self.assertEqual(sent.extensions["timeout"], {"connect": ai_review.TIMEOUT, "read": ai_review.TIMEOUT, "write": ai_review.TIMEOUT, "pool": ai_review.TIMEOUT})
+        self.assertEqual(
+            sent.extensions["timeout"],
+            {"connect": ai_review.TIMEOUT, "read": ai_review.TIMEOUT, "write": ai_review.TIMEOUT, "pool": ai_review.TIMEOUT},
+        )
 
     async def test_the_timeout_holds_whoever_made_the_client_first(self):
         async def judge_after_another_client() -> httpx.Request:
@@ -153,7 +174,10 @@ class RequestAndAnswerTest(AiTestCase):
             return route.calls.last.request
 
         sent = await call(judge_after_another_client())
-        self.assertEqual(sent.extensions["timeout"], {"connect": ai_review.TIMEOUT, "read": ai_review.TIMEOUT, "write": ai_review.TIMEOUT, "pool": ai_review.TIMEOUT})
+        self.assertEqual(
+            sent.extensions["timeout"],
+            {"connect": ai_review.TIMEOUT, "read": ai_review.TIMEOUT, "write": ai_review.TIMEOUT, "pool": ai_review.TIMEOUT},
+        )
 
     async def test_chatgpt_gets_a_strict_json_schema(self):
         with provider(return_value=answer("openai", [(1, "wrong", "saus")])) as route:
@@ -263,12 +287,14 @@ class ErrorsTest(AiTestCase):
 class ReviewTest(AiTestCase):
     def fake(self, wrong=("saus",), calls=None):
         """Een nagebootste aanbieder: een product met een van deze woorden is fout, de rest goed."""
+
         def post(request: httpx.Request) -> httpx.Response:
             items = items_of(request)
             if calls is not None:
                 calls.append([item["product"] for item in items])
             name = "anthropic" if "anthropic" in str(request.url) else "openai"
             return answer(name, [(i["id"], "wrong" if any(w in i["product"] for w in wrong) else "ok", "reden") for i in items])
+
         return provider(side_effect=post)
 
     async def test_wrong_pairs_are_hidden_and_good_ones_get_the_ai_mark(self):
@@ -285,7 +311,11 @@ class ReviewTest(AiTestCase):
         listed = (await offers.list_mismatches("ah"))["reports"]
         self.assertEqual([(r["offerId"], r["source"], r["reason"]) for r in listed], [("1", "ai", "reden")])
         data = await offers.suggest("ah")
-        self.assertEqual({key: data["ai"][key] for key in ("judged", "unjudged")}, {"judged": 1, "unjudged": 1}, "het volgende kipfilet-product (Jumbo) is nog niet beoordeeld")
+        self.assertEqual(
+            {key: data["ai"][key] for key in ("judged", "unjudged")},
+            {"judged": 1, "unjudged": 1},
+            "het volgende kipfilet-product (Jumbo) is nog niet beoordeeld",
+        )
 
     async def test_a_pair_is_only_judged_once(self):
         await self.seed()
@@ -328,7 +358,9 @@ class ReviewTest(AiTestCase):
             result = await call(ai_review.review("ah", 1))
         self.assertEqual((len(calls), result["judged"], result["remaining"]), (1, 1, 1), "een paar van twee")
         with mock.patch.object(ai_review, "BATCH_SIZE", 1), self.fake(calls=calls):
-            self.assertEqual((await call(ai_review.review("ah", 99999)))["remaining"], 0, "de grens is 500 paren, een grotere vraag wordt daarop afgekapt")
+            self.assertEqual(
+                (await call(ai_review.review("ah", 99999)))["remaining"], 0, "de grens is 500 paren, een grotere vraag wordt daarop afgekapt"
+            )
         self.assertEqual(len(calls), 2, "per aanvraag een paar")
 
     async def test_an_error_halfway_keeps_what_was_judged(self):
@@ -395,7 +427,10 @@ class EndpointTest(AiTestCase):
         # Zoals requests: de gebruikersnaam en het wachtwoord uit het adres gaan als Basic-authenticatie mee, in plaats van de sleutel.
         self.assertEqual(str(sent.url), "http://192.168.0.70:3215/v1/chat/completions")
         self.assertEqual(sent.headers["Authorization"], "Basic dXNlcjpnZWhlaW0=")
-        self.assertEqual((status["endpoint"], status["endpointSource"], status["baseEnv"]), ("http://192.168.0.70:3215/v1/chat/completions", "env", "OPENAI_BASE_URL"))
+        self.assertEqual(
+            (status["endpoint"], status["endpointSource"], status["baseEnv"]),
+            ("http://192.168.0.70:3215/v1/chat/completions", "env", "OPENAI_BASE_URL"),
+        )
         self.assertNotIn("geheim", json.dumps(status), "geen wachtwoord uit het adres in de status")
 
     async def test_an_invalid_base_url_is_an_error_and_never_falls_back_to_the_provider(self):
@@ -428,7 +463,20 @@ class KeyTest(AiTestCase):
         self.assertTrue(raw.startswith("gAAAA"))
         self.assertNotIn("GEHEIM", raw)
         self.assertNotIn("GEHEIM", json.dumps(status))
-        self.assertEqual(status["providers"]["anthropic"], {"name": "Claude", "configured": True, "source": "app", "hint": "…cdef", "model": "claude-haiku-5-5", "defaultModel": "claude-haiku-5-5", "endpoint": "https://api.anthropic.com/v1/messages", "endpointSource": "default", "baseEnv": "ANTHROPIC_BASE_URL"})
+        self.assertEqual(
+            status["providers"]["anthropic"],
+            {
+                "name": "Claude",
+                "configured": True,
+                "source": "app",
+                "hint": "…cdef",
+                "model": "claude-haiku-5-5",
+                "defaultModel": "claude-haiku-5-5",
+                "endpoint": "https://api.anthropic.com/v1/messages",
+                "endpointSource": "default",
+                "baseEnv": "ANTHROPIC_BASE_URL",
+            },
+        )
         self.assertFalse(status["providers"]["openai"]["configured"])
         self.assertEqual(status["active"], "anthropic")
 
@@ -450,7 +498,9 @@ class KeyTest(AiTestCase):
         await call(ai_review.save({"models": {"openai": ""}}))
         self.assertEqual(await call(ai_review.model_of("openai")), "gpt-4o-mini", "een leeg model geeft de standaard")
         await call(ai_review.save({"clear": ["openai"]}))
-        self.assertEqual((await call(ai_review.status()))["active"], "anthropic", "de gekozen aanbieder zonder sleutel valt terug op een die er een heeft")
+        self.assertEqual(
+            (await call(ai_review.status()))["active"], "anthropic", "de gekozen aanbieder zonder sleutel valt terug op een die er een heeft"
+        )
         with self.assertRaises(ValueError):
             await call(ai_review.save({"provider": "gemini"}))
         with self.assertRaises(ValueError):
@@ -501,7 +551,9 @@ class RoutesTest(AiTestCase):
         self.assertEqual((result.status_code, result.get_json()["judged"]), (200, 2))
         self.assertEqual((await self.admin.post("/api/offers/ai/review", json={"store": "nope"})).status_code, 400)
         with provider(return_value=reply(401, {"error": {"message": "weg"}})) as route:
-            self.assertEqual((await self.admin.post("/api/offers/ai/review", json={"store": "ah"})).status_code, 200)  # niets meer te beoordelen: geen aanroep, geen fout
+            self.assertEqual(
+                (await self.admin.post("/api/offers/ai/review", json={"store": "ah"})).status_code, 200
+            )  # niets meer te beoordelen: geen aanroep, geen fout
         self.assertFalse(route.called)
         await call(ai_review.save({"clear": ["anthropic"]}))
         self.assertEqual((await self.admin.post("/api/offers/ai/review", json={"store": "ah"})).status_code, 400, "zonder sleutel een leesbare fout")
@@ -549,7 +601,11 @@ class MarkupTest(AppTestCase):
         self.assertIn('id="offers-ai-bar" data-admin-only', html)
         self.assertIn('id="offers-ai-run" type="button" hidden', html, "de knop staat verborgen tot er een sleutel is")
         self.assertLess(html.index("offers.js"), html.index("ai_review.js"))
-        self.assertIn('const MDI_CHECK_CIRCLE_OUTLINE = "M12 2C6.5 2 2 6.5 2 12S6.5 22 12 22 22 17.5 22 12 17.5 2 12 2M12 20C7.59 20 4 16.41 4 12S7.59 4 12 4 20 7.59 20 12 16.41 20 12 20M16.59 7.58L10 14.17L7.41 11.59L6 13L10 17L18 9L16.59 7.58Z";', app_js, "het officiële MDI-icoon")
+        self.assertIn(
+            'const MDI_CHECK_CIRCLE_OUTLINE = "M12 2C6.5 2 2 6.5 2 12S6.5 22 12 22 22 17.5 22 12 17.5 2 12 2M12 20C7.59 20 4 16.41 4 12S7.59 4 12 4 20 7.59 20 12 16.41 20 12 20M16.59 7.58L10 14.17L7.41 11.59L6 13L10 17L18 9L16.59 7.58Z";',
+            app_js,
+            "het officiële MDI-icoon",
+        )
         self.assertIn('item.ai === "ok"', offers_js)
         self.assertIn("renderOfferAi(data.ai)", offers_js)
         self.assertIn("mdiIcon(MDI_LOADING", script, "draaiend icoon tijdens het werk")
@@ -558,9 +614,19 @@ class MarkupTest(AppTestCase):
         self.assertNotIn("/api/offers/ai/review", script, "de knop zoekt recepten; het beoordelen van koppelingen blijft alleen als API")
         self.assertIn('$(`#ai-key-${provider}`).value = "";', script, "het sleutelveld wordt na opslaan leeg gemaakt")
         self.assertIn("loadAiReviewSettings", app_js)
-        self.assertIn('t("aireview.status.endpoint", { endpoint: info.endpoint, env: info.baseEnv })', script, "het afwijkende adres staat bij de sleutel")
+        self.assertIn(
+            't("aireview.status.endpoint", { endpoint: info.endpoint, env: info.baseEnv })', script, "het afwijkende adres staat bij de sleutel"
+        )
         for text in (readme, readme_en):
-            for name in ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_BASE_URL", "OPENAI_BASE_URL", "claude-haiku-5-5", "gpt-4o-mini", "/api/offers/ai/review"):
+            for name in (
+                "ANTHROPIC_API_KEY",
+                "OPENAI_API_KEY",
+                "ANTHROPIC_BASE_URL",
+                "OPENAI_BASE_URL",
+                "claude-haiku-5-5",
+                "gpt-4o-mini",
+                "/api/offers/ai/review",
+            ):
                 self.assertIn(name, text)
 
 

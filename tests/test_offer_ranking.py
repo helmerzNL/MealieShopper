@@ -3,6 +3,7 @@
 import unittest
 
 from helpers import db  # noqa: F401 - zet het pad naar de app
+
 from mealieshopper.offer_ranking import families, family_key, family_of, year_low
 from mealieshopper.prices import unit_price
 
@@ -63,7 +64,15 @@ class YearLowTest(unittest.TestCase):
 
 
 def pack(pid: str, size: str, price: float, on_offer: bool, title: str = "AH Rundergehakt", brand: str | None = "AH") -> dict:
-    return {"productId": pid, "title": f"{title} {size}", "brand": brand, "unitSize": size, "price": price, "unitPrice": unit_price(price, size), "onOffer": on_offer}
+    return {
+        "productId": pid,
+        "title": f"{title} {size}",
+        "brand": brand,
+        "unitSize": size,
+        "price": price,
+        "unitPrice": unit_price(price, size),
+        "onOffer": on_offer,
+    }
 
 
 class FamiliesTest(unittest.TestCase):
@@ -78,8 +87,15 @@ class FamiliesTest(unittest.TestCase):
         self.assertFalse(family["unknownPacks"])
 
     def test_variants_are_not_the_same_family(self) -> None:
-        found = families("ah", [pack("1", "500 g", 4.19, True), pack("2", "500 g", 5.49, True, title="AH Biologisch rundergehakt"),
-                                pack("3", "300 g", 3.99, True, title="AH Mager rundergehakt")], {})
+        found = families(
+            "ah",
+            [
+                pack("1", "500 g", 4.19, True),
+                pack("2", "500 g", 5.49, True, title="AH Biologisch rundergehakt"),
+                pack("3", "300 g", 3.99, True, title="AH Mager rundergehakt"),
+            ],
+            {},
+        )
         self.assertEqual(len(found), 3)
 
     def test_the_same_product_id_twice_in_a_week_is_one_pack_with_the_lowest_price(self) -> None:
@@ -94,13 +110,18 @@ class FamiliesTest(unittest.TestCase):
     def test_an_offer_without_a_brand_finds_the_family_of_its_packs(self) -> None:
         found = families("ah", [pack("1", "300 g", 2.49, True, brand=None), pack("2", "1000 g", 7.49, False)], {})
         self.assertEqual(family_of(found, "ah", "AH Rundergehakt 300 g", None)["key"], "ah|rundergehakt|ah")
-        self.assertEqual(family_of(found, "ah", "Unox Rookworst", None), {"key": "ah|unox rookworst|", "packs": [], "unknownPacks": False, "bought": False})
+        self.assertEqual(
+            family_of(found, "ah", "Unox Rookworst", None), {"key": "ah|unox rookworst|", "packs": [], "unknownPacks": False, "bought": False}
+        )
 
     def test_an_offer_that_is_not_a_pack_of_its_family_gets_an_empty_family(self) -> None:
         # Een aanbieding zonder prijs per eenheid staat niet in packs. Met de sleutel van de familie zou de kaartenweergave haar
         # achter de kop van de familie verbergen: dus een lege familie, met alleen de sleutel.
         found = families("ah", [pack("300", "300 g", 2.49, True), pack("1000", "1000 g", 7.49, False)], {})
-        self.assertEqual(family_of(found, "ah", "AH Rundergehakt", "AH", product_id="999"), {"key": "ah|rundergehakt|ah", "packs": [], "unknownPacks": False, "bought": False})
+        self.assertEqual(
+            family_of(found, "ah", "AH Rundergehakt", "AH", product_id="999"),
+            {"key": "ah|rundergehakt|ah", "packs": [], "unknownPacks": False, "bought": False},
+        )
         self.assertEqual(len(family_of(found, "ah", "AH Rundergehakt", "AH", product_id="300")["packs"]), 2)
 
     def test_unknown_packs_when_the_app_knows_another_pack_without_a_recent_price(self) -> None:
@@ -120,7 +141,9 @@ class FamiliesTest(unittest.TestCase):
         found = families("ah", [pack("300", "300 g", 3.65, True), pack("4p", "4 stuks", 20.33, True)], {})
         self.assertEqual([(p["productId"], p["cheapest"]) for p in found["ah|rundergehakt|ah"]["packs"]], [("300", False), ("4p", False)])
         found = families("ah", [pack("300", "300 g", 3.65, True), pack("500", "500 g", 4.19, True), pack("4p", "4 stuks", 20.33, True)], {})
-        self.assertEqual([(p["productId"], p["cheapest"]) for p in found["ah|rundergehakt|ah"]["packs"]], [("300", False), ("500", True), ("4p", False)])
+        self.assertEqual(
+            [(p["productId"], p["cheapest"]) for p in found["ah|rundergehakt|ah"]["packs"]], [("300", False), ("500", True), ("4p", False)]
+        )
 
     def test_cheapest_needs_the_pack_margin(self) -> None:
         found = families("ah", [pack("a", "500 g", 4.19, True), pack("b", "1000 g", 8.30, False)], {})  # 8.38 tegen 8.30 per kilo: binnen 2 procent

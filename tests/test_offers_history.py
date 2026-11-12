@@ -6,9 +6,10 @@ from unittest import mock
 
 os.environ.setdefault("MEALIESHOPPER_DATA_DIR", tempfile.mkdtemp())
 
+from helpers import AppTestCase, db, returned, run  # noqa: E402
+
 from mealieshopper import auth, offer_categories, offers  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
-from helpers import AppTestCase, db, returned, run  # noqa: E402
 
 
 class TempDataDirTest(AppTestCase):
@@ -36,13 +37,31 @@ def item(product_id, title, price=1.0, before=2.0, label="2 voor 3", **extra):
 class CategoryTest(AppTestCase):
     def test_titles_land_in_the_expected_category(self):
         cases = {
-            "Kipfilet 500 g": "vlees", "Kippensoep": "sauzen_conserven", "Appelsap 1 l": "frisdrank", "Elstar appels": "groente_fruit",
-            "Coca-Cola 6 x 33 cl": "frisdrank", "Halfvolle melk": "zuivel_eieren", "Melkchocolade reep": "snacks_snoep",
-            "Pindakaas": "ontbijt_beleg", "Gouda jong belegen": "kaas_vleeswaren", "Rookworst": "vlees", "Leverworst": "kaas_vleeswaren",
-            "Zalmfilet": "vis", "Heineken pils": "bier_wijn", "Diepvries pizza": "diepvries", "Spaghetti": "maaltijden",
-            "Douwe Egberts koffie": "koffie_thee", "Volkoren brood": "brood_bakkerij", "Eieren 10 stuks": "zuivel_eieren",
-            "Pampers luiers": "baby", "Whiskas kattenvoer": "huisdier", "Shampoo": "drogisterie", "Wasmiddel": "huishouden",
-            "Cheesecake": "brood_bakkerij", "Iets onbekends": "overig", "": "overig",
+            "Kipfilet 500 g": "vlees",
+            "Kippensoep": "sauzen_conserven",
+            "Appelsap 1 l": "frisdrank",
+            "Elstar appels": "groente_fruit",
+            "Coca-Cola 6 x 33 cl": "frisdrank",
+            "Halfvolle melk": "zuivel_eieren",
+            "Melkchocolade reep": "snacks_snoep",
+            "Pindakaas": "ontbijt_beleg",
+            "Gouda jong belegen": "kaas_vleeswaren",
+            "Rookworst": "vlees",
+            "Leverworst": "kaas_vleeswaren",
+            "Zalmfilet": "vis",
+            "Heineken pils": "bier_wijn",
+            "Diepvries pizza": "diepvries",
+            "Spaghetti": "maaltijden",
+            "Douwe Egberts koffie": "koffie_thee",
+            "Volkoren brood": "brood_bakkerij",
+            "Eieren 10 stuks": "zuivel_eieren",
+            "Pampers luiers": "baby",
+            "Whiskas kattenvoer": "huisdier",
+            "Shampoo": "drogisterie",
+            "Wasmiddel": "huishouden",
+            "Cheesecake": "brood_bakkerij",
+            "Iets onbekends": "overig",
+            "": "overig",
         }
         for title, expected in cases.items():
             self.assertEqual(offer_categories.categorize(title), expected, title)
@@ -75,7 +94,9 @@ class CategoriesInTheCopyTest(TempDataDirTest):
 
     async def test_an_old_database_without_the_column_is_upgraded(self):
         with db() as conn:
-            conn.executescript("DROP TABLE IF EXISTS offers; CREATE TABLE offers (store TEXT NOT NULL, product_id TEXT NOT NULL, position INTEGER NOT NULL, title TEXT NOT NULL, brand TEXT, unit_size TEXT, price REAL, price_before REAL, promo_label TEXT, image TEXT, url TEXT, valid_until TEXT, PRIMARY KEY (store, product_id));")
+            conn.executescript(
+                "DROP TABLE IF EXISTS offers; CREATE TABLE offers (store TEXT NOT NULL, product_id TEXT NOT NULL, position INTEGER NOT NULL, title TEXT NOT NULL, brand TEXT, unit_size TEXT, price REAL, price_before REAL, promo_label TEXT, image TEXT, url TEXT, valid_until TEXT, PRIMARY KEY (store, product_id));"
+            )
         self.assertEqual((await self.sync(item("1", "Kipfilet")))["total"], 1)
 
 
@@ -95,7 +116,11 @@ class HistoryTest(TempDataDirTest):
         product = (await offers.history("ah"))["products"][0]
         self.assertEqual((product["timesOnOffer"], len(product["episodes"]), product["onOfferNow"]), (2, 2, True))
         first = product["episodes"][0]
-        self.assertEqual((first["from"], first["to"]), ("2026-10-01T05:00:00+00:00", "2026-10-01T05:00:00+00:00"), "gesloten op het laatste moment dat hij er stond")
+        self.assertEqual(
+            (first["from"], first["to"]),
+            ("2026-10-01T05:00:00+00:00", "2026-10-01T05:00:00+00:00"),
+            "gesloten op het laatste moment dat hij er stond",
+        )
 
     async def test_a_price_change_keeps_the_details_of_each_step_but_is_not_a_new_time(self):
         await self.sync(item("1", "Kipfilet", 3.0, 4.0, "Bonus"))
@@ -104,12 +129,18 @@ class HistoryTest(TempDataDirTest):
         self.assertEqual((product["timesOnOffer"], [e["price"] for e in product["episodes"]], product["lowestPrice"]), (1, [3.0, 2.5], 2.5))
 
     async def test_the_details_are_kept(self):
-        await self.sync(item("1", "Kipfilet", 3.49, 4.99, "2e halve prijs", brand="AH", unitSize="400 g", validUntil="2026-10-07", image="i.png", url="u"))
+        await self.sync(
+            item("1", "Kipfilet", 3.49, 4.99, "2e halve prijs", brand="AH", unitSize="400 g", validUntil="2026-10-07", image="i.png", url="u")
+        )
         product = (await offers.history("ah"))["products"][0]
         episode = product["episodes"][0]
-        self.assertEqual((product["title"], product["brand"], product["unitSize"], product["category"], product["image"], product["url"]),
-                         ("Kipfilet", "AH", "400 g", "vlees", "i.png", "u"))
-        self.assertEqual((episode["price"], episode["priceBefore"], episode["promoLabel"], episode["validUntil"]), (3.49, 4.99, "2e halve prijs", "2026-10-07"))
+        self.assertEqual(
+            (product["title"], product["brand"], product["unitSize"], product["category"], product["image"], product["url"]),
+            ("Kipfilet", "AH", "400 g", "vlees", "i.png", "u"),
+        )
+        self.assertEqual(
+            (episode["price"], episode["priceBefore"], episode["promoLabel"], episode["validUntil"]), (3.49, 4.99, "2e halve prijs", "2026-10-07")
+        )
 
     async def test_the_period_of_the_store_is_kept_and_shown_as_start_and_end(self):
         await self.sync(item("1", "Kipfilet", 3.49, 4.99, "2e halve prijs", validFrom="2026-10-26", validUntil="2026-11-01"))
@@ -135,8 +166,10 @@ class HistoryTest(TempDataDirTest):
         await self.sync(item("1", "Kipfilet", validFrom="2026-10-19", validUntil="2026-10-25"))
         await self.sync(item("1", "Kipfilet", validFrom="2026-10-19", validUntil="2026-10-25"))
         product = (await offers.history("ah"))["products"][0]
-        self.assertEqual((product["timesOnOffer"], [(e["start"], e["end"]) for e in product["episodes"]]),
-                         (2, [("2026-10-12", "2026-10-18"), ("2026-10-19", "2026-10-25")]))
+        self.assertEqual(
+            (product["timesOnOffer"], [(e["start"], e["end"]) for e in product["episodes"]]),
+            (2, [("2026-10-12", "2026-10-18"), ("2026-10-19", "2026-10-25")]),
+        )
         self.assertEqual(product["episodes"][1]["syncs"], 2)
 
     async def test_a_row_from_before_the_dates_gets_its_start_without_splitting(self):
@@ -147,7 +180,9 @@ class HistoryTest(TempDataDirTest):
 
     async def test_an_old_history_table_without_the_column_is_upgraded(self):
         with db() as conn:
-            conn.executescript("DROP TABLE IF EXISTS offer_history; CREATE TABLE offer_history (id INTEGER PRIMARY KEY AUTOINCREMENT, store TEXT NOT NULL, product_id TEXT NOT NULL, title TEXT NOT NULL, brand TEXT, unit_size TEXT, category TEXT, price REAL, price_before REAL, promo_label TEXT, image TEXT, url TEXT, valid_until TEXT, first_seen TEXT NOT NULL, last_seen TEXT NOT NULL, ended_at TEXT, syncs INTEGER NOT NULL DEFAULT 1, continued INTEGER NOT NULL DEFAULT 0);")
+            conn.executescript(
+                "DROP TABLE IF EXISTS offer_history; CREATE TABLE offer_history (id INTEGER PRIMARY KEY AUTOINCREMENT, store TEXT NOT NULL, product_id TEXT NOT NULL, title TEXT NOT NULL, brand TEXT, unit_size TEXT, category TEXT, price REAL, price_before REAL, promo_label TEXT, image TEXT, url TEXT, valid_until TEXT, first_seen TEXT NOT NULL, last_seen TEXT NOT NULL, ended_at TEXT, syncs INTEGER NOT NULL DEFAULT 1, continued INTEGER NOT NULL DEFAULT 0);"
+            )
         await self.sync(item("1", "Kipfilet", validFrom="2026-10-26", validUntil="2026-11-01"))
         self.assertEqual((await offers.history("ah"))["products"][0]["episodes"][0]["start"], "2026-10-26")
 

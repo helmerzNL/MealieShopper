@@ -1,4 +1,5 @@
 """Lidl: de aanbiedingen van de openbare aanbiedingenpagina lezen (mealieshopper/lidl.py). Zie docs/onderzoek-lidl.md."""
+
 import html
 import json
 import os
@@ -10,9 +11,9 @@ from pathlib import Path
 os.environ.setdefault("MEALIESHOPPER_DATA_DIR", tempfile.mkdtemp())
 
 import httpx
+from helpers import run, served  # noqa: E402
 
 from mealieshopper import deals, lidl  # noqa: E402
-from helpers import run, served  # noqa: E402
 
 FIXTURE = (Path(__file__).parent / "fixtures" / "lidl-aanbiedingen.html").read_text(encoding="utf-8")
 WEEK = date(2026, 11, 9)  # de maandag van de week op de kopie
@@ -30,8 +31,11 @@ def card(product_id="1", title="Kaas", **extra):
         "regionsPrices": {
             "1": {
                 "currentPrice": {
-                    "price": 2.49, "startDate": f"{today}T00:00Z", "endDate": f"{today + timedelta(days=7)}T22:59:59Z",
-                    "discount": {"discountText": "Actie", "deletedPrice": 2.99}, "packaging": {"text": "400 g"},
+                    "price": 2.49,
+                    "startDate": f"{today}T00:00Z",
+                    "endDate": f"{today + timedelta(days=7)}T22:59:59Z",
+                    "discount": {"discountText": "Actie", "deletedPrice": 2.99},
+                    "packaging": {"text": "400 g"},
                 },
             },
         },
@@ -59,9 +63,17 @@ class ReadPageTest(unittest.TestCase):
         self.assertEqual(
             offer,
             {
-                "id": "11563244", "title": "Croky chips", "brand": None, "unitSize": "300 g", "price": 1.99, "priceBefore": None,
-                "promoLabel": "XXL", "image": "https://www.lidl.nl/assets/gcpad4c3cfc15244ff09cf071ee7400b34f.png",
-                "url": "https://www.lidl.nl/p/croky-chips/p11563244", "validFrom": "2026-11-09", "validUntil": "2026-11-15",
+                "id": "11563244",
+                "title": "Croky chips",
+                "brand": None,
+                "unitSize": "300 g",
+                "price": 1.99,
+                "priceBefore": None,
+                "promoLabel": "XXL",
+                "image": "https://www.lidl.nl/assets/gcpad4c3cfc15244ff09cf071ee7400b34f.png",
+                "url": "https://www.lidl.nl/p/croky-chips/p11563244",
+                "validFrom": "2026-11-09",
+                "validUntil": "2026-11-15",
                 "categoryHint": "Hartige hapjes",
             },
         )
@@ -109,8 +121,14 @@ class ReadPageTest(unittest.TestCase):
         self.assertEqual([offer["id"] for offer in lidl.offers_from_html(page(card("1"), old, nameless, unpriced, ["geen", "kaart"]))], ["1"])
 
     def test_pieces_and_relative_images(self):
-        [offer] = lidl.offers_from_html(page(card(image="/assets/kaas.png", regionsPrices={"1": {"currentPrice": {
-            **card()["regionsPrices"]["1"]["currentPrice"], "packaging": {"text": "1 Stk."}}}})))
+        [offer] = lidl.offers_from_html(
+            page(
+                card(
+                    image="/assets/kaas.png",
+                    regionsPrices={"1": {"currentPrice": {**card()["regionsPrices"]["1"]["currentPrice"], "packaging": {"text": "1 Stk."}}}},
+                )
+            )
+        )
         self.assertEqual((offer["unitSize"], offer["image"]), ("1 stuks", "https://www.lidl.nl/assets/kaas.png"))
         [offer] = lidl.offers_from_html(page(card(image="http://elders.example/kaas.png", canonicalUrl="https://elders.example/")))
         self.assertEqual((offer["image"], offer["url"]), ("", ""), "alleen https, en alleen een productpagina van Lidl")

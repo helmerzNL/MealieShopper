@@ -9,10 +9,10 @@ from unittest import mock
 os.environ["PASSKEY_AUTH_ENABLED"] = "false"
 
 import httpx  # noqa: E402
+from helpers import AppTestCase, routes, sent_timeout  # noqa: E402
 
 from mealieshopper import about, auth_password, http_client, updates  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
-from helpers import AppTestCase, routes, sent_timeout  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 HTML = (ROOT / "templates" / "index.html").read_text(encoding="utf-8")
@@ -220,7 +220,15 @@ class PageTest(unittest.TestCase):
     def test_settings_has_an_updates_tab_and_the_page_has_a_banner(self):
         self.assertIn('data-subtab="settings-system" data-admin-only', HTML)
         self.assertIn('id="settings-system"', HTML)
-        for ident in ("update-banner", "update-dot-tab", "update-dot-subtab", "update-dot-user", "update-dot-settings", "update-check", "update-status"):
+        for ident in (
+            "update-banner",
+            "update-dot-tab",
+            "update-dot-subtab",
+            "update-dot-user",
+            "update-dot-settings",
+            "update-check",
+            "update-status",
+        ):
             self.assertIn(f'id="{ident}"', HTML)
         link = re.search(r'<a[^>]*id="update-notes"[^>]*>', HTML).group(0)
         self.assertIn('rel="noopener noreferrer"', link)
@@ -236,7 +244,7 @@ class PageTest(unittest.TestCase):
     def test_script_starts_after_login_and_redraws_on_a_language_change(self):
         app_js = (ROOT / "static" / "app.js").read_text(encoding="utf-8")
         self.assertIn("startUpdateCheck()", app_js)
-        handler = app_js[app_js.index('addEventListener("ms:languagechange"'):]
+        handler = app_js[app_js.index('addEventListener("ms:languagechange"') :]
         self.assertIn("renderUpdate()", handler)
 
 

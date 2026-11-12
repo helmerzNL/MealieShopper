@@ -9,6 +9,7 @@ kiest zelf een wachtwoord of passkey, dus de beheerder kent nooit een wachtwoord
 "reset"-uitnodiging doet hetzelfde voor een bestaande gebruiker die niet meer kan inloggen:
 de oude inloggegevens vervangen we pas als de nieuwe zijn ingesteld.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -37,7 +38,9 @@ async def username_taken(username: str, except_id: str | None = None) -> bool:
     async with auth.connect() as conn:
         async with conn.execute("SELECT id, username FROM users") as cursor:
             rows = await cursor.fetchall()
-        async with conn.execute("SELECT user_id, username FROM invites WHERE kind = 'new' AND expires_at >= ?", (auth.utcnow().isoformat(),)) as cursor:
+        async with conn.execute(
+            "SELECT user_id, username FROM invites WHERE kind = 'new' AND expires_at >= ?", (auth.utcnow().isoformat(),)
+        ) as cursor:
             pending = await cursor.fetchall()
     wanted = username.casefold()
     taken = any(row["username"].casefold() == wanted and row["id"] != except_id for row in rows)
@@ -46,9 +49,10 @@ async def username_taken(username: str, except_id: str | None = None) -> bool:
 
 async def list_users() -> list[dict[str, Any]]:
     await auth.ensure_db()
-    async with auth.connect() as conn, conn.execute(
-        "SELECT id, username, created_at FROM users ORDER BY (id = ?) DESC, LOWER(username)", (OWNER_ID,)
-    ) as cursor:
+    async with (
+        auth.connect() as conn,
+        conn.execute("SELECT id, username, created_at FROM users ORDER BY (id = ?) DESC, LOWER(username)", (OWNER_ID,)) as cursor,
+    ):
         rows = await cursor.fetchall()
     profiles = await profile.info_map()
     return [
@@ -106,6 +110,7 @@ async def delete_user(user_id: str) -> bool:
 
 # --- uitnodigingen -------------------------------------------------------------------------------
 
+
 async def create_invite(created_by: str, kind: str = "new", user_id: str | None = None, username: str = "") -> dict[str, Any]:
     await auth.ensure_db()
     now = auth.utcnow()
@@ -150,17 +155,26 @@ async def find_invite(token: Any) -> dict[str, Any] | None:
 
 async def list_invites() -> list[dict[str, Any]]:
     await auth.ensure_db()
-    async with auth.connect() as conn, conn.execute(
+    async with (
+        auth.connect() as conn,
+        conn.execute(
             """
             SELECT i.id, i.kind, i.username, i.user_id, i.created_at, i.expires_at, u.username AS target
             FROM invites i LEFT JOIN users u ON u.id = i.user_id
             WHERE i.expires_at >= ? ORDER BY i.created_at DESC
             """,
             (auth.utcnow().isoformat(),),
-        ) as cursor:
+        ) as cursor,
+    ):
         rows = await cursor.fetchall()
     return [
-        {"id": r["id"], "kind": r["kind"], "username": (r["target"] if r["kind"] == "reset" else r["username"]) or "", "createdAt": r["created_at"], "expiresAt": r["expires_at"]}
+        {
+            "id": r["id"],
+            "kind": r["kind"],
+            "username": (r["target"] if r["kind"] == "reset" else r["username"]) or "",
+            "createdAt": r["created_at"],
+            "expiresAt": r["expires_at"],
+        }
         for r in rows
     ]
 
@@ -206,6 +220,7 @@ async def check_new_username(username: str, invite: dict[str, Any]) -> str | Non
 
 
 # --- routes --------------------------------------------------------------------------------------
+
 
 def register_routes(app: Quart, base_url: Callable[[], Awaitable[str]]) -> None:
     async def invite_payload(created: dict[str, Any]) -> dict[str, Any]:
@@ -261,8 +276,21 @@ def register_routes(app: Quart, base_url: Callable[[], Awaitable[str]]) -> None:
     async def invite_info():
         invite = await find_invite(request.headers.get("X-Invite-Token") or request.args.get("token"))
         if not invite:
-            return jsonify({"valid": False, "error": tr("Deze uitnodiging bestaat niet meer of is verlopen.", "This invitation no longer exists or has expired.")}), 404
-        return jsonify({"valid": True, "kind": invite["kind"], "username": invite["username"], "invitedBy": invite["invitedBy"], "expiresAt": invite["expiresAt"]})
+            return jsonify(
+                {
+                    "valid": False,
+                    "error": tr("Deze uitnodiging bestaat niet meer of is verlopen.", "This invitation no longer exists or has expired."),
+                }
+            ), 404
+        return jsonify(
+            {
+                "valid": True,
+                "kind": invite["kind"],
+                "username": invite["username"],
+                "invitedBy": invite["invitedBy"],
+                "expiresAt": invite["expiresAt"],
+            }
+        )
 
     @app.post("/api/invites/password")
     async def invite_password():
@@ -271,7 +299,9 @@ def register_routes(app: Quart, base_url: Callable[[], Awaitable[str]]) -> None:
         body = await request_body.json_object()
         invite = await find_invite(body.get("token"))
         if not invite:
-            return jsonify({"error": tr("Deze uitnodiging bestaat niet meer of is verlopen.", "This invitation no longer exists or has expired.")}), 404
+            return jsonify(
+                {"error": tr("Deze uitnodiging bestaat niet meer of is verlopen.", "This invitation no longer exists or has expired.")}
+            ), 404
         username = invite["username"] if invite["kind"] == "reset" else str(body.get("username") or invite["username"]).strip()
         problem = None if invite["kind"] == "reset" else await check_new_username(username, invite)
         problem = problem or auth_password.validate_password(body.get("password"), username)

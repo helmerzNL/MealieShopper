@@ -9,9 +9,10 @@ import httpx
 
 os.environ["PASSKEY_AUTH_ENABLED"] = "false"
 
+from helpers import AppTestCase, run, sent_json, served  # noqa: E402
+
 from mealieshopper import ah, ah_planner, auth, mealie  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
-from helpers import AppTestCase, run, sent_json, served  # noqa: E402
 
 
 def graphql(data=None, errors=None):
@@ -34,21 +35,24 @@ def recipe(recipe_id, title="Pasta", slug="pasta-pesto"):
 
 
 def summaries(*items):
-    return graphql({"recipeSummaries": [{"id": n, "title": f"Recept {n}", "slug": f"recept-{n}", "images": [{"url": f"https://img/{n}.jpg"}]} for n in items]})
+    return graphql(
+        {"recipeSummaries": [{"id": n, "title": f"Recept {n}", "slug": f"recept-{n}", "images": [{"url": f"https://img/{n}.jpg"}]} for n in items]}
+    )
 
 
 class ReadTest(unittest.TestCase):
     """`ah.get_week_planner`: de vraag aan AH en hoe het antwoord een planning wordt."""
 
     def read(self, responses, token="tok"):
-        with mock.patch.object(ah, "configured_refresh_token", return_value="refresh"), \
-                mock.patch.object(ah, "get_user_token", return_value=token), \
-                served(side_effect=responses) as post:
+        with (
+            mock.patch.object(ah, "configured_refresh_token", return_value="refresh"),
+            mock.patch.object(ah, "get_user_token", return_value=token),
+            served(side_effect=responses) as post,
+        ):
             return run(ah.get_week_planner()), post
 
     def test_not_linked_says_where_to_link(self):
-        with mock.patch.object(ah, "configured_refresh_token", return_value=""), \
-                served(side_effect=AssertionError("niet bij AH vragen")):
+        with mock.patch.object(ah, "configured_refresh_token", return_value=""), served(side_effect=AssertionError("niet bij AH vragen")):
             with self.assertRaises(LookupError) as ctx:
                 run(ah.get_week_planner())
         self.assertIn("Instellingen > Koppelen > Albert Heijn", str(ctx.exception))
@@ -72,7 +76,13 @@ class ReadTest(unittest.TestCase):
         self.assertEqual(
             result["days"][0]["items"],
             [
-                {"kind": "recipe", "recipeId": 1234, "title": "Pasta & pesto", "image": "https://img/1234.jpg", "url": "https://www.ah.nl/allerhande/recept/R-R1234/pasta-pesto"},
+                {
+                    "kind": "recipe",
+                    "recipeId": 1234,
+                    "title": "Pasta & pesto",
+                    "image": "https://img/1234.jpg",
+                    "url": "https://www.ah.nl/allerhande/recept/R-R1234/pasta-pesto",
+                },
                 {"kind": "own_recipe", "recipeId": 77, "title": "Oma's soep"},
                 {"kind": "product", "productId": 4242, "title": "AH Stokbrood", "url": "https://www.ah.nl/producten/product/wi4242"},
                 {"kind": "note", "text": "Uit eten"},
@@ -129,9 +139,11 @@ class ReadTest(unittest.TestCase):
     def test_a_rejected_token_is_tried_once_more_with_a_fresh_one(self):
         tokens = iter(["oud", "nieuw"])
         responses = [httpx.Response(401, json={"error": "invalid_token"}), graphql(planner(day("2026-11-09")))]
-        with mock.patch.object(ah, "configured_refresh_token", return_value="refresh"), \
-                mock.patch.object(ah, "get_user_token", side_effect=lambda: next(tokens)), \
-                served(side_effect=responses) as post:
+        with (
+            mock.patch.object(ah, "configured_refresh_token", return_value="refresh"),
+            mock.patch.object(ah, "get_user_token", side_effect=lambda: next(tokens)),
+            served(side_effect=responses) as post,
+        ):
             result = run(ah.get_week_planner())
         self.assertEqual(result["days"], [{"date": "2026-11-09", "items": []}])
         self.assertEqual([call.request.headers["Authorization"] for call in post.calls], ["Bearer oud", "Bearer nieuw"])
@@ -201,19 +213,45 @@ class StandaloneTest(unittest.TestCase):
     """Soep en pizza zijn een maaltijd op zich; wat een onderdeel van een maaltijd is, niet."""
 
     def test_soup_and_pizza(self):
-        for title in ("Padifood Chinese tomatensoep", "Unox Stevige erwtensoep", "AH Soep van de dag", "Dr. Oetker Big Americans pizza Texas", "Mini pizza's", "Mini pizzas", "Unox soepen"):
+        for title in (
+            "Padifood Chinese tomatensoep",
+            "Unox Stevige erwtensoep",
+            "AH Soep van de dag",
+            "Dr. Oetker Big Americans pizza Texas",
+            "Mini pizza's",
+            "Mini pizzas",
+            "Unox soepen",
+        ):
             with self.subTest(title=title):
                 self.assertTrue(ah_planner.standalone(title))
-        for title in ("AH Soepgroente", "AH Soepballetjes", "Soepvlees", "AH Pizzadeeg", "AH Pizzasaus", "Pizzabodem", "AH Bakaardappeltjes", "AH Burger smokey 2 stuks", ""):
+        for title in (
+            "AH Soepgroente",
+            "AH Soepballetjes",
+            "Soepvlees",
+            "AH Pizzadeeg",
+            "AH Pizzasaus",
+            "Pizzabodem",
+            "AH Bakaardappeltjes",
+            "AH Burger smokey 2 stuks",
+            "",
+        ):
             with self.subTest(title=title):
                 self.assertFalse(ah_planner.standalone(title))
 
     def test_the_planner_marks_each_product(self):
-        planner = {"days": [{"date": "2026-11-12", "items": [
-            {"kind": "product", "productId": 1, "title": "Unox Stevige erwtensoep"},
-            {"kind": "product", "productId": 2, "title": "AH Bakaardappeltjes"},
-            {"kind": "note", "text": "Soep"},
-        ]}], "incomplete": False}
+        planner = {
+            "days": [
+                {
+                    "date": "2026-11-12",
+                    "items": [
+                        {"kind": "product", "productId": 1, "title": "Unox Stevige erwtensoep"},
+                        {"kind": "product", "productId": 2, "title": "AH Bakaardappeltjes"},
+                        {"kind": "note", "text": "Soep"},
+                    ],
+                }
+            ],
+            "incomplete": False,
+        }
         with mock.patch.object(ah, "get_week_planner", return_value=planner):
             items = run(ah_planner.get())["days"][0]["items"]
         self.assertEqual([item.get("standalone") for item in items], [True, False, None])
@@ -301,6 +339,7 @@ class ToMealPlanTestCase(unittest.IsolatedAsyncioTestCase):
             patcher = mock.patch.object(mealie, name, side_effect=fake)
             patcher.start()
             self.addCleanup(patcher.stop)
+
         async def product_nutrition(product_id):
             self.nutrition_asked.append(int(product_id))
             return self.per_100.get(int(product_id))
@@ -319,7 +358,13 @@ class ToMealPlanTestCase(unittest.IsolatedAsyncioTestCase):
 
     def ah_has_pack(self, number, title, unit_size, per_100=None):
         """Een product met verpakking en, als AH die heeft, voedingswaarden per 100 g of ml."""
-        self.products[number] = {"id": number, "title": title, "image": f"https://img/{number}.jpg", "url": product_url(number), "unitSize": unit_size}
+        self.products[number] = {
+            "id": number,
+            "title": title,
+            "image": f"https://img/{number}.jpg",
+            "url": product_url(number),
+            "unitSize": unit_size,
+        }
         if per_100 is not None:
             self.per_100[number] = per_100
 
@@ -337,7 +382,18 @@ class RecipesTest(ToMealPlanTestCase):
         self.assertEqual(self.created, [{"date": "2026-11-09", "entryType": "dinner", "recipeSlug": "recept-12"}])
         self.assertEqual(
             results,
-            [{"date": "2026-11-09", "kind": "recipe", "title": "", "recipeId": 12, "imported": True, "slug": "recept-12", "mealieUrl": "https://mealie.example.nl/g/thuis/r/recept-12", "status": "planned"}],
+            [
+                {
+                    "date": "2026-11-09",
+                    "kind": "recipe",
+                    "title": "",
+                    "recipeId": 12,
+                    "imported": True,
+                    "slug": "recept-12",
+                    "mealieUrl": "https://mealie.example.nl/g/thuis/r/recept-12",
+                    "status": "planned",
+                }
+            ],
         )
         self.assertEqual(self.plan_range, ("2026-11-09", "2026-11-09"))
 
@@ -351,7 +407,10 @@ class RecipesTest(ToMealPlanTestCase):
     async def test_a_recipe_already_planned_that_day_is_not_planned_twice(self):
         self.in_mealie["https://www.ah.nl/allerhande/recept/R-R12"] = {"slug": "pasta", "id": "uuid-pasta"}
         self.in_mealie["https://www.ah.nl/allerhande/recept/R-R13"] = {"slug": "soep", "id": "uuid-soep"}
-        self.plan = [{"date": "2026-11-09", "recipe": {"slug": "pasta", "id": "uuid-pasta"}}, {"date": "2026-11-09", "recipeId": "uuid-soep", "recipe": None}]
+        self.plan = [
+            {"date": "2026-11-09", "recipe": {"slug": "pasta", "id": "uuid-pasta"}},
+            {"date": "2026-11-09", "recipeId": "uuid-soep", "recipe": None},
+        ]
         results = await self.day(recipes=[12, 13])
         self.assertEqual([r["status"] for r in results], ["already_planned", "already_planned"])
         self.assertEqual(self.created, [])
@@ -384,7 +443,18 @@ class ProductsTest(ToMealPlanTestCase):
         self.assertEqual(self.created, [{"date": "2026-11-09", "entryType": "dinner", "recipeSlug": "eigen-1"}])
         self.assertEqual(
             results,
-            [{"date": "2026-11-09", "kind": "menu", "title": recipe["name"], "productIds": [101, 88, 95], "imported": True, "slug": "eigen-1", "mealieUrl": "https://mealie.example.nl/g/thuis/r/eigen-1", "status": "planned"}],
+            [
+                {
+                    "date": "2026-11-09",
+                    "kind": "menu",
+                    "title": recipe["name"],
+                    "productIds": [101, 88, 95],
+                    "imported": True,
+                    "slug": "eigen-1",
+                    "mealieUrl": "https://mealie.example.nl/g/thuis/r/eigen-1",
+                    "status": "planned",
+                }
+            ],
         )
 
     async def test_without_combine_every_product_is_its_own_recipe(self):
@@ -400,10 +470,13 @@ class ProductsTest(ToMealPlanTestCase):
         self.named["Padifood Chinese Tomatensoep"] = {"slug": "padifood-chinese-tomatensoep", "recipeId": "uuid-padi"}
         self.named["Padifood Chinese tomatensoep met extra pit"] = {"slug": "padifood-pittig", "recipeId": "uuid-pit"}
         results = await self.day(date="2026-11-12", products=[PADIFOOD, UNOX], note="Soep")
-        self.assertEqual([(r["kind"], r["title"], r["imported"], r["slug"]) for r in results], [
-            ("product", "Padifood Chinese tomatensoep", False, "padifood-chinese-tomatensoep"),
-            ("product", "Unox Stevige erwtensoep", True, "eigen-1"),
-        ])
+        self.assertEqual(
+            [(r["kind"], r["title"], r["imported"], r["slug"]) for r in results],
+            [
+                ("product", "Padifood Chinese tomatensoep", False, "padifood-chinese-tomatensoep"),
+                ("product", "Unox Stevige erwtensoep", True, "eigen-1"),
+            ],
+        )
         self.assertEqual([(source, recipe["name"]) for source, recipe in self.made], [(product_url(302), "Unox Stevige erwtensoep")])
         self.assertEqual([c["recipeSlug"] for c in self.created], ["padifood-chinese-tomatensoep", "eigen-1"])
 
@@ -478,43 +551,71 @@ class ProductNutritionTest(unittest.TestCase):
     """`ah.product_nutrition` en `ah.get_product_nutrition`: de voedingstabel van een AH-product, per 100 g of ml (4.10.0)."""
 
     def test_a_table_by_name(self):
-        found = ah.product_nutrition([
-            {"type": "", "name": "Energie", "value": "1595 kJ (380 kcal)"},
-            {"name": "Vet", "value": "12 g"},
-            {"name": "waarvan verzadigd", "value": "<0,5 g"},
-            {"name": "Enkelvoudig onverzadigd", "value": "4 g"},
-            {"name": "Koolhydraten", "value": "50 g"},
-            {"name": "waarvan suikers", "value": "3,2 g"},
-            {"name": "Eiwitten", "value": "8 g"},
-            {"name": "Voedingsvezel", "value": "2 g"},
-            {"name": "Zout", "value": "0,9 g"},
-        ])
-        self.assertEqual(found, {
-            "calories": 380.0, "proteinContent": 8.0, "fatContent": 12.0, "saturatedFatContent": 0.5, "carbohydrateContent": 50.0,
-            "sugarContent": 3.2, "fiberContent": 2.0, "sodiumContent": 360.0,
-        })
+        found = ah.product_nutrition(
+            [
+                {"type": "", "name": "Energie", "value": "1595 kJ (380 kcal)"},
+                {"name": "Vet", "value": "12 g"},
+                {"name": "waarvan verzadigd", "value": "<0,5 g"},
+                {"name": "Enkelvoudig onverzadigd", "value": "4 g"},
+                {"name": "Koolhydraten", "value": "50 g"},
+                {"name": "waarvan suikers", "value": "3,2 g"},
+                {"name": "Eiwitten", "value": "8 g"},
+                {"name": "Voedingsvezel", "value": "2 g"},
+                {"name": "Zout", "value": "0,9 g"},
+            ]
+        )
+        self.assertEqual(
+            found,
+            {
+                "calories": 380.0,
+                "proteinContent": 8.0,
+                "fatContent": 12.0,
+                "saturatedFatContent": 0.5,
+                "carbohydrateContent": 50.0,
+                "sugarContent": 3.2,
+                "fiberContent": 2.0,
+                "sodiumContent": 360.0,
+            },
+        )
 
     def test_codes_kilojoules_and_sodium_before_salt(self):
-        found = ah.product_nutrition([
-            {"type": "ENER-", "name": "Energie (kJ)", "value": "418"},
-            {"type": "FAT", "name": "x", "value": "1"},
-            {"type": "NA", "name": "y", "value": "0,2 g"},
-            {"type": "SALTEQ", "name": "z", "value": "5 g"},
-        ])
+        found = ah.product_nutrition(
+            [
+                {"type": "ENER-", "name": "Energie (kJ)", "value": "418"},
+                {"type": "FAT", "name": "x", "value": "1"},
+                {"type": "NA", "name": "y", "value": "0,2 g"},
+                {"type": "SALTEQ", "name": "z", "value": "5 g"},
+            ]
+        )
         self.assertAlmostEqual(found["calories"], 418 / 4.184)
         self.assertEqual((found["fatContent"], found["sodiumContent"]), (1.0, 200.0))
-        self.assertEqual(ah.product_nutrition([{"name": "Energie", "value": "380 kcal"}, {"name": "Energie", "value": "1595 kJ"}]), {"calories": 380.0})
+        self.assertEqual(
+            ah.product_nutrition([{"name": "Energie", "value": "380 kcal"}, {"name": "Energie", "value": "1595 kJ"}]), {"calories": 380.0}
+        )
 
     def test_without_energy_or_a_table_it_is_unknown(self):
-        for nutrients in (None, [], "x", [{"name": "Vet", "value": "1 g"}], [{"name": "Energie", "value": "veel"}], [{"name": "Energie", "value": "0 kcal"}]):
+        for nutrients in (
+            None,
+            [],
+            "x",
+            [{"name": "Vet", "value": "1 g"}],
+            [{"name": "Energie", "value": "veel"}],
+            [{"name": "Energie", "value": "0 kcal"}],
+        ):
             with self.subTest(nutrients=nutrients):
                 self.assertIsNone(ah.product_nutrition(nutrients))
 
     def test_get_product_nutrition_reads_the_first_table(self):
-        body = {"product": {"tradeItem": {"nutritions": [
-            {"nutrients": [{"type": "ENER-", "name": "Energie", "value": "200 kcal"}, {"name": "Eiwitten", "value": "3 g"}]},
-            {"nutrients": [{"name": "Energie", "value": "999 kcal"}]},
-        ]}}}
+        body = {
+            "product": {
+                "tradeItem": {
+                    "nutritions": [
+                        {"nutrients": [{"type": "ENER-", "name": "Energie", "value": "200 kcal"}, {"name": "Eiwitten", "value": "3 g"}]},
+                        {"nutrients": [{"name": "Energie", "value": "999 kcal"}]},
+                    ]
+                }
+            }
+        }
         with mock.patch.object(ah, "get_token", return_value="anon"), served(return_value=graphql(body)) as post:
             self.assertEqual(run(ah.get_product_nutrition(191062)), {"calories": 200.0, "proteinContent": 3.0})
         sent = sent_json(post.calls[0])
@@ -522,7 +623,12 @@ class ProductNutritionTest(unittest.TestCase):
         self.assertEqual(sent["variables"], {"id": 191062})
 
     def test_get_product_nutrition_never_throws(self):
-        for response in (graphql({"product": {"tradeItem": None}}), graphql({"product": None}), graphql(None, errors=["kapot"]), httpx.Response(500, text="weg")):
+        for response in (
+            graphql({"product": {"tradeItem": None}}),
+            graphql({"product": None}),
+            graphql(None, errors=["kapot"]),
+            httpx.Response(500, text="weg"),
+        ):
             with self.subTest(response=response), mock.patch.object(ah, "get_token", return_value="anon"), served(return_value=response):
                 self.assertIsNone(run(ah.get_product_nutrition(1)))
         self.assertIsNone(run(ah.get_product_nutrition("geen nummer")))
@@ -543,9 +649,16 @@ class NutritionInRecipesTest(ToMealPlanTestCase):
         self.assertEqual(recipe["recipeYield"], "2 personen")
         # 300 g burger: 600 kcal, 30 g vet, 60 g eiwit, 1200 mg natrium; 450 g aardappeltjes: 450, 9, 9, 450 (en vezel, die de
         # burger niet heeft, dus telt die niet mee). Samen gedeeld door 2 personen.
-        self.assertEqual(recipe["nutrition"], {
-            "@type": "NutritionInformation", "calories": "525 kcal", "proteinContent": "34.5 g", "fatContent": "19.5 g", "sodiumContent": "825 mg",
-        })
+        self.assertEqual(
+            recipe["nutrition"],
+            {
+                "@type": "NutritionInformation",
+                "calories": "525 kcal",
+                "proteinContent": "34.5 g",
+                "fatContent": "19.5 g",
+                "sodiumContent": "825 mg",
+            },
+        )
 
     async def test_more_servings_divide_further(self):
         self.ah_has_pack(101, "AH Burger smokey", "300 g", BURGER)
@@ -611,7 +724,10 @@ class RouteTest(AppTestCase):
         with mock.patch.object(ah, "get_week_planner", side_effect=LookupError("AH account niet gekoppeld. Koppel het.")):
             res = await self.client.get("/api/ah/planner")
         self.assertEqual((res.status_code, res.get_json()["error"]), (424, "AH account niet gekoppeld. Koppel het."))
-        with mock.patch.object(ah, "get_week_planner", side_effect=RuntimeError("AH zegt: interne details")), self.assertLogs("mealieshopper", "ERROR"):
+        with (
+            mock.patch.object(ah, "get_week_planner", side_effect=RuntimeError("AH zegt: interne details")),
+            self.assertLogs("mealieshopper", "ERROR"),
+        ):
             res = await self.client.get("/api/ah/planner")
         self.assertEqual(res.status_code, 424)
         self.assertNotIn("interne details", res.get_json()["error"])
@@ -623,31 +739,55 @@ class RouteTest(AppTestCase):
         self.assertIn("Mealie", res.get_json()["error"])
 
     async def test_post_with_bad_input_is_400(self):
-        with mock.patch.object(mealie, "ensure_configured", new_callable=mock.AsyncMock), \
-                mock.patch.object(ah_planner, "to_meal_plan", side_effect=AssertionError("niet plannen")):
+        with (
+            mock.patch.object(mealie, "ensure_configured", new_callable=mock.AsyncMock),
+            mock.patch.object(ah_planner, "to_meal_plan", side_effect=AssertionError("niet plannen")),
+        ):
             for body in ({"date": "morgen", "recipeIds": [1]}, {"items": [{"date": "2026-11-09", "recipeId": 1}]}):
                 res = await self.client.post("/api/ah/planner/to-meal-plan", json=body)
                 self.assertEqual(res.status_code, 400, body)
 
     async def test_post_plans_the_cleaned_day(self):
         answer = {"results": [{"date": "2026-11-09", "kind": "recipe", "recipeId": 1, "status": "planned"}]}
-        body = {"date": "2026-11-09", "recipeIds": ["1"], "products": [{"productId": 7, "title": "AH Stokbrood"}], "note": "Soep", "combine": True, "splitMeals": False, "servings": 3}
-        with mock.patch.object(mealie, "ensure_configured", new_callable=mock.AsyncMock), \
-                mock.patch.object(ah_planner, "to_meal_plan", return_value=answer) as plan:
+        body = {
+            "date": "2026-11-09",
+            "recipeIds": ["1"],
+            "products": [{"productId": 7, "title": "AH Stokbrood"}],
+            "note": "Soep",
+            "combine": True,
+            "splitMeals": False,
+            "servings": 3,
+        }
+        with (
+            mock.patch.object(mealie, "ensure_configured", new_callable=mock.AsyncMock),
+            mock.patch.object(ah_planner, "to_meal_plan", return_value=answer) as plan,
+        ):
             res = await self.client.post("/api/ah/planner/to-meal-plan", json=body)
         self.assertEqual((res.status_code, res.get_json()), (200, answer))
-        plan.assert_called_once_with({"date": "2026-11-09", "recipeIds": [1], "products": [{"productId": 7, "title": "AH Stokbrood"}], "note": "Soep", "combine": True, "splitMeals": False, "servings": 3})
+        plan.assert_called_once_with(
+            {
+                "date": "2026-11-09",
+                "recipeIds": [1],
+                "products": [{"productId": 7, "title": "AH Stokbrood"}],
+                "note": "Soep",
+                "combine": True,
+                "splitMeals": False,
+                "servings": 3,
+            }
+        )
 
     async def test_every_user_may_read_and_plan(self):
         # Net als plannen en recepten importeren: niet alleen de beheerder.
         for path in ("/api/ah/planner", "/api/ah/planner/to-meal-plan"):
             self.assertFalse(auth.admin_only(path), path)
         regular = {"id": "anna-id", "username": "anna"}
-        with mock.patch.object(auth, "auth_required", new_callable=mock.AsyncMock, return_value=True), \
-                mock.patch.object(auth, "current_user", new_callable=mock.AsyncMock, return_value=regular), \
-                mock.patch.object(ah, "get_week_planner", return_value={"days": [], "incomplete": False}), \
-                mock.patch.object(mealie, "ensure_configured", new_callable=mock.AsyncMock), \
-                mock.patch.object(ah_planner, "to_meal_plan", return_value={"results": []}):
+        with (
+            mock.patch.object(auth, "auth_required", new_callable=mock.AsyncMock, return_value=True),
+            mock.patch.object(auth, "current_user", new_callable=mock.AsyncMock, return_value=regular),
+            mock.patch.object(ah, "get_week_planner", return_value={"days": [], "incomplete": False}),
+            mock.patch.object(mealie, "ensure_configured", new_callable=mock.AsyncMock),
+            mock.patch.object(ah_planner, "to_meal_plan", return_value={"results": []}),
+        ):
             self.assertEqual((await self.client.get("/api/ah/planner")).status_code, 200)
             res = await self.client.post("/api/ah/planner/to-meal-plan", json={"date": "2026-11-09", "products": [{"productId": 1}]})
             self.assertEqual(res.status_code, 200)

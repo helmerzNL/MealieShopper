@@ -10,29 +10,21 @@ from typing import Any
 from unittest import mock
 
 import pytest
-
 import test_price_import
 from helpers import db, in_db
+
 from mealieshopper import ah_orders, auth, name_keys, price_import, prices, product_links, shared_links
 from mealieshopper.app import create_app
 from mealieshopper.shared_links import SharedLink
 
 
 def test_key_ignores_plural_and_online() -> None:
-    assert name_keys.key("AH Les pain triomphe heel online") == name_keys.key(
-        "AH Les pains triomphe heel"
-    )
+    assert name_keys.key("AH Les pain triomphe heel online") == name_keys.key("AH Les pains triomphe heel")
 
 
 def test_old_names_keep_working() -> None:
-    assert (
-        product_links.fold("AH Ah zachte spinazie")
-        == name_keys.fold("AH Ah zachte spinazie")
-        == "ah zachte spinazie"
-    )
-    assert prices._near_name("ah les pains triomphe heel") == name_keys.near(
-        "ah les pains triomphe heel"
-    )
+    assert product_links.fold("AH Ah zachte spinazie") == name_keys.fold("AH Ah zachte spinazie") == "ah zachte spinazie"
+    assert prices._near_name("ah les pains triomphe heel") == name_keys.near("ah les pains triomphe heel")
 
 
 def test_dump_round_trips_sorted_one_link_per_line() -> None:
@@ -48,10 +40,7 @@ def test_dump_round_trips_sorted_one_link_per_line() -> None:
     # kop, twee koppelingen, sluiting
     assert text.count("\n") == 4 and text.endswith("\n")
     assert text.splitlines()[0] == '{"version": 1, "links": ['
-    assert (
-        text.splitlines()[1]
-        == '  {"name": "ah doosjevol kersen", "productId": "1", "title": "AH Doosje met kersen", "unitSize": "250 g"},'
-    )
+    assert text.splitlines()[1] == '  {"name": "ah doosjevol kersen", "productId": "1", "title": "AH Doosje met kersen", "unitSize": "250 g"},'
     assert text.splitlines()[2].endswith('"unitSize": "1 kg"}')
     assert text.splitlines()[3] == "]}"
     assert shared_links.problems(shared_links.parse(text)) == []
@@ -129,9 +118,7 @@ def test_shipped_file_is_valid(store: str) -> None:
 
 def test_load_keys_links_by_name_key(tmp_path, monkeypatch) -> None:
     (tmp_path / "ah.json").write_text(
-        shared_links.dump(
-            [SharedLink("ah les pain triomphe heel", "7", "AH Les pains", "1 stuk")]
-        ),
+        shared_links.dump([SharedLink("ah les pain triomphe heel", "7", "AH Les pains", "1 stuk")]),
         encoding="utf-8",
     )
     monkeypatch.setattr(shared_links, "DATA_DIR", tmp_path)
@@ -147,14 +134,8 @@ def test_broken_file_loads_as_empty(tmp_path, monkeypatch, caplog) -> None:
     with caplog.at_level(logging.WARNING, logger=shared_links.log.name):
         assert shared_links.load("ah") == {}
         assert shared_links.load("picnic") == {}  # ontbrekend bestand
-    assert any(
-        "ah" in record.getMessage() and record.levelno == logging.WARNING
-        for record in caplog.records
-    )
-    assert (
-        len([record for record in caplog.records if record.levelno == logging.WARNING])
-        == 2
-    )
+    assert any("ah" in record.getMessage() and record.levelno == logging.WARNING for record in caplog.records)
+    assert len([record for record in caplog.records if record.levelno == logging.WARNING]) == 2
 
 
 def test_broken_file_with_deep_nesting_loads_as_empty(tmp_path, monkeypatch, caplog) -> None:
@@ -235,8 +216,13 @@ class SharedListCase(test_price_import.ImportCase):
 
     def receipt(self, name: str) -> None:
         with closing(db(ah_orders)) as conn, conn:
-            conn.execute("INSERT INTO ah_receipts (receipt_id, date_time, total, details_synced, first_seen) VALUES ('R1', '2026-09-03', 0, 1, '2026-09-03')")
-            conn.execute("INSERT INTO ah_receipt_items (receipt_id, position, product_id, name, quantity, price, amount) VALUES ('R1', 0, '99999', ?, 1, 3.0, 3.0)", (name,))
+            conn.execute(
+                "INSERT INTO ah_receipts (receipt_id, date_time, total, details_synced, first_seen) VALUES ('R1', '2026-09-03', 0, 1, '2026-09-03')"
+            )
+            conn.execute(
+                "INSERT INTO ah_receipt_items (receipt_id, position, product_id, name, quantity, price, amount) VALUES ('R1', 0, '99999', ?, 1, 3.0, 3.0)",
+                (name,),
+            )
 
 
 class SharedListTest(SharedListCase):
@@ -251,7 +237,11 @@ class SharedListTest(SharedListCase):
         assert (rows["AH Eigen naam"]["product_id"], rows["AH Eigen naam"].get("shared")) == ("9", None)
         cherries = rows["AH Doosjevol kersen"]
         assert (cherries["product_id"], cherries["title"], cherries["unit_size"], cherries["receipt_name"], cherries["shared"]) == (
-            "1234", "AH Doosje met kersen", "250 g", "AH Doosjevol kersen", True,
+            "1234",
+            "AH Doosje met kersen",
+            "250 g",
+            "AH Doosjevol kersen",
+            True,
         )
         assert (rows["AH Bananen tros"]["product_id"], rows["AH Bananen tros"]["shared"]) == ("5678", True)
         assert (await self.rows())["AH Bananen tros"]["product_id"] == "4183", "zonder het bestand telt de naam"
@@ -281,7 +271,9 @@ class SharedListTest(SharedListCase):
 
     async def test_reject_changes_the_history_of_a_product(self):
         await self.seed_catalogue()
-        await self.run_import(*(test_price_import.mail_order(number=f"N{n}", day=f"2026-09-1{n}", items=mail_lines("AH Doosjevol kersen")) for n in range(3)))
+        await self.run_import(
+            *(test_price_import.mail_order(number=f"N{n}", day=f"2026-09-1{n}", items=mail_lines("AH Doosjevol kersen")) for n in range(3))
+        )
         with shared(CHERRIES):
             product = (await prices.history("ah", "kersen", 50, today=TODAY))["products"][0]
             assert (product["productId"], product["timesBought"]) == ("1234", 4)

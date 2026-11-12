@@ -1,4 +1,5 @@
 """Een adres per scherm (static/router.js): /recipes, /offers/history, /stores/ah/orders/123, /cart, ... en navigatie als echte links."""
+
 import os
 import re
 import tempfile
@@ -8,16 +9,35 @@ from unittest import mock
 
 os.environ.setdefault("MEALIESHOPPER_DATA_DIR", tempfile.mkdtemp())
 
+from helpers import AppTestCase  # noqa: E402
+
 from mealieshopper import auth  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
-from helpers import AppTestCase  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 ROUTER = (ROOT / "static" / "router.js").read_text(encoding="utf-8")
 HTML = (ROOT / "templates" / "index.html").read_text(encoding="utf-8")
 
-PAGES = ["/recipes", "/recipes/search", "/offers", "/offers/history", "/import", "/stores", "/stores/ah/orders/225301",
-         "/stores/ah/receipts/AH-123", "/stores/jumbo/lists/7", "/stores/ah/loose", "/stores/picnic/loose", "/meal-kits", "/cart", "/profile/security", "/settings/system", "/settings/preferences", "/settings/appearance", "/about"]
+PAGES = [
+    "/recipes",
+    "/recipes/search",
+    "/offers",
+    "/offers/history",
+    "/import",
+    "/stores",
+    "/stores/ah/orders/225301",
+    "/stores/ah/receipts/AH-123",
+    "/stores/jumbo/lists/7",
+    "/stores/ah/loose",
+    "/stores/picnic/loose",
+    "/meal-kits",
+    "/cart",
+    "/profile/security",
+    "/settings/system",
+    "/settings/preferences",
+    "/settings/appearance",
+    "/about",
+]
 
 
 class PageRoutesTest(AppTestCase):
@@ -37,7 +57,10 @@ class PageRoutesTest(AppTestCase):
             self.assertEqual(reply.get_data(as_text=True), home, path)
 
     async def test_page_addresses_are_as_public_as_the_home_page_and_the_api_is_not(self):
-        with mock.patch.object(auth, "auth_required", new_callable=mock.AsyncMock, return_value=True), mock.patch.object(auth, "current_user", new_callable=mock.AsyncMock, return_value=None):
+        with (
+            mock.patch.object(auth, "auth_required", new_callable=mock.AsyncMock, return_value=True),
+            mock.patch.object(auth, "current_user", new_callable=mock.AsyncMock, return_value=None),
+        ):
             for path in ["/", *PAGES]:
                 self.assertEqual((await self.client.get(path)).status_code, 200, f"{path}: het inlogscherm staat op de pagina zelf")
             self.assertEqual((await self.client.get("/api/prices/history")).status_code, 401)
@@ -52,7 +75,7 @@ class PageRoutesTest(AppTestCase):
 
     def test_settings_are_for_the_administrator_except_preferences(self):
         # Een gewone gebruiker komt op elk adres onder /settings uit bij Voorkeuren; de rest blijft van de beheerder.
-        rule = ROUTER[ROUTER.index('if (panel === "settings" && !routerIsOwner()) {'):]
+        rule = ROUTER[ROUTER.index('if (panel === "settings" && !routerIsOwner()) {') :]
         self.assertIn('subtab = "settings-appearance";', rule[:200])
         self.assertIn('history.replaceState({ ms: true }, "", "/settings/preferences")', rule[:300], "het adres zegt wat er open staat")
         # Voorkeuren heette Weergave: het oude adres opent hem nog, het nieuwe komt eerst en is dus het adres van de pagina.
@@ -66,8 +89,14 @@ class LinkMarkupTest(AppTestCase):
         tabs = dict(re.findall(r'<a class="tab[^"]*" data-tab="([\w-]+)"[^>]* href="([^"]+)" data-nav>', HTML))
         self.assertEqual(tabs, {"recipes": "/recipes", "offers": "/offers", "ah-items": "/stores", "meal-kits": "/meal-kits", "basket": "/cart"})
         subtabs = dict(re.findall(r'<a class="subtab[^"]*" data-subtab="([\w-]+)"[^>]* href="([^"]+)" data-nav>', HTML))
-        for subtab, path in {"search": "/recipes/search", "offers-history": "/offers/history", "ah-items-bestellingen": "/stores/ah/orders", "ah-items-losse-aankopen": "/stores/ah/loose",
-                             "profile-security": "/profile/security", "settings-system": "/settings/system"}.items():
+        for subtab, path in {
+            "search": "/recipes/search",
+            "offers-history": "/offers/history",
+            "ah-items-bestellingen": "/stores/ah/orders",
+            "ah-items-losse-aankopen": "/stores/ah/loose",
+            "profile-security": "/profile/security",
+            "settings-system": "/settings/system",
+        }.items():
             self.assertEqual(subtabs.get(subtab), path, subtab)
         users = dict(re.findall(r'<a[^>]*data-user-action="(\w+)"[^>]* href="([^"]+)" data-nav>', HTML))
         self.assertEqual(users, {"basket": "/cart", "profile": "/profile", "settings": "/settings", "about": "/about"})

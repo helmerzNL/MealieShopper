@@ -7,6 +7,7 @@ zo'n regel, zodat hij zich gedraagt als een door Mealie zelf geanalyseerde regel
 
 Een regel die Mealie al wel analyseerde (met een ingrediënt of een eenheid) blijft ongemoeid.
 """
+
 from __future__ import annotations
 
 import math
@@ -16,14 +17,19 @@ from typing import Any
 from .i18n import current_lang
 
 _FRACTIONS = {
-    "½": 0.5, "¼": 0.25, "¾": 0.75, "⅓": 1 / 3, "⅔": 2 / 3,
-    "⅛": 0.125, "⅜": 0.375, "⅝": 0.625, "⅞": 0.875,
+    "½": 0.5,
+    "¼": 0.25,
+    "¾": 0.75,
+    "⅓": 1 / 3,
+    "⅔": 2 / 3,
+    "⅛": 0.125,
+    "⅜": 0.375,
+    "⅝": 0.625,
+    "⅞": 0.875,
 }
 _FRACTION_CLASS = "".join(_FRACTIONS)
 
-_NUMBER = (
-    rf"(?:\d+[ \u00a0]+\d+/\d+|\d+/\d+|\d+(?:[.,]\d+)?[ \u00a0]?[{_FRACTION_CLASS}]|[{_FRACTION_CLASS}]|\d+(?:[.,]\d+)?)"
-)
+_NUMBER = rf"(?:\d+[ \u00a0]+\d+/\d+|\d+/\d+|\d+(?:[.,]\d+)?[ \u00a0]?[{_FRACTION_CLASS}]|[{_FRACTION_CLASS}]|\d+(?:[.,]\d+)?)"
 _AMOUNT_RE = re.compile(
     rf"^\s*(?:ca\.?|circa|ongeveer|\u00b1|~)?\s*(?P<a>{_NUMBER})(?:\s*(?:-|\u2013|tot)\s*(?P<b>{_NUMBER}))?",
     re.IGNORECASE,
@@ -88,7 +94,7 @@ def parse_line(text: Any) -> dict[str, Any] | None:
     quantity = max(first, second) if first is not None and second is not None else first
     if quantity is None or quantity <= 0:
         return None
-    rest = _TIMES_RE.sub("", line[match.end():]).strip()
+    rest = _TIMES_RE.sub("", line[match.end() :]).strip()
     if _AMOUNT_RE.match(rest):
         return None  # "2 x 400 g tomaten": twee hoeveelheden, dat laten we aan Mealie
 
@@ -96,7 +102,7 @@ def parse_line(text: Any) -> dict[str, Any] | None:
     word = re.match(r"^([^\W\d_]+)\.?(?=$|[\s,;(])", rest)
     if word and word.group(1).lower() in UNITS:
         unit = word.group(1).lower()
-        rest = rest[word.end():].strip()
+        rest = rest[word.end() :].strip()
     rest = _LEADING_FILLER_RE.sub("", rest) if unit else rest
 
     name, _, extra = rest.partition(",")
@@ -110,13 +116,37 @@ def parse_line(text: Any) -> dict[str, Any] | None:
 
 # Hoe Mealie een eenheid noemt: de korte vorm als sleutel, met de volledige naam waaronder hij wordt aangemaakt.
 _UNIT_SHORT = {
-    "gr": "g", "gram": "g", "kilo": "kg", "kilogram": "kg", "milliliter": "ml", "centiliter": "cl",
-    "deciliter": "dl", "liter": "l", "eetlepel": "el", "eetlepels": "el", "theelepel": "tl", "theelepels": "tl",
-    "koffielepel": "kl", "koffielepels": "kl", "stuk": "st", "stuks": "st", "tbsp": "el", "tsp": "tl",
+    "gr": "g",
+    "gram": "g",
+    "kilo": "kg",
+    "kilogram": "kg",
+    "milliliter": "ml",
+    "centiliter": "cl",
+    "deciliter": "dl",
+    "liter": "l",
+    "eetlepel": "el",
+    "eetlepels": "el",
+    "theelepel": "tl",
+    "theelepels": "tl",
+    "koffielepel": "kl",
+    "koffielepels": "kl",
+    "stuk": "st",
+    "stuks": "st",
+    "tbsp": "el",
+    "tsp": "tl",
 }
 _UNIT_NAME = {
-    "g": "gram", "kg": "kilogram", "mg": "milligram", "ml": "milliliter", "cl": "centiliter", "dl": "deciliter",
-    "l": "liter", "el": "eetlepel", "tl": "theelepel", "kl": "koffielepel", "st": "stuk",
+    "g": "gram",
+    "kg": "kilogram",
+    "mg": "milligram",
+    "ml": "milliliter",
+    "cl": "centiliter",
+    "dl": "deciliter",
+    "l": "liter",
+    "el": "eetlepel",
+    "tl": "theelepel",
+    "kl": "koffielepel",
+    "st": "stuk",
 }
 
 
@@ -137,7 +167,7 @@ def unit_definition(unit: str) -> dict[str, str]:
 
 
 def format_quantity(value: float) -> str:
-    """"200", "1,5" of "0,33"; in het Engels met een punt."""
+    """ "200", "1,5" of "0,33"; in het Engels met een punt."""
     rounded = round(float(value), 2)
     text = str(int(rounded)) if rounded == int(rounded) else f"{rounded:.2f}".rstrip("0")
     return text.replace(".", ",") if current_lang() == "nl" else text
@@ -150,7 +180,7 @@ def _blank(value: Any) -> bool:
 
 
 def _line_text(quantity: float | None, unit: str, name: str, note: str) -> str:
-    """"200 g bloem, gezeefd": aantal, eenheid en ingrediënt, met de notitie na een komma.
+    """ "200 g bloem, gezeefd": aantal, eenheid en ingrediënt, met de notitie na een komma.
 
     Zonder ingrediënt is de notitie zelf het ingrediënt ("4 uien" uit een regel die Mealie niet analyseerde).
     """

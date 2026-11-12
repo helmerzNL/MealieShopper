@@ -12,6 +12,7 @@ wachtwoord. Jumbo kan een server-IP weigeren; de verkenner meldt dat.
 
 Net als bij Picnic schrijft `add_to_cart` direct in het echte winkelmandje en plaatst nooit een bestelling.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -44,10 +45,7 @@ CLIENT_VERSION = "master-v39.2.0-web"
 BASKET_CLIENT = "JUMBO_WEB-basket"
 # Auth0 vraagt om een mobiele browser, de GraphQL-kant om een gewone desktopbrowser (zoals jumbo-mcp).
 AUTH_USER_AGENT = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X)"
-WEB_USER_AGENT = (
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-    "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
-)
+WEB_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
 
 REFRESH_SECRET = "JUMBO_REFRESH_TOKEN"
 PENDING_SECRET = "JUMBO_PENDING_LOGIN"
@@ -114,8 +112,7 @@ def _blocked(where: str) -> RuntimeError:
         tr(
             f"Jumbo weigert het verzoek ({where}). Jumbo weert soms server- en datacenter-adressen; "
             "probeer het later opnieuw of vanaf een thuisnetwerk.",
-            f"Jumbo refuses the request ({where}). Jumbo sometimes blocks server and datacenter "
-            "addresses; try again later or from a home network.",
+            f"Jumbo refuses the request ({where}). Jumbo sometimes blocks server and datacenter addresses; try again later or from a home network.",
         ),
         where,
     )
@@ -186,10 +183,8 @@ async def _auth_post(payload: dict[str, str]) -> dict[str, Any]:
         if response.status_code in {400, 401} and ("invalid_grant" in detail or "expired" in detail.lower()):
             raise JumboAuthError(
                 tr(
-                    "Jumbo wijst de code of het token af: ze zijn verlopen of al gebruikt. "
-                    "Log opnieuw in en plak de nieuwe regel direct.",
-                    "Jumbo rejects the code or token: it has expired or was already used. "
-                    "Log in again and paste the new line right away.",
+                    "Jumbo wijst de code of het token af: ze zijn verlopen of al gebruikt. Log opnieuw in en plak de nieuwe regel direct.",
+                    "Jumbo rejects the code or token: it has expired or was already used. Log in again and paste the new line right away.",
                 )
             )
         raise RuntimeError(f"{response.status_code}: {detail}")
@@ -214,10 +209,7 @@ async def link_account(value: str) -> dict[str, Any]:
         raise ValueError(tr("Geen code of token opgegeven", "No code or token provided"))
 
     if _REFRESH_TOKEN_RE.match(text) and "code=" not in text:
-        data = await _auth_post(
-            {"grant_type": "refresh_token", "client_id": CLIENT_ID, "refresh_token": text,
-             "audience": AUDIENCE, "scope": SCOPE}
-        )
+        data = await _auth_post({"grant_type": "refresh_token", "client_id": CLIENT_ID, "refresh_token": text, "audience": AUDIENCE, "scope": SCOPE})
         await auth.set_secret(REFRESH_SECRET, text)
         await _remember_tokens(data, used_refresh=text)
         return {"connected": True, "type": "refresh"}
@@ -243,9 +235,7 @@ async def link_account(value: str) -> dict[str, Any]:
         }
     )
     if not data.get("refresh_token"):
-        raise RuntimeError(
-            tr("Jumbo gaf geen refresh-token terug", "Jumbo returned no refresh token")
-        )
+        raise RuntimeError(tr("Jumbo gaf geen refresh-token terug", "Jumbo returned no refresh token"))
     await _remember_tokens(data)
     await auth.delete_secret(PENDING_SECRET)
     return {"connected": True, "type": "code"}
@@ -288,8 +278,7 @@ async def _refresh_access_token(force: bool, seen: str) -> str:
             raise _not_linked()
         # `audience` en `scope` zijn nodig: zonder krijgt het token geen klant-id en weigert Jumbo het.
         data: dict[str, Any] = await _auth_post(
-            {"grant_type": "refresh_token", "client_id": CLIENT_ID, "refresh_token": refresh,
-             "audience": AUDIENCE, "scope": SCOPE}
+            {"grant_type": "refresh_token", "client_id": CLIENT_ID, "refresh_token": refresh, "audience": AUDIENCE, "scope": SCOPE}
         )
         await _remember_tokens(data, used_refresh=refresh)
         return _access_cache["token"]
@@ -556,11 +545,61 @@ async def search_products(query: str, limit: int = 5) -> list[dict[str, Any]]:
 # zoekquery op veel gangbare termen en houden de producten over die een actieprijs of een actielabel hebben, zoals
 # bij AH als de bonuspagina niets geeft. Het zijn dus de aanbiedingen die bij deze termen horen, niet per se alle.
 OFFER_TERMS = (
-    "kip", "gehakt", "vlees", "worst", "spek", "ham", "vis", "zalm", "garnalen", "kaas", "melk", "yoghurt", "kwark",
-    "boter", "room", "ei", "brood", "beleg", "ontbijtgranen", "pasta", "rijst", "aardappel", "groente", "tomaat",
-    "salade", "fruit", "banaan", "appel", "saus", "soep", "pizza", "diepvries", "ijs", "chips", "noten", "snoep",
-    "chocolade", "koek", "koffie", "thee", "frisdrank", "sap", "water", "bier", "wijn", "olie", "kruiden", "bonen",
-    "schoonmaak", "wasmiddel", "tandpasta", "shampoo", "luiers", "kattenvoer", "hondenvoer",
+    "kip",
+    "gehakt",
+    "vlees",
+    "worst",
+    "spek",
+    "ham",
+    "vis",
+    "zalm",
+    "garnalen",
+    "kaas",
+    "melk",
+    "yoghurt",
+    "kwark",
+    "boter",
+    "room",
+    "ei",
+    "brood",
+    "beleg",
+    "ontbijtgranen",
+    "pasta",
+    "rijst",
+    "aardappel",
+    "groente",
+    "tomaat",
+    "salade",
+    "fruit",
+    "banaan",
+    "appel",
+    "saus",
+    "soep",
+    "pizza",
+    "diepvries",
+    "ijs",
+    "chips",
+    "noten",
+    "snoep",
+    "chocolade",
+    "koek",
+    "koffie",
+    "thee",
+    "frisdrank",
+    "sap",
+    "water",
+    "bier",
+    "wijn",
+    "olie",
+    "kruiden",
+    "bonen",
+    "schoonmaak",
+    "wasmiddel",
+    "tandpasta",
+    "shampoo",
+    "luiers",
+    "kattenvoer",
+    "hondenvoer",
 )
 OFFER_WORKERS = 6  # zoveel zoekopdrachten tegelijk
 
@@ -664,14 +703,12 @@ _BASKET_LINES = """
 """
 ACTIVE_BASKET_QUERY = (
     "query ActiveBasket {\n  activeBasket {\n    __typename\n    ... on ActiveBasketResult {\n      basket {\n"
-    "        id\n        totalProductCount\n" + _BASKET_LINES +
-    "        calculation { totals { totalToPay { amount currency } } }\n      }\n    }\n"
+    "        id\n        totalProductCount\n" + _BASKET_LINES + "        calculation { totals { totalToPay { amount currency } } }\n      }\n    }\n"
     "    ... on BasketError { reason errorMessage }\n  }\n}"
 )
 ADD_LINES_MUTATION = (
     "mutation BasketPageAddBasketItems($input: AddBasketLinesInput!) {\n  addBasketLines(input: $input) {\n"
-    "    __typename\n    ... on Basket {\n      id\n      totalProductCount\n" + _BASKET_LINES +
-    "    }\n  }\n}"
+    "    __typename\n    ... on Basket {\n      id\n      totalProductCount\n" + _BASKET_LINES + "    }\n  }\n}"
 )
 # De foutvariant van addBasketLines heet in Jumbo's schema niet `BasketError` (dat geeft een validatiefout,
 # bevestigd met de verkenner op een echte server). We kennen de naam niet, dus selecteren we alleen
@@ -732,9 +769,7 @@ async def get_cart() -> dict[str, Any]:
 
 
 async def _add_lines(lines: list[dict[str, Any]]) -> Any:
-    data = await _graphql(
-        ADD_LINES_MUTATION, {"input": {"lines": lines, "type": "ECOMMERCE"}}, "BasketPageAddBasketItems"
-    )
+    data = await _graphql(ADD_LINES_MUTATION, {"input": {"lines": lines, "type": "ECOMMERCE"}}, "BasketPageAddBasketItems")
     return _added_basket(data)
 
 
@@ -783,8 +818,7 @@ LOYALTY_CLIENT = "JUMBO_WEB-loyalty"
 _ITEM_FIELDS = "id term sku completed"
 _LIST_ERROR = "    ... on ShoppingListError { reason errorMessage }\n"
 GET_LIST_QUERIES = tuple(
-    "query GetShoppingList {\n  shoppingList {\n    __typename\n"
-    f"    ... on ShoppingList {{ isActive items {{ {_ITEM_FIELDS} }} }}\n{error}  }}\n}}"
+    f"query GetShoppingList {{\n  shoppingList {{\n    __typename\n    ... on ShoppingList {{ isActive items {{ {_ITEM_FIELDS} }} }}\n{error}  }}\n}}"
     for error in (_LIST_ERROR, "")
 )
 EDIT_LIST_QUERIES = tuple(

@@ -16,8 +16,8 @@ from datetime import datetime, timedelta
 from typing import Any
 from unittest import mock
 
-import test_shared_links
 import helpers
+import test_shared_links
 from helpers import AppTestCase, db, run
 
 from mealieshopper import (
@@ -46,9 +46,7 @@ TODAY: str = "2026-11-11"
 
 
 def later(now: str = NOW, **delta: float) -> str:
-    return (datetime.fromisoformat(now) + timedelta(**delta)).isoformat(
-        timespec="seconds"
-    )
+    return (datetime.fromisoformat(now) + timedelta(**delta)).isoformat(timespec="seconds")
 
 
 def item(
@@ -143,9 +141,7 @@ class LooseNamesCase(AppTestCase):
             mock.patch.object(loose_names, "_wait", wait),
             mock.patch.object(loose_names, "_clock", lambda: self.clock),
             mock.patch.object(ah_orders, "_wait", ah_wait),
-            mock.patch.dict(
-                ah_orders._PACE, {"last": float("-inf"), "recent": deque()}
-            ),
+            mock.patch.dict(ah_orders._PACE, {"last": float("-inf"), "recent": deque()}),
             mock.patch.object(shared_links, "load", return_value={}),
         ):
             patch.start()
@@ -208,12 +204,7 @@ class LooseNamesCase(AppTestCase):
         }
 
     async def history_ids(self, store: str, query: str) -> list[str]:
-        return [
-            product["productId"]
-            for product in (await prices.history(store, query, 50, today=TODAY))[
-                "products"
-            ]
-        ]
+        return [product["productId"] for product in (await prices.history(store, query, 50, today=TODAY))["products"]]
 
 
 class ResultRulesTest(LooseNamesCase):
@@ -236,20 +227,13 @@ class ResultRulesTest(LooseNamesCase):
             result,
             {"searches": 1, "exact": 1, "candidates": 0, "missing": 0, "stopped": None},
         )
-        self.assertEqual(
-            search.calls, [("Jumbo Pindakaas naturel", loose_names.CANDIDATES)]
-        )
+        self.assertEqual(search.calls, [("Jumbo Pindakaas naturel", loose_names.CANDIDATES)])
         links = (await product_links.list_links("jumbo"))["links"]
         self.assertEqual(
-            [
-                (link["productId"], link["title"], link["unitSize"], link["origin"])
-                for link in links
-            ],
+            [(link["productId"], link["title"], link["unitSize"], link["origin"]) for link in links],
             [("1", "Jumbo Pindakaas Naturel", "350 g", "exact")],
         )
-        self.assertEqual(
-            self.row("jumbo", "Jumbo Pindakaas naturel")["outcome"], "exact"
-        )
+        self.assertEqual(self.row("jumbo", "Jumbo Pindakaas naturel")["outcome"], "exact")
         self.assertEqual(
             await self.history_ids("jumbo", "pindakaas"),
             ["1"],
@@ -263,9 +247,7 @@ class ResultRulesTest(LooseNamesCase):
 
     async def test_exact_hit_never_replaces_a_link_of_a_person(self) -> None:
         self.bought("Jumbo Pindakaas naturel")
-        search = FakeSearch(
-            {"Jumbo Pindakaas naturel": [item("1", "Jumbo Pindakaas Naturel")]}
-        )
+        search = FakeSearch({"Jumbo Pindakaas naturel": [item("1", "Jumbo Pindakaas Naturel")]})
         with mock.patch.object(
             prices,
             "loose_import_names",
@@ -289,9 +271,7 @@ class ResultRulesTest(LooseNamesCase):
             )
             await loose_names.run_round("jumbo", NOW, search=search)
         links = (await product_links.list_links("jumbo"))["links"]
-        self.assertEqual(
-            [(link["productId"], link["origin"]) for link in links], [("9", "manual")]
-        )
+        self.assertEqual([(link["productId"], link["origin"]) for link in links], [("9", "manual")])
 
     async def test_exact_hits_in_two_packs_become_candidates_only_those(self) -> None:
         self.bought("Jumbo Pindakaas naturel")
@@ -317,14 +297,10 @@ class ResultRulesTest(LooseNamesCase):
             "geen koppeling zonder een mens",
         )
 
-    async def no_link_for(
-        self, store: str, name: str, results: list[dict[str, Any]]
-    ) -> dict[str, Any]:
+    async def no_link_for(self, store: str, name: str, results: list[dict[str, Any]]) -> dict[str, Any]:
         """Een ronde voor `name` met deze resultaten: een kaart (`candidates`) en geen koppeling. Geeft de rij."""
         self.bought(name, store=store)
-        result = await loose_names.run_round(
-            store, NOW, search=FakeSearch({name: results})
-        )
+        result = await loose_names.run_round(store, NOW, search=FakeSearch({name: results}))
         self.assertEqual((result["exact"], result["candidates"]), (0, 1), name)
         self.assertEqual((await product_links.list_links(store))["links"], [], name)
         row = self.row(store, name)
@@ -361,9 +337,7 @@ class ResultRulesTest(LooseNamesCase):
             ]
         }
         self.bought("AH Cola", store="ah")
-        with mock.patch.object(
-            ah, "_search_json", mock.AsyncMock(return_value=raw)
-        ) as search:
+        with mock.patch.object(ah, "_search_json", mock.AsyncMock(return_value=raw)) as search:
             result = await loose_names.run_round("ah", NOW)
         search.assert_awaited_once_with("AH Cola", ah.SEARCH_WINDOW)
         self.assertEqual((result["exact"], result["candidates"]), (0, 1))
@@ -378,19 +352,13 @@ class ResultRulesTest(LooseNamesCase):
         self,
     ) -> None:
         self.bought("Jumbo Halfvolle Melk 1 L")
-        search = FakeSearch(
-            {"Jumbo Halfvolle Melk 1 L": [item("1", "Jumbo Halfvolle melk 1 l", "1 l")]}
-        )
+        search = FakeSearch({"Jumbo Halfvolle Melk 1 L": [item("1", "Jumbo Halfvolle melk 1 l", "1 l")]})
         result = await loose_names.run_round("jumbo", NOW, search=search)
         self.assertEqual((result["exact"], result["candidates"]), (1, 0))
         links = (await product_links.list_links("jumbo"))["links"]
-        self.assertEqual(
-            [(link["productId"], link["origin"]) for link in links], [("1", "exact")]
-        )
+        self.assertEqual([(link["productId"], link["origin"]) for link in links], [("1", "exact")])
 
-    async def spellings_without_link(
-        self, store: str, spellings: dict[str, int], result: dict[str, Any]
-    ) -> None:
+    async def spellings_without_link(self, store: str, spellings: dict[str, int], result: dict[str, Any]) -> None:
         """Een losse naam met deze schrijfwijzen (en zoveel aankopen) en een resultaat dat alleen de vaakste letterlijk is: een kaart
         en geen koppeling, ook niet voor de vaakste schrijfwijze."""
         for spelling, times in spellings.items():
@@ -426,9 +394,7 @@ class ResultRulesTest(LooseNamesCase):
         self.bought("JUMBO Pindakaas, naturel", 1)
         entry: dict[str, Any] = (await prices.loose_import_names("jumbo"))[0]
         self.assertEqual(len(entry["spellings"]), 2)
-        search = FakeSearch(
-            {"Jumbo Pindakaas naturel": [item("1", "Jumbo Pindakaas Naturel", "350 g")]}
-        )
+        search = FakeSearch({"Jumbo Pindakaas naturel": [item("1", "Jumbo Pindakaas Naturel", "350 g")]})
         found = await loose_names.run_round("jumbo", NOW, search=search)
         self.assertEqual((found["exact"], found["candidates"]), (1, 0))
         links = (await product_links.list_links("jumbo"))["links"]
@@ -476,11 +442,16 @@ class ResultRulesTest(LooseNamesCase):
         # geven ze dezelfde lijst in dezelfde volgorde. Verandert `ah.search_products`, dan faalt deze test.
         raw: dict[str, Any] = {
             "products": [
-                {"webshopId": n, "title": title, "brand": "AH", "salesUnitSize": "1 l", "currentPrice": 1.0 + n,
-                 "isVirtualBundle": n == 2, "mainCategory": "Frisdrank"}
-                for n, title in enumerate(
-                    ["AH Cola zero", "AH Cola", "AH Cola 6-pack", "Coca-Cola", "AH Cola light"], 1
-                )
+                {
+                    "webshopId": n,
+                    "title": title,
+                    "brand": "AH",
+                    "salesUnitSize": "1 l",
+                    "currentPrice": 1.0 + n,
+                    "isVirtualBundle": n == 2,
+                    "mainCategory": "Frisdrank",
+                }
+                for n, title in enumerate(["AH Cola zero", "AH Cola", "AH Cola 6-pack", "Coca-Cola", "AH Cola light"], 1)
             ]
         }
         with mock.patch.object(ah, "_search_json", mock.AsyncMock(return_value=raw)):
@@ -493,16 +464,9 @@ class ResultRulesTest(LooseNamesCase):
         self,
     ) -> None:
         self.bought("AH Les pain triomphe heel online", store="ah")
-        results = [
-            ah_item(str(n), f"AH Pain triomphe soort {letter}", price=2.5 + n)
-            for n, letter in enumerate(string.ascii_lowercase[:12], 1)
-        ]
-        results[1]["images"] = [
-            {"url": "http://static.ah.nl/plain.png"}
-        ]  # geen https: geen foto
-        results.insert(
-            0, {**ah_item("x", "Zonder nummer"), "webshopId": "None"}
-        )  # wat `ah._search_product_dict` zonder id geeft
+        results = [ah_item(str(n), f"AH Pain triomphe soort {letter}", price=2.5 + n) for n, letter in enumerate(string.ascii_lowercase[:12], 1)]
+        results[1]["images"] = [{"url": "http://static.ah.nl/plain.png"}]  # geen https: geen foto
+        results.insert(0, {**ah_item("x", "Zonder nummer"), "webshopId": "None"})  # wat `ah._search_product_dict` zonder id geeft
         search = FakeSearch({"AH Les pain triomphe heel online": results})
         await loose_names.run_round("ah", NOW, search=search)
         self.assertEqual(search.calls, [("AH Les pain triomphe heel online", 10)])
@@ -547,9 +511,7 @@ class ResultRulesTest(LooseNamesCase):
             },
         )
         self.assertEqual(
-            loose_name_rules.candidate("ah", ah_item("4183", "AH Bananen", price=0))[
-                "price"
-            ],
+            loose_name_rules.candidate("ah", ah_item("4183", "AH Bananen", price=0))["price"],
             None,
             "AH zonder prijs geeft 0",
         )
@@ -561,16 +523,8 @@ class ResultRulesTest(LooseNamesCase):
             {"id": "None", "title": "x"},
         ):
             self.assertIsNone(loose_name_rules.candidate("jumbo", bad))
-        self.assertIsNone(
-            loose_name_rules.candidate(
-                "jumbo", item("1", "Melk", image="javascript:alert(1)")
-            )["image"]
-        )
-        self.assertIsNone(
-            loose_name_rules.candidate("jumbo", {**item("1", "Melk"), "price": True})[
-                "price"
-            ]
-        )
+        self.assertIsNone(loose_name_rules.candidate("jumbo", item("1", "Melk", image="javascript:alert(1)"))["image"])
+        self.assertIsNone(loose_name_rules.candidate("jumbo", {**item("1", "Melk"), "price": True})["price"])
 
     async def test_multipacks_drop_unless_the_old_name_is_one_or_nothing_is_left(
         self,
@@ -614,9 +568,7 @@ class ResultRulesTest(LooseNamesCase):
         result = await loose_names.run_round(
             "jumbo",
             NOW,
-            search=FakeSearch(
-                {"Jumbo Iets dat weg is": [{"id": "", "title": "kapot"}]}
-            ),
+            search=FakeSearch({"Jumbo Iets dat weg is": [{"id": "", "title": "kapot"}]}),
         )
         self.assertEqual((result["missing"], result["searches"]), (1, 1))
         state = self.row("jumbo", "Jumbo Iets dat weg is")
@@ -667,9 +619,7 @@ class ResultRulesTest(LooseNamesCase):
 
 class DueTest(LooseNamesCase):
     async def test_loose_import_names_groups_spellings_most_bought_first(self) -> None:
-        self.bought(
-            "AH Les pain triomphe heel online", 2, store="ah", paid=1.5, year=2021
-        )
+        self.bought("AH Les pain triomphe heel online", 2, store="ah", paid=1.5, year=2021)
         self.bought("AH  Les pains triomphe heel", 1, store="ah", paid=1.9, year=2024)
         self.bought("AH Hagelslag", 1, store="ah", paid=None)
         found = await prices.loose_import_names("ah")
@@ -704,19 +654,13 @@ class DueTest(LooseNamesCase):
 
     async def test_round_stops_at_100_searches_most_bought_first(self) -> None:
         self.bought("Jumbo Vaak gekocht", 5)
-        names = [
-            f"Jumbo artikel q{a}{b}"
-            for a in string.ascii_lowercase[:10]
-            for b in string.ascii_lowercase[:10]
-        ][:99]
+        names = [f"Jumbo artikel q{a}{b}" for a in string.ascii_lowercase[:10] for b in string.ascii_lowercase[:10]][:99]
         for name in names:
             self.bought(name, 2)
         self.bought("Jumbo Zelden gekocht", 1)
         search = FakeSearch()
         result = await loose_names.run_round("jumbo", NOW, search=search)
-        self.assertEqual(
-            (result["searches"], result["missing"], result["stopped"]), (100, 100, None)
-        )
+        self.assertEqual((result["searches"], result["missing"], result["stopped"]), (100, 100, None))
         self.assertEqual(search.queries[0], "Jumbo Vaak gekocht")
         self.assertEqual(sorted(search.queries[1:]), sorted(names))
         self.assertNotIn("Jumbo Zelden gekocht", search.queries)
@@ -775,9 +719,7 @@ class BrakeTest(LooseNamesCase):
         self.bought("Jumbo Tweede naam", 2)
         self.bought("Jumbo Derde naam", 1)
         old = later(days=-100)
-        self.state(
-            "jumbo", "Jumbo Tweede naam", old, "candidates", [item("1", "Jumbo Iets")]
-        )
+        self.state("jumbo", "Jumbo Tweede naam", old, "candidates", [item("1", "Jumbo Iets")])
         search = FakeSearch(
             {
                 "Jumbo Eerste naam": [item("2", "Jumbo Eerste ding")],
@@ -801,9 +743,7 @@ class BrakeTest(LooseNamesCase):
             "na de weigering geen zoekopdracht meer",
         )
         until = later(hours=loose_names.BACKOFF_HOURS)
-        self.assertEqual(
-            await auth.get_setting("loose_names_paused_until_jumbo"), until
-        )
+        self.assertEqual(await auth.get_setting("loose_names_paused_until_jumbo"), until)
         self.assertEqual(await loose_names.paused_until("jumbo", NOW), until)
         self.assertIsNone(await loose_names.paused_until("jumbo", until))
         self.assertEqual(
@@ -828,13 +768,7 @@ class BrakeTest(LooseNamesCase):
     async def test_ah_403_sets_the_existing_receipt_pause(self) -> None:
         self.bought("AH Eerste naam", 2, store="ah")
         self.bought("AH Tweede naam", 1, store="ah")
-        search = FakeSearch(
-            {
-                "AH Eerste naam": ah.AhHttpError(
-                    "AH productzoekopdracht mislukt (403)", 403
-                )
-            }
-        )
+        search = FakeSearch({"AH Eerste naam": ah.AhHttpError("AH productzoekopdracht mislukt (403)", 403)})
         result = await loose_names.run_round("ah", NOW, search=search)
         self.assertEqual((result["searches"], result["stopped"]), (1, "blocked"))
         until = later(hours=ah_orders.RECEIPT_PRODUCTS_BACKOFF_HOURS)
@@ -862,9 +796,7 @@ class BrakeTest(LooseNamesCase):
             await ah_orders.paused_until(NOW),
             (await ah_orders.linking_status(NOW))["pausedUntil"],
         )
-        self.assertIsNone(
-            await ah_orders.paused_until(until), "een verlopen pauze telt niet"
-        )
+        self.assertIsNone(await ah_orders.paused_until(until), "een verlopen pauze telt niet")
         # De knop van de beheerder (`run_linking(force=True)`) maakt de instelling leeg.
         await auth.set_setting(ah_orders.SETTING_RECEIPT_PRODUCTS_PAUSED, "")
         self.assertIsNone(await ah_orders.paused_until(NOW))
@@ -973,9 +905,7 @@ class BrakeTest(LooseNamesCase):
             )
         self.assertEqual(search.calls, [])
         self.assertEqual(
-            (await loose_names.run_round("picnic", later(hours=2), search=search))[
-                "searches"
-            ],
+            (await loose_names.run_round("picnic", later(hours=2), search=search))["searches"],
             1,
             "na de pauze weer",
         )
@@ -1002,9 +932,7 @@ class BrakeTest(LooseNamesCase):
             )
             self.assertEqual(self.waits, [], "bij AH is het tempo dat van ah_orders")
             await loose_names.run_round("jumbo", NOW, search=search)
-        self.assertEqual(
-            (len(calls), len(search.calls)), (2, 3), "Jumbo gaat er niet door"
-        )
+        self.assertEqual((len(calls), len(search.calls)), (2, 3), "Jumbo gaat er niet door")
 
     async def test_a_second_round_for_the_same_store_returns_running(self) -> None:
         self.bought("Jumbo Eerste naam", 2)
@@ -1015,9 +943,7 @@ class BrakeTest(LooseNamesCase):
             started.set()
             await release.wait()
 
-        first = asyncio.create_task(
-            loose_names.run_round("jumbo", NOW, search=FakeSearch(before=hold))
-        )
+        first = asyncio.create_task(loose_names.run_round("jumbo", NOW, search=FakeSearch(before=hold)))
         await asyncio.wait_for(started.wait(), 5)
         second = FakeSearch()
         self.assertEqual(
@@ -1058,9 +984,7 @@ class ChoiceTest(LooseNamesCase):
         )
         await loose_names.run_round("ah", NOW, search=search)
         card = (await loose_names.page("ah"))["cards"][0]
-        self.assertEqual(
-            (card["name"], card["bought"]), ("AH Les pain triomphe heel online", 3)
-        )
+        self.assertEqual((card["name"], card["bought"]), ("AH Les pain triomphe heel online", 3))
         link = await loose_names.confirm("ah", card["key"], "2")
         self.assertEqual(
             (link["productId"], link["title"], link["unitSize"], link["origin"]),
@@ -1090,16 +1014,10 @@ class ChoiceTest(LooseNamesCase):
     ) -> None:
         # Eindreview van 2026-11-11 (I2): na Ontkoppelen is de naam weer los terwijl zijn rij `exact` is. De rij houdt de kandidaat.
         self.bought("Jumbo Pindakaas naturel", 2)
-        search = FakeSearch(
-            {"Jumbo Pindakaas naturel": [item("1", "Jumbo Pindakaas Naturel", "350 g")]}
-        )
+        search = FakeSearch({"Jumbo Pindakaas naturel": [item("1", "Jumbo Pindakaas Naturel", "350 g")]})
         await loose_names.run_round("jumbo", NOW, search=search)
         self.assertEqual((await loose_names.page("jumbo"))["cards"], [])
-        self.assertTrue(
-            await product_links.remove(
-                "jumbo", "name", product_links.fold("Jumbo Pindakaas naturel")
-            )
-        )
+        self.assertTrue(await product_links.remove("jumbo", "name", product_links.fold("Jumbo Pindakaas naturel")))
         page = await loose_names.page("jumbo")
         self.assertEqual(
             [(card["name"], [c["productId"] for c in card["candidates"]]) for card in page["cards"]],
@@ -1147,9 +1065,7 @@ class ChoiceTest(LooseNamesCase):
         self.assertTrue(await loose_names.restore("jumbo", key))
         self.assertFalse(await loose_names.restore("jumbo", key), "niet meer afgewezen")
         page = await loose_names.page("jumbo")
-        self.assertEqual(
-            ([card["key"] for card in page["cards"]], page["rejected"]), ([key], [])
-        )
+        self.assertEqual(([card["key"] for card in page["cards"]], page["rejected"]), ([key], []))
 
     async def test_a_round_never_overwrites_a_rejection_it_did_not_see(self) -> None:
         self.bought("Jumbo Oude naam", 2)
@@ -1249,9 +1165,7 @@ class ChoiceTest(LooseNamesCase):
         )
 
     async def test_page_shows_the_pause(self) -> None:
-        await auth.set_setting(
-            "loose_names_paused_until_crisp", "2999-01-01T00:00:00+00:00"
-        )
+        await auth.set_setting("loose_names_paused_until_crisp", "2999-01-01T00:00:00+00:00")
         self.assertEqual(
             (await loose_names.page("crisp"))["pausedUntil"],
             "2999-01-01T00:00:00+00:00",
@@ -1342,6 +1256,8 @@ class RaceTest(LooseNamesCase):
         self.assertEqual((result["searches"], result["stopped"]), (1, "blocked"))
         self.assertEqual(search.queries, ["Crisp Eerste naam"])
         self.assertEqual(await loose_names.paused_until("crisp", NOW), later(hours=loose_names.BACKOFF_HOURS))
+
+
 class PlanningCase(LooseNamesCase):
     """De planning (`run_all_stores`, `start`): de rondes en de AI zijn vervangen, er gaat niets naar een winkel of een aanbieder."""
 
@@ -1367,9 +1283,7 @@ class PlanningCase(LooseNamesCase):
         """Vervang `run_round` door een ronde die alleen onthoudt voor welke winkel hij liep."""
         seen: list[str] = []
 
-        async def fake_round(
-            store: str, now: str | None = None, **kwargs: Any
-        ) -> dict[str, Any]:
+        async def fake_round(store: str, now: str | None = None, **kwargs: Any) -> dict[str, Any]:
             seen.append(store)
             if fail and store in fail:
                 raise fail[store]
@@ -1400,12 +1314,8 @@ class PlanningCase(LooseNamesCase):
             return {"asked": 2, "proposed": 1, "none": 1, "tokens": 30}
 
         for patcher in (
-            mock.patch.object(
-                ai_review, "configured", mock.AsyncMock(return_value=configured)
-            ),
-            mock.patch.object(
-                ai_review, "loose_nightly", mock.AsyncMock(return_value=nightly)
-            ),
+            mock.patch.object(ai_review, "configured", mock.AsyncMock(return_value=configured)),
+            mock.patch.object(ai_review, "loose_nightly", mock.AsyncMock(return_value=nightly)),
             mock.patch.object(loose_names_ai, "propose", propose),
         ):
             patcher.start()
@@ -1420,12 +1330,8 @@ class PlanningTest(PlanningCase):
         self.assertEqual(seen, ["jumbo", "crisp"], "een na een, alleen gekoppeld")
         self.assertEqual((result["at"], result["trigger"]), (NOW, "nightly"))
         self.assertEqual(list(result["stores"]), ["jumbo", "crisp"])
-        self.assertEqual(
-            await loose_names.last_round(), result, "bewaard in de instelling"
-        )
-        self.assertEqual(
-            json.loads(await auth.get_setting("loose_names_last_round")), result
-        )
+        self.assertEqual(await loose_names.last_round(), result, "bewaard in de instelling")
+        self.assertEqual(json.loads(await auth.get_setting("loose_names_last_round")), result)
 
     async def test_nothing_linked_records_an_empty_round(self) -> None:
         self.linked()
@@ -1452,9 +1358,7 @@ class PlanningTest(PlanningCase):
             self.ai(configured, nightly, seen)
             result: dict[str, Any] = await loose_names.run_all_stores("nightly", NOW)
             self.assertNotIn("ai", result["stores"]["jumbo"], (configured, nightly))
-        self.assertEqual(
-            seen, ["jumbo"] * 3, "geen voorstellen zonder AI of zonder de instelling"
-        )
+        self.assertEqual(seen, ["jumbo"] * 3, "geen voorstellen zonder AI of zonder de instelling")
         seen.clear()
         self.ai(True, True, seen)
         result = await loose_names.run_all_stores("nightly", NOW)
@@ -1470,12 +1374,8 @@ class PlanningTest(PlanningCase):
         self.ai(True, True, seen, ai_review.AiError("sleutel geweigerd"))
         with self.assertLogs(loose_names.log, level="WARNING"):
             result: dict[str, Any] = await loose_names.run_all_stores("nightly", NOW)
-        self.assertEqual(
-            result["stores"]["jumbo"]["ai"], {"error": "sleutel geweigerd"}
-        )
-        self.assertEqual(
-            result["stores"]["jumbo"]["searches"], 1, "de ronde zelf is gelukt"
-        )
+        self.assertEqual(result["stores"]["jumbo"]["ai"], {"error": "sleutel geweigerd"})
+        self.assertEqual(result["stores"]["jumbo"]["searches"], 1, "de ronde zelf is gelukt")
 
     async def test_start_with_a_store_runs_only_that_store(self) -> None:
         self.linked(ah="t", jumbo="t")
@@ -1491,9 +1391,7 @@ class PlanningTest(PlanningCase):
         self.linked(jumbo="t")
         release: asyncio.Event = asyncio.Event()
 
-        async def slow(
-            trigger: str, now: str | None = None, only: str | None = None
-        ) -> dict[str, Any]:
+        async def slow(trigger: str, now: str | None = None, only: str | None = None) -> dict[str, Any]:
             await release.wait()
             return {}
 
@@ -1529,9 +1427,7 @@ class PlanningTest(PlanningCase):
             await loose_names.confirm("jumbo", key, "")
         self.assertIn("Kies een product", str(missing.exception))
         self.assertEqual((await product_links.list_links("jumbo"))["links"], [])
-        self.assertIsNotNone(
-            self.row("jumbo", "Jumbo Oude naam"), "de kaart blijft staan"
-        )
+        self.assertIsNotNone(self.row("jumbo", "Jumbo Oude naam"), "de kaart blijft staan")
 
 
 class RoutesTest(LooseNamesCase):
@@ -1560,9 +1456,7 @@ class RoutesTest(LooseNamesCase):
     async def asyncSetUp(self) -> None:
         self.addAsyncCleanup(tasks.cancel_all)
         self.admin: helpers.AppClient = self.client_for(self.app)
-        await self.admin.post(
-            "/api/auth/password", json={"username": "admin", "password": self.PASSWORD}
-        )
+        await self.admin.post("/api/auth/password", json={"username": "admin", "password": self.PASSWORD})
 
     async def join(self) -> helpers.AppClient:
         invite = await self.admin.post("/api/users/invites", json={"username": "anna"})
@@ -1603,9 +1497,7 @@ class RoutesTest(LooseNamesCase):
         anna, anonymous = await self.join(), self.client_for(self.app)
         posts = ("run", "propose", "confirm", "reject", "restore")
         for client, expected in ((anna, 403), (anonymous, 401)):
-            self.assertEqual(
-                (await client.get("/api/loose-names?store=ah")).status_code, expected
-            )
+            self.assertEqual((await client.get("/api/loose-names?store=ah")).status_code, expected)
             for route in posts:
                 response = await client.post(
                     f"/api/loose-names/{route}",
@@ -1620,9 +1512,7 @@ class RoutesTest(LooseNamesCase):
             for body in (
                 {},
                 {"store": "nope", "key": "~x", "productId": "1"},
-                {"store": "ah", "key": "~x", "productId": "1"}
-                if route == "propose"
-                else {"store": "aldi"},
+                {"store": "ah", "key": "~x", "productId": "1"} if route == "propose" else {"store": "aldi"},
             ):
                 if route == "propose" and body.get("store") == "ah":
                     continue
@@ -1630,16 +1520,10 @@ class RoutesTest(LooseNamesCase):
                 self.assertEqual(response.status_code, 400, (route, body))
                 self.assertTrue(response.get_json()["error"], (route, body))
         for route in ("confirm", "reject", "restore"):
-            response = await self.admin.post(
-                f"/api/loose-names/{route}", json={"store": "ah"}
-            )
+            response = await self.admin.post(f"/api/loose-names/{route}", json={"store": "ah"})
             self.assertEqual(response.status_code, 400, route)
         self.assertEqual(
-            (
-                await self.admin.post(
-                    "/api/loose-names/confirm", json={"store": "ah", "key": "~x"}
-                )
-            ).status_code,
+            (await self.admin.post("/api/loose-names/confirm", json={"store": "ah", "key": "~x"})).status_code,
             400,
         )
         self.assertEqual(
@@ -1656,16 +1540,12 @@ class RoutesTest(LooseNamesCase):
         self.assertEqual(ok.status_code, 200, "limit wordt begrensd, niet geweigerd")
 
     async def test_page_carries_the_ai_state_and_the_last_round(self) -> None:
-        body: dict[str, Any] = (
-            await self.admin.get("/api/loose-names?store=jumbo")
-        ).get_json()
+        body: dict[str, Any] = (await self.admin.get("/api/loose-names?store=jumbo")).get_json()
         self.assertEqual(
             (body["ai"], body["lastRound"]),
             ({"configured": False, "nightly": False}, None),
         )
-        self.assertEqual(
-            (body["cards"], body["total"], body["running"]), ([], 0, False)
-        )
+        self.assertEqual((body["cards"], body["total"], body["running"]), ([], 0, False))
         await ai_review.save(
             {
                 "keys": {"anthropic": "sk-ant-api03-GEHEIM-0123456789abcdef"},
@@ -1680,15 +1560,11 @@ class RoutesTest(LooseNamesCase):
         patcher.start()
         self.addCleanup(patcher.stop)
         with (
-            mock.patch.object(
-                ai_review, "loose_nightly", mock.AsyncMock(return_value=True)
-            ),
+            mock.patch.object(ai_review, "loose_nightly", mock.AsyncMock(return_value=True)),
             mock.patch.object(
                 loose_names_ai,
                 "propose",
-                mock.AsyncMock(
-                    return_value={"asked": 0, "proposed": 0, "none": 0, "tokens": 0}
-                ),
+                mock.AsyncMock(return_value={"asked": 0, "proposed": 0, "none": 0, "tokens": 0}),
             ),
         ):
             await loose_names.run_all_stores("manual", NOW, only="jumbo")
@@ -1700,9 +1576,7 @@ class RoutesTest(LooseNamesCase):
         )
 
     async def test_propose_without_ai_key_is_a_400(self) -> None:
-        response = await self.admin.post(
-            "/api/loose-names/propose", json={"store": "jumbo"}
-        )
+        response = await self.admin.post("/api/loose-names/propose", json={"store": "jumbo"})
         self.assertEqual(response.status_code, 400)
         self.assertIn("AI", response.get_json()["error"])
 
@@ -1710,13 +1584,9 @@ class RoutesTest(LooseNamesCase):
         with mock.patch.object(
             loose_names_ai,
             "propose",
-            mock.AsyncMock(
-                return_value={"asked": 3, "proposed": 2, "none": 1, "tokens": 90}
-            ),
+            mock.AsyncMock(return_value={"asked": 3, "proposed": 2, "none": 1, "tokens": 90}),
         ) as propose:
-            response = await self.admin.post(
-                "/api/loose-names/propose", json={"store": "jumbo"}
-            )
+            response = await self.admin.post("/api/loose-names/propose", json={"store": "jumbo"})
         self.assertEqual(
             (response.status_code, response.get_json()),
             (200, {"asked": 3, "proposed": 2, "none": 1, "tokens": 90}),
@@ -1727,20 +1597,14 @@ class RoutesTest(LooseNamesCase):
         release: asyncio.Event = asyncio.Event()
         seen: list[tuple[str | None, str]] = []
 
-        async def slow(
-            trigger: str, now: str | None = None, only: str | None = None
-        ) -> dict[str, Any]:
+        async def slow(trigger: str, now: str | None = None, only: str | None = None) -> dict[str, Any]:
             seen.append((only, trigger))
             await release.wait()
             return {}
 
         with mock.patch.object(loose_names, "run_all_stores", slow):
-            first = await self.admin.post(
-                "/api/loose-names/run", json={"store": "jumbo"}
-            )
-            second = await self.admin.post(
-                "/api/loose-names/run", json={"store": "jumbo"}
-            )
+            first = await self.admin.post("/api/loose-names/run", json={"store": "jumbo"})
+            second = await self.admin.post("/api/loose-names/run", json={"store": "jumbo"})
             await asyncio.sleep(0)
             self.assertEqual(first.get_json(), {"started": True})
             self.assertEqual(second.get_json()["started"], False)
@@ -1749,10 +1613,7 @@ class RoutesTest(LooseNamesCase):
             self.assertEqual(other.get_json()["started"], False, "een andere winkel wacht ook")
             self.assertIn("andere winkel", other.get_json()["reason"])
             self.assertTrue(
-                (await self.admin.get("/api/loose-names?store=jumbo")).get_json()[
-                    "running"
-                ]
-                is False,
+                (await self.admin.get("/api/loose-names?store=jumbo")).get_json()["running"] is False,
                 "de vergrendeling per winkel is van de ronde zelf",
             )
             release.set()
@@ -1767,13 +1628,9 @@ class RoutesTest(LooseNamesCase):
         )
         self.assertEqual(refused.status_code, 400)
         self.assertIn("Laad de pagina opnieuw", refused.get_json()["error"])
-        rejected = await self.admin.post(
-            "/api/loose-names/reject", json={"store": "ah", "key": key}
-        )
+        rejected = await self.admin.post("/api/loose-names/reject", json={"store": "ah", "key": key})
         self.assertEqual(rejected.get_json(), {"changed": True})
-        restored = await self.admin.post(
-            "/api/loose-names/restore", json={"store": "ah", "key": key}
-        )
+        restored = await self.admin.post("/api/loose-names/restore", json={"store": "ah", "key": key})
         self.assertEqual(restored.get_json(), {"changed": True})
         confirmed = await self.admin.post(
             "/api/loose-names/confirm",
@@ -1782,6 +1639,4 @@ class RoutesTest(LooseNamesCase):
         self.assertEqual(confirmed.status_code, 200)
         link = confirmed.get_json()
         self.assertEqual((link["productId"], link["origin"]), ("2", "confirmed"))
-        self.assertEqual(
-            (await self.admin.get("/api/loose-names?store=ah")).get_json()["cards"], []
-        )
+        self.assertEqual((await self.admin.get("/api/loose-names?store=ah")).get_json()["cards"], [])

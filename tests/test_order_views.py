@@ -19,9 +19,7 @@ PURCHASE_VIEWS = (ROOT / "static" / "purchase_views.js").read_text(encoding="utf
 ORDER_VIEWS_PATH = ROOT / "static" / "order_views.js"
 # De gedeelde keuzelijst, zonder de regel die bij het laden de uitklapvakken in de pagina opzoekt.
 FACETS = (ROOT / "static" / "facets.js").read_text(encoding="utf-8").replace("\nfacetPanelsInit();\n", "\n")
-ORDER_VIEWS = (
-    ORDER_VIEWS_PATH.read_text(encoding="utf-8") if ORDER_VIEWS_PATH.exists() else ""
-)
+ORDER_VIEWS = ORDER_VIEWS_PATH.read_text(encoding="utf-8") if ORDER_VIEWS_PATH.exists() else ""
 NL = (ROOT / "static" / "i18n" / "nl.js").read_text(encoding="utf-8")
 EN = (ROOT / "static" / "i18n" / "en.js").read_text(encoding="utf-8")
 
@@ -100,12 +98,11 @@ def prelude():
             # De knop Koppelen (#238) bij een regel van een bon of ingelezen bestelling: hier alleen een merkteken.
             function_source("receiptLinkLine", ORDERS),
             function_source("importedLinkLine", ORDERS),
-            "const productLinkButton = (line) => `<button data-product-link data-name=\"${escapeHtml(line.name)}\"></button>`;",
+            'const productLinkButton = (line) => `<button data-product-link data-name="${escapeHtml(line.name)}"></button>`;',
         ]
         + [function_source(name, ORDER_VIEWS) for name in ORDER_FUNCTIONS]
         + [const_source(name, ORDER_VIEWS) for name in ORDER_CONSTS]
     )
-
 
 
 @unittest.skipUnless(shutil.which("node"), "Node is niet geïnstalleerd")
@@ -127,9 +124,7 @@ class OrderViewsNodeTest(unittest.TestCase):
         return self.run_js(f"console.log(JSON.stringify({expression}));")
 
     def test_lines_are_grouped_per_category_in_the_offer_order_with_subtotals(self):
-        groups = self.run_json(
-            'orderGroups([line("vis", 2, 3.0, 1.0), line("groente_fruit", 1, 0.85), line("vis", 1, 2.0)])'
-        )
+        groups = self.run_json('orderGroups([line("vis", 2, 3.0, 1.0), line("groente_fruit", 1, 0.85), line("vis", 1, 2.0)])')
         self.assertEqual([g["id"] for g in groups], ["groente_fruit", "vis"])
         self.assertEqual(
             (
@@ -162,42 +157,28 @@ class OrderViewsNodeTest(unittest.TestCase):
     def test_an_unknown_category_lands_in_overig_and_empty_categories_are_left_out(
         self,
     ):
-        groups = self.run_json(
-            'orderGroups([line("onzin", 1, 1.0), line(null, 1, 2.0), line("overig", 1, 3.0)])'
-        )
+        groups = self.run_json('orderGroups([line("onzin", 1, 1.0), line(null, 1, 2.0), line("overig", 1, 3.0)])')
         self.assertEqual([g["id"] for g in groups], ["overig"])
         self.assertEqual(groups[0]["kinds"], 3)
 
     def test_filtering_matches_the_webshop_title_and_the_receipt_name(self):
         lines = 'const lines = [line("snacks_snoep", 1, 1.5, 0, { name: "CHEETOS CHIP", title: "Cheetos Chipito kaas" }), line("snacks_snoep", 1, 1.0, 0, { name: "", title: "Chéetos Crunchy" }), line("zuivel_eieren", 1, 1.2, 0, { name: "HALFVOLLE M", title: "AH Halfvolle melk" }), line("groente_fruit", 1, 2.5, 0, { name: "AH BOERENK", title: "Stamppotpakket" })];\n'
         self.assertEqual(
-            self.run_js(
-                lines
-                + 'console.log(JSON.stringify(orderFilter(lines, ["cheet"]).map((l) => l.title)));'
-            ),
+            self.run_js(lines + 'console.log(JSON.stringify(orderFilter(lines, ["cheet"]).map((l) => l.title)));'),
             ["Cheetos Chipito kaas", "Chéetos Crunchy"],
         )
         self.assertEqual(
-            self.run_js(
-                lines
-                + 'console.log(JSON.stringify(orderFilter(lines, ["halfvolle", "m"]).length));'
-            ),
+            self.run_js(lines + 'console.log(JSON.stringify(orderFilter(lines, ["halfvolle", "m"]).length));'),
             1,
             "alle woorden moeten passen, ook in de bonnaam",
         )
         self.assertEqual(
-            self.run_js(
-                lines
-                + 'console.log(JSON.stringify(orderFilter(lines, ["boerenk"]).length));'
-            ),
+            self.run_js(lines + 'console.log(JSON.stringify(orderFilter(lines, ["boerenk"]).length));'),
             1,
             "de bonnaam telt ook",
         )
         self.assertEqual(
-            self.run_js(
-                lines
-                + 'console.log(JSON.stringify(orderFilter(lines, []).length));'
-            ),
+            self.run_js(lines + "console.log(JSON.stringify(orderFilter(lines, []).length));"),
             4,
             "zonder zoekwoorden alles",
         )
@@ -221,33 +202,19 @@ class OrderViewsNodeTest(unittest.TestCase):
         self,
     ):
         lines = 'const lines = [line("vis", 1, 1, 0, { id: 0, discount: null }), line("vis", 1, 1, 0, { id: 1, discount: 20 }), line("vis", 1, 1, 0, { id: 2, discount: 5 }), line("vis", 1, 1, 0, { id: 3 })];\n'
-        desc = self.run_js(
-            lines
-            + 'console.log(JSON.stringify(orderSortLines(lines, { key: "discount", dir: "desc" }).map((l) => l.id)));'
-        )
-        asc = self.run_js(
-            lines
-            + 'console.log(JSON.stringify(orderSortLines(lines, { key: "discount", dir: "asc" }).map((l) => l.id)));'
-        )
+        desc = self.run_js(lines + 'console.log(JSON.stringify(orderSortLines(lines, { key: "discount", dir: "desc" }).map((l) => l.id)));')
+        asc = self.run_js(lines + 'console.log(JSON.stringify(orderSortLines(lines, { key: "discount", dir: "asc" }).map((l) => l.id)));')
         self.assertEqual(desc, [1, 2, 0, 3])
-        self.assertEqual(
-            asc, [2, 1, 0, 3], "zonder korting onderaan, op hun plaats in de bestelling"
-        )
+        self.assertEqual(asc, [2, 1, 0, 3], "zonder korting onderaan, op hun plaats in de bestelling")
 
     def test_sorting_by_category_follows_the_offer_order_then_the_line_order(self):
         lines = 'const lines = [line("vis", 1, 1, 0, { id: 0 }), line("groente_fruit", 1, 1, 0, { id: 1 }), line("vis", 1, 1, 0, { id: 2 }), line("bier_wijn", 1, 1, 0, { id: 3 })];\n'
         self.assertEqual(
-            self.run_js(
-                lines
-                + 'console.log(JSON.stringify(orderSortLines(lines, { key: "category", dir: "asc" }).map((l) => l.id)));'
-            ),
+            self.run_js(lines + 'console.log(JSON.stringify(orderSortLines(lines, { key: "category", dir: "asc" }).map((l) => l.id)));'),
             [1, 0, 2, 3],
         )
         self.assertEqual(
-            self.run_js(
-                lines
-                + 'console.log(JSON.stringify(orderSortLines(lines, { key: "category", dir: "desc" }).map((l) => l.id)));'
-            ),
+            self.run_js(lines + 'console.log(JSON.stringify(orderSortLines(lines, { key: "category", dir: "desc" }).map((l) => l.id)));'),
             [3, 0, 2, 1],
             "binnen een categorie blijft de volgorde van de bestelling",
         )
@@ -255,30 +222,20 @@ class OrderViewsNodeTest(unittest.TestCase):
     def test_sorting_by_name_and_amount_and_the_original_stays(self):
         lines = 'const lines = [line("vis", 1, 3.5, 0, { id: 0, title: "Zalm" }), line("vis", 1, null, 0, { id: 1, title: "appel" }), line("vis", 1, 1.25, 0, { id: 2, title: "Brood" })];\nconst before = JSON.stringify(lines);\n'
         self.assertEqual(
-            self.run_js(
-                lines
-                + 'console.log(JSON.stringify(orderSortLines(lines, { key: "name", dir: "asc" }).map((l) => l.id)));'
-            ),
+            self.run_js(lines + 'console.log(JSON.stringify(orderSortLines(lines, { key: "name", dir: "asc" }).map((l) => l.id)));'),
             [1, 2, 0],
         )
         self.assertEqual(
-            self.run_js(
-                lines
-                + 'console.log(JSON.stringify(orderSortLines(lines, { key: "amount", dir: "desc" }).map((l) => l.id)));'
-            ),
+            self.run_js(lines + 'console.log(JSON.stringify(orderSortLines(lines, { key: "amount", dir: "desc" }).map((l) => l.id)));'),
             [0, 2, 1],
         )
         self.assertEqual(
-            self.run_js(
-                lines
-                + 'console.log(JSON.stringify(orderSortLines(lines, { key: "amount", dir: "asc" }).map((l) => l.id)));'
-            ),
+            self.run_js(lines + 'console.log(JSON.stringify(orderSortLines(lines, { key: "amount", dir: "asc" }).map((l) => l.id)));'),
             [2, 0, 1],
         )
         self.assertTrue(
             self.run_js(
-                lines
-                + 'orderSortLines(lines, { key: "name", dir: "desc" });\nconsole.log(JSON.stringify(JSON.stringify(lines) === before));'
+                lines + 'orderSortLines(lines, { key: "name", dir: "desc" });\nconsole.log(JSON.stringify(JSON.stringify(lines) === before));'
             )
         )
 
@@ -290,12 +247,8 @@ class OrderViewsNodeTest(unittest.TestCase):
 
         self.assertEqual(view_for('{"order":"paper"}', "order"), "category")
         self.assertEqual(view_for('{"receipt":"paper"}', "receipt"), "paper")
-        self.assertEqual(
-            view_for('{"order":"table","receipt":"category"}', "order"), "table"
-        )
-        self.assertEqual(
-            view_for('{"order":"table","receipt":"category"}', "receipt"), "category"
-        )
+        self.assertEqual(view_for('{"order":"table","receipt":"category"}', "order"), "table")
+        self.assertEqual(view_for('{"order":"table","receipt":"category"}', "receipt"), "category")
         self.assertEqual(
             view_for("cards", "order"),
             "category",
@@ -339,7 +292,7 @@ class OrderViewsNodeTest(unittest.TestCase):
                 # Een klik op een sleutel in het menu: het element met de data-attributen zoals viewSortMenu ze schrijft.
                 "const menu = viewSortMenu('order', orderBarSpec('order').sorts);",
                 "const choose = (key) => {",
-                "  const tag = menu.match(new RegExp(`<button[^>]*data-sort-key=\"${key}\"[^>]*>`))[0];",
+                '  const tag = menu.match(new RegExp(`<button[^>]*data-sort-key="${key}"[^>]*>`))[0];',
                 "  const dataset = Object.fromEntries([...tag.matchAll(/data-sort-([a-z]+)=\"([^\"]*)\"/g)].map(([, name, value]) => [name === 'key' ? 'sortKey' : 'sort' + name[0].toUpperCase() + name.slice(1), value]));",
                 "  handlers.click({ target: { closest: (selector) => (selector.includes('data-sort-key') ? { dataset } : null) } });",
                 "  return `${orderView.sort.key} ${orderView.sort.dir}`;",
@@ -503,9 +456,7 @@ class OrderViewsNodeTest(unittest.TestCase):
             5.19,
             "wat de server rekent",
         )
-        self.assertEqual(
-            cake["price"], 7.99, "zonder prijs op de bon: het bedrag per stuk"
-        )
+        self.assertEqual(cake["price"], 7.99, "zonder prijs op de bon: het bedrag per stuk")
         self.assertEqual(cake["saved"], 2.8, "de prijs op de bon min wat je betaalde")
         self.assertEqual(cake["bonus"], 2.8)
         self.assertEqual(
@@ -526,9 +477,7 @@ class OrderViewsNodeTest(unittest.TestCase):
         self.assertTrue(cheese["href"].startswith("/offers/history?store=jumbo"))
 
     def test_a_missing_category_becomes_overig(self):
-        result = self.run_json(
-            "orderLines({ items: [{ title: 'x', quantity: 1, amount: 1 }] }, 'order', 'ah')"
-        )
+        result = self.run_json("orderLines({ items: [{ title: 'x', quantity: 1, amount: 1 }] }, 'order', 'ah')")
         self.assertEqual(result[0]["category"], "overig")
 
     def test_the_category_section_has_a_coloured_head_with_the_counts_and_the_subtotal(
@@ -601,29 +550,21 @@ class OfferBadgeForALineTest(unittest.TestCase):
         return json.loads(result.stdout)
 
     def test_a_purchase_line_without_a_verdict_gets_the_badge_and_a_title(self):
-        history = self.run_js(
-            'console.log(JSON.stringify(offerBadge({ badge: { percent: 25, source: "history" } })));'
-        )
+        history = self.run_js('console.log(JSON.stringify(offerBadge({ badge: { percent: 25, source: "history" } })));')
         self.assertIn("offer-badge--good", history, "zonder oordeel volgt de soort uit het getal (20% of meer)")
         self.assertIn("-25%", history)
         # Eindreview 2026-11-12: de gewone prijs van een aankoop kan tot een jaar ouder zijn dan de aankoop: geen "30 dagen".
         self.assertIn("offers.verdict.good_dated", history)
         self.assertNotIn("offers.verdict.good {", history)
         self.assertNotIn("offers.verdict.reference", history)
-        small = self.run_js(
-            'console.log(JSON.stringify(offerBadge({ badge: { percent: 5, source: "history" } })));'
-        )
+        small = self.run_js('console.log(JSON.stringify(offerBadge({ badge: { percent: 5, source: "history" } })));')
         self.assertIn("offers.verdict.small_dated", small)
         self.assertIn("offer-badge--small", small)
-        store = self.run_js(
-            'console.log(JSON.stringify(offerBadge({ badge: { percent: 12, source: "store" } })));'
-        )
+        store = self.run_js('console.log(JSON.stringify(offerBadge({ badge: { percent: 12, source: "store" } })));')
         self.assertIn("offer-badge--store", store)
         self.assertIn("offers.badge.title_store", store)
         self.assertEqual(
-            self.run_js(
-                "console.log(JSON.stringify(offerBadge({ badge: { percent: null, source: null } })));"
-            ),
+            self.run_js("console.log(JSON.stringify(offerBadge({ badge: { percent: null, source: null } })));"),
             "",
         )
 
@@ -675,9 +616,7 @@ class OrderPageMarkupTest(unittest.TestCase):
 
     def test_order_views_loads_right_after_purchase_views(self):
         scripts = re.findall(r"filename='([\w/]+\.js)'", HTML)
-        self.assertEqual(
-            scripts[scripts.index("purchase_views.js") + 1], "order_views.js"
-        )
+        self.assertEqual(scripts[scripts.index("purchase_views.js") + 1], "order_views.js")
 
     def test_every_kind_of_purchase_is_drawn_by_the_order_page(self):
         open_purchase = function_source("openPurchase", ORDERS)
@@ -698,9 +637,7 @@ class OrderPageMarkupTest(unittest.TestCase):
         )
         self.assertNotIn("receiptState", ORDERS)
         self.assertNotIn("function receiptProducts(", ORDERS)
-        self.assertIn(
-            "receiptPaper(", ORDER_VIEWS, "de weergave Bon tekent het bonnetje"
-        )
+        self.assertIn("receiptPaper(", ORDER_VIEWS, "de weergave Bon tekent het bonnetje")
 
     def test_the_meta_line_no_longer_repeats_the_status_of_the_badge(self):
         open_purchase = function_source("openPurchase", ORDERS)
@@ -740,9 +677,7 @@ class OrderPageMarkupTest(unittest.TestCase):
             CSS,
             r"\.product-card\[class\*=\"cat--\"\] \{\n  border-color: var\(--cat-line\);\n  background: var\(--cat-bg\);",
         )
-        self.assertRegex(
-            CSS, r"\.cat-section__head \{\n(?:.*\n)*?  background: var\(--cat-bg\);"
-        )
+        self.assertRegex(CSS, r"\.cat-section__head \{\n(?:.*\n)*?  background: var\(--cat-bg\);")
         self.assertRegex(CSS, r"\.offer-badge\.offer-badge--inline \{\n  position: static;")
         for selector in (
             ".cat-section {",

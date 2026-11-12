@@ -6,9 +6,10 @@ from unittest import mock
 
 os.environ["PASSKEY_AUTH_ENABLED"] = "false"
 
+from helpers import AppTestCase, db  # noqa: E402
+
 from mealieshopper import ah, auth, auth_password, jumbo, mealie, onboarding, picnic  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
-from helpers import AppTestCase, db  # noqa: E402
 
 PASSWORD = "koffie-met-melk-42"
 
@@ -57,10 +58,17 @@ class HostnameTest(AppTestCase):
 
     def test_addresses_without_a_domain(self):
         cases = {
-            "192.168.1.20": "een IP-adres", "10.0.0.5": "een IP-adres", "::1": "een IP-adres", "[fe80::1]": "een IP-adres",
-            "localhost": "localhost", "app.localhost": "localhost", "nas": "een naam zonder domein",
-            "mealie.local": "alleen in je eigen netwerk", "box.lan": "alleen in je eigen netwerk",
-            "x.home.arpa": "alleen in je eigen netwerk", "host.internal": "alleen in je eigen netwerk",
+            "192.168.1.20": "een IP-adres",
+            "10.0.0.5": "een IP-adres",
+            "::1": "een IP-adres",
+            "[fe80::1]": "een IP-adres",
+            "localhost": "localhost",
+            "app.localhost": "localhost",
+            "nas": "een naam zonder domein",
+            "mealie.local": "alleen in je eigen netwerk",
+            "box.lan": "alleen in je eigen netwerk",
+            "x.home.arpa": "alleen in je eigen netwerk",
+            "host.internal": "alleen in je eigen netwerk",
         }
         for host, reason in cases.items():
             info = onboarding.hostname_info(host)
@@ -120,17 +128,18 @@ class LifecycleTest(OnboardingTestCase):
         self.assertEqual((await self.status())["authMode"], "password")
 
     async def test_existing_install_with_login_off_and_mealie_linked_is_left_alone(self):
-        with mock.patch.dict(os.environ, {"PASSKEY_AUTH_ENABLED": "false"}), \
-                mock.patch.object(mealie, "mealie_url", new_callable=mock.AsyncMock, return_value="https://m"), \
-                mock.patch.object(mealie, "mealie_token", new_callable=mock.AsyncMock, return_value="t"):
+        with (
+            mock.patch.dict(os.environ, {"PASSKEY_AUTH_ENABLED": "false"}),
+            mock.patch.object(mealie, "mealie_url", new_callable=mock.AsyncMock, return_value="https://m"),
+            mock.patch.object(mealie, "mealie_token", new_callable=mock.AsyncMock, return_value="t"),
+        ):
             status = await self.status()
         self.assertFalse(status["needed"])
         self.assertEqual(status["authMode"], "off")
 
     async def test_existing_install_with_login_off_and_only_jumbo_or_picnic_linked_is_left_alone(self):
         for target, name in ((jumbo, "configured_refresh_token"), (picnic, "configured_auth_key")):
-            with mock.patch.dict(os.environ, {"PASSKEY_AUTH_ENABLED": "false"}), \
-                    mock.patch.object(target, name, return_value="geheim"):
+            with mock.patch.dict(os.environ, {"PASSKEY_AUTH_ENABLED": "false"}), mock.patch.object(target, name, return_value="geheim"):
                 status = await self.status()
             self.assertFalse(status["needed"], name)
 
@@ -142,8 +151,10 @@ class LifecycleTest(OnboardingTestCase):
         self.assertTrue(status["authenticated"])
 
     async def test_mealie_in_the_environment_does_not_skip_security_on_a_new_install(self):
-        with mock.patch.object(mealie, "mealie_url", new_callable=mock.AsyncMock, return_value="https://m"), \
-                mock.patch.object(mealie, "mealie_token", new_callable=mock.AsyncMock, return_value="t"):
+        with (
+            mock.patch.object(mealie, "mealie_url", new_callable=mock.AsyncMock, return_value="https://m"),
+            mock.patch.object(mealie, "mealie_token", new_callable=mock.AsyncMock, return_value="t"),
+        ):
             self.assertTrue((await self.status())["needed"])
 
     async def test_it_stays_needed_after_the_first_login_method_until_completed(self):

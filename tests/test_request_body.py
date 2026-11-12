@@ -23,15 +23,11 @@ def tiny_app() -> Quart:
 class JsonObjectTest(AppTestCase):
     async def post(self, data: str):
         client = self.client_for(tiny_app())
-        return await client.post(
-            "/echo", data=data, headers={"Content-Type": "application/json"}
-        )
+        return await client.post("/echo", data=data, headers={"Content-Type": "application/json"})
 
     async def test_an_object_comes_back_as_it_is(self) -> None:
         response = await self.post('{"b": 1, "a": 2}')
-        self.assertEqual(
-            (response.status_code, response.get_json()), (200, {"keys": ["a", "b"]})
-        )
+        self.assertEqual((response.status_code, response.get_json()), (200, {"keys": ["a", "b"]}))
 
     async def test_empty_and_falsy_bodies_are_an_empty_object(self) -> None:
         # Ook tekst die geen JSON is: `get_json(silent=True)` gaf daar altijd al niets voor terug, en dat blijft zo (anti-doel).

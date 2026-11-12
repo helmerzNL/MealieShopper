@@ -40,9 +40,7 @@ class ResponseCacheTest(unittest.IsolatedAsyncioTestCase):
             await release.wait()
             return "lijst"
 
-        waiters: list[asyncio.Task[str]] = [
-            asyncio.create_task(cache.get("ah", "e1", load)) for _ in range(3)
-        ]
+        waiters: list[asyncio.Task[str]] = [asyncio.create_task(cache.get("ah", "e1", load)) for _ in range(3)]
         await started.wait()
         release.set()
         self.assertEqual(await asyncio.gather(*waiters), ["lijst"] * 3)

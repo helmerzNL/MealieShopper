@@ -98,9 +98,7 @@ class LooseNamesNodeTest(unittest.TestCase):
         )
         html: str = out["html"]
         self.assertEqual(out["selected"], "2")
-        self.assertEqual(
-            re.findall(r'<input type="radio"[^>]*value="(\d)"[^>]*checked', html), ["2"]
-        )
+        self.assertEqual(re.findall(r'<input type="radio"[^>]*value="(\d)"[^>]*checked', html), ["2"])
         self.assertEqual(html.count(" checked"), 1)
         self.assertIn("zelfde merk en inhoud", html)
         self.assertIn("loose.unsure_pack", html)
@@ -115,8 +113,7 @@ class LooseNamesNodeTest(unittest.TestCase):
 
     def test_a_sure_pack_does_not_say_unsure(self):
         html = self.run_json(
-            "card.proposal = { productId: '1', surePack: true, reason: 'dezelfde inhoud' };"
-            "console.log(JSON.stringify(looseCardHtml(card, 'ah')));"
+            "card.proposal = { productId: '1', surePack: true, reason: 'dezelfde inhoud' };console.log(JSON.stringify(looseCardHtml(card, 'ah')));"
         )
         self.assertNotIn("loose.unsure_pack", html)
         self.assertIn("dezelfde inhoud", html)
@@ -134,9 +131,7 @@ class LooseNamesNodeTest(unittest.TestCase):
         )
         for name in ("none", "zero", "unknown"):
             self.assertNotIn(" checked", out[name], name)
-            self.assertRegex(
-                out[name], r"<button[^>]*data-loose-confirm disabled>", name
-            )
+            self.assertRegex(out[name], r"<button[^>]*data-loose-confirm disabled>", name)
         self.assertIn("loose.ai_none", out["zero"])
         self.assertIn("geen goede match", out["zero"])
         self.assertIsNone(out["selected"])
@@ -161,9 +156,7 @@ class LooseNamesNodeTest(unittest.TestCase):
             ".map((image, i) => ({ productId: String(i), title: 't' + i, image }));"
             "console.log(JSON.stringify(looseCardHtml(card, 'ah')));"
         )
-        self.assertEqual(
-            re.findall(r'<img src="([^"]+)"', html), ["https://img.example/c.jpg"]
-        )
+        self.assertEqual(re.findall(r'<img src="([^"]+)"', html), ["https://img.example/c.jpg"])
         self.assertEqual(
             html.count("link-item__photo"),
             4,
@@ -196,9 +189,7 @@ class LooseNamesNodeTest(unittest.TestCase):
         )
         self.assertNotIn("loose-ai-run", plain, "zonder AI-sleutel geen knop")
         self.assertIn("loose-ai-run", out["ai"])
-        self.assertNotIn(
-            "loose-ai-run", out["nightly"], "de AI stelt al 's nachts voor: geen knop"
-        )
+        self.assertNotIn("loose-ai-run", out["nightly"], "de AI stelt al 's nachts voor: geen knop")
         self.assertIn("loose.paused", out["paused"])
         self.assertIn("T:2026-11-12T08:00:00", out["paused"])
         self.assertRegex(out["paused"], r'id="loose-run"[^>]* disabled>')
@@ -239,18 +230,12 @@ class LooseNamesNodeTest(unittest.TestCase):
             r'(?s)data-loose-row="a".*?data-product-link data-store="jumbo" data-name="Aap"',
         )
         self.assertRegex(html, r'(?s)data-loose-row="b".*?data-loose-restore')
-        empty = self.run_json(
-            "console.log(JSON.stringify(looseListsHtml({ missing: [], rejected: [] }, 'ah')));"
-        )
+        empty = self.run_json("console.log(JSON.stringify(looseListsHtml({ missing: [], rejected: [] }, 'ah')));")
         self.assertEqual(empty.strip(), "")
 
     def test_search_own_button_carries_what_the_link_dialog_reads(self):
-        html = self.run_json(
-            "console.log(JSON.stringify(looseCardHtml(card, 'picnic')));"
-        )
-        self.assertIn(
-            'data-product-link data-store="picnic" data-name="Halfvolle melk"', html
-        )
+        html = self.run_json("console.log(JSON.stringify(looseCardHtml(card, 'picnic')));")
+        self.assertIn('data-product-link data-store="picnic" data-name="Halfvolle melk"', html)
 
 
 @unittest.skipUnless(shutil.which("node"), "Node is niet geinstalleerd")
@@ -310,9 +295,7 @@ class SharedLinkButtonsNodeTest(unittest.TestCase):
             "console.log(JSON.stringify({ shared: open({ shared: '1' }), plain: open({ shared: '' }),"
             " own: open({ shared: '1', kind: 'name', key: 'melk' }) }));"
         )
-        self.assertEqual(
-            out["shared"], {"source": False, "reject": False, "unlink": True}
-        )
+        self.assertEqual(out["shared"], {"source": False, "reject": False, "unlink": True})
         self.assertEqual(out["plain"], {"source": True, "reject": True, "unlink": True})
         self.assertEqual(
             out["own"]["source"],
@@ -327,9 +310,7 @@ class SharedLinkButtonsNodeTest(unittest.TestCase):
 
 class LooseNamesMarkupTest(unittest.TestCase):
     def test_the_subtab_is_admin_only_and_the_panel_has_what_the_script_fills(self):
-        subtab = re.search(
-            r'<a class="subtab"[^>]*data-subtab="ah-items-losse-aankopen"[^>]*>', HTML
-        )
+        subtab = re.search(r'<a class="subtab"[^>]*data-subtab="ah-items-losse-aankopen"[^>]*>', HTML)
         self.assertIsNotNone(subtab)
         self.assertIn("data-admin-only", subtab.group(0))
         self.assertIn('href="/stores/ah/loose"', subtab.group(0))
@@ -347,26 +328,18 @@ class LooseNamesMarkupTest(unittest.TestCase):
 
     def test_the_script_loads_after_the_link_dialog_and_before_the_router(self):
         scripts = re.findall(r"filename='([\w/]+\.js)'", HTML)
-        self.assertLess(
-            scripts.index("product_links.js"), scripts.index("loose_names.js")
-        )
+        self.assertLess(scripts.index("product_links.js"), scripts.index("loose_names.js"))
         self.assertLess(scripts.index("loose_names.js"), scripts.index("router.js"))
 
     def test_the_subtab_loads_the_page_and_every_store_has_the_section(self):
         app = (STATIC / "app.js").read_text(encoding="utf-8")
         self.assertRegex(app, r'"ah-items-losse-aankopen"[^\n]*loadLooseNames\(\)')
-        sections = app[
-            app.index("const STORE_SECTIONS = {") : app.index(
-                "function itemsOpenSubtab"
-            )
-        ]
+        sections = app[app.index("const STORE_SECTIONS = {") : app.index("function itemsOpenSubtab")]
         self.assertEqual(sections.count('loose: "ah-items-losse-aankopen"'), 4)
 
     def test_nothing_is_sent_from_the_page_but_the_key_and_the_chosen_product(self):
         confirm = function_source("looseConfirm", LOOSE)
-        self.assertIn(
-            "{ store: looseState.store, key, productId: picked.value }", confirm
-        )
+        self.assertIn("{ store: looseState.store, key, productId: picked.value }", confirm)
         self.assertNotIn("price", confirm)
         self.assertNotIn("title", confirm)
 
@@ -379,9 +352,7 @@ class LooseNamesMarkupTest(unittest.TestCase):
         )
 
     def test_the_nightly_checkbox_sits_in_the_ai_login_block_and_is_saved(self):
-        block = HTML[
-            HTML.index('id="ai-login-body"') : HTML.index('id="ai-review-message"')
-        ]
+        block = HTML[HTML.index('id="ai-login-body"') : HTML.index('id="ai-review-message"')]
         self.assertIn('id="ai-loose-nightly"', block)
         self.assertIn('data-i18n="aireview.loose_nightly"', block)
         self.assertIn("looseNightly", AI_REVIEW)
@@ -586,7 +557,6 @@ const makeCard = (checked) => {
         self.assertIs(out["failed"], False)
 
 
-
 # ---- de export voor GitHub (static/shared_links_export.js)
 
 EXPORT = (STATIC / "shared_links_export.js").read_text(encoding="utf-8")
@@ -674,9 +644,7 @@ class SharedExportNodeTest(unittest.TestCase):
         self.assertEqual(out, [["~peer"], [], []])
 
     def test_the_dialog_ticks_new_links_and_leaves_a_conflict_unticked_with_both_products(self):
-        html: str = self.run_json(
-            "console.log(JSON.stringify(exportDialogHtml(pending, 'ah')));"
-        )
+        html: str = self.run_json("console.log(JSON.stringify(exportDialogHtml(pending, 'ah')));")
         boxes = re.findall(r'<input type="checkbox" data-export-key="([^"]+)"( checked)?>', html)
         self.assertEqual(boxes, [("~appel", " checked"), ("~peer", " checked"), ("~kers", "")])
         self.assertIn("loose.export_yours", html)
@@ -759,7 +727,7 @@ class SharedExportMarkupTest(unittest.TestCase):
         self.assertIn('"ms:product-links"', EXPORT)
 
     def test_the_css_has_no_new_breakpoint_and_uses_the_radius_variables(self):
-        block: str = CSS[CSS.index(".export-dialog {"):]
+        block: str = CSS[CSS.index(".export-dialog {") :]
         self.assertNotIn("@media", block)
         self.assertNotRegex(block, r"border-radius:\s*\d")
         self.assertIn("overflow-wrap: break-word", block)

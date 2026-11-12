@@ -25,9 +25,7 @@ class ResponseCache:
         self._entries: OrderedDict[Hashable, tuple[str, Any]] = OrderedDict()
         self._running: dict[tuple[Hashable, str], asyncio.Task[Any]] = {}
 
-    async def get(
-        self, key: Hashable, etag: str, load: Callable[[], Awaitable[Any]]
-    ) -> Any:
+    async def get(self, key: Hashable, etag: str, load: Callable[[], Awaitable[Any]]) -> Any:
         """De bewaarde uitkomst bij `key` als zijn ETag `etag` is, anders `load()` (een keer, ook bij gelijktijdige aanvragen)."""
         found: tuple[str, Any] | None = self._entries.get(key)
         if found is not None and found[0] == etag:
@@ -41,9 +39,7 @@ class ResponseCache:
         # shield: gaat een van de wachtende aanvragen weg (de browser sluit), dan rekent de taak door voor de andere.
         return await asyncio.shield(running)
 
-    async def _load(
-        self, key: Hashable, etag: str, load: Callable[[], Awaitable[Any]]
-    ) -> Any:
+    async def _load(self, key: Hashable, etag: str, load: Callable[[], Awaitable[Any]]) -> Any:
         value: Any = await load()
         self._entries[key] = (etag, value)
         self._entries.move_to_end(key)

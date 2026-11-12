@@ -5,6 +5,7 @@ Een achtergrondtask kijkt elk kwartier of het tijd is: een keer per dag, op `MEA
 start. Meerdere workers zijn geen probleem: wie het eerst de run van dit tijdstip in SQLite vastlegt, voert hem uit.
 `MEALIESHOPPER_OFFERS_SCHEDULE=false` zet de taak uit; de knop onder Instellingen > Koppelen blijft werken.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -182,7 +183,9 @@ async def _claim(now: datetime) -> bool:
     """Leg vast dat deze worker de run van het laatste tijdstip uitvoert. Alleen de eerste die dat doet krijgt True."""
     slot = _utc_iso(latest_slot(now))
     async with _connect() as conn:
-        await conn.execute("INSERT INTO offers_schedule (id, last_run, trigger, summary) VALUES (1, '', 'scheduled', '{}') ON CONFLICT(id) DO NOTHING")
+        await conn.execute(
+            "INSERT INTO offers_schedule (id, last_run, trigger, summary) VALUES (1, '', 'scheduled', '{}') ON CONFLICT(id) DO NOTHING"
+        )
         claimed = await conn.execute(
             "UPDATE offers_schedule SET last_run = ?, trigger = 'scheduled' WHERE id = 1 AND last_run < ?",
             (_utc_iso(now), slot),
