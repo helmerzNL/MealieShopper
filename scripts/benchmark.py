@@ -71,7 +71,7 @@ SLOW_BUDGET: float = 20.0
 class Candidate:
     name: str
     dockerfile: str  # het bestand in scripts/benchmark/
-    build_arg: str
+    build_arg: str  # een of meer argumenten voor de build, met spaties ertussen
     env: tuple[str, ...] = ()
     image: str = ""  # de naam van een andere variant: zelfde image, andere omgeving
 
@@ -93,6 +93,8 @@ CANDIDATES: tuple[Candidate, ...] = (
         env=("PYTHON_JIT=1",),
         image="uv315",
     ),
+    Candidate("py315-pyc", "official.Dockerfile", "BASE=python:3.15-slim COMPILE=1"),
+    Candidate("uv315-pyc", "uv.Dockerfile", "PYTHON=3.15 COMPILE=1"),
     Candidate("uv315t", "uv.Dockerfile", "PYTHON=3.15t"),
     Candidate(
         "uv315t-nogil",
@@ -368,8 +370,7 @@ def build(candidate: Candidate) -> str:
         "-q",
         "-f",
         str(ROOT / "scripts" / "benchmark" / candidate.dockerfile),
-        "--build-arg",
-        candidate.build_arg,
+        *(part for arg in candidate.build_arg.split() for part in ("--build-arg", arg)),
         "-t",
         candidate.tag,
         str(ROOT),

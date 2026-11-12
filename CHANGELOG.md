@@ -2,6 +2,22 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub; een stabiele release krijgt de teksten van alle versies sinds de vorige stabiele release.
 
+## v4.19.0
+
+*English summary: The image runs Python 3.15 instead of 3.12, and measured on a copy of real data it is 20 to 35% faster on the heavy routes. **Python**: CPython 3.15 from uv (python-build-standalone) on Debian trixie-slim instead of the official `python:3.12-slim` image, which on the same 3.15 was 20 to 25% slower. **Start**: the bytecode of the app and its packages is in the image, so a start no longer compiles every module and takes about 0.75 s instead of 1 s. **Fixed**: saving an uploaded backup or price archive writes each piece to disk straight away again, also with the larger file buffer of Python 3.15. **Benchmark**: `scripts/benchmark.py` measures the app on several Python builds in Docker, JIT and free-threaded measured too and not chosen.*
+
+### Nieuw in 4.19.0
+
+- Het image draait Python 3.15 in plaats van 3.12. Gemeten op een kopie van echte gegevens zijn de zware routes 20 tot 35% sneller: het prijsoordeel bij de aanbiedingen van AH 1,0 s in plaats van 1,6 s, de prijsgeschiedenis van gekochte producten 230 ms in plaats van 320 ms, en de server verwerkt een derde meer aanvragen per seconde. Het geheugen blijft gelijk.
+- Python komt van uv (python-build-standalone) op Debian trixie-slim, niet meer uit het officiele image `python:3.12-slim`: op dezelfde versie 3.15 was het officiele image 20 tot 25% trager, en op de aanbiedingengeschiedenis zelfs trager dan 3.12. uv zelf staat niet in het image.
+- De bytecode van de app en de pakketten staat in het image, zodat een start niet meer elke module compileert: de eerste pagina staat er na ongeveer 0,75 s in plaats van 1 s.
+- `scripts/benchmark.py` meet de app op meerdere Python-builds, elk in een eigen Docker-image zonder netwerk, op een kopie van de gegevens. De uitkomst, ook van de JIT en van Python zonder GIL (allebei gemeten en niet gekozen), staat in `docs/python-benchmark.md`.
+- De tests draaien in GitHub Actions op Python 3.15.
+
+### Opgelost in 4.19.0
+
+- Een geüploade back-up of prijsarchief gaat weer stuk voor stuk meteen naar schijf. Python 3.15 vergroot de buffer van een bestand van 8 KB naar 128 KB, en zonder `flush` bleven stukken tot die grootte in het geheugen staan.
+
 ## v4.18.0
 
 *English summary: The regular price a verdict compares with now comes from every source MealieShopper has, with its date and source in the tooltip of a dashed badge. **Sources**: receipts, confirmation emails, orders, measured prices and the from-price of earlier offers. **Fresh and old**: a price of the last 30 days is fresh (the lowest counts), an older price still counts up to a year, and a price older than a year is shown as *Last known regular price* without a verdict of its own, under the dashed badge of the store's claim when the offer states a from-price. **Confirmed links only**: a receipt line or confirmation email counts for the verdict and for the regular price of a purchase only through your own link, a shared link or AH's article number link, not through a name match or an article number that happens to equal a webshop product id, which stays in the price history. **Badge**: on a dashed badge with an older price or the from-price of an earlier offer the tooltip names the regular price, its source and its date, and the dashed border now means the price is older than 30 days or a claim of the store. **Never more generous than the store**: when the store's from-price is lower than the regular price MealieShopper knows, the verdict uses the store's from-price, and the tooltip names the higher known price with its date. **Card**: the struck-through price is the lowest of 30 days only when it comes from a fresh purchase or measurement, otherwise the store's from-price. **Own from-price**: the from-price of a running offer is no source for its own verdict, also when the offer changed halfway. **Purchases**: the regular price of a purchase uses the same sources, up to a year before the purchase, and its badge no longer mentions 30 days. Opening a purchase reads the catalogue only when a line needs it. **Price history**: the key figure Regular price names its source and date.*

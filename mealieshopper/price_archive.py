@@ -1351,6 +1351,7 @@ async def stage(body: AsyncIterable[bytes], content_length: int | None, keep_unl
                 if received > MAX_UPLOAD_BYTES:
                     raise ArchiveError("too_large", 413, limit=limit)
                 handle.write(chunk)  # lokale schijf en stukken van hoogstens een paar MB: dat mag op de loop
+                handle.flush()  # elk stuk meteen naar schijf, zoals backup.stage: de bestandsbuffer is sinds 3.15 128 KB
     except BaseException:
         upload.unlink(missing_ok=True)
         raise

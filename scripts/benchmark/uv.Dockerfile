@@ -20,7 +20,10 @@ WORKDIR /app
 
 COPY requirements.txt requirements-dev.txt ./
 # Er staat geen compiler in het image: een pakket met C-code zonder wheel voor deze variant laat de build falen.
-RUN uv pip install --python /venv/bin/python --no-cache -r requirements.txt -r requirements-dev.txt
+# COMPILE=1 zet de bytecode van de pakketten en van de app in het image, zodat een start niet elke module opnieuw compileert.
+# Anders dan pip compileert uv de pakketten niet uit zichzelf.
+ARG COMPILE=0
+RUN uv pip install --python /venv/bin/python --no-cache $([ "$COMPILE" = 1 ] && echo --compile-bytecode) -r requirements.txt -r requirements-dev.txt
 
 COPY . .
-RUN mkdir -p /data
+RUN mkdir -p /data && if [ "$COMPILE" = 1 ]; then python -m compileall -q mealieshopper run.py; fi

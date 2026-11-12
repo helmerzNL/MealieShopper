@@ -786,6 +786,9 @@ async def stage(body: AsyncIterable[bytes], content_length: int | None) -> dict[
                 if received > MAX_STAGE_BYTES:
                     raise BackupError("too_large", 413, limit=MAX_STAGE_BYTES // (1024 * 1024))
                 handle.write(chunk)  # lokale schijf en stukken van hoogstens een paar MB: dat mag op de loop
+                # Elk stuk meteen naar schijf: de buffer van een bestand is sinds Python 3.15 128 KB (was 8 KB), en zonder
+                # flush bleven stukken tot die grootte in het geheugen staan.
+                handle.flush()
         await ensure_schemas()
         summary = await asyncio.to_thread(_check_staged, path)
     except BaseException:

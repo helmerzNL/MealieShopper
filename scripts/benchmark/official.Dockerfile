@@ -14,4 +14,7 @@ COPY requirements.txt requirements-dev.txt ./
 RUN pip install --no-cache-dir -r requirements.txt -r requirements-dev.txt
 
 COPY . .
-RUN mkdir -p /data
+# COMPILE=1 zet de bytecode van de app in het image, zodat een start niet elke module opnieuw compileert. pip compileert de
+# pakketten zelf al bij het installeren.
+ARG COMPILE=0
+RUN mkdir -p /data && if [ "$COMPILE" = 1 ]; then python -m compileall -q mealieshopper run.py; fi
