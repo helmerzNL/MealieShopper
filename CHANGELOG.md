@@ -8,6 +8,8 @@ Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar
 
 ### Nieuw in 4.18.0
 
+Pull request: [#319](https://github.com/helmerzNL/MealieShopper/pull/319), van wolph.
+
 - De gewone prijs waarmee het oordeel vergelijkt komt uit alle bronnen die MealieShopper heeft: kassabonnen, bevestigingsmails, bestellingen, gemeten prijzen en de van-prijs van eerdere aanbiedingen. Bij een gestippelde badge met een oudere prijs of de van-prijs van een eerdere aanbieding noemt de tooltip de gewone prijs met de bron en de datum.
 - Een prijs van de laatste 30 dagen is vers, en van de verse prijzen telt de laagste. Zonder verse prijs telt de nieuwste prijs tot een jaar terug. Is die ouder, dan staat op de kaart *Laatst bekende gewone prijs ... Te oud voor een oordeel.* Noemt de winkel bij de aanbieding een van-prijs, dan staat erboven de gestippelde badge met de claim van de winkel, net als bij een product zonder bekende prijs. Zonder van-prijs is er geen badge.
 - Een regel van een kassabon of bevestigingsmail telt voor het oordeel en voor de gewone prijs van een aankoop alleen met een bevestigde koppeling: je eigen koppeling, een gedeelde koppeling of de koppeling van AH op het artikelnummer. Een regel die alleen op naam bij het product hoort kan een andere verpakking zijn, en een artikelnummer dat toevallig gelijk is aan het nummer van een product in de webwinkel kan een ander product zijn: zulke regels staan alleen in de prijsgeschiedenis.
