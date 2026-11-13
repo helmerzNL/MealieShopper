@@ -451,6 +451,19 @@ async def load(store: Any, week: Any = None) -> dict[str, Any]:
             """,
             (store,),
         )
+    data: dict[str, Any] = await compute.run(_offers_of_rows, store, list(rows), week)
+    return {
+        **data,
+        "syncedAt": meta["synced_at"] if meta else None,
+        "supported": store in FETCHERS,
+        "personal": await _personal_summary(store, data["offers"], meta["personal_error"] if meta else None),
+    }
+
+
+def _offers_of_rows(store: str, rows: list[Any], week: Any) -> dict[str, Any]:
+    """De aanbiedingen van `load` uit de rijen van `offers`, met de keuze van de week, de categorieen en de periode. Puur, zodat
+    het via `compute.run` buiten de event loop loopt: bij AH staan er duizenden aanbiedingen, elk met een categorie en een
+    beschrijving van de actie. Een ongeldige `week` geeft een ValueError (`week_bounds`)."""
     all_offers = [
         {
             "id": row["product_id"],
@@ -493,9 +506,6 @@ async def load(store: Any, week: Any = None) -> dict[str, Any]:
         "categories": offer_categories.summarize([offer["category"] for offer in offers]),
         "period": deals.common_period(offers),
         **selection,
-        "syncedAt": meta["synced_at"] if meta else None,
-        "supported": store in FETCHERS,
-        "personal": await _personal_summary(store, offers, meta["personal_error"] if meta else None),
     }
 
 
