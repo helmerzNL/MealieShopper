@@ -31,6 +31,7 @@ from collections.abc import Iterable
 from typing import NamedTuple
 
 from . import packs, product_links
+from .name_keys import LOCAL_SIZE, PARTS_SIZE, STEM_SIZE, memo
 
 MIN_WORDS: int = 2
 
@@ -123,6 +124,7 @@ _MULTIPACK: re.Pattern[str] = re.compile(
 )
 
 
+@memo(STEM_SIZE)
 def _stem(word: str) -> str:
     """Enkelvoud, grof: "pizzas" en "pizza" (uit "pizza's") tellen als hetzelfde woord, net als "soepen" en "soep"."""
     if len(word) > 4 and word.endswith("en"):
@@ -141,9 +143,9 @@ def category_words(category: str | None) -> frozenset[str]:
     return frozenset(word for word in (_stem(part) for part in str(category or "").split("_")) if len(word) >= CATEGORY_WORD_LENGTH)
 
 
-def _tokens(name: str | None) -> list[str]:
+def _tokens(name: str | None) -> tuple[str, ...]:
     folded: str = product_links.fold(name or "")
-    return [word for word in _WORD.findall(folded) if len(word) > 1 and not word.isdigit()]
+    return tuple(word for word in _WORD.findall(folded) if len(word) > 1 and not word.isdigit())
 
 
 def words(name: str | None) -> frozenset[str]:
@@ -154,16 +156,18 @@ def words(name: str | None) -> frozenset[str]:
 _LIST: re.Pattern[str] = re.compile(r",|/|\s(?:en|of)\s")
 
 
-def _significant(text: str) -> list[str]:
-    return [_stem(word) for word in _tokens(text) if word not in _NOT_THE_PRODUCT]
+@memo(LOCAL_SIZE)
+def _significant(text: str) -> tuple[str, ...]:
+    return tuple(_stem(word) for word in _tokens(text) if word not in _NOT_THE_PRODUCT)
 
 
-def _parts(title: str | None) -> list[tuple[frozenset[str], str]]:
+@memo(PARTS_SIZE)
+def _parts(title: str | None) -> tuple[tuple[frozenset[str], str], ...]:
     """De delen van een foldernaam met de woorden die een product voor dat deel moet hebben, en de tekst van het deel."""
     text: str = str(title or "")
     for prefix in ("Folder: ", "Archief: "):
         text = text.removeprefix(prefix)
-    first: list[str] = _significant(text)[:1]
+    first: tuple[str, ...] = _significant(text)[:1]
     parts: list[str] = [part for part in _LIST.split(product_links.fold(text)) if _significant(part)]
     found: list[tuple[frozenset[str], str]] = []
     for part in parts:
@@ -173,7 +177,7 @@ def _parts(title: str | None) -> list[tuple[frozenset[str], str]]:
             continue
         if len(needed) >= MIN_WORDS and all(needed != other for other, _ in found):
             found.append((needed, part))
-    return found
+    return tuple(found)
 
 
 def line_alternatives(title: str | None) -> list[frozenset[str]]:

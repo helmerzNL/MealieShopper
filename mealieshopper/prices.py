@@ -866,6 +866,7 @@ def _same_size(one: tuple[float, str], other: tuple[float, str]) -> bool:
     return one[1] == other[1] and abs(one[0] - other[0]) <= 0.005 * max(one[0], other[0])
 
 
+@name_keys.memo(name_keys.SIZE_OF_SIZE)
 def _size_of(unit_size: Any, title: Any) -> tuple[float, str] | None:
     """De verpakking van een product: uit de pakmaat, anders uit een maat in de naam ("AH RUNDERGEHAKT 500G")."""
     size = packs.parse_pack_size(unit_size)
