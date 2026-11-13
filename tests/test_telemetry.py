@@ -165,21 +165,25 @@ async def test_fast_request_is_not_logged(
 async def test_blocked_event_loop_is_reported(
     measured: TestClientProtocol, measured_app: Quart, caplog: pytest.LogCaptureFixture
 ) -> None:
-    await asyncio.sleep(
-        telemetry.LOOP_INTERVAL / 2
-    )  # de wachter slaapt al als de route begint
     with caplog.at_level(logging.WARNING, logger="mealieshopper.telemetry"):
         await measured.get("/api/auth/test-block")
-        await asyncio.sleep(telemetry.LOOP_INTERVAL * 2)
+        await asyncio.sleep(0.1)  # de bewaker meldt pas als de loop weer aan de beurt is
     stalls: list[dict[str, Any]] = stats(measured_app).snapshot()["stalls"]
     assert stalls
-    assert stalls[0]["ms"] >= telemetry.STALL_SECONDS * 1000
-    assert stalls[0]["active"] == ["GET /api/auth/test-block"]
+    stall: dict[str, Any] = stalls[0]
+    assert stall["ms"] >= telemetry.STALL_SECONDS * 1000
+    assert stall["active"] == ["GET /api/auth/test-block"]
+    assert any("test_telemetry.py" in line and "block" in line for line in stall["stack"])
     assert any(
         "De event loop stond" in record.getMessage()
         and "/api/auth/test-block" in record.getMessage()
+        and "test_telemetry.py" in record.getMessage()
         for record in caplog.records
     )
+
+
+def test_the_stall_limit_is_a_hundred_milliseconds() -> None:
+    assert telemetry.STALL_SECONDS == 0.1
 
 
 async def test_snapshot_route_is_for_the_admin(measured: TestClientProtocol, monkeypatch: pytest.MonkeyPatch) -> None:

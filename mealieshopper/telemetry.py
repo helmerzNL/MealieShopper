@@ -8,14 +8,15 @@ rekende of achter een andere aanvraag in de rij stond. Met de vlag aan houdt de 
 - De tijd in de database: elke bewerking van een aiosqlite-verbinding uit `auth.connect` (`watch`), met het aantal en de
   traagste. Die tijd is wachten op de thread van de verbinding, dus ook het wachten op een slot van een andere schrijver.
 - Andere fasen die een module zelf aangeeft met `span`, zoals het verpakken met gzip (compression.py).
-- Hoe lang de event loop stilstond (`watch_loop`). De app draait in een proces met een event loop: rekent een route daar
-  seconden op, dan wacht elke andere aanvraag mee. De melding noemt de aanvragen die op dat moment liepen.
+- Hoe lang de event loop stilstond, en waar (`loop_guard.LoopGuard`). De app draait in een proces met een event loop: rekent
+  een route daar seconden op, dan wacht elke andere aanvraag mee. Een bewakerthread leest dan de stack van de loop, dus de
+  melding noemt de functie en de regel die de loop vasthield, en de aanvragen die op dat moment liepen.
 
 Waar je het ziet:
 
 - De header `Server-Timing` op elk antwoord, die de browser toont bij Netwerk, Timing.
 - Een regel in het log voor elke aanvraag van `MEALIESHOPPER_TELEMETRY_SLOW_MS` milliseconden of langer (standaard 500), en
-  voor elke keer dat de event loop `STALL_SECONDS` of langer stilstond.
+  voor elke keer dat de event loop `STALL_SECONDS` (100 ms) of langer stilstond.
 - `GET /api/telemetry` (alleen de beheerder, `auth.ADMIN_PATHS`): de cijfers per route sinds de start, de laatste trage
   aanvragen en de laatste keren dat de event loop stilstond.
 
@@ -30,7 +31,7 @@ import logging
 import time
 from collections import deque
 from collections.abc import Awaitable, Callable, Generator, MutableMapping
-from contextlib import contextmanager, suppress
+from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -40,14 +41,17 @@ from urllib.parse import parse_qsl, urlencode
 
 from quart import Quart, jsonify, request
 
+from mealieshopper import loop_guard
+
 ON: frozenset[str] = frozenset({"1", "true", "yes", "on"})
 DEFAULT_SLOW_MS: int = 500
-STALL_SECONDS: float = 0.25  # zo lang merkt iemand die klikt het wachten
-LOOP_INTERVAL: float = 0.1
+STALL_SECONDS: float = 0.1  # de grens van het project: de loop blokkeert nooit langer dan 100 ms
+STALL_FRAMES: int = 6  # zoveel regels van de stack noemt een melding
 RECENT: int = 200  # zoveel duren per route voor de mediaan en het 95e percentiel
 MAX_ROUTES: int = 300
 KEPT_SLOW: int = 100
 KEPT_STALLS: int = 100
+KEPT_FINISHED: int = 50  # zoveel pas afgeronde aanvragen onthoudt een melding van een stilstand
 SQL_CHARS: int = 200
 SAFE_PARAMS: frozenset[str] = frozenset({"store", "week", "limit", "bought"})
 OTHER_ROUTES: str = "(overige routes)"
@@ -270,9 +274,13 @@ class Telemetry:
         self.slow: deque[Recording] = deque(maxlen=KEPT_SLOW)
         self.stalls: deque[dict[str, Any]] = deque(maxlen=KEPT_STALLS)
         self.active: dict[int, Recording] = {}
+        self.finished: deque[tuple[float, str]] = deque(maxlen=KEPT_FINISHED)
 
     def finish(self, recording: Recording) -> None:
         recording.seconds = time.perf_counter() - recording.started
+        self.finished.append(
+            (recording.started + recording.seconds, f"{recording.method} {recording.target}")
+        )
         key: str = f"{recording.method} {recording.route or '(geen route)'}"
         if key not in self.routes and len(self.routes) >= MAX_ROUTES:
             key = OTHER_ROUTES
@@ -281,23 +289,33 @@ class Telemetry:
             self.slow.append(recording)
             logger.warning("Trage aanvraag: %s", recording.log_line())
 
-    def stalled(self, seconds: float) -> None:
-        """De event loop stond `seconds` stil: bewaar en meld het, met de aanvragen die toen liepen."""
-        targets: list[str] = [
+    def stalled(self, stall: loop_guard.Stall) -> None:
+        """De event loop stond stil: bewaar en meld het, met de stack en de aanvragen die toen liepen.
+
+        Loopt in de bewakerthread, niet op de loop, en pas als de loop weer aan de beurt is: de aanvraag die blokkeerde is dan
+        vaak al klaar. Daarom telt ook een aanvraag mee die tijdens de stilstand eindigde. Alles wordt als kopie gelezen.
+        """
+        since: float = time.perf_counter() - stall.seconds
+        labels: list[str] = [
             f"{recording.method} {recording.target}"
-            for recording in self.active.values()
+            for recording in list(self.active.values())
         ]
+        labels += [label for end, label in list(self.finished) if end >= since]
+        targets: list[str] = list(dict.fromkeys(labels))
+        frames: tuple[loop_guard.Frame, ...] = stall.app_frames or stall.stack
         self.stalls.append(
             {
                 "at": datetime.now(UTC).isoformat(timespec="seconds"),
-                "ms": _ms(seconds),
+                "ms": _ms(stall.seconds),
                 "active": targets,
+                "stack": [frame.short() for frame in reversed(frames[-STALL_FRAMES:])],
             }
         )
         logger.warning(
-            "De event loop stond %d ms stil tijdens: %s",
-            round(seconds * 1000),
+            "De event loop stond %d ms stil tijdens: %s. Stack: %s",
+            round(stall.seconds * 1000),
             ", ".join(targets) or "werk op de achtergrond",
+            stall.describe(STALL_FRAMES),
         )
 
     def snapshot(self) -> dict[str, Any]:
@@ -355,20 +373,6 @@ class Middleware:
             self.telemetry.finish(recording)
 
 
-async def watch_loop(
-    telemetry: Telemetry,
-    interval: float = LOOP_INTERVAL,
-    threshold: float = STALL_SECONDS,
-) -> None:
-    """Slaapt steeds `interval` en meet hoeveel later de event loop terugkomt. Vanaf `threshold` te laat: `telemetry.stalled`."""
-    while True:
-        started: float = time.perf_counter()
-        await asyncio.sleep(interval)
-        late: float = time.perf_counter() - started - interval
-        if late >= threshold:
-            telemetry.stalled(late)
-
-
 def register(app: Quart) -> Telemetry | None:
     """Hangt de meting om `app` als de vlag aan staat, en geeft de cijfers van deze app. Staat de vlag uit: None, en niets verandert.
 
@@ -380,7 +384,7 @@ def register(app: Quart) -> Telemetry | None:
     telemetry: Telemetry = Telemetry(slow_ms() / 1000)
     app.asgi_app = Middleware(app.asgi_app, telemetry)  # type: ignore[method-assign]
     app.extensions["mealieshopper_telemetry"] = telemetry
-    watcher: list[asyncio.Task[None]] = []
+    guard: list[loop_guard.LoopGuard] = []
 
     @app.before_request
     async def _name_route() -> None:
@@ -390,17 +394,17 @@ def register(app: Quart) -> Telemetry | None:
 
     @app.before_serving
     async def _start_watching() -> None:
-        watcher.append(
-            asyncio.create_task(watch_loop(telemetry), name="telemetry-loop")
+        watcher: loop_guard.LoopGuard = loop_guard.LoopGuard(
+            asyncio.get_running_loop(), STALL_SECONDS, telemetry.stalled
         )
+        watcher.start()  # op de loop zelf, zodat de bewaker de thread van de loop kent
+        guard.append(watcher)
 
     @app.after_serving
     async def _stop_watching() -> None:
-        for task in watcher:
-            task.cancel()
-            with suppress(asyncio.CancelledError):
-                await task
-        watcher.clear()
+        for watcher in guard:
+            watcher.stop()
+        guard.clear()
 
     @app.get("/api/telemetry")
     async def telemetry_snapshot():

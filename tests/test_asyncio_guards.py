@@ -32,6 +32,9 @@ SOURCE: Path = Path(__file__).resolve().parent.parent / "mealieshopper"
 # Wat in geen enkele module meer mag staan: requests, threads en een slaap die de event loop vasthoudt.
 FORBIDDEN: tuple[str, ...] = ("import requests", "from requests", "threading.Thread(", "threading.Lock(", "ThreadPoolExecutor", "time.sleep(")
 
+# De bewaker van de event loop (loop_guard.py) draait juist in een eigen thread: een taak op de loop kan zichzelf niet betrappen.
+THREAD_ALLOWED: frozenset[str] = frozenset({"loop_guard.py"})
+
 # Waar `asyncio.to_thread` mag: alleen rond rekenwerk en ander werk dat geen await kent (zie regels.md).
 TO_THREAD_ALLOWED: dict[str, str] = {
     "image_cache.py": "Pillow meet een afbeelding",
@@ -191,7 +194,7 @@ def test_no_module_uses_requests_threading_or_blocking_sleep() -> None:
         f"{name}:{number}: {code.strip()}"
         for name, text in modules()
         for number, code in code_lines(text)
-        if any(pattern in code for pattern in FORBIDDEN)
+        if any(pattern in code for pattern in FORBIDDEN if not (name in THREAD_ALLOWED and pattern == "threading.Thread("))
     ]
     assert found == []
     # Ook als requests ergens anders in de omgeving staat: met requests onvindbaar laadt de app gewoon.
