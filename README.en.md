@@ -42,6 +42,8 @@ Plan your week menu in [Mealie](https://mealie.io) and put it in your basket at 
 
 ---
 
+Shared AH weekly prices are added automatically from [data.mealieshopper.nl](https://data.mealieshopper.nl), without a linked account. Only changed native JSON documents are downloaded after checking the index, exact length and SHA-256. Directly observed prices take priority. Set `MEALIESHOPPER_SHARED_PRICES=false` to disable this. See [the manual](docs/handleiding.en.md#importing-a-price-archive).
+
 ## Contents
 
 - [Why MealieShopper?](#why-mealieshopper)

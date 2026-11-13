@@ -42,6 +42,7 @@ TO_THREAD_ALLOWED: dict[str, str] = {
     "about.py": "git rev-parse (subprocess) voor de commit",
     "audit.py": "de export van tot 5000 regels als JSON of CSV",
     "factory_reset.py": "de afbeeldingencache wissen (shutil.rmtree over duizenden bestanden)",
+    "price_archive_sync.py": "begrensde JSON-documenten valideren en per document in SQLite invoegen, met checkpoints en lease",
     "price_archive.py": "een prijsarchief uitpakken en controleren, invoegen en exporteren (zip, tar, gzip, tot een miljoen regels)",
     "uploads.py": "een stuk van een upload (tot 4 MB) naar schijf schrijven",
 }
@@ -95,6 +96,7 @@ THREAD_ONLY: frozenset[str] = frozenset(
                 "_check_staged",
             )
         ),
+        *(f"price_archive_sync.{name}" for name in ("_claim", "_renew", "_release", "_unchanged", "_document_rows", "_import_document")),
         "thread_db.connect",
         "price_archive.apply",
         "price_archive._check_upload",

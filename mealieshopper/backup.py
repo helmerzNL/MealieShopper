@@ -70,6 +70,7 @@ from . import (
     offers_schedule,
     picnic,
     picnic_orders,
+    price_archive_sync,
     price_import,
     prices,
     product_images,
@@ -174,6 +175,8 @@ EXCLUDED_TABLES = frozenset(
         "image_cache",  # cache van winkelfoto's op schijf (image_cache.py), opnieuw op te bouwen
         "mealie_recipe_nutrition",
         "mealie_recipe_nutrition_meta",  # calorieën van de recepten in Mealie (recipe_nutrition.py), herlaadbaar
+        "shared_price_documents",
+        "shared_price_sync",  # derived document hashes and scheduler state
         "price_archive_jobs",  # de import van een prijsarchief die loopt (price_archive.py): tijdelijke staat
         "catalogue_changes",  # de versie van de catalogus van de prijzen (prices._catalogue_version): bijhouden, niet bewaren
         # De push van de kooktimers (push.py): een abonnement hoort bij een browser en bij de VAPID-sleutel van deze installatie
@@ -778,6 +781,7 @@ def replace_everything(
     try:
         conn.execute("PRAGMA busy_timeout = 30000")  # een lopende synchronisatie mag even afmaken
         conn.execute("BEGIN IMMEDIATE")
+        price_archive_sync.reset(conn)
         kept = plan.kept_tables()  # niet in het bestand of overgeslagen: blijft zoals het is
         for table in reversed(DATA_TABLES):
             if table not in kept:

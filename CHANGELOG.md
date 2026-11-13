@@ -2,6 +2,17 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub; een stabiele release krijgt de teksten van alle versies sinds de vorige stabiele release.
 
+## v4.23.0
+
+*English summary: Shared AH weekly prices are imported automatically without a linked account. The app checks the native JSON index, downloads only changed documents and verifies their size and SHA-256. Per-document checkpoints survive restarts. Successful checks repeat after 24 hours, failures after 15 minutes. Direct observations take priority over weekly prices, whose original source, week and capture time are preserved. Set `MEALIESHOPPER_SHARED_PRICES=false` to disable the import.*
+
+### Nieuw in 4.23.0
+
+- Gedeelde AH-weekprijzen worden automatisch ingelezen, ook zonder gekoppelde supermarkt. De eerste controle volgt ongeveer een minuut na het starten.
+- Alleen nieuwe of gewijzigde JSON-documenten worden opgehaald, met controle van de index, grootte en SHA-256. De stand per document blijft na een herstart bewaard.
+- Na een geslaagde controle volgt de volgende na 24 uur. Een fout wordt na 15 minuten opnieuw geprobeerd, zonder bestellingen opnieuw op te halen. Met `MEALIESHOPPER_SHARED_PRICES=false` zet je de import uit.
+- De oorspronkelijke bron, week en het verzameltijdstip blijven behouden. Gecorrigeerde weekprijzen worden bijgewerkt, zelf waargenomen prijzen gaan voor. Na terugzetten of wissen wordt de afgeleide importstand ongeldig gemaakt.
+
 ## v4.22.0
 
 *English summary: Find recipes filters every source on course, vegetarian or vegan and cooking time, and Mealie and Albert Heijn also on meat, fish or poultry (follow-up to issue #322). **Per source**: Albert Heijn filters itself (course, dish type, special wishes, recipes with, and its quick filter for up to 15 minutes); a longer time at AH and the course and time at Jumbo are filtered by MealieShopper over a few pages at a time, with "12 recipes in the first 96 hits" instead of a total; Picnic, Crisp, HelloFresh and Marley Spoon are filtered on their labels and times. A source that does not know a chosen filter is left out, and the results say which. **Mealie**: the course comes from your categories and tags (no course counts as a main course), and MealieShopper works out from the ingredients whether a recipe is vegetarian or vegan, or has meat, fish or poultry; a vegetarian or vegan tag of your own comes first. **Tags in Mealie**: after every round MealieShopper adds the tags Vegetarisch, Veganistisch, Vlees, Vis and Gevogelte to your recipes; your own tags always stay, a tag of MealieShopper that no longer fits is removed, and one you removed is not added again. It can be turned off under Settings, Link, Mealie.*

@@ -17,6 +17,8 @@ from quart.typing import TestClientProtocol
 # aanbiedingen-thread niet starten. Dit moet vooraf, voor de eerste import van mealieshopper.
 os.environ.setdefault("MEALIESHOPPER_TESTING", "1")
 
+os.environ.setdefault("MEALIESHOPPER_SHARED_PRICES", "false")
+
 from mealieshopper import auth  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
 
