@@ -1,8 +1,12 @@
 """Prijsgeschiedenis (#178): normale prijs, aanbiedingen en aankopen per product."""
+import asyncio
 import os
 import tempfile
+import threading
 import unittest
 from contextlib import closing
+from datetime import date, timedelta
+from typing import Any
 from unittest import mock
 
 os.environ.setdefault("MEALIESHOPPER_DATA_DIR", tempfile.mkdtemp())
@@ -1635,17 +1639,239 @@ class CatalogueTest(PricesCase):
                          {"offer_history", "offers", "price_observations", "imported_purchases", "ah_receipts", "ah_receipt_items", "ah_receipt_products",
                           "product_links", "shared_link_rejections", "ah_orders", "ah_order_items"})
 
-    async def test_a_new_database_does_not_reuse_a_version_from_the_cache(self):
+    async def test_a_new_database_does_not_reuse_a_version_from_the_cache(self) -> None:
         await self.observe("2026-05-01", "1", "AH Pindakaas", 2.99)
         self.assertEqual(await self.found("pindakaas"), ["1"])
         with closing(db(price_import)) as conn, conn:
-            token, version = conn.execute("SELECT token, version FROM catalogue_changes").fetchone()
-            # Een teruggezette of nieuwe database met dezelfde versie: het token verschilt, dus geen oude catalogus.
-            conn.execute("DELETE FROM catalogue_changes")
-            conn.execute("INSERT INTO catalogue_changes (id, token, version) VALUES (1, 'anders', ?)", (version,))
-            conn.execute("DELETE FROM price_observations")
+            token: str
+            products: int
+            token, products = conn.execute("SELECT token, products FROM catalogue_versions WHERE store = 'ah'").fetchone()
+            # Een teruggezette of nieuwe database met dezelfde versie: alleen het token verschilt, dus geen oude catalogus.
+            conn.execute("DELETE FROM price_observations")  # met de trigger: `products` gaat omhoog
+            conn.execute("UPDATE catalogue_versions SET token = 'anders', products = ? WHERE store = 'ah'", (products,))
         self.assertEqual(await self.found("pindakaas"), [])
         self.assertEqual(len(token), 16)
+
+    async def test_an_ah_article_link_does_not_reach_a_jumbo_row(self) -> None:
+        # De koppeling van een artikelnummer op een bon van AH (`ah_receipt_products`) hoort bij AH: een product van Jumbo met
+        # hetzelfde nummer krijgt er geen merk en inhoud van. Haar trigger hoogt alleen de versie van AH op.
+        self.ah_article(111, 4183, "AH Bloemkool")
+        with closing(db(ah_orders)) as conn, conn:
+            conn.execute("UPDATE ah_receipt_products SET brand = 'AH', unit_size = '1 stuk' WHERE receipt_product_id = 111")
+        await prices.record("jumbo", [{"id": "4183", "title": "Jumbo Bloemkool", "price": 1.49}], now="2026-05-01T08:00:00+00:00")
+        with closing(db(price_import)) as conn, conn:
+            conn.execute(
+                "INSERT INTO imported_purchases (store, order_ref, position, day, title, quantity, paid, regular, order_total, imported_at) "
+                "VALUES ('jumbo', 'J1', 0, '2026-07-15', 'Jumbo Bloemkool', 1, 1.49, NULL, 1.49, 'x')"
+            )
+        rows: list[dict] = (await in_db(prices._connect, lambda conn: prices._receipt_rows(conn, "jumbo", TODAY)))[0]
+        self.assertEqual([(row["product_id"], row["brand"], row["unit_size"]) for row in rows], [("4183", None, None)])
+
+    async def test_without_a_catalogue_the_offers_get_no_regular_etag(self) -> None:
+        # Kan de catalogus niet worden opgebouwd, dan oordeelt `_annotate` zonder bonnen: dat antwoord krijgt geen ETag die een 304 geeft.
+        await self.observe("2026-05-01", "1", "AH Pindakaas", 2.99)
+        prices.forget_catalogues()
+        with mock.patch.object(prices, "_build_catalogue", side_effect=RuntimeError("stuk")), self.assertLogs(prices.log, "WARNING"):
+            first: str = await prices.offers_signature("ah")
+            second: str = await prices.offers_signature("ah")
+        self.assertTrue(first.startswith("fout:"), first)
+        self.assertNotEqual(first, second)
+        self.assertFalse((await prices.offers_signature("ah")).startswith("fout:"), "met een catalogus weer een gewone ETag")
+
+    async def catalogue_now(self) -> prices._Catalogue:
+        async with prices._connect() as conn:
+            return await prices._catalogue(conn, "ah", TODAY)
+
+    async def test_a_request_that_joins_an_older_build_catches_up_after_it(self) -> None:
+        # Een bouw die al liep voordat een prijs een bonregel verschoof, hoort niet als antwoord bij een aanvraag die die prijs al
+        # zag: na het aansluiten werkt `_catalogue` de catalogus bij (`_after_build`), anders komt een oud antwoord onder een nieuwe ETag.
+        await self.palermo("10", 1.69, "2 stuks", "2026-04-01")
+        await self.palermo("11", 2.49, "500 g", "2026-04-01")
+        self.ah_receipt("R1", "2026-06-10T10:00:00", (None, "AH Sweet Palermo", 1, 3.40, 3.40))
+        prices.forget_catalogues()
+        entered: threading.Event = threading.Event()
+        release: threading.Event = threading.Event()
+        real: Any = prices._build_catalogue
+        asked: list[int] = []
+        get: Any = prices._CATALOGUE_BUILDS.get
+
+        def held(*args: Any) -> prices._Catalogue:
+            entered.set()
+            release.wait(5)
+            return real(*args)
+
+        async def counted(key: Any, build: Any) -> prices._Catalogue:
+            asked.append(1)
+            return await get(key, build)
+
+        with mock.patch.object(prices, "_build_catalogue", side_effect=held), mock.patch.object(prices._CATALOGUE_BUILDS, "get", counted):
+            first: asyncio.Task[prices._Catalogue] = asyncio.ensure_future(self.catalogue_now())
+            self.assertTrue(await asyncio.to_thread(entered.wait, 5), "de eerste bouw heeft zijn rijen gelezen")
+            await self.palermo("10", 3.39, "2 stuks", "2026-05-01")  # alleen `prices`: de bon hoort nu bij 10
+            second: asyncio.Task[prices._Catalogue] = asyncio.ensure_future(self.catalogue_now())
+            for _ in range(500):
+                if len(asked) >= 2:
+                    break
+                await asyncio.sleep(0.01)
+            self.assertEqual(len(asked), 2, "de tweede aanvraag sluit aan bij de bouw die al loopt")
+            release.set()
+            older: prices._Catalogue = await first
+            newer: prices._Catalogue = await second
+        self.assertEqual({row["product_id"] for row in older.receipts}, {"11"})
+        self.assertEqual({row["product_id"] for row in newer.receipts}, {"10"}, "bijgewerkt na de prijs die de aanvraag al zag")
+
+    async def test_a_failing_build_on_a_new_day_gives_no_regular_etag(self) -> None:
+        # De catalogus van vandaag en `_ANSWER_IDS` staan klaar, morgen mislukt de bouw: het antwoord zonder bonnen krijgt geen gewone ETag.
+        await self.observe("2026-05-01", "1", "AH Pindakaas", 2.99)
+        self.assertFalse((await prices.offers_signature("ah")).startswith("fout:"))
+        tomorrow: str = (date.fromisoformat(prices._now()[:10]) + timedelta(days=1)).isoformat()
+        with (
+            mock.patch.object(prices, "_now", return_value=f"{tomorrow}T08:00:00+00:00"),
+            mock.patch.object(prices, "_build_catalogue", side_effect=RuntimeError("stuk")),
+            self.assertLogs(prices.log, "WARNING"),
+        ):
+            self.assertTrue((await prices.offers_signature("ah")).startswith("fout:"))
+
+    async def test_a_failing_catch_up_gives_no_regular_etag(self) -> None:
+        await self.observe("2026-05-01", "1", "AH Pindakaas", 2.99)
+        self.assertFalse((await prices.offers_signature("ah")).startswith("fout:"))
+        await self.observe("2026-06-01", "1", "AH Pindakaas", 2.89)  # alleen `prices`: de volgende aanvraag werkt de catalogus bij
+        with mock.patch.object(prices, "_with_last", side_effect=RuntimeError("stuk")), self.assertLogs(prices.log, "WARNING"):
+            self.assertTrue((await prices.offers_signature("ah")).startswith("fout:"))
+
+    async def version(self, store: str) -> str:
+        return (await in_db(prices._connect, lambda conn: prices._catalogue_version(conn, store)))[0]
+
+    def counters(self, store: str) -> tuple[int, int]:
+        """(products, prices) van een winkel in `catalogue_versions`."""
+        with closing(db(prices)) as conn:
+            row: tuple[int, int] | None = conn.execute("SELECT products, prices FROM catalogue_versions WHERE store = ?", (store,)).fetchone()
+        return (row[0], row[1]) if row else (0, 0)
+
+    async def test_every_catalogue_table_has_a_store(self) -> None:
+        self.assertEqual(set(prices._TABLE_STORE), set(prices.CATALOGUE_TABLES))
+        for table, store in prices._TABLE_STORE.items():
+            with self.subTest(table=table):
+                self.assertIn(store, {"NEW.store", *(f"'{name}'" for name in offers.STORES), "'crisp'"})
+        self.assertEqual(prices._TABLE_STORE["ah_receipt_items"], "'ah'")
+        self.assertEqual(prices._TABLE_STORE["jumbo_order_items"], "'jumbo'")
+        self.assertEqual(prices._TABLE_STORE["price_observations"], "NEW.store")
+
+    async def test_a_price_at_picnic_leaves_the_catalogue_of_ah(self) -> None:
+        await self.observe("2026-05-01", "1", "AH Pindakaas", 2.99)
+        self.assertEqual(await self.found("pindakaas"), ["1"])
+        ah_before: str = await self.version("ah")
+        picnic_before: str = await self.version("picnic")
+        with mock.patch.object(prices, "_build_catalogue", wraps=prices._build_catalogue) as built:
+            await prices.record("picnic", [{"id": "s100", "title": "Pindakaas", "price": 3.49}], now="2026-06-01T08:00:00+00:00")
+            self.assertEqual(await self.found("pindakaas"), ["1"])
+            self.assertEqual(built.call_count, 0, "de catalogus van AH blijft staan")
+        self.assertEqual(await self.version("ah"), ah_before)
+        self.assertNotEqual(await self.version("picnic"), picnic_before)
+
+    async def test_a_price_of_a_known_product_does_not_rebuild_the_catalogue(self) -> None:
+        # Elke opbouw van de catalogus is een aanroep van `_build_catalogue` (in de threadpool).
+        await self.observe("2026-05-01", "1", "AH Pindakaas", 2.99)
+        await self.observe("2026-04-01", "2", "AH Hagelslag", 1.99)
+        self.assertEqual(await self.found("ah"), ["1", "2"])
+        products: int
+        counted: int
+        products, counted = self.counters("ah")
+        with mock.patch.object(prices, "_build_catalogue", wraps=prices._build_catalogue) as built:
+            await self.observe("2026-06-01", "2", "AH Hagelslag", 1.89)  # een nieuwe dag: een INSERT
+            self.assertEqual(await self.found("ah"), ["2", "1"], "de nieuwste prijs telt in de volgorde")
+            await self.observe("2026-06-01", "2", "AH Hagelslag", 1.79)  # dezelfde dag: een UPDATE
+            self.assertEqual(await self.found("ah"), ["2", "1"])
+            self.assertEqual(built.call_count, 0, "alleen een prijs erbij: dezelfde catalogus")
+        self.assertEqual(self.counters("ah"), (products, counted + 2))
+        product: dict = await self.product("2", query="hagelslag")
+        self.assertEqual([segment["price"] for segment in product["regular"]], [1.99, 1.79])
+
+    async def test_a_price_of_a_new_product_rebuilds_the_catalogue(self) -> None:
+        await self.observe("2026-05-01", "1", "AH Pindakaas", 2.99)
+        self.assertEqual(await self.found("pindakaas"), ["1"])
+        with mock.patch.object(prices, "_build_catalogue", wraps=prices._build_catalogue) as built:
+            await self.observe("2026-06-01", "2", "AH Pindakaas crunchy", 3.19)
+            self.assertEqual(await self.found("pindakaas"), ["2", "1"])
+            self.assertEqual(built.call_count, 1)
+
+    async def test_a_renamed_product_rebuilds_the_catalogue(self) -> None:
+        await self.observe("2026-05-01", "1", "AH Pindakaas", 2.99)
+        self.assertEqual(await self.found("pindakaas"), ["1"])
+        with mock.patch.object(prices, "_build_catalogue", wraps=prices._build_catalogue) as built:
+            await self.observe("2026-06-01", "1", "AH Pindakaas naturel", 2.99)  # dezelfde product_id, een andere naam: een INSERT
+            self.assertEqual(await self.found("naturel"), ["1"])
+            self.assertEqual(built.call_count, 1)
+            await self.observe("2026-06-01", "1", "AH Pindakaas extra", 2.99)  # en op dezelfde dag: een UPDATE
+            self.assertEqual(await self.found("extra"), ["1"])
+            self.assertEqual(built.call_count, 2)
+        with closing(db(prices)) as conn, conn:
+            conn.execute("UPDATE price_observations SET brand = 'Calve' WHERE product_id = '1' AND day = '2026-05-01'")
+        self.assertEqual(await self.found("calve"), ["1"], "een ander merk is ook een andere naam")
+
+    async def answers(self) -> dict:
+        """Wat de prijsgeschiedenis en het oordeel bij twee aanbiedingen nu zeggen."""
+        items: list[dict] = [offer("2", "AH Hagelslag", 1.49, 1.99, "25% korting", unitSize="400 g"), offer("10", "AH Sweet Palermo", 1.29, 1.69, "1,29")]
+        return {
+            "history": await self.history(),
+            "palermo": await self.history(query="palermo"),
+            "annotate": await prices.annotate("ah", items, today=TODAY),
+        }
+
+    async def palermo(self, product_id: str, price: float, size: str, day: str) -> None:
+        await prices.record("ah", [{"id": product_id, "title": "AH Sweet Palermo", "price": price, "unitSize": size, "brand": "AH"}], now=f"{day}T08:00:00+00:00")
+
+    async def test_after_a_price_only_write_the_answers_equal_a_full_rebuild(self) -> None:
+        await self.observe("2026-05-01", "1", "AH Pindakaas", 2.99)
+        await self.observe("2026-03-01", "2", "AH Hagelslag", 1.99)
+        await self.observe("2026-04-01", "3", "AH Muisjes", 1.79)
+        # Twee producten met dezelfde naam: de prijs op de bon kiest (`_nearest_priced`), eerst de zak van 500 gram.
+        await self.palermo("10", 1.69, "2 stuks", "2026-04-01")
+        await self.palermo("11", 2.49, "500 g", "2026-04-01")
+        self.ah_receipt("R1", "2026-06-10T10:00:00", (None, "AH Sweet Palermo", 1, 3.40, 3.40))
+        before: dict = await self.answers()
+        self.assertEqual({p["productId"]: len(p["purchases"]) for p in before["palermo"]["products"]}, {"10": 0, "11": 1})
+        # Prijzen voor bekende producten, met dezelfde naam, merk en verpakking: een nieuwe dag en een gewijzigde prijs.
+        await self.observe("2026-10-01", "2", "AH Hagelslag", 1.89)
+        await self.observe("2026-05-01", "1", "AH Pindakaas", 2.69)
+        await self.palermo("10", 3.39, "2 stuks", "2026-05-01")
+        warm: dict = await self.answers()
+        prices._CATALOGUES.clear()
+        self.assertEqual(warm, await self.answers())
+        self.assertNotEqual(warm["history"], before["history"], "de nieuwe prijzen staan erin")
+        self.assertEqual(warm["history"]["products"][0]["productId"], "2", "de nieuwste prijs zet hagelslag bovenaan")
+        self.assertEqual({p["productId"]: len(p["purchases"]) for p in warm["palermo"]["products"]}, {"10": 1, "11": 0}, "de bon hoort nu bij de prijs in de buurt")
+
+    async def test_an_old_database_with_catalogue_changes_is_migrated(self) -> None:
+        await self.observe("2026-05-01", "1", "AH Pindakaas", 2.99)
+        with closing(db(prices)) as conn, conn:  # zoals tot 4.21: een versie voor alle winkels, en triggers die hem ophogen
+            conn.execute("DROP TABLE catalogue_versions")
+            conn.execute("CREATE TABLE catalogue_changes (id INTEGER PRIMARY KEY CHECK (id = 1), token TEXT NOT NULL, version INTEGER NOT NULL)")
+            conn.execute("INSERT INTO catalogue_changes VALUES (1, 'oud', 7)")
+            for name in [row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type = 'trigger'")]:
+                conn.execute(f"DROP TRIGGER {name}")
+            for op in ("INSERT", "UPDATE", "DELETE"):
+                conn.execute(
+                    f"CREATE TRIGGER catalogue_price_observations_{op.lower()} AFTER {op} ON price_observations "
+                    "BEGIN UPDATE catalogue_changes SET version = version + 1 WHERE id = 1; END"
+                )
+        for day in ("2026-06-01", "2026-06-02"):  # de migratie, en daarna nog een keer op een database die al over is
+            auth.forget_runtime_state()
+            await self.observe(day, "1", "AH Pindakaas", 2.89)
+            self.assertEqual(await self.found("pindakaas"), ["1"])
+        with closing(db()) as conn:
+            tables: set[str] = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
+            old: list[str] = [row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type = 'trigger' AND sql LIKE '%catalogue_changes%'")]
+            new: set[str] = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type = 'trigger' AND sql LIKE '%catalogue_versions%'")}
+        self.assertNotIn("catalogue_changes", tables)
+        self.assertIn("catalogue_versions", tables)
+        self.assertEqual(old, [])
+        self.assertLessEqual({f"catalogue_price_observations_{op}" for op in ("insert", "update", "delete")}, new)
+        products: int
+        counted: int
+        products, counted = self.counters("ah")
+        await self.observe("2026-07-01", "1", "AH Pindakaas", 2.79)
+        self.assertEqual(self.counters("ah"), (products, counted + 1), "de nieuwe triggers tellen")
 
 
 class RegularPointsTest(PricesCase):

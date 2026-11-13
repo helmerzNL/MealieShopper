@@ -106,7 +106,7 @@ EXCLUDED_TABLES = frozenset({
     "image_cache",  # cache van winkelfoto's op schijf (image_cache.py), opnieuw op te bouwen
     "mealie_recipe_nutrition", "mealie_recipe_nutrition_meta",  # calorieën van de recepten in Mealie (recipe_nutrition.py), herlaadbaar
     "price_archive_jobs",  # de import van een prijsarchief die loopt (price_archive.py): tijdelijke staat
-    "catalogue_changes",  # de versie van de catalogus van de prijzen (prices._catalogue_version): bijhouden, niet bewaren
+    "catalogue_versions",  # de versie per winkel van de catalogus van de prijzen (prices._catalogue_version): afgeleid, een teruggezette database krijgt een nieuw token
     # De push van de kooktimers (push.py): een abonnement hoort bij een browser en bij de VAPID-sleutel van deze installatie
     # (die zit er ook niet in), een timer duurt minuten. Na het terugzetten vraagt de app bij de volgende timer een nieuw aan.
     "push_subscriptions", "cook_timers",
@@ -733,6 +733,8 @@ def replace_everything(
             "skippedProfiles": skipped_profiles,
             "kept": plan.kept_parts(),
         }
+        # De versies van de catalogus zijn afgeleid (EXCLUDED_TABLES): weg, dan begint elke winkel met een nieuw token.
+        conn.execute("DELETE FROM catalogue_versions")
         on_commit(conn, summary)
         conn.execute("COMMIT")
         return summary
@@ -1001,6 +1003,7 @@ async def _run_phases(job_id: str, staged: Path, passphrase: str, *, skip_links:
     box: Fernet | None = await auth.secret_box() if plan.secrets is not None else None  # alleen voor de koppelingen
     await ensure_schemas()
     await asyncio.to_thread(replace_everything, plan, prepared, done, box)
+    auth.forget_cached_data()  # geen catalogus en geen lijst aanbiedingen van de oude gegevens meer in het geheugen
     log.info("Back-up teruggezet in %.1f s", time.monotonic() - started)
 
 
