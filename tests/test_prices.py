@@ -1,8 +1,12 @@
 """Prijsgeschiedenis (#178): normale prijs, aanbiedingen en aankopen per product."""
+import asyncio
 import os
 import tempfile
+import threading
 import unittest
 from contextlib import closing
+from datetime import date, timedelta
+from typing import Any
 from unittest import mock
 
 os.environ.setdefault("MEALIESHOPPER_DATA_DIR", tempfile.mkdtemp())
@@ -1673,6 +1677,67 @@ class CatalogueTest(PricesCase):
         self.assertTrue(first.startswith("fout:"), first)
         self.assertNotEqual(first, second)
         self.assertFalse((await prices.offers_signature("ah")).startswith("fout:"), "met een catalogus weer een gewone ETag")
+
+    async def catalogue_now(self) -> prices._Catalogue:
+        async with prices._connect() as conn:
+            return await prices._catalogue(conn, "ah", TODAY)
+
+    async def test_a_request_that_joins_an_older_build_catches_up_after_it(self) -> None:
+        # Een bouw die al liep voordat een prijs een bonregel verschoof, hoort niet als antwoord bij een aanvraag die die prijs al
+        # zag: na het aansluiten werkt `_catalogue` de catalogus bij (`_after_build`), anders komt een oud antwoord onder een nieuwe ETag.
+        await self.palermo("10", 1.69, "2 stuks", "2026-04-01")
+        await self.palermo("11", 2.49, "500 g", "2026-04-01")
+        self.ah_receipt("R1", "2026-06-10T10:00:00", (None, "AH Sweet Palermo", 1, 3.40, 3.40))
+        prices.forget_catalogues()
+        entered: threading.Event = threading.Event()
+        release: threading.Event = threading.Event()
+        real: Any = prices._build_catalogue
+        asked: list[int] = []
+        get: Any = prices._CATALOGUE_BUILDS.get
+
+        def held(*args: Any) -> prices._Catalogue:
+            entered.set()
+            release.wait(5)
+            return real(*args)
+
+        async def counted(key: Any, build: Any) -> prices._Catalogue:
+            asked.append(1)
+            return await get(key, build)
+
+        with mock.patch.object(prices, "_build_catalogue", side_effect=held), mock.patch.object(prices._CATALOGUE_BUILDS, "get", counted):
+            first: asyncio.Task[prices._Catalogue] = asyncio.ensure_future(self.catalogue_now())
+            self.assertTrue(await asyncio.to_thread(entered.wait, 5), "de eerste bouw heeft zijn rijen gelezen")
+            await self.palermo("10", 3.39, "2 stuks", "2026-05-01")  # alleen `prices`: de bon hoort nu bij 10
+            second: asyncio.Task[prices._Catalogue] = asyncio.ensure_future(self.catalogue_now())
+            for _ in range(500):
+                if len(asked) >= 2:
+                    break
+                await asyncio.sleep(0.01)
+            self.assertEqual(len(asked), 2, "de tweede aanvraag sluit aan bij de bouw die al loopt")
+            release.set()
+            older: prices._Catalogue = await first
+            newer: prices._Catalogue = await second
+        self.assertEqual({row["product_id"] for row in older.receipts}, {"11"})
+        self.assertEqual({row["product_id"] for row in newer.receipts}, {"10"}, "bijgewerkt na de prijs die de aanvraag al zag")
+
+    async def test_a_failing_build_on_a_new_day_gives_no_regular_etag(self) -> None:
+        # De catalogus van vandaag en `_ANSWER_IDS` staan klaar, morgen mislukt de bouw: het antwoord zonder bonnen krijgt geen gewone ETag.
+        await self.observe("2026-05-01", "1", "AH Pindakaas", 2.99)
+        self.assertFalse((await prices.offers_signature("ah")).startswith("fout:"))
+        tomorrow: str = (date.fromisoformat(prices._now()[:10]) + timedelta(days=1)).isoformat()
+        with (
+            mock.patch.object(prices, "_now", return_value=f"{tomorrow}T08:00:00+00:00"),
+            mock.patch.object(prices, "_build_catalogue", side_effect=RuntimeError("stuk")),
+            self.assertLogs(prices.log, "WARNING"),
+        ):
+            self.assertTrue((await prices.offers_signature("ah")).startswith("fout:"))
+
+    async def test_a_failing_catch_up_gives_no_regular_etag(self) -> None:
+        await self.observe("2026-05-01", "1", "AH Pindakaas", 2.99)
+        self.assertFalse((await prices.offers_signature("ah")).startswith("fout:"))
+        await self.observe("2026-06-01", "1", "AH Pindakaas", 2.89)  # alleen `prices`: de volgende aanvraag werkt de catalogus bij
+        with mock.patch.object(prices, "_with_last", side_effect=RuntimeError("stuk")), self.assertLogs(prices.log, "WARNING"):
+            self.assertTrue((await prices.offers_signature("ah")).startswith("fout:"))
 
     async def version(self, store: str) -> str:
         return (await in_db(prices._connect, lambda conn: prices._catalogue_version(conn, store)))[0]

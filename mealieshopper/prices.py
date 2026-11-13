@@ -1225,6 +1225,7 @@ def _with_last(catalogue: _Catalogue, rows: list[Any]) -> _Catalogue:
             later[product_id] = known._replace(last=last)
     return catalogue._replace(products={**catalogue.products, **later}) if later else catalogue
 
+
 async def _shared_prices(conn: aiosqlite.Connection, store: str, shared: dict[str, dict[str, tuple[float, ...]]]) -> dict[str, dict[str, tuple[float, ...]]]:
     """`_Names.shared` opnieuw voor dezelfde namen en producten: per naam de gewone prijzen van elk product, zoals `_names` ze geeft."""
     ids: list[str] = sorted({product_id for group in shared.values() for product_id in group})
@@ -1268,6 +1269,23 @@ async def _catalogue(conn: aiosqlite.Connection, store: str, today: str) -> _Cat
         caught: _Catalogue | None = await _catch_up(conn, store, key, found, row["prices"])
         if caught is not None:
             return caught
+    built: _Catalogue = await _CATALOGUE_BUILDS.get((*key, version, today), lambda: _new_catalogue(key, version, today))
+    return await _after_build(conn, store, key, version, today, row["prices"], built)
+
+
+async def _after_build(
+    conn: aiosqlite.Connection, store: str, key: tuple[str, str], version: str, today: str, counted: int, built: _Catalogue
+) -> _Catalogue:
+    """De catalogus na de bouw voor een aanvraag die `prices` op `counted` zag. Een bouw waar ze bij aansloot, kan zijn rijen
+    hebben gelezen voor een prijs die deze aanvraag al zag (de sleutel van `_CATALOGUE_BUILDS` kent `prices` niet, zodat niet elke
+    prijs tijdens een bouw een nieuwe bouw start). Dan werkt `_catch_up` hem bij, of start er een nieuwe bouw: die leest zijn rijen
+    na die prijs."""
+    found: tuple[str, str, _Catalogue, _PriceState] | None = _CATALOGUES.get(key)
+    if found is None or found[0] != version or found[1] != today or found[3].prices >= counted:
+        return built
+    caught: _Catalogue | None = await _catch_up(conn, store, key, found, counted)
+    if caught is not None:
+        return caught
     return await _CATALOGUE_BUILDS.get((*key, version, today), lambda: _new_catalogue(key, version, today))
 
 
@@ -2064,15 +2082,12 @@ def _namesakes(shared: dict[str, dict[str, tuple[float, ...]]]) -> set[str]:
     return {product_id for group in shared.values() for product_id in group}
 
 
-async def _shared_groups(conn: aiosqlite.Connection, store: str, version: str, today: str) -> dict[str, dict[str, tuple[float, ...]]] | None:
-    """`_Names.shared` van de catalogus van deze versie, uit `_CATALOGUES`. Ontbreekt die, dan bouwt `_catalogue_or_none` hem, zoals
-    het oordeel bij de lijst ook doet. None als er geen catalogus van deze versie is (een fout, of de versie veranderde intussen)."""
+def _shared_groups(store: str, version: str, today: str) -> dict[str, dict[str, tuple[float, ...]]] | None:
+    """`_Names.shared` van de catalogus van deze versie en dag, uit `_CATALOGUES` (`offers_signature` haalt hem eerst op). None als
+    die er niet is: de bouw mislukte, of de versie veranderde intussen."""
     key: tuple[str, str] = (str(auth.db_path()), store)
     found: tuple[str, str, _Catalogue, _PriceState] | None = _CATALOGUES.get(key)
-    if found is None or found[0] != version:
-        await _catalogue_or_none(conn, store, today)
-        found = _CATALOGUES.get(key)
-    return found[3].shared if found is not None and found[0] == version else None
+    return found[3].shared if found is not None and found[0] == version and found[1] == today else None
 
 
 async def _answer_ids(conn: aiosqlite.Connection, store: str, version: str, today: str) -> tuple[str, ...]:
@@ -2092,7 +2107,7 @@ async def _answer_ids(conn: aiosqlite.Connection, store: str, version: str, toda
     ]
     titles: list[str] = [str(row["title"] or "") for row in listed]
     near: set[str] = {str(row["product_id"]) for row in listed} | await compute.run(_family_ids, store, titles, observed)
-    shared: dict[str, dict[str, tuple[float, ...]]] | None = await _shared_groups(conn, store, version, today)
+    shared: dict[str, dict[str, tuple[float, ...]]] | None = _shared_groups(store, version, today)
     if shared is None:
         raise LookupError(f"geen catalogus van {store} bij versie {version}")
     ids: tuple[str, ...] = tuple(sorted(near | _namesakes(shared)))
@@ -2104,11 +2119,17 @@ async def offers_signature(store: Any) -> str:
     """Het deel van de prijzen in de ETag van /api/offers: `_signature` over `_answer_ids`, met de pakken van het venster
     (`_window_shape`). Een prijs van een product dat het antwoord niet raakt, zoals de ronde langs de prijsindex er elke tien
     seconden een bewaart, laat hem staan. Een fout geeft elke keer een andere waarde: dan geen 304 en geen lijst uit de cache, liever
-    opnieuw rekenen dan een oud antwoord. Een onbekende winkel hoort bij die fouten (de aanroeper controleert de winkel al)."""
+    opnieuw rekenen dan een oud antwoord. Een onbekende winkel hoort bij die fouten (de aanroeper controleert de winkel al).
+
+    Eerst de catalogus van vandaag, zoals het oordeel hem straks leest (`_catalogue_or_none`: opgebouwd of bijgewerkt), ook als
+    `_answer_ids` al klaarstaat: mislukt de bouw van een nieuwe dag of het bijwerken, dan oordeelt `_annotate` zonder bonnen, en
+    dat antwoord krijgt de foutwaarde."""
     try:
         key: str = offers._valid_store(store)
         today: str = _now()[:10]
         async with _connect() as conn:
+            if await _catalogue_or_none(conn, key, today) is None:
+                raise LookupError(f"geen catalogus van {key} op {today}")
             ids: tuple[str, ...] = await _answer_ids(conn, key, await _catalogue_version(conn, key), today)
             return await _signature(conn, key, ids, today)
     except Exception:  # de cache mag nooit de aanbiedingen tegenhouden
