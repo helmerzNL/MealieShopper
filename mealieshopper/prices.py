@@ -1416,43 +1416,23 @@ async def history(store: Any = None, query: Any = "", limit: Any = 50, today: st
         catalogues = {name: await _catalogue(conn, name, today) for name in stores}
         receipts = {name: catalogue.receipts for name, catalogue in catalogues.items()}
         unsynced = {name: await _unsynced(conn, name) for name in stores}
-        candidates: dict[tuple[str, str], str] = {}
+        keeps: dict[str, set[str] | None] = {
+            name: _with_twins(await _bought(conn, name, today, receipts[name]), catalogues[name].twins) if bought else None for name in stores
+        }
+        candidates: dict[tuple[str, str], str] = await compute.run(_history_candidates, catalogues, wanted, only, pinned, keeps)
+        # Het product uit de link staat nergens in de prijsgeschiedenis (alleen in een open bestelling, of in een aanbieding die
+        # net begon): dan toch het product zelf, met wat de app ervan weet. Alleen met een winkel: een id hoort bij een winkel.
         pinned_known: dict[str, dict[str, Any]] = {}  # winkel -> wat `_pinned` van het product uit de link weet
         for name in stores:
-            twins = catalogues[name].twins
-            keep = _with_twins(await _bought(conn, name, today, receipts[name]), twins) if bought else None
-            found_here = _candidates(catalogues[name].products, wanted, always=pinned)
-            for product_id, day in found_here.items():
-                # Twee nummers voor hetzelfde product: een rij, onder het gevraagde nummer of anders het nummer met de nieuwste gegevens.
-                group = twins.get(product_id, (product_id,))
-                asked = next((twin for twin in group if twin in (only, pinned)), None)
-                lead = asked or max(group, key=lambda twin: (catalogues[name].products[twin].last, twin))
-                if only is not None and lead != only:
-                    continue
-                if keep is None or lead in keep or lead == pinned:
-                    candidates[(name, lead)] = max(day, candidates.get((name, lead), ""))
-            # Het product uit de link staat nergens in de prijsgeschiedenis (alleen in een open bestelling, of in een
-            # aanbieding die net begon): dan toch het product zelf, met wat de app ervan weet. Alleen met een winkel: een id
-            # hoort bij een winkel.
             if pinned is not None and store and only is None and (name, pinned) not in candidates:
                 known = await _pinned(conn, name, pinned, await _tables(conn))
                 if known is not None:
                     candidates[(name, pinned)] = today
                     pinned_known[name] = known
-        by_brand: _Choice = _Choice.of(brands, brands_out)
-        by_category: _Choice = _Choice.of(categories, categories_out)
-        nothing: _Known = _Known("", frozenset(), frozenset())
-        known: dict[tuple[str, str], _Known] = {key: catalogues[key[0]].products.get(key[1], nothing) for key in candidates}
-        facets: dict[str, list[dict[str, Any]]] = {} if only is not None else {
-            "brands": _facet_counts((item.brand for item in known.values() if by_category.passes(item.category)), by_brand, FACET_BRANDS),
-            "categories": _facet_counts((item.category for item in known.values() if by_brand.passes(item.brand)), by_category),
-        }
-        candidates = {
-            key: day for key, day in candidates.items()
-            if key[1] == pinned or (by_brand.passes(known[key].brand) and by_category.passes(known[key].category))
-        }
-        ranked = sorted(candidates, key=lambda key: (key[1] == pinned, candidates[key], key[0], key[1]), reverse=True)
-        chosen = ranked[:limit]
+        ranked: _Ranked = await compute.run(
+            _rank_history, catalogues, candidates, pinned, only, _Choice.of(brands, brands_out), _Choice.of(categories, categories_out), limit
+        )
+        chosen = ranked.chosen
         found: dict[str, tuple[dict[str, list[Any]], dict[str, list[Any]], dict[str, list[dict[str, Any]]]]] = {}
         for name in stores:
             ids = sorted(_with_twins({product_id for store_name, product_id in chosen if store_name == name}, catalogues[name].twins))
@@ -1463,15 +1443,83 @@ async def history(store: Any = None, query: Any = "", limit: Any = 50, today: st
         upcoming = {name: await _upcoming(conn, name, [pid for s, pid in chosen if s == name], today) for name in stores}
     offered = {name: await offers.history_of(name, [pid for s, pid in chosen if s == name]) for name in stores}
     lines = {name: await _line_offers(name, catalogues[name], [pid for s, pid in chosen if s == name]) for name in stores}
-    products = [
-        _product(name, product_id, offered[name].get(product_id),
-                 _twin_rows(found[name][0], product_id, catalogues[name].twins, lambda row: row["day"]),
-                 _twin_rows(found[name][1], product_id, catalogues[name].twins, lambda row: (row["day"] or "", row["source"], str(row["ref"]))), today,
-                 found[name][2].get(product_id, []), upcoming[name].get(product_id), pinned_known.get(name) if product_id == pinned else None,
-                 lines[name].get(product_id, []))
+    sources: _ProductSources = _ProductSources(catalogues, offered, found, upcoming, pinned_known, lines)
+    products: list[dict[str, Any]] = await compute.run(_page_products, chosen, sources, pinned, today)
+    return {"products": products, "total": ranked.total, "unsynced": unsynced, "facets": ranked.facets}
+
+
+def _history_candidates(
+    catalogues: dict[str, _Catalogue], wanted: _Query, only: str | None, pinned: str | None, keeps: dict[str, set[str] | None]
+) -> dict[tuple[str, str], str]:
+    """De producten van `history` die bij de zoekterm passen, als (winkel, product) met hun laatste dag. Puur, via `compute.run`:
+    zonder zoekterm loopt dit over alle producten van de catalogus, bij AH tienduizenden.
+
+    Twee nummers voor hetzelfde product geven een rij, onder het gevraagde nummer of anders het nummer met de nieuwste gegevens.
+    Met `only` alleen dat product, en met `keeps` (Eerder gekocht) alleen wat je kocht, plus het product van `pinned`."""
+    candidates: dict[tuple[str, str], str] = {}
+    for name, catalogue in catalogues.items():
+        keep: set[str] | None = keeps[name]
+        for product_id, day in _candidates(catalogue.products, wanted, always=pinned).items():
+            group: tuple[str, ...] = catalogue.twins.get(product_id, (product_id,))
+            asked: str | None = next((twin for twin in group if twin in (only, pinned)), None)
+            lead: str = asked or max(group, key=lambda twin: (catalogue.products[twin].last, twin))
+            if only is not None and lead != only:
+                continue
+            if keep is None or lead in keep or lead == pinned:
+                candidates[(name, lead)] = max(day, candidates.get((name, lead), ""))
+    return candidates
+
+
+class _Ranked(NamedTuple):
+    """De uitkomst van `_rank_history`: de producten van de pagina, het totaal na de keuzelijsten en de aantallen per keuze."""
+
+    chosen: list[tuple[str, str]]
+    total: int
+    facets: dict[str, list[dict[str, Any]]]
+
+
+def _rank_history(
+    catalogues: dict[str, _Catalogue], candidates: dict[tuple[str, str], str], pinned: str | None, only: str | None,
+    by_brand: _Choice, by_category: _Choice, limit: int,
+) -> _Ranked:
+    """De keuzelijsten (`facets`), het filter op merk en categorie (het product van `pinned` blijft altijd staan) en de volgorde:
+    `pinned` bovenaan, dan het laatst gezien. Puur, via `compute.run`: zonder zoekterm sorteert dit alle producten."""
+    nothing: _Known = _Known("", frozenset(), frozenset())
+    known: dict[tuple[str, str], _Known] = {key: catalogues[key[0]].products.get(key[1], nothing) for key in candidates}
+    facets: dict[str, list[dict[str, Any]]] = {} if only is not None else {
+        "brands": _facet_counts((item.brand for item in known.values() if by_category.passes(item.category)), by_brand, FACET_BRANDS),
+        "categories": _facet_counts((item.category for item in known.values() if by_brand.passes(item.brand)), by_category),
+    }
+    kept: dict[tuple[str, str], str] = {
+        key: day for key, day in candidates.items()
+        if key[1] == pinned or (by_brand.passes(known[key].brand) and by_category.passes(known[key].category))
+    }
+    ranked: list[tuple[str, str]] = sorted(kept, key=lambda key: (key[1] == pinned, kept[key], key[0], key[1]), reverse=True)
+    return _Ranked(ranked[:limit], len(ranked), facets)
+
+
+class _ProductSources(NamedTuple):
+    """Wat `history` per winkel ophaalde voor de producten van de pagina, voor `_page_products`."""
+
+    catalogues: dict[str, _Catalogue]
+    offered: dict[str, dict[str, dict[str, Any]]]  # `offers.history_of`
+    found: dict[str, tuple[dict[str, list[Any]], dict[str, list[Any]], dict[str, list[dict[str, Any]]]]]  # prijzen, aankopen, foto's
+    upcoming: dict[str, dict[str, dict[str, Any]]]  # `_upcoming`
+    pinned_known: dict[str, dict[str, Any]]  # `_pinned`
+    lines: dict[str, dict[str, list[dict[str, Any]]]]  # `_line_offers`
+
+
+def _page_products(chosen: list[tuple[str, str]], sources: _ProductSources, pinned: str | None, today: str) -> list[dict[str, Any]]:
+    """De producten van de pagina van `history` (`_product`), met de rijen van hun andere nummers erbij. Puur, via `compute.run`."""
+    return [
+        _product(name, product_id, sources.offered[name].get(product_id),
+                 _twin_rows(sources.found[name][0], product_id, sources.catalogues[name].twins, lambda row: row["day"]),
+                 _twin_rows(sources.found[name][1], product_id, sources.catalogues[name].twins,
+                            lambda row: (row["day"] or "", row["source"], str(row["ref"]))), today,
+                 sources.found[name][2].get(product_id, []), sources.upcoming[name].get(product_id),
+                 sources.pinned_known.get(name) if product_id == pinned else None, sources.lines[name].get(product_id, []))
         for name, product_id in chosen
     ]
-    return {"products": products, "total": len(ranked), "unsynced": unsynced, "facets": facets}
 
 
 # --- prijs per eenheid, oordeel en verpakkingen vergelijken (deel 2) ----------------------------------------------------
