@@ -2,6 +2,24 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub; een stabiele release krijgt de teksten van alle versies sinds de vorige stabiele release.
 
+## v4.24.0
+
+*English summary: The shopping list in the week menu is no longer open below the days. It is hidden by default, and the **Shopping** button next to the week now opens it in place of the week menu, with a **<** arrow before its title to go back. The list, the check list and the result after filling the basket are one view, so the week menu is a short page again. The list itself did not change: the days, the ticks, Already at home and the saved check list work as before. Going back puts you at the top of the week menu with the focus on the Shopping button; choosing another week or tapping Week menu in the menu also closes the list.*
+
+### Nieuw in 4.24.0
+
+Pull request: [#328](https://github.com/helmerzNL/MealieShopper/pull/328).
+
+- **De boodschappenlijst staat achter de knop Boodschappen.** Onder het weekmenu stond de boodschappenlijst altijd open, en daaronder de controlelijst: een lange pagina met een tweede pagina erachter. Nu staat de lijst standaard verborgen en opent de knop **Boodschappen (n)** naast de week hem op de plek van het weekmenu. Voor de titel van de lijst staat een pijltje **<**: dat brengt je terug naar het weekmenu, bovenaan, met de focus op de knop Boodschappen.
+  - **Eén weergave.** De lijst met de dagen en de vinkjes, de controlelijst voor het mandje en het resultaat na het vullen van het mandje (met **Bekijk mandje**) horen bij die weergave. Ga je terug naar het weekmenu en open je haar weer, dan staat alles er nog zoals je het liet. Een controlelijst die je herlaadt of die bij een week hoort waar je terugbladert, staat ook achter de knop, niet meer onder het weekmenu.
+  - **Wanneer de lijst dichtgaat.** Met het pijltje, met **Weekmenu** in het menu (in het zijmenu of in de balk boven de inhoud), en zodra het weekmenu opnieuw laadt: een andere week kiezen (ook bij Aanbiedingen) of een andere Mealie-koppeling. Is er geen maaltijd met ingrediënten meer, dan is er geen lijst en staat het weekmenu er weer.
+  - **Het weekmenu zelf** (de kop met de week, de meldingen en de dagkaarten) is één blok geworden, `#week-view`; de lijst heeft `#shop-view`. De melding bij **Liever biologisch** staat nu in de lijst zelf, omdat de meldingen van het weekmenu dan uit beeld zijn.
+- De schermafbeeldingen van de boodschappenlijst en de controlelijst in de handleiding zijn opnieuw gemaakt, en de scenario's in `scripts/screenshots/scenarios/10-week-and-basket.js` openen de lijst eerst met de knop.
+
+### Tests in 4.24.0
+
+- `tests/test_shopping_js.py`: de lijst is standaard verborgen en heeft een eigen weergave (de controlelijst erbij, het weekmenu niet); openen laat het weekmenu verdwijnen, begint bovenaan en zet de focus op de kop; het pijltje gaat terug naar het weekmenu en naar de knop; sluiten zonder pijltje scrolt niet en verplaatst de focus niet; zonder lijst gebeurt er niets; een week laden en Weekmenu in het menu sluiten de lijst; de melding bij Liever biologisch staat in de lijst.
+
 ## v4.23.1
 
 ### Verbeterd in 4.23.1

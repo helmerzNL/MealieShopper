@@ -346,7 +346,79 @@ class ReviewRowHtmlTest(unittest.TestCase):
         self.assertIn('value="pak choi"', out["missing"], "het zoekveld houdt de term waar je zelf op zocht")
 
 
+@unittest.skipUnless(shutil.which("node"), "Node is niet geïnstalleerd")
+class ShoppingViewTest(unittest.TestCase):
+    """De boodschappenlijst staat achter de knop Boodschappen en vervangt het weekmenu (4.24.0), met een pijltje terug."""
+
+    def run_js(self, scenario, title=True):
+        setup = f"""
+        const log = [];
+        const el = (id, hidden) => ({{ id, hidden, focus: (options) => log.push(["focus", id, options.preventScroll]) }});
+        const els = {{ "#week-view": el("week-view", false), "#shop-view": el("shop-view", true), "#shop-jump": el("shop-jump", false) }};
+        if ({json.dumps(title)}) els["#shop-title"] = el("shop-title", false);
+        const $ = (selector) => els[selector] || null;
+        const window = {{ scrollTo: (options) => log.push(["scroll", options.top]) }};
+        const state = () => JSON.stringify({{ week: els["#week-view"].hidden, shop: els["#shop-view"].hidden, log }});
+        """
+        names = ("shopViewIsOpen", "openShopView", "closeShopView")
+        return run_node(self, [setup, *(function_source(SHOPPING_JS, name) for name in names), scenario])
+
+    def test_the_list_opens_in_place_of_the_week_menu(self):
+        out = self.run_js("openShopView(); console.log(JSON.stringify([JSON.parse(state()), shopViewIsOpen()]));")
+        shown, is_open = out
+        self.assertEqual((shown["week"], shown["shop"], is_open), (True, False, True), "het weekmenu gaat weg en de lijst komt ervoor in de plaats")
+        self.assertEqual(
+            shown["log"], [["scroll", 0], ["focus", "shop-title", True]], "bovenaan beginnen en de focus op de kop, zonder dat de pagina springt"
+        )
+
+    def test_the_arrow_goes_back_to_the_week_menu_and_to_the_button(self):
+        out = self.run_js("openShopView(); closeShopView({ back: true }); console.log(state());")
+        self.assertEqual((out["week"], out["shop"]), (False, True))
+        self.assertEqual(out["log"][2:], [["scroll", 0], ["focus", "shop-jump", True]], "de focus gaat terug naar de knop waarmee je opende")
+
+    def test_closing_without_going_back_does_not_scroll_or_move_the_focus(self):
+        # Een andere week laden of een lijst die er niet meer is: de pagina blijft staan waar hij staat (ook als je in Aanbiedingen bladert).
+        out = self.run_js("openShopView(); closeShopView(); console.log(state());")
+        self.assertEqual((out["week"], out["shop"]), (False, True))
+        self.assertEqual(out["log"], [["scroll", 0], ["focus", "shop-title", True]], "alleen het openen scrolde")
+
+    def test_nothing_happens_without_a_list_or_when_it_is_not_open(self):
+        out = self.run_js("openShopView(); console.log(state());", title=False)
+        self.assertEqual((out["week"], out["shop"], out["log"]), (False, True, []), "zonder lijst blijft het weekmenu staan")
+        out = self.run_js("closeShopView({ back: true }); console.log(state());")
+        self.assertEqual(out["log"], [], "dicht doen wat dicht is, scrolt niet")
+
+
 class ShoppingPageTest(unittest.TestCase):
+    def test_the_list_is_hidden_by_default_and_has_its_own_view(self):
+        week = re.search(r'<div id="week-view">(.*?)\n        </div>\n        <div id="shop-view"', INDEX_HTML, re.S).group(1)
+        for part in ('class="page-head"', 'id="shop-jump"', 'id="planner-message"', 'id="meal-days"'):
+            self.assertIn(part, week, "het weekmenu met zijn kop en meldingen hoort bij elkaar")
+        self.assertNotIn('id="week-view" hidden', INDEX_HTML)
+        shop = re.search(r'<div id="shop-view" hidden>(.*?)\n        </div>', INDEX_HTML, re.S).group(1)
+        self.assertIn('id="ingredients-panel"', shop)
+        self.assertIn('id="cart-result"', shop, "ook de controlelijst en het resultaat horen bij de lijst, niet bij het weekmenu")
+        self.assertNotIn('id="meal-days"', shop)
+
+    def test_the_button_opens_the_view_and_the_arrow_closes_it(self):
+        self.assertIn('$("#shop-jump").addEventListener("click", openShopView);', SHOPPING_JS)
+        self.assertIn('if (event.target.closest("#shop-back")) {\n    closeShopView({ back: true });', SHOPPING_JS)
+        render = function_source(SHOPPING_JS, "renderShoppingList")
+        self.assertIn('id="shop-back"', render)
+        self.assertIn('aria-label="${escapeHtml(t("shop.back"))}"', render, "het pijltje is alleen een icoon: de naam staat in het label")
+        self.assertRegex(render, r'<div class="list-header">\s*<button class="icon-button" id="shop-back"[^\n]*\n\s*<h2 id="shop-title"')
+        self.assertRegex(
+            render, r"if \(!dates\.length\) \{[^}]*closeShopView\(\);", "geen lijst meer: terug naar het weekmenu, niet naar een leeg scherm"
+        )
+
+    def test_a_week_load_and_the_week_menu_tab_close_the_list(self):
+        load = function_source(APP_JS, "loadMealPlan")
+        self.assertLess(load.index("closeShopView();"), load.index('$("#cart-result").innerHTML = "";'))
+        self.assertRegex(APP_JS, r'dataset\.subtab === "planner"\) \{\s*closeShopView\(\);')
+
+    def test_the_organic_switch_reports_in_the_list_not_in_the_hidden_week_menu(self):
+        self.assertIn('savePreferOrganic(event.target, "#shop-message");', SHOPPING_JS)
+
     def test_the_script_is_loaded_after_app_js(self):
         scripts = re.findall(r"filename='([\w/]+\.js)'", INDEX_HTML)
         self.assertEqual(scripts.index("shopping.js"), scripts.index("app.js") + 1)

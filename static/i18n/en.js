@@ -1084,6 +1084,7 @@ I18N.add("en", {
   "shop.title": "Shopping ({count})",
   "shop.title_some": "Shopping ({count} of {total})",
   "shop.jump": "Shopping ({count})",
+  "shop.back": "Back to the week menu",
   "shop.for": "Shopping for",
   "shop.days_past.one": "{count} meal of an earlier day does not count; tap the day to include it anyway.",
   "shop.days_past.other": "{count} meals of earlier days do not count; tap a day to include it anyway.",

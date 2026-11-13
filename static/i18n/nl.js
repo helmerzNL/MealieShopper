@@ -1084,6 +1084,7 @@ I18N.add("nl", {
   "shop.title": "Boodschappen ({count})",
   "shop.title_some": "Boodschappen ({count} van {total})",
   "shop.jump": "Boodschappen ({count})",
+  "shop.back": "Terug naar het weekmenu",
   "shop.for": "Boodschappen voor",
   "shop.days_past.one": "{count} maaltijd van een eerdere dag telt niet mee; tik de dag aan om hem toch mee te nemen.",
   "shop.days_past.other": "{count} maaltijden van eerdere dagen tellen niet mee; tik een dag aan om hem toch mee te nemen.",
