@@ -754,7 +754,7 @@ def remember_cache(clear: Callable[[], None]) -> Callable[[], None]:
 
 def forget_cached_data() -> None:
     """Wist wat de modules uit de gegevens van de database afleidden (`remember_cache`): de gegevens zijn veranderd, het schema niet."""
-    for clear in list(_DATA_CACHES):
+    for clear in _DATA_CACHES[:]:
         clear()
 
 

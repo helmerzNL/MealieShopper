@@ -398,16 +398,23 @@ async def _known_prices(conn: aiosqlite.Connection, sources: list[tuple[str, tup
     return found
 
 
-async def _names(conn: aiosqlite.Connection, store: str) -> _Names:
-    sources: list[tuple[str, tuple[Any, ...]]] = _name_sources(await _tables(conn), store)
-    rows: list[Any] = await _name_rows(conn, sources)
+def _name_groups(rows: list[Any]) -> tuple[dict[str, str], dict[str, set[str]]]:
+    """De index van `_name_index` uit de rijen van `_name_rows`, en de namen waar meer dan een product bij hoort (naam -> de
+    producten). Puur: `_names` laat dit in de threadpool lopen, bij AH zijn het tienduizenden namen om te vouwen."""
     index: dict[str, str] = {}
     _add_names(index, rows)
     products: dict[str, set[str]] = {}
     for row in rows:
         if row["product_id"] and row["title"]:
             products.setdefault(_fold_name(row["title"]), set()).add(str(row["product_id"]))
-    several: dict[str, set[str]] = {name: ids for name, ids in products.items() if len(ids) > 1}
+    return index, {name: ids for name, ids in products.items() if len(ids) > 1}
+
+
+async def _names(conn: aiosqlite.Connection, store: str) -> _Names:
+    sources: list[tuple[str, tuple[Any, ...]]] = _name_sources(await _tables(conn), store)
+    index: dict[str, str]
+    several: dict[str, set[str]]
+    index, several = await compute.run(_name_groups, list(await _name_rows(conn, sources)))
     known: dict[str, set[float]] = await _known_prices(conn, sources, sorted(set().union(*several.values()))) if several else {}
     shared: dict[str, dict[str, tuple[float, ...]]] = {
         name: {product_id: tuple(sorted(known.get(product_id, ()))) for product_id in sorted(ids)} for name, ids in several.items()
@@ -559,24 +566,48 @@ async def _receipt_rows(conn: aiosqlite.Connection, store: str, today: str) -> l
     "AH RUNDERGEHAKT" hoort bij "AH Rundergehakt". Past de naam ook nergens, dan is het id van de bon het product, of, zonder id, de
     naam zelf (`bon:ah rundergehakt`), zodat de aankoop altijd te vinden is.
 
-    Het koppelen zelf is `_link_receipt_rows`.
+    Het koppelen zelf is `_link_receipt_rows`, in de threadpool (`_linked_receipts`): bij AH duizenden regels tegen tienduizenden
+    namen.
     """
-    return (await _linked_receipts(conn, store, today))[0]
+    rows: list[Any] = await _receipt_source_rows(conn, store, today)
+    if not rows:
+        return []
+    return await compute.run(_linked_receipts, store, rows, await _link_rows(conn, store))
 
 
-async def _linked_receipts(conn: aiosqlite.Connection, store: str, today: str) -> tuple[list[dict[str, Any]], _Names | None]:
-    """`_receipt_rows`, met de namen waarmee de regels zijn gekoppeld (`_names`), of None zonder regels: de catalogus onthoudt welke
-    prijzen een koppeling kozen (`_PriceState.shared`). De koppelingen van artikelnummers (`ah_receipt_products`) gelden alleen bij AH:
-    hun trigger hoogt alleen de versie van AH op."""
-    rows = list(await _imported_rows(conn, store, today))
+async def _receipt_source_rows(conn: aiosqlite.Connection, store: str, today: str) -> list[Any]:
+    """De regels van `_receipt_rows` voor het koppelen: de ingelezen aankopen (`_imported_rows`) en bij AH de regels van de
+    kassabonnen tot en met `today`."""
+    rows: list[Any] = list(await _imported_rows(conn, store, today))
     if store == "ah" and _RECEIPT_TABLES <= await _tables(conn):
         rows += await conn.execute_fetchall(_DATED_RECEIPTS_SQL, (today,))
-    if not rows:
-        return [], None
+    return rows
+
+
+class _LinkRows(NamedTuple):
+    """Wat `_link_receipt_rows` uit de database nodig heeft (`_link_rows`)."""
+
+    names: _Names  # `_names`: de catalogus bewaart `names.shared` (`_PriceState`), de prijzen die een koppeling kozen
+    receipt_products: list[Any]  # de rijen van `_RECEIPT_PRODUCTS_SQL` voor `_receipt_product_map`, leeg zonder die tabel en buiten AH
+    mine: product_links.Links  # je eigen koppelingen (`product_links.load`)
+    shared: dict[str, shared_links.SharedLink]  # de gedeelde koppelingen zonder de afgewezen (`shared_links.active`)
+
+
+async def _link_rows(conn: aiosqlite.Connection, store: str) -> _LinkRows:
+    """De koppelingen voor `_linked_receipts`. Die van artikelnummers (`ah_receipt_products`) gelden alleen bij AH: hun trigger hoogt
+    alleen de versie van AH op, en een product van een andere winkel met hetzelfde nummer is een ander product."""
+    wanted: bool = store == "ah" and "ah_receipt_products" in await _tables(conn)
+    products: list[Any] = list(await conn.execute_fetchall(_RECEIPT_PRODUCTS_SQL)) if wanted else []
     shared: dict[str, shared_links.SharedLink] = shared_links.active(store, await shared_links.rejected(conn, store))
-    names: _Names = await _names(conn, store)
-    linked: dict[str, _Linked] = await _receipt_products(conn) if store == "ah" else {}
-    return _link_receipt_rows(store, rows, names, linked, await product_links.load(conn, store), shared), names
+    return _LinkRows(await _names(conn, store), products, await product_links.load(conn, store), shared)
+
+
+def _linked_receipts(store: str, rows: list[Any], links: _LinkRows | None) -> list[dict[str, Any]]:
+    """`_link_receipt_rows` op de regels van `_receipt_source_rows` met de koppelingen van `_link_rows`, leeg zonder regels. Puur:
+    het draait in de threadpool."""
+    if not rows or links is None:
+        return []
+    return _link_receipt_rows(store, rows, links.names, _receipt_product_map(links.receipt_products), links.mine, links.shared)
 
 
 def _link_receipt_rows(
@@ -879,6 +910,7 @@ def _same_size(one: tuple[float, str], other: tuple[float, str]) -> bool:
     return one[1] == other[1] and abs(one[0] - other[0]) <= 0.005 * max(one[0], other[0])
 
 
+@name_keys.memo(name_keys.SIZE_OF_SIZE)
 def _size_of(unit_size: Any, title: Any) -> tuple[float, str] | None:
     """De verpakking van een product: uit de pakmaat, anders uit een maat in de naam ("AH RUNDERGEHAKT 500G")."""
     size = packs.parse_pack_size(unit_size)
@@ -924,14 +956,17 @@ def _twins(products: dict[str, _Known]) -> dict[str, tuple[str, ...]]:
     return {product_id: tuple(sorted(group)) for group in groups.values() if len(group) > 1 for product_id in group}
 
 
-async def _known_products(conn: aiosqlite.Connection, store: str, today: str, receipts: list[dict[str, Any]]) -> dict[str, _Known]:
+def _known_products(store: str, rows: _CatalogueRows, receipts: list[dict[str, Any]]) -> dict[str, _Known]:
     """Per product van een winkel de laatste dag dat we er iets van weten, en al zijn namen en verpakkingen samen (uit de
     aanbiedingen, de bewaarde prijzen, de bestellingen en de bonnen). Een aanbieding die nog moet beginnen, telt ook (met haar
-    begindag): die staat nog niet in `offer_history`. Zonder zoekterm: die filtert `_candidates` daarna."""
+    begindag): die staat nog niet in `offer_history`. Zonder zoekterm: die filtert `_candidates` daarna.
+
+    Puur, uit de rijen van `_catalogue_rows` en de gekoppelde bonregels (`_linked_receipts`): het draait in de threadpool
+    (`_build_catalogue`)."""
     found: dict[str, dict[str, Any]] = {}
 
-    def add(rows) -> None:
-        for row in rows:
+    def add(source: Iterable[Any]) -> None:
+        for row in source:
             product_id = row["product_id"]
             if not product_id:
                 continue
@@ -944,23 +979,17 @@ async def _known_products(conn: aiosqlite.Connection, store: str, today: str, re
             if size:
                 entry["sizes"].add(size)
 
-    columns = "product_id, title, brand, unit_size"
-    add(await conn.execute_fetchall(f"SELECT {columns}, MAX(last_seen) AS last FROM offer_history WHERE store = ? GROUP BY {columns}", (store,)))
-    add(await conn.execute_fetchall(f"SELECT {columns}, MAX(day) AS last FROM price_observations WHERE store = ? GROUP BY {columns}", (store,)))
-    for sql in _purchase_sources(await _tables(conn), store):
-        add(await conn.execute_fetchall(f"SELECT {columns}, MAX(day) AS last FROM ({sql}) WHERE day <= ? GROUP BY {columns}", (today,)))
+    add(rows.offer_history)
+    add(rows.observations)
+    for purchases in rows.purchases:
+        add(purchases)
     add({**row, "last": row["day"]} for row in receipts)
-    add(await conn.execute_fetchall(_UPCOMING_SQL.format(columns=f"{columns}, COALESCE(valid_from, ?) AS last"), (today, store, today, today, store)))
+    add(rows.upcoming)
     for row in receipts:  # de naam op de bon van een gekoppelde regel blijft vindbaar ("RB PICOLIENT")
         if row.get("receipt_name") and row["product_id"] in found:
             found[row["product_id"]]["names"].add(_fold_name(row["receipt_name"]))
     # De categorie: die de winkel bij een aanbieding meegaf, anders die van de naam (zoals de aanbiedingen en de aankopen doen).
-    stored: dict[str, str] = {
-        row["product_id"]: row["category"]
-        for row in await conn.execute_fetchall(
-            "SELECT product_id, MAX(category) AS category FROM offer_history WHERE store = ? AND COALESCE(category, '') != '' GROUP BY product_id", (store,)
-        )
-    }
+    stored: dict[str, str] = {row["product_id"]: row["category"] for row in rows.categories}
     return {
         product_id: _Known(
             entry["last"], frozenset(entry["names"]), frozenset(entry["sizes"]), entry["brand"],
@@ -1028,10 +1057,65 @@ class _Catalogue(NamedTuple):
 _FOLDER_PRODUCTS_SQL = "SELECT DISTINCT product_id, title FROM offer_history WHERE store = ? AND product_id LIKE 'folder:%' ORDER BY product_id"
 
 
-async def _line_index(conn: aiosqlite.Connection, store: str) -> line_offers.LineIndex:
-    """De folderproducten van een winkel (uit een prijsarchief, `folder:...`), om lijnacties bij een product te vinden."""
-    rows = await conn.execute_fetchall(_FOLDER_PRODUCTS_SQL, (store,))
-    return line_offers.LineIndex((row["product_id"], row["title"] or "") for row in rows)
+def _line_index(folder_products: list[Any]) -> line_offers.LineIndex:
+    """De folderproducten van een winkel (uit een prijsarchief, `folder:...`: de rijen van `_FOLDER_PRODUCTS_SQL`), om lijnacties
+    bij een product te vinden. Puur, voor `_build_catalogue`."""
+    return line_offers.LineIndex((row["product_id"], row["title"] or "") for row in folder_products)
+
+
+# Wat de catalogus uit de database leest (`_catalogue_rows`). De bekende producten per naam, merk en verpakking met hun laatste dag:
+_KNOWN_COLUMNS: str = "product_id, title, brand, unit_size"
+_KNOWN_OFFERS_SQL: str = f"SELECT {_KNOWN_COLUMNS}, MAX(last_seen) AS last FROM offer_history WHERE store = ? GROUP BY {_KNOWN_COLUMNS}"
+_KNOWN_OBSERVATIONS_SQL: str = f"SELECT {_KNOWN_COLUMNS}, MAX(day) AS last FROM price_observations WHERE store = ? GROUP BY {_KNOWN_COLUMNS}"
+_KNOWN_PURCHASES_SQL: str = f"SELECT {_KNOWN_COLUMNS}, MAX(day) AS last FROM ({{sql}}) WHERE day <= ? GROUP BY {_KNOWN_COLUMNS}"
+_KNOWN_UPCOMING_SQL: str = _UPCOMING_SQL.format(columns=f"{_KNOWN_COLUMNS}, COALESCE(valid_from, ?) AS last")  # vandaag, dan `_UPCOMING_SQL`
+_CATEGORIES_SQL: str = (
+    "SELECT product_id, MAX(category) AS category FROM offer_history WHERE store = ? AND COALESCE(category, '') != '' GROUP BY product_id"
+)
+
+
+class _CatalogueRows(NamedTuple):
+    """Alles wat de bouw van de catalogus (`_build_catalogue`) uit de database nodig heeft, gelezen door `_catalogue_rows`. Lijsten
+    van `sqlite3.Row`: de threadpool leest ze zonder de verbinding."""
+
+    offer_history: list[Any]  # `_KNOWN_OFFERS_SQL`
+    observations: list[Any]  # `_KNOWN_OBSERVATIONS_SQL`
+    purchases: list[list[Any]]  # `_KNOWN_PURCHASES_SQL`, per aankoopbron van `_purchase_sources`
+    receipts: list[Any]  # de ruwe regels van `_receipt_source_rows`, voor het koppelen
+    upcoming: list[Any]  # `_KNOWN_UPCOMING_SQL`: de aanbiedingen die nog niet in de geschiedenis staan
+    categories: list[Any]  # `_CATEGORIES_SQL`: de categorie die de winkel bij een aanbieding meegaf
+    folder_products: list[Any]  # `_FOLDER_PRODUCTS_SQL`, voor `_line_index`
+    links: _LinkRows | None  # `_link_rows`, None zonder regels om te koppelen
+
+
+async def _catalogue_rows(conn: aiosqlite.Connection, store: str, today: str) -> _CatalogueRows:
+    """De rijen voor de catalogus van een winkel op een dag. Alleen queries, het rekenwerk is `_build_catalogue` (alleen `_names`
+    vouwt de namen al in de threadpool: welke prijzen het daarna leest, hangt van die vouw af)."""
+    receipts: list[Any] = await _receipt_source_rows(conn, store, today)
+    purchases: list[list[Any]] = [
+        list(await conn.execute_fetchall(_KNOWN_PURCHASES_SQL.format(sql=sql), (today,))) for sql in _purchase_sources(await _tables(conn), store)
+    ]
+    return _CatalogueRows(
+        list(await conn.execute_fetchall(_KNOWN_OFFERS_SQL, (store,))),
+        list(await conn.execute_fetchall(_KNOWN_OBSERVATIONS_SQL, (store,))),
+        purchases,
+        receipts,
+        list(await conn.execute_fetchall(_KNOWN_UPCOMING_SQL, (today, store, today, today, store))),
+        list(await conn.execute_fetchall(_CATEGORIES_SQL, (store,))),
+        list(await conn.execute_fetchall(_FOLDER_PRODUCTS_SQL, (store,))),
+        await _link_rows(conn, store) if receipts else None,
+    )
+
+
+def _build_catalogue(store: str, today: str, rows: _CatalogueRows) -> _Catalogue:
+    """De catalogus uit de rijen van `_catalogue_rows`: de gekoppelde bonregels, de bekende producten, de lijnindex en de andere
+    nummers van hetzelfde product. Puur en zonder await, want `_catalogue` laat dit in de threadpool lopen (bij AH seconden
+    rekenwerk). Het leest en schrijft `_CATALOGUES` niet: dat doet de event loop met de uitkomst. `today` rekent niet mee, de
+    rijen gelden al tot en met die dag. Hij hoort bij de sleutel van de bouw."""
+    del today
+    receipts: list[dict[str, Any]] = _linked_receipts(store, rows.receipts, rows.links)
+    products: dict[str, _Known] = _known_products(store, rows, receipts)
+    return _Catalogue(receipts, products, _line_index(rows.folder_products), _twins(products))
 
 
 class _PriceState(NamedTuple):
@@ -1044,6 +1128,8 @@ class _PriceState(NamedTuple):
 # (database, winkel) -> (versie, dag, catalogus, prijzen). Een winkel heeft er een; bij AH met tienduizenden producten scheelt hij per
 # zoekopdracht in de prijsgeschiedenis en per lijst aanbiedingen het grootste deel van een seconde.
 _CATALOGUES: dict[tuple[str, str], tuple[str, str, _Catalogue, _PriceState]] = {}
+# Een bouw per (database, winkel, versie, dag) tegelijk: twee koude aanvragen wachten op dezelfde bouw (`_new_catalogue`).
+_CATALOGUE_BUILDS: compute.SingleFlight[tuple[str, str, str, str], _Catalogue] = compute.SingleFlight()
 
 
 def forget_catalogues() -> None:
@@ -1125,16 +1211,19 @@ async def _catalogue_version(conn: aiosqlite.Connection, store: str) -> str:
 _OBSERVED_LAST_SQL = "SELECT product_id, MAX(day) AS last FROM price_observations WHERE store = ? GROUP BY product_id"
 
 
-def _with_last(products: dict[str, _Known], rows: Iterable[Any]) -> None:
-    """Zet de laatste dag van elk product met een nieuwere prijs dan de catalogus kende. Alleen later: een prijs van een bekend
-    product voegt een dag toe of wijzigt de prijs van een dag (`_SAME_PRODUCT_SQL`), dus de laatste dag kan alleen opschuiven."""
+def _with_last(catalogue: _Catalogue, rows: list[Any]) -> _Catalogue:
+    """De catalogus met de laatste dag van elk product dat een nieuwere prijs heeft dan de catalogus kende. Alleen later: een prijs
+    van een bekend product voegt een dag toe of wijzigt de prijs van een dag (`_SAME_PRODUCT_SQL`), dus de laatste dag kan alleen
+    opschuiven. Puur, voor `compute.run`: hij past de catalogus niet aan maar geeft een nieuwe (of dezelfde, als er niets
+    opschoof), zodat een aanvraag die de oude nog in de threadpool leest, die heel houdt."""
+    later: dict[str, _Known] = {}
     for row in rows:
         product_id: str = str(row["product_id"])
-        known: _Known | None = products.get(product_id)
+        known: _Known | None = catalogue.products.get(product_id)
         last: str = str(row["last"] or "")[:10]
         if known is not None and last > known.last:
-            products[product_id] = known._replace(last=last)
-
+            later[product_id] = known._replace(last=last)
+    return catalogue._replace(products={**catalogue.products, **later}) if later else catalogue
 
 async def _shared_prices(conn: aiosqlite.Connection, store: str, shared: dict[str, dict[str, tuple[float, ...]]]) -> dict[str, dict[str, tuple[float, ...]]]:
     """`_Names.shared` opnieuw voor dezelfde namen en producten: per naam de gewone prijzen van elk product, zoals `_names` ze geeft."""
@@ -1143,41 +1232,56 @@ async def _shared_prices(conn: aiosqlite.Connection, store: str, shared: dict[st
     return {name: {product_id: tuple(sorted(known.get(product_id, ()))) for product_id in group} for name, group in shared.items()}
 
 
-async def _catch_up(conn: aiosqlite.Connection, store: str, key: tuple[str, str], found: tuple[str, str, _Catalogue, _PriceState], counted: int) -> bool:
-    """Werkt een bewaarde catalogus bij na prijzen van bekende producten (`prices` is `counted`, `products` gelijk). Zo'n prijs voegt
-    geen naam of verpakking toe, maar kan twee dingen veranderen: de laatste dag van een product (`_Known.last`, de volgorde van de
-    prijsgeschiedenis), hier op de event loop bijgewerkt uit de laatste dag per product, en welk product met dezelfde naam een
-    bonregel krijgt (`_nearest_priced`). Verschuift dat laatste, dan False: dan moet de catalogus opnieuw worden opgebouwd."""
+async def _catch_up(
+    conn: aiosqlite.Connection, store: str, key: tuple[str, str], found: tuple[str, str, _Catalogue, _PriceState], counted: int
+) -> _Catalogue | None:
+    """Een bewaarde catalogus, bijgewerkt na prijzen van bekende producten (`prices` is `counted`, `products` gelijk). Zo'n prijs
+    voegt geen naam of verpakking toe, maar kan twee dingen veranderen: de laatste dag van een product (`_Known.last`, de volgorde
+    van de prijsgeschiedenis), bijgewerkt in de threadpool (`_with_last`) uit de laatste dag per product, en welk product met dezelfde
+    naam een bonregel krijgt (`_nearest_priced`). Verschuift dat laatste, dan None: dan moet de catalogus opnieuw worden opgebouwd.
+    Alleen de event loop schrijft de uitkomst in `_CATALOGUES`."""
     version: str = found[0]
     today: str = found[1]
     catalogue: _Catalogue = found[2]
     state: _PriceState = found[3]
     if state.prices == counted:
-        return True
+        return catalogue
     if state.shared and await _shared_prices(conn, store, state.shared) != state.shared:
-        return False
-    _with_last(catalogue.products, await conn.execute_fetchall(_OBSERVED_LAST_SQL, (store,)))
+        return None
+    rows: list[Any] = list(await conn.execute_fetchall(_OBSERVED_LAST_SQL, (store,)))
+    caught: _Catalogue = await compute.run(_with_last, catalogue, rows)
     if _CATALOGUES.get(key) is found:  # anders bouwde een andere aanvraag hem intussen opnieuw op
-        _CATALOGUES[key] = (version, today, catalogue, state._replace(prices=counted))
-    return True
+        _CATALOGUES[key] = (version, today, caught, state._replace(prices=counted))
+    return caught
 
 
 async def _catalogue(conn: aiosqlite.Connection, store: str, today: str) -> _Catalogue:
     """De catalogus van een winkel op een dag: uit de cache zolang de versie (`_catalogue_version`) en de dag gelijk zijn, na een
-    prijs van een bekend product bijgewerkt (`_catch_up`), anders opnieuw opgebouwd. Verandert er iets terwijl hij wordt opgebouwd,
-    dan is de versie daarna anders en bouwt de volgende aanvraag hem opnieuw."""
-    key = (str(auth.db_path()), store)
+    prijs van een bekend product bijgewerkt (`_catch_up`), anders opnieuw opgebouwd (`_new_catalogue`), een keer tegelijk per versie
+    en dag: wie tijdens de bouw komt, wacht op dezelfde. Verandert er iets terwijl hij wordt opgebouwd, dan is de versie (of
+    `prices`) daarna anders en bouwt of controleert de volgende aanvraag hem opnieuw."""
+    key: tuple[str, str] = (str(auth.db_path()), store)
     row: aiosqlite.Row = await _catalogue_row(conn, store)
     version: str = f"{row['token']}:{row['products']}"
-    found = _CATALOGUES.get(key)
-    if found is not None and found[0] == version and found[1] == today and await _catch_up(conn, store, key, found, row["prices"]):
-        return found[2]
-    receipts: list[dict[str, Any]]
-    names: _Names | None
-    receipts, names = await _linked_receipts(conn, store, today)
-    products = await _known_products(conn, store, today, receipts)
-    catalogue = _Catalogue(receipts, products, await _line_index(conn, store), _twins(products))
-    _CATALOGUES[key] = (version, today, catalogue, _PriceState(row["prices"], names.shared if names is not None else {}))
+    found: tuple[str, str, _Catalogue, _PriceState] | None = _CATALOGUES.get(key)
+    if found is not None and found[0] == version and found[1] == today:
+        caught: _Catalogue | None = await _catch_up(conn, store, key, found, row["prices"])
+        if caught is not None:
+            return caught
+    return await _CATALOGUE_BUILDS.get((*key, version, today), lambda: _new_catalogue(key, version, today))
+
+
+async def _new_catalogue(key: tuple[str, str], version: str, today: str) -> _Catalogue:
+    """Bouwt de catalogus van `key` (database, winkel): de rijen op een eigen verbinding (`_catalogue_rows`), het rekenwerk in de
+    threadpool (`_build_catalogue`), en dan schrijft de event loop hem in `_CATALOGUES`, met `prices` van voor de rijen en de groepen
+    met dezelfde naam (`_PriceState`): komt er tijdens de bouw een prijs bij, dan controleert de volgende `_catch_up` opnieuw. Een
+    eigen verbinding, want de bouw loopt door als de aanvraag die hem startte wegvalt (`compute.SingleFlight`), en die sluit dan haar
+    verbinding. Een fout komt bij elke wachtende aanvraag terecht en blijft niet bewaard: de volgende aanvraag bouwt opnieuw."""
+    async with _connect() as conn:
+        counted: int = (await _catalogue_row(conn, key[1]))["prices"]
+        rows: _CatalogueRows = await _catalogue_rows(conn, key[1], today)
+    catalogue: _Catalogue = await compute.run(_build_catalogue, key[1], today, rows)
+    _CATALOGUES[key] = (version, today, catalogue, _PriceState(counted, rows.links.names.shared if rows.links is not None else {}))
     return catalogue
 
 
@@ -1401,8 +1505,9 @@ def _known_pack_titles(store: str, catalogue: "_Catalogue | None", packs_known: 
 
 async def warm_catalogues(stores: Iterable[str] | None = None, today: str | None = None) -> None:
     """Bouwt de catalogus van elke winkel alvast op (`_catalogue`: de bekende producten en de lijnindex, bij AH ruim twee
-    seconden), zodat de eerste aanvraag van /api/offers na een start of een synchronisatie er niet op hoeft te wachten. Een fout
-    bij een winkel laat de andere met rust: de aanvraag bouwt de catalogus dan zelf."""
+    seconden rekenwerk in de threadpool), zodat de eerste aanvraag van /api/offers na een start of een synchronisatie er niet op
+    hoeft te wachten. Een aanvraag die tijdens het opwarmen komt, wacht op dezelfde bouw. Een fout bij een winkel laat de andere
+    met rust: de aanvraag bouwt de catalogus dan zelf."""
     day = today or date.today().isoformat()
     for store in stores or offers.STORES:
         try:
@@ -1418,25 +1523,42 @@ async def _line_offers(
     """Per product de folderacties voor zijn hele lijn (line_offers.py): elke periode van een folderproduct waarvan alle woorden
     in een naam van het product staan, met de foldernaam erbij, oudste eerst. Een week met meer van zulke acties ("Alle Dr.
     Oetker Casa di Mama pizza's" en "Dr. Oetker pizza's") telt een keer, met de eerste naam. Een folderproduct zelf krijgt er
-    geen. `fallback` geeft de namen van producten die nog niet in de catalogus staan (een aanbieding van deze week)."""
-    wanted: dict[str, list[str]] = {}
-    for product_id in ids:
-        known = catalogue.products.get(product_id) or (fallback or {}).get(product_id)
-        if known is None or product_id.startswith("folder:"):
-            continue
-        found = catalogue.lines.lines_for(known.names, known.sizes, line_offers.category_words(known.category))
-        if found:
-            wanted[product_id] = found
+    geen. `fallback` geeft de namen van producten die nog niet in de catalogus staan (een aanbieding van deze week).
+
+    Het zoeken in de lijnindex (`_lines_wanted`) en het samenvoegen van de weken (`_line_weeks`) lopen via `compute.run` buiten
+    de event loop: bij honderden aanbiedingen en duizenden folderproducten is dat elk ruim een halve seconde rekenwerk."""
+    wanted: dict[str, list[str]] = await compute.run(_lines_wanted, catalogue, ids, fallback)
     if not wanted:
         return {}
-    history = await offers.history_of(store, sorted({line for found in wanted.values() for line in found}))
+    history: dict[str, dict[str, Any]] = await offers.history_of(store, sorted({line for found in wanted.values() for line in found}))
+    return await compute.run(_line_weeks, wanted, history)
+
+
+def _lines_wanted(catalogue: _Catalogue, ids: list[str], fallback: dict[str, _Known] | None) -> dict[str, list[str]]:
+    """Per product de folderproducten van zijn lijn (`line_offers.LineIndex.lines_for`), alleen de producten met een of meer.
+
+    Leest de catalogus en schrijft er niets in, op het geheugen van de lijnindex na: die zoekt elk categoriewoord een keer uit
+    (`LineIndex._ending`), en dat is per woord steeds dezelfde lijst, ook als twee threads het tegelijk doen."""
+    wanted: dict[str, list[str]] = {}
+    for product_id in ids:
+        known: _Known | None = catalogue.products.get(product_id) or (fallback or {}).get(product_id)
+        if known is None or product_id.startswith("folder:"):
+            continue
+        found: list[str] = catalogue.lines.lines_for(known.names, known.sizes, line_offers.category_words(known.category))
+        if found:
+            wanted[product_id] = found
+    return wanted
+
+
+def _line_weeks(wanted: dict[str, list[str]], history: dict[str, dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
+    """Per product de weken van zijn lijnacties uit de geschiedenis van de folderproducten (`offers.history_of`), per stuk."""
     result: dict[str, list[dict[str, Any]]] = {}
     for product_id, found in wanted.items():
         weeks: dict[str, dict[str, Any]] = {}
         for line in found:
-            folder = history.get(line) or {}
+            folder: dict[str, Any] = history.get(line) or {}
             for episode in folder.get("episodes", []):
-                start = episode.get("start")
+                start: Any = episode.get("start")
                 if not start or start in weeks:
                     continue
                 weeks[start] = {
@@ -1539,43 +1661,23 @@ async def history(store: Any = None, query: Any = "", limit: Any = 50, today: st
         catalogues = {name: await _catalogue(conn, name, today) for name in stores}
         receipts = {name: catalogue.receipts for name, catalogue in catalogues.items()}
         unsynced = {name: await _unsynced(conn, name) for name in stores}
-        candidates: dict[tuple[str, str], str] = {}
+        keeps: dict[str, set[str] | None] = {
+            name: _with_twins(await _bought(conn, name, today, receipts[name]), catalogues[name].twins) if bought else None for name in stores
+        }
+        candidates: dict[tuple[str, str], str] = await compute.run(_history_candidates, catalogues, wanted, only, pinned, keeps)
+        # Het product uit de link staat nergens in de prijsgeschiedenis (alleen in een open bestelling, of in een aanbieding die
+        # net begon): dan toch het product zelf, met wat de app ervan weet. Alleen met een winkel: een id hoort bij een winkel.
         pinned_known: dict[str, dict[str, Any]] = {}  # winkel -> wat `_pinned` van het product uit de link weet
         for name in stores:
-            twins = catalogues[name].twins
-            keep = _with_twins(await _bought(conn, name, today, receipts[name]), twins) if bought else None
-            found_here = _candidates(catalogues[name].products, wanted, always=pinned)
-            for product_id, day in found_here.items():
-                # Twee nummers voor hetzelfde product: een rij, onder het gevraagde nummer of anders het nummer met de nieuwste gegevens.
-                group = twins.get(product_id, (product_id,))
-                asked = next((twin for twin in group if twin in (only, pinned)), None)
-                lead = asked or max(group, key=lambda twin: (catalogues[name].products[twin].last, twin))
-                if only is not None and lead != only:
-                    continue
-                if keep is None or lead in keep or lead == pinned:
-                    candidates[(name, lead)] = max(day, candidates.get((name, lead), ""))
-            # Het product uit de link staat nergens in de prijsgeschiedenis (alleen in een open bestelling, of in een
-            # aanbieding die net begon): dan toch het product zelf, met wat de app ervan weet. Alleen met een winkel: een id
-            # hoort bij een winkel.
             if pinned is not None and store and only is None and (name, pinned) not in candidates:
                 known = await _pinned(conn, name, pinned, await _tables(conn))
                 if known is not None:
                     candidates[(name, pinned)] = today
                     pinned_known[name] = known
-        by_brand: _Choice = _Choice.of(brands, brands_out)
-        by_category: _Choice = _Choice.of(categories, categories_out)
-        nothing: _Known = _Known("", frozenset(), frozenset())
-        known: dict[tuple[str, str], _Known] = {key: catalogues[key[0]].products.get(key[1], nothing) for key in candidates}
-        facets: dict[str, list[dict[str, Any]]] = {} if only is not None else {
-            "brands": _facet_counts((item.brand for item in known.values() if by_category.passes(item.category)), by_brand, FACET_BRANDS),
-            "categories": _facet_counts((item.category for item in known.values() if by_brand.passes(item.brand)), by_category),
-        }
-        candidates = {
-            key: day for key, day in candidates.items()
-            if key[1] == pinned or (by_brand.passes(known[key].brand) and by_category.passes(known[key].category))
-        }
-        ranked = sorted(candidates, key=lambda key: (key[1] == pinned, candidates[key], key[0], key[1]), reverse=True)
-        chosen = ranked[:limit]
+        ranked: _Ranked = await compute.run(
+            _rank_history, catalogues, candidates, pinned, only, _Choice.of(brands, brands_out), _Choice.of(categories, categories_out), limit
+        )
+        chosen: list[tuple[str, str]] = ranked.chosen
         found: dict[str, tuple[dict[str, list[Any]], dict[str, list[Any]], dict[str, list[dict[str, Any]]]]] = {}
         for name in stores:
             ids = sorted(_with_twins({product_id for store_name, product_id in chosen if store_name == name}, catalogues[name].twins))
@@ -1586,15 +1688,83 @@ async def history(store: Any = None, query: Any = "", limit: Any = 50, today: st
         upcoming = {name: await _upcoming(conn, name, [pid for s, pid in chosen if s == name], today) for name in stores}
     offered = {name: await offers.history_of(name, [pid for s, pid in chosen if s == name]) for name in stores}
     lines = {name: await _line_offers(name, catalogues[name], [pid for s, pid in chosen if s == name]) for name in stores}
-    products = [
-        _product(name, product_id, offered[name].get(product_id),
-                 _twin_rows(found[name][0], product_id, catalogues[name].twins, lambda row: row["day"]),
-                 _twin_rows(found[name][1], product_id, catalogues[name].twins, lambda row: (row["day"] or "", row["source"], str(row["ref"]))), today,
-                 found[name][2].get(product_id, []), upcoming[name].get(product_id), pinned_known.get(name) if product_id == pinned else None,
-                 lines[name].get(product_id, []))
+    sources: _ProductSources = _ProductSources(catalogues, offered, found, upcoming, pinned_known, lines)
+    products: list[dict[str, Any]] = await compute.run(_page_products, chosen, sources, pinned, today)
+    return {"products": products, "total": ranked.total, "unsynced": unsynced, "facets": ranked.facets}
+
+
+def _history_candidates(
+    catalogues: dict[str, _Catalogue], wanted: _Query, only: str | None, pinned: str | None, keeps: dict[str, set[str] | None]
+) -> dict[tuple[str, str], str]:
+    """De producten van `history` die bij de zoekterm passen, als (winkel, product) met hun laatste dag. Puur, via `compute.run`:
+    zonder zoekterm loopt dit over alle producten van de catalogus, bij AH tienduizenden.
+
+    Twee nummers voor hetzelfde product geven een rij, onder het gevraagde nummer of anders het nummer met de nieuwste gegevens.
+    Met `only` alleen dat product, en met `keeps` (Eerder gekocht) alleen wat je kocht, plus het product van `pinned`."""
+    candidates: dict[tuple[str, str], str] = {}
+    for name, catalogue in catalogues.items():
+        keep: set[str] | None = keeps[name]
+        for product_id, day in _candidates(catalogue.products, wanted, always=pinned).items():
+            group: tuple[str, ...] = catalogue.twins.get(product_id, (product_id,))
+            asked: str | None = next((twin for twin in group if twin in (only, pinned)), None)
+            lead: str = asked or max(group, key=lambda twin: (catalogue.products[twin].last, twin))
+            if only is not None and lead != only:
+                continue
+            if keep is None or lead in keep or lead == pinned:
+                candidates[(name, lead)] = max(day, candidates.get((name, lead), ""))
+    return candidates
+
+
+class _Ranked(NamedTuple):
+    """De uitkomst van `_rank_history`: de producten van de pagina, het totaal na de keuzelijsten en de aantallen per keuze."""
+
+    chosen: list[tuple[str, str]]
+    total: int
+    facets: dict[str, list[dict[str, Any]]]
+
+
+def _rank_history(
+    catalogues: dict[str, _Catalogue], candidates: dict[tuple[str, str], str], pinned: str | None, only: str | None,
+    by_brand: _Choice, by_category: _Choice, limit: int,
+) -> _Ranked:
+    """De keuzelijsten (`facets`), het filter op merk en categorie (het product van `pinned` blijft altijd staan) en de volgorde:
+    `pinned` bovenaan, dan het laatst gezien. Puur, via `compute.run`: zonder zoekterm sorteert dit alle producten."""
+    nothing: _Known = _Known("", frozenset(), frozenset())
+    known: dict[tuple[str, str], _Known] = {key: catalogues[key[0]].products.get(key[1], nothing) for key in candidates}
+    facets: dict[str, list[dict[str, Any]]] = {} if only is not None else {
+        "brands": _facet_counts((item.brand for item in known.values() if by_category.passes(item.category)), by_brand, FACET_BRANDS),
+        "categories": _facet_counts((item.category for item in known.values() if by_brand.passes(item.brand)), by_category),
+    }
+    kept: dict[tuple[str, str], str] = {
+        key: day for key, day in candidates.items()
+        if key[1] == pinned or (by_brand.passes(known[key].brand) and by_category.passes(known[key].category))
+    }
+    ranked: list[tuple[str, str]] = sorted(kept, key=lambda key: (key[1] == pinned, kept[key], key[0], key[1]), reverse=True)
+    return _Ranked(ranked[:limit], len(ranked), facets)
+
+
+class _ProductSources(NamedTuple):
+    """Wat `history` per winkel ophaalde voor de producten van de pagina, voor `_page_products`."""
+
+    catalogues: dict[str, _Catalogue]
+    offered: dict[str, dict[str, dict[str, Any]]]  # `offers.history_of`
+    found: dict[str, tuple[dict[str, list[Any]], dict[str, list[Any]], dict[str, list[dict[str, Any]]]]]  # prijzen, aankopen, foto's
+    upcoming: dict[str, dict[str, dict[str, Any]]]  # `_upcoming`
+    pinned_known: dict[str, dict[str, Any]]  # `_pinned`
+    lines: dict[str, dict[str, list[dict[str, Any]]]]  # `_line_offers`
+
+
+def _page_products(chosen: list[tuple[str, str]], sources: _ProductSources, pinned: str | None, today: str) -> list[dict[str, Any]]:
+    """De producten van de pagina van `history` (`_product`), met de rijen van hun andere nummers erbij. Puur, via `compute.run`."""
+    return [
+        _product(name, product_id, sources.offered[name].get(product_id),
+                 _twin_rows(sources.found[name][0], product_id, sources.catalogues[name].twins, lambda row: row["day"]),
+                 _twin_rows(sources.found[name][1], product_id, sources.catalogues[name].twins,
+                            lambda row: (row["day"] or "", row["source"], str(row["ref"]))), today,
+                 sources.found[name][2].get(product_id, []), sources.upcoming[name].get(product_id),
+                 sources.pinned_known.get(name) if product_id == pinned else None, sources.lines[name].get(product_id, []))
         for name, product_id in chosen
     ]
-    return {"products": products, "total": len(ranked), "unsynced": unsynced, "facets": facets}
 
 
 # --- prijs per eenheid, oordeel en verpakkingen vergelijken (deel 2) ----------------------------------------------------
@@ -1941,7 +2111,7 @@ async def offers_signature(store: Any) -> str:
         async with _connect() as conn:
             ids: tuple[str, ...] = await _answer_ids(conn, key, await _catalogue_version(conn, key), today)
             return await _signature(conn, key, ids, today)
-    except Exception:  # noqa: BLE001 - de cache mag nooit de aanbiedingen tegenhouden
+    except Exception:  # de cache mag nooit de aanbiedingen tegenhouden
         log.warning("Handtekening van de prijzen bij de aanbiedingen mislukt", exc_info=True)
         return f"fout:{secrets.token_hex(8)}"
 
@@ -1982,31 +2152,43 @@ async def _history_points(
 
     Alleen de gevraagde producten: de aanbiedingen van een week zijn er een paar honderd, de geschiedenis van een winkel heeft er
     tienduizenden, en de actietekst van elke afgesloten periode lezen (`_episode_effective`) kost per regel tijd."""
-    ids = {str(product_id) for product_id in wanted if product_id}
-    points: dict[str, list[tuple[str, float, str]]] = {}
+    ids: set[str] = {str(product_id) for product_id in wanted if product_id}
     if not ids:
-        return points
-    selected = json.dumps(sorted(ids))
+        return {}
+    selected: str = json.dumps(sorted(ids))
+    offered: list[Any] = list(await conn.execute_fetchall(
+        f"SELECT * FROM offer_history WHERE store = ? AND ended_at IS NOT NULL AND {_WANTED_SQL} ORDER BY product_id, first_seen, id",
+        (store, selected),
+    ))
+    # Zonder de weekprijzen van de prijsindex: die gaan jaren terug en kennen alleen de gewone prijs. Telden ze mee als dekking,
+    # dan werd een actieprijs "laagste ooit" over jaren waarvan de app de acties niet kent.
+    observed: list[Any] = list(await conn.execute_fetchall(
+        f"SELECT product_id, day, price FROM price_observations WHERE store = ? AND source != ? AND {_WANTED_SQL}", (store, PRICE_INDEX, selected)
+    ))
+    paid: list[Any] = []
+    for sql in _purchase_sources(await _tables(conn), store):
+        paid += await conn.execute_fetchall(f"SELECT product_id, day, paid FROM ({sql}) WHERE paid > 0 AND {_WANTED_SQL}", (selected,))
+    return await compute.run(_history_from_rows, today, ids, offered, observed, paid, receipts)
+
+
+def _history_from_rows(
+    today: str, ids: set[str], offered: list[Any], observed: list[Any], paid: list[Any], receipts: list[dict[str, Any]]
+) -> dict[str, list[tuple[str, float, str]]]:
+    """De punten van `_history_points` uit zijn rijen: de afgesloten aanbiedingen, de bewaarde prijzen, de betaalde prijzen in
+    de aankopen en de bonregels (alleen die van `ids`). Puur, zodat het via `compute.run` buiten de event loop loopt."""
+    points: dict[str, list[tuple[str, float, str]]] = {}
 
     def add(product_id: Any, day: Any, price: Any, source: str) -> None:
-        value = _number(price)
+        value: float | None = _number(price)
         if product_id and day and value is not None and value > 0 and str(day)[:10] <= today:
             points.setdefault(str(product_id), []).append((str(day)[:10], value, source))
 
-    for row in await conn.execute_fetchall(
-        f"SELECT * FROM offer_history WHERE store = ? AND ended_at IS NOT NULL AND {_WANTED_SQL} ORDER BY product_id, first_seen, id",
-        (store, selected),
-    ):
+    for row in offered:
         add(row["product_id"], offers._episode_span(row)["start"], _episode_effective(row), "offer")
-    # Zonder de weekprijzen van de prijsindex: die gaan jaren terug en kennen alleen de gewone prijs. Telden ze mee als dekking,
-    # dan werd een actieprijs "laagste ooit" over jaren waarvan de app de acties niet kent.
-    for row in await conn.execute_fetchall(
-        f"SELECT product_id, day, price FROM price_observations WHERE store = ? AND source != ? AND {_WANTED_SQL}", (store, PRICE_INDEX, selected)
-    ):
+    for row in observed:
         add(row["product_id"], row["day"], row["price"], "observation")
-    for sql in _purchase_sources(await _tables(conn), store):
-        for row in await conn.execute_fetchall(f"SELECT product_id, day, paid FROM ({sql}) WHERE paid > 0 AND {_WANTED_SQL}", (selected,)):
-            add(row["product_id"], row["day"], row["paid"], "purchase")
+    for row in paid:
+        add(row["product_id"], row["day"], row["paid"], "purchase")
     for row in receipts:
         if str(row["product_id"]) in ids:
             add(row["product_id"], row["day"], row["paid"], "purchase")
@@ -2070,29 +2252,27 @@ def _in_window(day: Any, since: str, until: str, before_until: bool) -> bool:
 
 async def _search_points(
     conn: aiosqlite.Connection, store: str, since: str, until: str, ids: list[str] | None
-) -> list[tuple[Any, Any, Any]]:
-    """De bewaarde prijzen (`price_observations`) van de dagen in het venster, als (product, dag, prijs)."""
+) -> list[Any]:
+    """De bewaarde prijzen (`price_observations`) van de dagen in het venster, als rijen met `product_id`, `day` en `price`."""
     wanted = f" AND {_WANTED_SQL}" if ids is not None else ""
     args: tuple[Any, ...] = (store, since, until, PUBLIC_OBSERVED_UNKNOWN) + ((json.dumps(ids),) if ids is not None else ())
-    rows = await conn.execute_fetchall(
+    return list(await conn.execute_fetchall(
         f"SELECT product_id, day, price FROM price_observations WHERE store = ? AND day >= ? AND day <= ? AND source != ?{wanted}", args
-    )
-    return [(row["product_id"], row["day"], row["price"]) for row in rows]
+    ))
 
 
 async def _order_points(
     conn: aiosqlite.Connection, store: str, since: str, until: str, before_until: bool, ids: list[str] | None
-) -> list[tuple[Any, Any, Any]]:
-    """De gewone prijs in je bestellingen (`regular` van `_purchase_sources`), als (product, dag, prijs)."""
+) -> list[Any]:
+    """De gewone prijs in je bestellingen (`regular` van `_purchase_sources`), als rijen met `product_id`, `day` en `regular`."""
     last_day = "day < ?" if before_until else "day <= ?"
     wanted = f" AND {_WANTED_SQL}" if ids is not None else ""
     args: tuple[Any, ...] = (since, until) + ((json.dumps(ids),) if ids is not None else ())
-    found: list[tuple[Any, Any, Any]] = []
+    found: list[Any] = []
     for sql in _purchase_sources(await _tables(conn), store):
-        for row in await conn.execute_fetchall(
+        found += await conn.execute_fetchall(
             f"SELECT product_id, day, regular FROM ({sql}) WHERE day >= ? AND {last_day} AND regular IS NOT NULL{wanted}", args
-        ):
-            found.append((row["product_id"], row["day"], row["regular"]))
+        )
     return found
 
 
@@ -2136,21 +2316,23 @@ def _offer_chains(rows: list[Any]) -> list[list[Any]]:
     return chains
 
 
-async def _offer_points(
-    conn: aiosqlite.Connection, store: str, since: str, until: str, ids: list[str] | None
-) -> list[tuple[Any, Any, Any]]:
+async def _offer_rows(conn: aiosqlite.Connection, store: str, since: str, ids: list[str] | None) -> list[Any]:
+    """De rijen van `offer_history` voor `_offer_points`, gesorteerd op product, `first_seen` en id. De voorselectie is ruim (een
+    jaar voor `since`): `_episode_span` bepaalt het einde ook uit `ended_at`, wat de SQL niet ziet."""
+    wanted: str = f" AND {_WANTED_SQL}" if ids is not None else ""
+    args: tuple[Any, ...] = (store, _days_ago(since, YEAR_DAYS)) + ((json.dumps(ids),) if ids is not None else ())
+    return list(await conn.execute_fetchall(
+        "SELECT * FROM offer_history WHERE store = ? AND product_id NOT LIKE 'folder:%' "
+        f"AND COALESCE(valid_until, substr(last_seen, 1, 10)) >= ?{wanted} ORDER BY product_id, first_seen, id", args
+    ))
+
+
+def _offer_points(rows: list[Any], since: str, until: str) -> list[tuple[Any, Any, Any]]:
     """De prijs vóór de actie van elke aanbieding, op de dag dat ze eindigde (`until` als ze nog loopt of later eindigt).
 
     Een aanbieding is een keten van rijen (`_offer_chains`): ze geeft een punt, met de laatste prijs vóór de actie van de keten,
     op het einde van de laatste rij. Zo telt een aanbieding die nog loopt maar halverwege veranderde niet als afgelopen. Een rij
-    van een folder (`folder:...`) is geen product en telt niet. De voorselectie in SQL is ruim (een jaar voor `since`):
-    `_episode_span` bepaalt het einde ook uit `ended_at`, wat de SQL niet ziet."""
-    wanted: str = f" AND {_WANTED_SQL}" if ids is not None else ""
-    args: tuple[Any, ...] = (store, _days_ago(since, YEAR_DAYS)) + ((json.dumps(ids),) if ids is not None else ())
-    rows: list[Any] = list(await conn.execute_fetchall(
-        "SELECT * FROM offer_history WHERE store = ? AND product_id NOT LIKE 'folder:%' "
-        f"AND COALESCE(valid_until, substr(last_seen, 1, 10)) >= ?{wanted} ORDER BY product_id, first_seen, id", args
-    ))
+    van een folder (`folder:...`) is geen product en telt niet: `_offer_rows` laat die weg. `rows` komt van `_offer_rows`."""
     found: list[tuple[Any, Any, Any]] = []
     for chain in _offer_chains(rows):
         claimed: list[Any] = [row for row in chain if row["price_before"] is not None]
@@ -2171,16 +2353,37 @@ async def _regular_points(
     `import` (ingelezen aankopen met een gewone prijs), `receipt` (de betaalde prijs op een bon, alleen bij een geheel aantal)
     en `offer` (de prijs vóór de actie, op de dag dat de periode eindigde). `receipts` is `_Catalogue.receipts`.
     `purchases_before_until` laat de aankopen van de dag `until` zelf weg. `ids` beperkt het tot die producten."""
+    rows: _RegularRows = _RegularRows(
+        await _search_points(conn, store, since, until, ids),
+        await _order_points(conn, store, since, until, purchases_before_until, ids),
+        await _offer_rows(conn, store, since, ids),
+    )
+    return await compute.run(_regular_from_rows, rows, receipts, since, until, purchases_before_until, ids)
+
+
+class _RegularRows(NamedTuple):
+    """De rijen uit de database voor `_regular_points`: bewaarde prijzen, bestellingen en `offer_history`."""
+
+    searched: list[Any]  # `_search_points`
+    ordered: list[Any]  # `_order_points`
+    offered: list[Any]  # `_offer_rows`
+
+
+def _regular_from_rows(
+    rows: _RegularRows, receipts: list[dict[str, Any]], since: str, until: str, purchases_before_until: bool, ids: list[str] | None
+) -> dict[str, list[RegularPoint]]:
+    """De punten van `_regular_points` uit zijn rijen en de bonregels. Puur, zodat het via `compute.run` buiten de event loop
+    loopt: met tien jaar geschiedenis zijn het voor de aanbiedingen van een week tienduizenden punten."""
     points: dict[str, list[RegularPoint]] = {}
     wanted: set[str] | None = None if ids is None else {str(i) for i in ids}
-    for product_id, day, price in await _search_points(conn, store, since, until, ids):
-        _point(points, product_id, day, price, "search")
-    for product_id, day, price in await _order_points(conn, store, since, until, purchases_before_until, ids):
-        _point(points, product_id, day, price, "order")
+    for row in rows.searched:
+        _point(points, row["product_id"], row["day"], row["price"], "search")
+    for row in rows.ordered:
+        _point(points, row["product_id"], row["day"], row["regular"], "order")
     for product_id, day, price, source in _receipt_points(receipts, since, until, purchases_before_until):
         if wanted is None or str(product_id) in wanted:
             _point(points, product_id, day, price, source)
-    for product_id, day, price in await _offer_points(conn, store, since, until, ids):
+    for product_id, day, price in _offer_points(rows.offered, since, until):
         _point(points, product_id, day, price, "offer")
     return points
 
@@ -2283,104 +2486,167 @@ async def _ladder(
     return catalogue, points, bought_ids
 
 
-async def _annotate(store: str, items: list[dict[str, Any]], today: str) -> None:
-    since_year, since_pack = _days_ago(today, YEAR_DAYS), _days_ago(today, PACK_DAYS)
-    episodes: dict[str, list[Any]] = {}
-    latest: dict[str, Any] = {}
-    ids = sorted({str(offer.get("id")) for offer in items})  # alleen de geschiedenis van deze producten telt, zie _WANTED_SQL
+class _VerdictFacts(NamedTuple):
+    """Alles wat het oordeel bij de aanbiedingen uit de database en de catalogus haalt (`_verdict_facts`), voor `_judge`."""
+
+    catalogue: _Catalogue | None  # None zonder catalogus, of als de ladder niet te lezen was (`_ladder`)
+    regulars: dict[str, list[RegularPoint]]  # `_regular_points` van de producten van de lijst
+    recent: list[Any]  # de bewaarde prijzen van de laatste `PACK_DAYS` dagen van de hele winkel, oudste eerst
+    episodes: list[Any]  # de rijen van `offer_history` van de producten van de lijst, van het afgelopen jaar
+    points: dict[str, list[tuple[str, float, str]]]  # de ladder (`_history_points`)
+    bought: set[str]  # de producten die je kocht, met hun andere nummers (`_with_twins`)
+    lines: dict[str, list[dict[str, Any]]]  # de folderacties voor de hele lijn (`_line_offers`), nog met de eigen weken
+
+
+async def _verdict_facts(store: str, items: list[dict[str, Any]], today: str) -> _VerdictFacts:
+    """Haalt op wat `_judge` nodig heeft: alleen queries en de catalogus, het rekenwerk zit in de helpers via `compute.run`."""
+    ids: list[str] = sorted({str(offer.get("id")) for offer in items})  # alleen de geschiedenis van deze producten telt, zie _WANTED_SQL
     async with _connect() as conn:
         catalogue: _Catalogue | None = await _catalogue_or_none(conn, store, today)
         regulars: dict[str, list[RegularPoint]] = await _regular_points(
             conn, store, _days_ago(today, REGULAR_HISTORY_DAYS), today, receipts=catalogue.receipts if catalogue else [], ids=ids
         )
-        for row in await conn.execute_fetchall(
+        recent: list[Any] = list(await conn.execute_fetchall(
             "SELECT * FROM price_observations WHERE store = ? AND day >= ? AND day <= ? AND source != ? ORDER BY day",
-            (store, since_pack, today, PUBLIC_OBSERVED_UNKNOWN),
-        ):
-            latest[row["product_id"]] = row
-        for row in await conn.execute_fetchall(
+            (store, _days_ago(today, PACK_DAYS), today, PUBLIC_OBSERVED_UNKNOWN),
+        ))
+        episodes: list[Any] = list(await conn.execute_fetchall(
             f"SELECT * FROM offer_history WHERE store = ? AND COALESCE(valid_until, substr(last_seen, 1, 10)) >= ? AND {_WANTED_SQL} "
             "ORDER BY product_id, first_seen, id",
-            (store, since_year, json.dumps(ids)),
-        ):
-            episodes.setdefault(row["product_id"], []).append(row)
-        catalogue, points, bought_ids = await _ladder(conn, store, today, catalogue, ids)
-    # De folderacties voor de hele lijn (per stuk), zonder de weken waarin het product zelf in de aanbieding was: ze tellen mee als
-    # keer in de aanbieding en als prijs van het jaar (offer_ranking.year_low). Voor een product dat nog niet in de catalogus staat
-    # (de aanbieding van deze week is zijn eerste spoor) zoekt de app op de naam van de aanbieding.
+            (store, _days_ago(today, YEAR_DAYS), json.dumps(ids)),
+        ))
+        catalogue, points, bought = await _ladder(conn, store, today, catalogue, ids)
+    lines: dict[str, list[dict[str, Any]]] = await _verdict_lines(store, catalogue, items, ids)
+    return _VerdictFacts(catalogue, regulars, recent, episodes, points, bought, lines)
+
+
+async def _verdict_lines(
+    store: str, catalogue: _Catalogue | None, items: list[dict[str, Any]], ids: list[str]
+) -> dict[str, list[dict[str, Any]]]:
+    """De folderacties voor de hele lijn (per stuk) bij de aanbiedingen, leeg zonder catalogus of als ze niet te lezen zijn. Voor
+    een product dat nog niet in de catalogus staat (de aanbieding van deze week is zijn eerste spoor) zoekt de app op de naam van
+    de aanbieding."""
+    if catalogue is None:
+        return {}
+    fallback: dict[str, _Known] = {
+        str(offer.get("id")): _Known("", frozenset({_fold_name(f"{offer.get('title') or ''} {offer.get('brand') or ''}")}),
+                               frozenset(size for size in (_size_of(offer.get("unitSize"), offer.get("title")),) if size))
+        for offer in items
+    }
+    try:
+        return await _line_offers(store, catalogue, ids, fallback)
+    except Exception:  # noqa: BLE001 - zonder folderacties blijft de rest van het oordeel staan
+        log.exception("Folderacties bij de aanbiedingen van %s konden niet worden gelezen", store)
+        return {}
+
+
+async def _annotate(store: str, items: list[dict[str, Any]], today: str) -> None:
+    """Haalt de feiten op (`_verdict_facts`) en laat `_judge` het oordeel buiten de event loop uitrekenen (`compute.run`)."""
+    facts: _VerdictFacts = await _verdict_facts(store, items, today)
+    await compute.run(_judge, store, items, today, facts)
+
+
+def _by_product(rows: list[Any]) -> dict[str, list[Any]]:
+    """Rijen per `product_id`, in de volgorde waarin ze kwamen."""
+    found: dict[str, list[Any]] = {}
+    for row in rows:
+        found.setdefault(row["product_id"], []).append(row)
+    return found
+
+
+def _own_lines(
+    facts: _VerdictFacts, episodes: dict[str, list[Any]]
+) -> tuple[dict[str, list[dict[str, Any]]], dict[str, list[tuple[str, float, str]]]]:
+    """De lijnacties zonder de weken waarin het product zelf in de aanbieding was, en de ladder met die lijnacties erbij: ze tellen
+    mee als keer in de aanbieding en als prijs van het jaar (offer_ranking.year_low). Een kopie: de feiten blijven zoals ze waren."""
+    points: dict[str, list[tuple[str, float, str]]] = {product_id: list(found) for product_id, found in facts.points.items()}
     lines: dict[str, list[dict[str, Any]]] = {}
-    if catalogue is not None:
-        fallback = {
-            str(offer.get("id")): _Known("", frozenset({_fold_name(f"{offer.get('title') or ''} {offer.get('brand') or ''}")}),
-                                   frozenset(size for size in (_size_of(offer.get("unitSize"), offer.get("title")),) if size))
-            for offer in items
-        }
-        try:
-            lines = await _line_offers(store, catalogue, ids, fallback)
-        except Exception:  # noqa: BLE001 - zonder folderacties blijft de rest van het oordeel staan
-            log.exception("Folderacties bij de aanbiedingen van %s konden niet worden gelezen", store)
-    for product_id, found in lines.items():
-        spans = [{"start": offers._episode_span(row)["start"], "end": offers._episode_span(row)["end"]} for row in episodes.get(product_id, [])]
+    for product_id, found in facts.lines.items():
+        spans: list[dict[str, Any]] = [{"start": offers._episode_span(row)["start"], "end": offers._episode_span(row)["end"]} for row in episodes.get(product_id, [])]
         lines[product_id] = _without_own_weeks(found, spans)
         points.setdefault(product_id, []).extend((line["start"], line["price"], "line") for line in lines[product_id] if _number(line.get("price")))
         points[product_id].sort()
+    return lines, points
 
-    # Wat elke verpakking per eenheid kost: de gewone prijs uit de bewaarde prijzen en de actieprijs van de andere aanbiedingen.
+
+def _known_packs(recent: list[Any], items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Wat elke verpakking per eenheid kost: de nieuwste gewone prijs uit de bewaarde prijzen (`recent`, oudste eerst) en de
+    actieprijs van de aanbiedingen."""
+    latest: dict[str, Any] = {}
+    for row in recent:
+        latest[row["product_id"]] = row
     packs_known: list[dict[str, Any]] = [
         {"productId": pid, "title": row["title"], "brand": row["brand"], "unitSize": row["unit_size"], "price": row["price"],
          "unitPrice": unit_price(row["price"], row["unit_size"]), "onOffer": False}
         for pid, row in latest.items()
     ]
     for offer in items:
-        effective = _effective(offer)
+        effective: float | None = _effective(offer)
         packs_known.append({"productId": str(offer.get("id")), "title": offer.get("title"), "brand": offer.get("brand"), "unitSize": offer.get("unitSize"),
                             "price": effective, "unitPrice": unit_price(effective, offer.get("unitSize")), "onOffer": True})
+    return packs_known
+
+
+def _cheaper_pack(offer: dict[str, Any], product_id: str, by_base: dict[str, list[dict[str, Any]]]) -> dict[str, Any] | None:
+    """Een andere verpakking van hetzelfde product (zelfde naam zonder maat, zelfde merk) die per eenheid minstens `PACK_MARGIN`
+    goedkoper is, de goedkoopste, of None."""
+    mine_unit: dict[str, Any] | None = offer["unitPricePer"]
+    base: str = base_title(offer.get("title"))
+    if not mine_unit or not base:
+        return None
+    cheaper: list[dict[str, Any]] = [
+        pack for pack in by_base.get(base, [])
+        if pack["productId"] != product_id and pack["unitPrice"]["unit"] == mine_unit["unit"]
+        and (not offer.get("brand") or not pack["brand"] or ah_lists._fold(pack["brand"]) == ah_lists._fold(offer["brand"]))
+        and pack["unitPrice"]["value"] < mine_unit["value"] * (1 - PACK_MARGIN)
+    ]
+    if not cheaper:
+        return None
+    best: dict[str, Any] = min(cheaper, key=lambda pack: pack["unitPrice"]["value"])
+    return {key: best[key] for key in ("productId", "title", "unitSize", "price", "unitPrice", "onOffer")}
+
+
+def _judge(store: str, items: list[dict[str, Any]], today: str, facts: _VerdictFacts) -> None:
+    """Zet het oordeel bij elke aanbieding (zie `annotate`) uit de feiten van `_verdict_facts`. Puur op `items` na, die het
+    aanpast: geen await, geen database en geen cache, zodat het via `compute.run` buiten de event loop loopt."""
+    since_year: str = _days_ago(today, YEAR_DAYS)
+    episodes: dict[str, list[Any]] = _by_product(facts.episodes)
+    lines, points = _own_lines(facts, episodes)
+    packs_known: list[dict[str, Any]] = _known_packs(facts.recent, items)
     by_base: dict[str, list[dict[str, Any]]] = {}
     for pack in packs_known:
         if pack["unitPrice"]:
             by_base.setdefault(base_title(pack["title"]), []).append(pack)
     # De verpakkingsfamilies (offer_ranking.families): alle verpakkingen van een product op een kaart, de goedkoopste per eenheid
     # gemarkeerd. `known_titles` zegt welke verpakkingen de app ooit zag, voor "andere verpakkingen onbekend".
-    known_titles = _known_pack_titles(store, catalogue, packs_known, set(by_base))
+    known_titles = _known_pack_titles(store, facts.catalogue, packs_known, set(by_base))
     fams = offer_ranking.families(store, packs_known, known_titles)
     # Eerder gekocht geldt voor de hele familie: de 1000 g tegen gewone prijs gekocht houdt de 300 g in de aanbieding in beeld.
     for family in fams.values():
-        family["bought"] = any(pack["productId"] in bought_ids for pack in family["packs"])
+        family["bought"] = any(pack["productId"] in facts.bought for pack in family["packs"])
 
     for offer in items:
-        product_id = str(offer.get("id"))
-        effective = _effective(offer)
-        stated = _stated_regular(offer)
+        product_id: str = str(offer.get("id"))
+        effective: float | None = _effective(offer)
+        stated: float | None = _stated_regular(offer)
         if _number(offer.get("unitPrice")) is None and effective is not None and stated is not None:
             offer["unitPrice"] = effective  # zo toont de kaart ook bij "1+1 gratis" van AH wat een stuk kost
         offer["unitPricePer"] = unit_price(effective if effective is not None else offer.get("price"), offer.get("unitSize"))
         # De badge op de kaart: het verschil met de gekozen gewone prijs, of de claim van de winkel als de app er geen kent.
         verdict: dict[str, Any]
         badge: dict[str, Any] | None
-        verdict, badge = _verdict_of(effective, stated, _regular_for_verdict(regulars.get(product_id, []), today))
+        verdict, badge = _verdict_of(effective, stated, _regular_for_verdict(facts.regulars.get(product_id, []), today))
         offer["badge"] = None if badge is None else {**badge, "claimed": _claimed_percent(offer)}
-        mine = [row for row in episodes.get(product_id, []) if not row["continued"]]
-        started = [row for row in mine if (offers._episode_span(row)["start"] or "") >= since_year]
-        line_weeks = [line for line in lines.get(product_id, []) if str(line["start"]) >= since_year]
+        mine: list[Any] = [row for row in episodes.get(product_id, []) if not row["continued"]]
+        started: list[Any] = [row for row in mine if (offers._episode_span(row)["start"] or "") >= since_year]
+        line_weeks: list[dict[str, Any]] = [line for line in lines.get(product_id, []) if str(line["start"]) >= since_year]
         verdict["timesThisYear"] = max(len(started) + len(line_weeks), 1)
         verdict["often"] = verdict["timesThisYear"] >= OFTEN_PER_YEAR
         offer["priceLabel"] = price_label(effective, [(day, price) for day, price, _ in points.get(product_id, [])], today)
         offer["yearLow"] = offer_ranking.year_low(effective, points.get(product_id, []), today)
         offer["family"] = offer_ranking.family_of(fams, store, offer.get("title"), offer.get("brand"), product_id)
-        offer["bought"] = product_id in bought_ids
-        verdict["cheaperPack"] = None
-        mine_unit = offer["unitPricePer"]
-        base = base_title(offer.get("title"))
-        if mine_unit and base:
-            cheaper = [
-                pack for pack in by_base.get(base, [])
-                if pack["productId"] != product_id and pack["unitPrice"]["unit"] == mine_unit["unit"]
-                and (not offer.get("brand") or not pack["brand"] or ah_lists._fold(pack["brand"]) == ah_lists._fold(offer["brand"]))
-                and pack["unitPrice"]["value"] < mine_unit["value"] * (1 - PACK_MARGIN)
-            ]
-            if cheaper:
-                best = min(cheaper, key=lambda pack: pack["unitPrice"]["value"])
-                verdict["cheaperPack"] = {key: best[key] for key in ("productId", "title", "unitSize", "price", "unitPrice", "onOffer")}
+        offer["bought"] = product_id in facts.bought
+        verdict["cheaperPack"] = _cheaper_pack(offer, product_id, by_base)
         offer["verdict"] = verdict
 
 

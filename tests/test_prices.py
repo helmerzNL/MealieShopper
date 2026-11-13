@@ -1667,7 +1667,7 @@ class CatalogueTest(PricesCase):
         # Kan de catalogus niet worden opgebouwd, dan oordeelt `_annotate` zonder bonnen: dat antwoord krijgt geen ETag die een 304 geeft.
         await self.observe("2026-05-01", "1", "AH Pindakaas", 2.99)
         prices.forget_catalogues()
-        with mock.patch.object(prices, "_known_products", side_effect=RuntimeError("stuk")), self.assertLogs(prices.log, "WARNING"):
+        with mock.patch.object(prices, "_build_catalogue", side_effect=RuntimeError("stuk")), self.assertLogs(prices.log, "WARNING"):
             first: str = await prices.offers_signature("ah")
             second: str = await prices.offers_signature("ah")
         self.assertTrue(first.startswith("fout:"), first)
@@ -1697,7 +1697,7 @@ class CatalogueTest(PricesCase):
         self.assertEqual(await self.found("pindakaas"), ["1"])
         ah_before: str = await self.version("ah")
         picnic_before: str = await self.version("picnic")
-        with mock.patch.object(prices, "_known_products", wraps=prices._known_products) as built:
+        with mock.patch.object(prices, "_build_catalogue", wraps=prices._build_catalogue) as built:
             await prices.record("picnic", [{"id": "s100", "title": "Pindakaas", "price": 3.49}], now="2026-06-01T08:00:00+00:00")
             self.assertEqual(await self.found("pindakaas"), ["1"])
             self.assertEqual(built.call_count, 0, "de catalogus van AH blijft staan")
@@ -1705,14 +1705,14 @@ class CatalogueTest(PricesCase):
         self.assertNotEqual(await self.version("picnic"), picnic_before)
 
     async def test_a_price_of_a_known_product_does_not_rebuild_the_catalogue(self) -> None:
-        # De merge met taak 7 telt hier `_build_catalogue`. Tot dan telt `_known_products`, dat elke opbouw een keer aanroept.
+        # Elke opbouw van de catalogus is een aanroep van `_build_catalogue` (in de threadpool).
         await self.observe("2026-05-01", "1", "AH Pindakaas", 2.99)
         await self.observe("2026-04-01", "2", "AH Hagelslag", 1.99)
         self.assertEqual(await self.found("ah"), ["1", "2"])
         products: int
         counted: int
         products, counted = self.counters("ah")
-        with mock.patch.object(prices, "_known_products", wraps=prices._known_products) as built:
+        with mock.patch.object(prices, "_build_catalogue", wraps=prices._build_catalogue) as built:
             await self.observe("2026-06-01", "2", "AH Hagelslag", 1.89)  # een nieuwe dag: een INSERT
             self.assertEqual(await self.found("ah"), ["2", "1"], "de nieuwste prijs telt in de volgorde")
             await self.observe("2026-06-01", "2", "AH Hagelslag", 1.79)  # dezelfde dag: een UPDATE
@@ -1725,7 +1725,7 @@ class CatalogueTest(PricesCase):
     async def test_a_price_of_a_new_product_rebuilds_the_catalogue(self) -> None:
         await self.observe("2026-05-01", "1", "AH Pindakaas", 2.99)
         self.assertEqual(await self.found("pindakaas"), ["1"])
-        with mock.patch.object(prices, "_known_products", wraps=prices._known_products) as built:
+        with mock.patch.object(prices, "_build_catalogue", wraps=prices._build_catalogue) as built:
             await self.observe("2026-06-01", "2", "AH Pindakaas crunchy", 3.19)
             self.assertEqual(await self.found("pindakaas"), ["2", "1"])
             self.assertEqual(built.call_count, 1)
@@ -1733,7 +1733,7 @@ class CatalogueTest(PricesCase):
     async def test_a_renamed_product_rebuilds_the_catalogue(self) -> None:
         await self.observe("2026-05-01", "1", "AH Pindakaas", 2.99)
         self.assertEqual(await self.found("pindakaas"), ["1"])
-        with mock.patch.object(prices, "_known_products", wraps=prices._known_products) as built:
+        with mock.patch.object(prices, "_build_catalogue", wraps=prices._build_catalogue) as built:
             await self.observe("2026-06-01", "1", "AH Pindakaas naturel", 2.99)  # dezelfde product_id, een andere naam: een INSERT
             self.assertEqual(await self.found("naturel"), ["1"])
             self.assertEqual(built.call_count, 1)
@@ -1774,7 +1774,7 @@ class CatalogueTest(PricesCase):
         prices._CATALOGUES.clear()
         self.assertEqual(warm, await self.answers())
         self.assertNotEqual(warm["history"], before["history"], "de nieuwe prijzen staan erin")
-        self.assertEqual([p["productId"] for p in warm["history"]["products"]][0], "2", "de nieuwste prijs zet hagelslag bovenaan")
+        self.assertEqual(warm["history"]["products"][0]["productId"], "2", "de nieuwste prijs zet hagelslag bovenaan")
         self.assertEqual({p["productId"]: len(p["purchases"]) for p in warm["palermo"]["products"]}, {"10": 1, "11": 0}, "de bon hoort nu bij de prijs in de buurt")
 
     async def test_an_old_database_with_catalogue_changes_is_migrated(self) -> None:

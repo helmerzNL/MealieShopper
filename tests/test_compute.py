@@ -7,6 +7,7 @@ functie in een eigen threadpool lopen, `SingleFlight` zorgt dat een dure bouw pe
 from __future__ import annotations
 
 import asyncio
+import contextvars
 import gc
 import threading
 import time
@@ -55,7 +56,9 @@ async def test_run_raises_the_error_of_the_function() -> None:
 
 async def test_run_counts_as_a_phase_in_the_telemetry() -> None:
     recording: telemetry.Recording = telemetry.Recording("GET", "/x")
-    token = telemetry._current.set(recording)
+    token: contextvars.Token[telemetry.Recording | None] = telemetry._current.set(
+        recording
+    )
     try:
         await compute.run(time.sleep, 0.05)
     finally:
@@ -76,7 +79,7 @@ async def test_at_most_two_run_at_once() -> None:
             most[0] = max(most[0], active[0])
         both_started.wait(
             timeout=5
-        )  # bewijst dat er er twee tegelijk bezig kunnen zijn
+        )  # bewijst dat er twee tegelijk bezig kunnen zijn
         time.sleep(0.02)
         with lock:
             active[0] -= 1
@@ -200,3 +203,131 @@ async def test_run_works_again_after_shutdown() -> None:
     assert await compute.run(len, "abc") == 3
     compute.shutdown()
     assert await compute.run(len, "abcd") == 4
+
+
+async def test_a_stopped_pool_refuses_a_job() -> None:
+    pool: compute._Pool = compute._Pool()
+    pool.stop(1.0)
+    with pytest.raises(compute.PoolStopped):
+        pool.submit(len)
+
+
+async def test_run_lands_on_a_new_pool_when_shutdown_races_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`shutdown` in een andere thread tussen `_get_pool` en `submit`: de opdracht mag niet blijven hangen."""
+    real: Any = compute._get_pool
+    calls: list[int] = []
+
+    def racing() -> compute._Pool:
+        pool: compute._Pool = real()
+        if not calls:
+            calls.append(1)
+            compute.shutdown()  # de pool is gestopt voor `submit` hem krijgt
+        return pool
+
+    monkeypatch.setattr(compute, "_get_pool", racing)
+    assert await asyncio.wait_for(compute.run(len, "abc"), 5) == 3
+
+
+async def test_stop_does_not_hold_the_loop_while_a_function_is_stuck(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(compute, "SHUTDOWN_SECONDS", 0.5)
+    started: threading.Event = threading.Event()
+    stuck: threading.Event = threading.Event()
+    stalls: list[loop_guard.Stall] = []
+    guard: loop_guard.LoopGuard = loop_guard.LoopGuard(
+        asyncio.get_running_loop(), 0.1, stalls.append
+    )
+
+    def wait_forever() -> bool:
+        started.set()
+        return stuck.wait(30)
+
+    task: asyncio.Task[bool] = asyncio.create_task(compute.run(wait_forever))
+    assert await asyncio.to_thread(started.wait, 5)
+    guard.start()
+    await compute.stop()
+    guard.stop()
+    assert stalls == []
+    stuck.set()
+    assert await task is True
+
+
+async def test_single_flight_ignores_a_finished_flight_that_is_not_yet_removed() -> (
+    None
+):
+    flight: compute.SingleFlight[str, int] = compute.SingleFlight()
+    calls: list[int] = []
+
+    async def build() -> int:
+        calls.append(1)
+        if len(calls) == 1:
+            raise RuntimeError("oud")
+        return 2
+
+    failed: asyncio.Future[int] = asyncio.ensure_future(build())
+    await asyncio.sleep(0)
+    assert failed.done()
+    flight._flights["k"] = failed  # klaar, maar `_finished` liep nog niet
+    assert await flight.get("k", build) == 2
+    with pytest.raises(RuntimeError):
+        failed.result()
+
+
+def test_single_flight_ignores_a_flight_of_another_loop() -> None:
+    flight: compute.SingleFlight[str, int] = compute.SingleFlight()
+
+    async def never() -> int:
+        await asyncio.sleep(3600)
+        return 0
+
+    async def start_and_leave() -> None:
+        flight._flights["k"] = asyncio.ensure_future(never())
+
+    old: asyncio.AbstractEventLoop = asyncio.new_event_loop()
+    old.run_until_complete(start_and_leave())
+    stale: asyncio.Future[int] = flight._flights["k"]
+    old.close()
+
+    async def build() -> int:
+        return 11
+
+    async def ask() -> int:
+        return await flight.get("k", build)
+
+    new: asyncio.AbstractEventLoop = asyncio.new_event_loop()
+    try:
+        assert new.run_until_complete(ask()) == 11
+    finally:
+        new.close()
+    del stale
+
+
+async def test_app_shutdown_does_not_stall_the_loop_while_a_function_is_stuck(
+    data_dir: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from mealieshopper.app import create_app
+
+    monkeypatch.setattr(compute, "SHUTDOWN_SECONDS", 0.5)
+    started: threading.Event = threading.Event()
+    stuck: threading.Event = threading.Event()
+    stalls: list[loop_guard.Stall] = []
+    guard: loop_guard.LoopGuard = loop_guard.LoopGuard(
+        asyncio.get_running_loop(), 0.1, stalls.append
+    )
+
+    def wait_forever() -> bool:
+        started.set()
+        return stuck.wait(30)
+
+    app: Any = create_app()
+    async with app.test_app():
+        task: asyncio.Task[bool] = asyncio.create_task(compute.run(wait_forever))
+        assert await asyncio.to_thread(started.wait, 5)
+        guard.start()
+    guard.stop()  # na het afsluiten van de app (after_serving)
+    assert stalls == []
+    stuck.set()
+    assert await task is True

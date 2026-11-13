@@ -22,7 +22,7 @@ os.environ["PASSKEY_AUTH_ENABLED"] = "false"
 
 from mealieshopper import ah_price_index, audit, auth, auth_password, backup, factory_reset, image_cache, loose_names, mealie, mealie_images, oauth, price_archive, prices, profile, push, recipe_nutrition, shared_links, tasks, uploads  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
-from mealieshopper.response_cache import ResponseCache  # noqa: E402
+from mealieshopper.response_cache import ResponseCache
 from helpers import AppClient, db, ReadResponse, run_aside  # noqa: E402
 
 if TYPE_CHECKING:  # niet bij de import: pytest zou TestAppProtocol voor een testklasse aanzien
