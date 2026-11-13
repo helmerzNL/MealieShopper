@@ -42,9 +42,7 @@ def answers(asked: list[str]) -> Any:
                 ]
             }
         if path == "/lists":
-            raise RuntimeError(
-                '404: {"error": {"code": "NOT_FOUND", "message": "geheim antwoord"}}'
-            )
+            raise RuntimeError('404: {"error": {"code": "NOT_FOUND", "message": "geheim antwoord"}}')
         if path == "/deliveries/summary":
             return []
         return {"body": {}}
@@ -60,17 +58,13 @@ async def test_offer_probes_wait_for_each_page(linked: None) -> None:
     ):
         probes: list[dict[str, Any]] = await picnic_explore.offer_probes()
     assert route.call_count == 0, "alles loopt via de nagebootste picnic._authed"
-    assert (
-        probes[0]["name"] == "aanbiedingen: welke pagina's zoeken we (pagina, streng)"
-    )
+    assert probes[0]["name"] == "aanbiedingen: welke pagina's zoeken we (pagina, streng)"
     assert all(probe["ok"] for probe in probes), probes
     assert "coroutine" not in json.dumps(probes)
 
 
 async def test_offer_probes_without_a_tab_bar_report_one_error(linked: None) -> None:
-    with mock.patch.object(
-        picnic, "offer_references", side_effect=RuntimeError("geen tabbalk")
-    ):
+    with mock.patch.object(picnic, "offer_references", side_effect=RuntimeError("geen tabbalk")):
         probes: list[dict[str, Any]] = await picnic_explore.offer_probes()
     assert probes == [
         {
@@ -92,9 +86,7 @@ async def test_explore_reports_errors_as_codes_only_and_counts_what_worked(
         report: dict[str, Any] = await picnic_explore.explore()
     assert route.call_count == 0
     assert report["linked"] is True
-    lists: dict[str, Any] = next(
-        probe for probe in report["probes"] if probe["name"] == "lijstjes: GET lists"
-    )
+    lists: dict[str, Any] = next(probe for probe in report["probes"] if probe["name"] == "lijstjes: GET lists")
     assert lists == {
         "name": "lijstjes: GET lists",
         "ok": False,
@@ -109,10 +101,6 @@ async def test_explore_reports_errors_as_codes_only_and_counts_what_worked(
 async def test_explore_names_a_network_error_by_its_type(linked: None) -> None:
     with served(side_effect=httpx.ConnectError("geheim adres")):
         report: dict[str, Any] = await picnic_explore.explore()
-    search: dict[str, Any] = next(
-        probe
-        for probe in report["probes"]
-        if probe["name"] == "zoeken: GET pages/search-page-results"
-    )
+    search: dict[str, Any] = next(probe for probe in report["probes"] if probe["name"] == "zoeken: GET pages/search-page-results")
     assert search["error"] == "netwerkfout: ConnectError"
     assert "geheim adres" not in json.dumps(report)

@@ -1,8 +1,8 @@
 """De regels van een aankoop verrijkt voor de detailroutes: categorie, korting, eerder gekocht, bespaard en status.
 
 Eén plek voor de vier soorten aankopen (een bestelling van AH of Jumbo, een kassabon van AH en een ingelezen bestelling), zodat de
-bestelpagina ze op dezelfde manier toont. De korting is die tegen de gewone prijs van 30 dagen (de kolom `regular_price`, die
-`prices.fill_regular_prices` vult), en zonder die prijs de prijs ervoor die de winkel zelf noemt.
+bestelpagina ze op dezelfde manier toont. De korting is die tegen de gewone prijs bij de aankoop (de kolom `regular_price`, die
+`prices.fill_regular_prices` vult uit hooguit een jaar ervoor), en zonder die prijs de prijs ervoor die de winkel zelf noemt.
 """
 
 from __future__ import annotations
@@ -46,9 +46,7 @@ def _keys(name: Any) -> set[str]:
 
 
 def _matches(bonus_keys: set[str], line_keys: set[str]) -> bool:
-    return any(
-        a.startswith(b) or b.startswith(a) for a in bonus_keys for b in line_keys
-    )
+    return any(a.startswith(b) or b.startswith(a) for a in bonus_keys for b in line_keys)
 
 
 def _bonus_amount(discount: Any) -> float | None:
@@ -106,10 +104,7 @@ def unmatched_bonus(lines: list[dict[str, Any]], discounts: list[dict[str, Any]]
 
 
 async def _tables(conn: aiosqlite.Connection) -> set[str]:
-    return {
-        row[0]
-        for row in await conn.execute_fetchall("SELECT name FROM sqlite_master WHERE type = 'table'")
-    }
+    return {row[0] for row in await conn.execute_fetchall("SELECT name FROM sqlite_master WHERE type = 'table'")}
 
 
 def _native_id(store: str, product_id: str) -> Any:
@@ -120,34 +115,21 @@ def _native_id(store: str, product_id: str) -> Any:
 
 async def _count(conn: aiosqlite.Connection, sql: str, ids: list[Any], before_day: str) -> dict[str, int]:
     marks: str = ", ".join("?" * len(ids))
-    return {
-        str(row[0]): int(row[1])
-        for row in await conn.execute_fetchall(sql.format(marks=marks), (*ids, before_day))
-    }
+    return {str(row[0]): int(row[1]) for row in await conn.execute_fetchall(sql.format(marks=marks), (*ids, before_day))}
 
 
 # De aankoopdag van een bestelling, zoals in `prices`: de bezorgdag, anders de dag waarop de app hem voor het eerst zag.
-_ORDER_DAY: str = (
-    "COALESCE(NULLIF(substr(o.delivery_date, 1, 10), ''), substr(o.first_seen, 1, 10))"
-)
+_ORDER_DAY: str = "COALESCE(NULLIF(substr(o.delivery_date, 1, 10), ''), substr(o.first_seen, 1, 10))"
 
 
-async def times_before(
-    conn: aiosqlite.Connection | None, store: str, product_ids: Iterable[Any], before_day: str
-) -> dict[str, int]:
+async def times_before(conn: aiosqlite.Connection | None, store: str, product_ids: Iterable[Any], before_day: str) -> dict[str, int]:
     """Hoe vaak je elk product eerder kocht: het aantal bestellingen (`<store>_order_items`) van vóór `before_day` met dat product,
     plus bij AH het aantal kassabonnen van vóór die dag met een regel die bij dat product hoort (je eigen koppeling, #238, of de
     automatische in `ah_receipt_products`: `product_links.RECEIPT_LINE_JOIN_SQL`).
 
     Een aankoop telt één keer, ook als het product er op twee regels staat. Een product dat je niet eerder kocht ontbreekt.
     """
-    ids: list[str] = sorted(
-        {
-            str(product_id)
-            for product_id in product_ids
-            if product_id not in (None, "", 0)
-        }
-    )
+    ids: list[str] = sorted({str(product_id) for product_id in product_ids if product_id not in (None, "", 0)})
     if conn is None or not ids or store not in ("ah", "jumbo"):
         return {}
     if store == "ah":
@@ -164,11 +146,7 @@ async def times_before(
             [_native_id(store, product_id) for product_id in ids],  # zonder CAST, zodat de index op product_id werkt
             before_day,
         )
-    if (
-        store == "ah"
-        and {"ah_receipts", "ah_receipt_items", "ah_receipt_products", "product_links"}
-        <= tables
-    ):
+    if store == "ah" and {"ah_receipts", "ah_receipt_items", "ah_receipt_products", "product_links"} <= tables:
         product: str = product_links.RECEIPT_LINE_PRODUCT_SQL
         receipts: dict[str, int] = await _count(
             conn,
@@ -270,7 +248,7 @@ async def enrich(
     """Zet op elke regel `category`, `regularPrice`, `discount`, `discountSource`, `timesBefore` en `paidEach`. Past de dicts aan.
 
     `kind` is `order`, `receipt` of `imported`. `regularPrice` op de regel is bij binnenkomst de kolom `regular_price` (de gewone
-    prijs van 30 dagen, `discountSource` `history`). Zonder die prijs wordt het de prijs ervoor van de winkel (`_store_regular`,
+    prijs bij de aankoop, `discountSource` `history`). Zonder die prijs wordt het de prijs ervoor van de winkel (`_store_regular`,
     `discountSource` `store`), anders None. Een regel zonder aantal krijgt geen korting. Een bonregel heeft `bonus` (het bedrag van
     `match_receipt_bonus`). Geeft `saved` (de som van `(regularPrice - paidEach) * quantity` waar dat positief is) en `savedPercent`
     (`saved` als deel van wat de regels zonder korting hadden gekost) voor de aankoop.
@@ -311,7 +289,7 @@ async def fill_regular(
     order_ids: list[Any] | None = None,
     receipt_ids: list[Any] | None = None,
 ) -> None:
-    """Vul de gewone prijs van 30 dagen bij de regels van de aankoop die je opent (`prices.fill_regular_prices`). Een fout komt in
+    """Vul de gewone prijs bij de regels van de aankoop die je opent (`prices.fill_regular_prices`). Een fout komt in
     het log en laat de aankoop gewoon zien: de korting valt dan terug op de prijs ervoor van de winkel."""
     # prices leest ah_orders en price_import, die deze module gebruiken: pas hier ophalen houdt de import rond.
     from . import prices

@@ -61,10 +61,26 @@ class PurchaseViewsMarkupTest(unittest.TestCase):
         self.assertIn('renderViewBar("purchase", purchaseView, purchaseBarSpec());', VIEWS)
 
     def test_the_bar_labels_come_from_the_dictionary_in_the_script(self):
-        for key in ("orders.view.label", "orders.view.table", "orders.view.cards", "orders.view.overview",
-                    "orders.sort.label", "orders.sort.date", "orders.sort.amount", "orders.sort.items", "orders.sort.asc", "orders.sort.desc",
-                    "orders.options.label", "orders.options.size", "orders.options.small", "orders.options.medium", "orders.options.large",
-                    "orders.options.status", "orders.options.savings", "orders.options.names"):
+        for key in (
+            "orders.view.label",
+            "orders.view.table",
+            "orders.view.cards",
+            "orders.view.overview",
+            "orders.sort.label",
+            "orders.sort.date",
+            "orders.sort.amount",
+            "orders.sort.items",
+            "orders.sort.asc",
+            "orders.sort.desc",
+            "orders.options.label",
+            "orders.options.size",
+            "orders.options.small",
+            "orders.options.medium",
+            "orders.options.large",
+            "orders.options.status",
+            "orders.options.savings",
+            "orders.options.names",
+        ):
             self.assertIn(f't("{key}")', VIEWS, key)
             self.assertNotIn(f'data-i18n="{key}"', HTML, key)
         self.assertIn('window.addEventListener("ms:languagechange"', VIEWS)
@@ -88,9 +104,15 @@ class PurchaseViewsMarkupTest(unittest.TestCase):
             self.assertIn(f'class="purchase-table__sort" data-sort="{key}"', HTML)
 
     def test_the_state_is_remembered_and_bad_values_fall_back(self):
-        for needle in ("`ms-${prefix}s-view`", "`ms-${prefix}s-sort`", "`ms-${prefix}s-options`",
-                       'const PURCHASE_VIEWS = ["table", "cards", "overview"]', 'const PURCHASE_SORT_KEYS = ["date", "amount", "items"]',
-                       "function purchaseViewLoad()", "function viewState(prefix, defaults, allowed, { scopes = null } = {})"):
+        for needle in (
+            "`ms-${prefix}s-view`",
+            "`ms-${prefix}s-sort`",
+            "`ms-${prefix}s-options`",
+            'const PURCHASE_VIEWS = ["table", "cards", "overview"]',
+            'const PURCHASE_SORT_KEYS = ["date", "amount", "items"]',
+            "function purchaseViewLoad()",
+            "function viewState(prefix, defaults, allowed, { scopes = null } = {})",
+        ):
             self.assertIn(needle, VIEWS)
         self.assertIn("} catch {", VIEWS)
 
@@ -99,21 +121,35 @@ class PurchaseViewsMarkupTest(unittest.TestCase):
         self.assertIn("const visible = purchaseSortRows(rows.filter((row) => purchaseVisible(row, hits)));", ORDERS)
         self.assertIn("renderPurchaseView(page.shown, hits)", ORDERS)  # de eerste honderd, daarna Meer aankopen (sinds 4.13.0)
         self.assertIn("function renderPurchaseTable(visible, hits)", ORDERS)
-        self.assertIn("if (va === null || va === undefined) return vb === null || vb === undefined ? String(b.date).localeCompare(String(a.date)) : 1;", VIEWS)
+        self.assertIn(
+            "if (va === null || va === undefined) return vb === null || vb === undefined ? String(b.date).localeCompare(String(a.date)) : 1;", VIEWS
+        )
         self.assertIn("if (vb === null || vb === undefined) return -1;", VIEWS, "nulls onderaan, in beide richtingen")
 
     def test_the_rows_carry_what_the_cards_and_the_overview_need(self):
-        for needle in ("images: order.images || []", "names: order.productNames || []", "savings: order.savings", "bonusCount: order.bonusCount",
-                       "names: receipt.productNames || []", "payment: receipt.payment"):
+        for needle in (
+            "images: order.images || []",
+            "names: order.productNames || []",
+            "savings: order.savings",
+            "bonusCount: order.bonusCount",
+            "names: receipt.productNames || []",
+            "payment: receipt.payment",
+        ):
             self.assertIn(needle, ORDERS)
 
 
 class PurchaseCardsTest(unittest.TestCase):
     def test_the_cards_are_links_with_a_collage_of_cached_photos(self):
         self.assertIn('id="ah-purchase-cards"', HTML)
-        for needle in ("function purchaseCollage(row, count)", "function purchaseCard(row, matches)", "function renderPurchaseCards(visible, hits)",
-                       'src="${escapeHtml(storeImage(url))}" alt="" loading="lazy" data-hide-on-error',
-                       '<a class="purchase-card__link" href="${escapeHtml(row.href)}" data-nav', 'purchaseKindMarkup(row.kind, "stripe")', "purchase-collage--empty"):
+        for needle in (
+            "function purchaseCollage(row, count)",
+            "function purchaseCard(row, matches)",
+            "function renderPurchaseCards(visible, hits)",
+            'src="${escapeHtml(storeImage(url))}" alt="" loading="lazy" data-hide-on-error',
+            '<a class="purchase-card__link" href="${escapeHtml(row.href)}" data-nav',
+            'purchaseKindMarkup(row.kind, "stripe")',
+            "purchase-collage--empty",
+        ):
             self.assertIn(needle, VIEWS)
         self.assertIn('purchaseView.options.size === "large" ? 6 : 4', VIEWS)
 
@@ -124,7 +160,13 @@ class PurchaseCardsTest(unittest.TestCase):
         self.assertRegex(CSS, r"@media \(max-width: 640px\) \{\n(?:.*\n)*?  \.purchase-cards \{\n    grid-template-columns: repeat\(2, 1fr\);")
 
     def test_the_options_decide_what_a_card_shows_and_search_shows_the_hits(self):
-        for needle in ("purchaseView.options.status", "purchaseView.options.savings", "purchaseView.options.names", "matches.slice(0, 3)", "row.savings > 0"):
+        for needle in (
+            "purchaseView.options.status",
+            "purchaseView.options.savings",
+            "purchaseView.options.names",
+            "matches.slice(0, 3)",
+            "row.savings > 0",
+        ):
             self.assertIn(needle, VIEWS)
 
     def test_a_purchase_without_photos_shows_the_icon_of_its_kind(self):
@@ -137,14 +179,25 @@ class PurchaseCardsTest(unittest.TestCase):
 class PurchaseOverviewTest(unittest.TestCase):
     def test_the_overview_is_a_list_of_rows_with_a_photo_strip(self):
         self.assertIn('id="ah-purchase-overview"', HTML)
-        for needle in ("function purchaseOverviewRow(row, matches)", "function renderPurchaseOverview(visible, hits)", "row.images.slice(0, 6)",
-                       "purchase-overview__strip", '<a class="purchase-overview__link" href="${escapeHtml(row.href)}" data-nav'):
+        for needle in (
+            "function purchaseOverviewRow(row, matches)",
+            "function renderPurchaseOverview(visible, hits)",
+            "row.images.slice(0, 6)",
+            "purchase-overview__strip",
+            '<a class="purchase-overview__link" href="${escapeHtml(row.href)}" data-nav',
+        ):
             self.assertIn(needle, VIEWS)
-        self.assertIn("purchaseDetailLines(row, matches, { names: false, amount: false })", VIEWS, "het bedrag staat in de kop van de rij, niet nog een keer in de regel eronder")
+        self.assertIn(
+            "purchaseDetailLines(row, matches, { names: false, amount: false })",
+            VIEWS,
+            "het bedrag staat in de kop van de rij, niet nog een keer in de regel eronder",
+        )
         self.assertRegex(CSS, r"\.purchase-overview__strip img \{\n(?:.*\n)*?  width: 56px;")
         self.assertRegex(CSS, r"\.purchase-overview__row \{\n(?:.*\n)*?  content-visibility: auto;")
         self.assertRegex(CSS, r"\.purchase-overview__row \{\n(?:.*\n)*?  flex: none;", "een rij mag in de kolom niet krimpen")
-        self.assertRegex(CSS, r"@media \(max-width: 640px\) \{\n(?:.*\n)*?  \.purchase-overview__strip img:nth-child\(n \+ 5\) \{\n    display: none;")
+        self.assertRegex(
+            CSS, r"@media \(max-width: 640px\) \{\n(?:.*\n)*?  \.purchase-overview__strip img:nth-child\(n \+ 5\) \{\n    display: none;"
+        )
 
     def test_the_photo_strip_stands_right_so_every_row_starts_its_text_at_the_same_place(self):
         # Een bon zonder gekoppelde foto's krijgt een icoon, een bestelling zes foto's: links zou de tekst per rij ergens anders
@@ -153,7 +206,9 @@ class PurchaseOverviewTest(unittest.TestCase):
         self.assertLess(row.index('<span class="purchase-overview__body">'), row.index('<span class="purchase-overview__strip">'))
         self.assertRegex(CSS, r"\.purchase-overview__strip \{\n(?:.*\n)*?  justify-content: flex-end;")
         self.assertRegex(CSS, r"\.purchase-overview__strip \{\n(?:.*\n)*?  width: 356px;", "zes foto's van 56 met vijf keer 4 ertussen")
-        self.assertRegex(CSS, r"@media \(max-width: 640px\) \{\n(?:.*\n)*?  \.purchase-overview__strip \{\n    width: auto;\n    justify-content: flex-start;")
+        self.assertRegex(
+            CSS, r"@media \(max-width: 640px\) \{\n(?:.*\n)*?  \.purchase-overview__strip \{\n    width: auto;\n    justify-content: flex-start;"
+        )
 
     def test_the_keyboard_focus_ring_is_drawn_around_the_card_and_the_row_not_clipped_inside(self):
         # De kaart en de rij knippen hun inhoud af (overflow hidden): de ring van de link erin zou wegvallen. Daarom tekent de
@@ -166,7 +221,9 @@ class PurchaseOverviewTest(unittest.TestCase):
         self.assertNotIn('row.kind === "receipt" ? row.payment : row.status', VIEWS)
 
     def test_every_view_draws_from_the_same_rows(self):
-        self.assertIn('const panes = { table: $("#ah-purchase-table-wrap"), cards: $("#ah-purchase-cards"), overview: $("#ah-purchase-overview") };', VIEWS)
+        self.assertIn(
+            'const panes = { table: $("#ah-purchase-table-wrap"), cards: $("#ah-purchase-cards"), overview: $("#ah-purchase-overview") };', VIEWS
+        )
         self.assertIn("renderPurchaseOverview(visible, hits)", VIEWS.split("function renderPurchaseView")[1].split("\n}\n")[0])
 
 

@@ -25,6 +25,7 @@ Buiten de back-up blijven: het auditlog (een logboek dat na 30 dagen vanzelf wor
 Mealie-afbeeldingen (een cache die vanzelf weer wordt gevuld) en het webadres dat de beheerder voor deze server instelde
 (dat hoort bij de server, niet bij de gegevens).
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -48,7 +49,40 @@ from cryptography.fernet import Fernet, InvalidToken
 from cryptography.hazmat.primitives.kdf.scrypt import Scrypt
 from quart import Quart, Response, jsonify, request
 
-from . import about, ah_lists, ah_orders, ah_recipes, ai_review, auth, cart_memory, crisp, crisp_orders, hellofresh, jumbo, jumbo_lists, jumbo_orders, marleyspoon, mealie, offers, offers_schedule, picnic, picnic_orders, price_import, prices, product_images, product_links, profile, request_body, server_settings, tasks, thread_db, uploads
+from . import (
+    about,
+    ah_lists,
+    ah_orders,
+    ah_recipes,
+    ai_review,
+    auth,
+    cart_memory,
+    crisp,
+    crisp_orders,
+    hellofresh,
+    jumbo,
+    jumbo_lists,
+    jumbo_orders,
+    loose_names,
+    marleyspoon,
+    mealie,
+    offers,
+    offers_schedule,
+    picnic,
+    picnic_orders,
+    price_archive_sync,
+    price_import,
+    prices,
+    product_images,
+    product_links,
+    profile,
+    request_body,
+    server_settings,
+    shared_links,
+    tasks,
+    thread_db,
+    uploads,
+)
 from .i18n import tr
 
 log = logging.getLogger(__name__)
@@ -69,45 +103,88 @@ SCRYPT_MAX_N = 2**16  # wat een bestand ons hoogstens laat doen: de kosten staan
 
 # Tabellen met gegevens, ouders vóór kinderen. Een nieuwe tabel met gegevens hoort hier én in de round-trip-test.
 DATA_TABLES = (
-    "ah_lists", "ah_list_items",
-    "ah_basket", "ah_basket_items",
-    "ah_orders", "ah_order_items",
-    "ah_receipts", "ah_receipt_items",
+    "ah_lists",
+    "ah_list_items",
+    "ah_basket",
+    "ah_basket_items",
+    "ah_orders",
+    "ah_order_items",
+    "ah_receipts",
+    "ah_receipt_items",
     "ah_orders_meta",
-    "ah_saved_recipes", "ah_saved_recipes_meta", "ah_saved_recipe_groups", "ah_saved_recipe_group_items",
-    "jumbo_lists", "jumbo_list_items",
-    "jumbo_orders", "jumbo_order_items", "jumbo_orders_meta",
-    "picnic_orders", "picnic_order_items", "picnic_orders_meta",
-    "crisp_orders", "crisp_order_items", "crisp_orders_meta",
-    "offers", "offer_history", "offers_meta",
-    "price_observations", "product_images", "imported_purchases",
+    "ah_saved_recipes",
+    "ah_saved_recipes_meta",
+    "ah_saved_recipe_groups",
+    "ah_saved_recipe_group_items",
+    "jumbo_lists",
+    "jumbo_list_items",
+    "jumbo_orders",
+    "jumbo_order_items",
+    "jumbo_orders_meta",
+    "picnic_orders",
+    "picnic_order_items",
+    "picnic_orders_meta",
+    "crisp_orders",
+    "crisp_order_items",
+    "crisp_orders_meta",
+    "offers",
+    "offer_history",
+    "offers_meta",
+    "price_observations",
+    "product_images",
+    "imported_purchases",
     "product_links",  # je eigen koppelingen van bonregels en ingelezen aankopen aan een product (#238): werk van de gebruiker
-    "offer_recipes", "offer_recipes_meta",
-    "offer_rejections", "offer_verdicts",
-    "ai_recipe_matches", "ai_recipe_runs",
+    "shared_link_rejections",  # de gedeelde koppelingen die je afwees met Klopt niet (shared_links.py): ook werk van de gebruiker
+    "loose_names",  # de stand per losse aankoopnaam (loose_names.py): de afwijzingen zijn werk van de gebruiker, en de rest is klein
+    "offer_recipes",
+    "offer_recipes_meta",
+    "offer_rejections",
+    "offer_verdicts",
+    "ai_recipe_matches",
+    "ai_recipe_runs",
     "offers_schedule",
     "user_profiles",
-    "cart_choices", "pantry_items",  # per gebruiker: het product dat je bij een ingrediënt koos en wat je altijd in huis hebt (cart_memory.py)
+    "cart_choices",
+    "pantry_items",  # per gebruiker: het product dat je bij een ingrediënt koos en wat je altijd in huis hebt (cart_memory.py)
 )
 # Tabellen met een rij per gebruiker (`user_id`): een rij van iemand die op deze installatie niet bestaat, gaat niet terug.
 USER_TABLES = frozenset({"user_profiles", "cart_choices", "pantry_items"})
 # Tabellen die er bewust niet in zitten: de inloggegevens van de app, tijdelijke staat, caches en logboeken.
-EXCLUDED_TABLES = frozenset({
-    "users", "passkey_credentials", "auth_challenges", "revoked_sessions", "password_credentials", "mfa_totp", "mfa_recovery_codes",
-    "login_attempts", "invites", "oauth_clients", "oauth_codes", "oauth_tokens",
-    "app_settings",  # staat er wel in, maar apart: zie SECRET_KEYS en PLAIN_SETTINGS
-    "audit_log", "mealie_images", "backup_jobs", "sqlite_sequence",
-    "hellofresh_menus",  # kopie van openbare menu's van HelloFresh: herlaadbaar, dus niet in de back-up
-    "marleyspoon_menus",  # idem voor Marley Spoon
-    "ah_receipt_products",  # koppeling artikelnummer -> product, zoekt de volgende synchronisatie van de bonnen opnieuw op
-    "image_cache",  # cache van winkelfoto's op schijf (image_cache.py), opnieuw op te bouwen
-    "mealie_recipe_nutrition", "mealie_recipe_nutrition_meta",  # calorieën van de recepten in Mealie (recipe_nutrition.py), herlaadbaar
-    "price_archive_jobs",  # de import van een prijsarchief die loopt (price_archive.py): tijdelijke staat
-    "catalogue_changes",  # de versie van de catalogus van de prijzen (prices._catalogue_version): bijhouden, niet bewaren
-    # De push van de kooktimers (push.py): een abonnement hoort bij een browser en bij de VAPID-sleutel van deze installatie
-    # (die zit er ook niet in), een timer duurt minuten. Na het terugzetten vraagt de app bij de volgende timer een nieuw aan.
-    "push_subscriptions", "cook_timers",
-})
+EXCLUDED_TABLES = frozenset(
+    {
+        "users",
+        "passkey_credentials",
+        "auth_challenges",
+        "revoked_sessions",
+        "password_credentials",
+        "mfa_totp",
+        "mfa_recovery_codes",
+        "login_attempts",
+        "invites",
+        "oauth_clients",
+        "oauth_codes",
+        "oauth_tokens",
+        "app_settings",  # staat er wel in, maar apart: zie SECRET_KEYS en PLAIN_SETTINGS
+        "audit_log",
+        "mealie_images",
+        "backup_jobs",
+        "sqlite_sequence",
+        "hellofresh_menus",  # kopie van openbare menu's van HelloFresh: herlaadbaar, dus niet in de back-up
+        "marleyspoon_menus",  # idem voor Marley Spoon
+        "ah_receipt_products",  # koppeling artikelnummer -> product, zoekt de volgende synchronisatie van de bonnen opnieuw op
+        "image_cache",  # cache van winkelfoto's op schijf (image_cache.py), opnieuw op te bouwen
+        "mealie_recipe_nutrition",
+        "mealie_recipe_nutrition_meta",  # calorieën van de recepten in Mealie (recipe_nutrition.py), herlaadbaar
+        "shared_price_documents",
+        "shared_price_sync",  # derived document hashes and scheduler state
+        "price_archive_jobs",  # de import van een prijsarchief die loopt (price_archive.py): tijdelijke staat
+        "catalogue_changes",  # de versie van de catalogus van de prijzen (prices._catalogue_version): bijhouden, niet bewaren
+        # De push van de kooktimers (push.py): een abonnement hoort bij een browser en bij de VAPID-sleutel van deze installatie
+        # (die zit er ook niet in), een timer duurt minuten. Na het terugzetten vraagt de app bij de volgende timer een nieuw aan.
+        "push_subscriptions",
+        "cook_timers",
+    }
+)
 
 # Opgeslagen koppelingen (versleuteld in app_settings) en bij welke koppeling ze horen.
 SECRET_KEYS: dict[str, str] = {
@@ -122,13 +199,15 @@ SECRET_KEYS: dict[str, str] = {
 }
 # Keuzes zonder geheim die mee teruggaan. Alles wat hier niet staat (AUTH_MODE, SESSION_EPOCH, ONBOARDING_*,
 # PUBLIC_BASE_URL, halve inlogpogingen) blijft zoals het is, ook als een bewerkt bestand het probeert mee te geven.
-PLAIN_SETTINGS = frozenset({
-    ai_review.SETTING_PROVIDER,
-    *(info["model_setting"] for info in ai_review.PROVIDERS.values()),
-    server_settings.SETTING_MCP,
-    server_settings.SETTING_TOOLS_OFF,
-    mealie.SETTING_WEEK_START,
-})
+PLAIN_SETTINGS = frozenset(
+    {
+        ai_review.SETTING_PROVIDER,
+        *(info["model_setting"] for info in ai_review.PROVIDERS.values()),
+        server_settings.SETTING_MCP,
+        server_settings.SETTING_TOOLS_OFF,
+        mealie.SETTING_WEEK_START,
+    }
+)
 MAX_SETTING_CHARS = 20_000
 
 # Onderdelen die de beheerder bij het maken kan weglaten en bij het terugzetten kan overslaan (naast de koppelingen). Een
@@ -149,14 +228,33 @@ COUNT_GROUPS: dict[str, tuple[str, ...]] = {
     "prices": ("price_observations",),
     "productImages": ("product_images",),
     "importedPurchases": ("imported_purchases",),
-    "productLinks": ("product_links",),
+    "productLinks": ("product_links", "shared_link_rejections"),
     "recipes": ("ah_saved_recipes", "offer_recipes"),
     "judgements": ("offer_rejections", "offer_verdicts", "ai_recipe_matches"),
     "profiles": ("user_profiles",),
     "cartMemory": ("cart_choices", "pantry_items"),
 }
 
-SCHEMA_OWNERS = (ah_lists, ah_orders, ah_recipes, cart_memory, crisp_orders, hellofresh, jumbo_lists, jumbo_orders, marleyspoon, offers, offers_schedule, picnic_orders, price_import, prices, product_links, profile)
+SCHEMA_OWNERS = (
+    ah_lists,
+    ah_orders,
+    ah_recipes,
+    cart_memory,
+    crisp_orders,
+    hellofresh,
+    jumbo_lists,
+    jumbo_orders,
+    loose_names,
+    marleyspoon,
+    offers,
+    offers_schedule,
+    picnic_orders,
+    price_import,
+    prices,
+    product_links,
+    profile,
+    shared_links,
+)
 
 JOB_SCHEMA = """
 CREATE TABLE IF NOT EXISTS backup_jobs (
@@ -330,8 +428,13 @@ def seal(payload: dict[str, str], passphrase: str) -> dict[str, Any]:
     salt = os.urandom(16)
     token = Fernet(_derive_key(passphrase, salt, SCRYPT_N)).encrypt(json.dumps(payload, ensure_ascii=False).encode("utf-8"))
     return {
-        "cipher": "fernet", "kdf": "scrypt", "n": SCRYPT_N, "r": SCRYPT_R, "p": SCRYPT_P,
-        "salt": base64.b64encode(salt).decode("ascii"), "token": token.decode("ascii"),
+        "cipher": "fernet",
+        "kdf": "scrypt",
+        "n": SCRYPT_N,
+        "r": SCRYPT_R,
+        "p": SCRYPT_P,
+        "salt": base64.b64encode(salt).decode("ascii"),
+        "token": token.decode("ascii"),
     }
 
 
@@ -372,9 +475,7 @@ def _stored_secrets(conn: sqlite3.Connection, box: Fernet) -> tuple[dict[str, st
     """De opgeslagen koppelingen, ontsleuteld; en hoeveel er onleesbaar waren (andere sleutel: opnieuw koppelen)."""
     found: dict[str, str] = {}
     unreadable = 0
-    rows = conn.execute(
-        f"SELECT key, value FROM app_settings WHERE key IN ({','.join('?' for _ in SECRET_KEYS)})", tuple(SECRET_KEYS)
-    ).fetchall()
+    rows = conn.execute(f"SELECT key, value FROM app_settings WHERE key IN ({','.join('?' for _ in SECRET_KEYS)})", tuple(SECRET_KEYS)).fetchall()
     for row in rows:
         value = str(row["value"] or "")
         try:
@@ -411,11 +512,7 @@ def write_backup(target: Path, *, links: bool, box: Fernet | None, passphrase: s
     with closing(thread_db.connect()) as conn:
         conn.execute("BEGIN")
         stored, unreadable = _stored_secrets(conn, box) if links and box else ({}, 0)
-        plain = {
-            row["key"]: row["value"]
-            for row in conn.execute("SELECT key, value FROM app_settings ORDER BY key")
-            if row["key"] in PLAIN_SETTINGS
-        }
+        plain = {row["key"]: row["value"] for row in conn.execute("SELECT key, value FROM app_settings ORDER BY key") if row["key"] in PLAIN_SETTINGS}
         header = {
             "format": FORMAT,
             "format_version": FORMAT_VERSION,
@@ -684,6 +781,7 @@ def replace_everything(
     try:
         conn.execute("PRAGMA busy_timeout = 30000")  # een lopende synchronisatie mag even afmaken
         conn.execute("BEGIN IMMEDIATE")
+        price_archive_sync.reset(conn)
         kept = plan.kept_tables()  # niet in het bestand of overgeslagen: blijft zoals het is
         for table in reversed(DATA_TABLES):
             if table not in kept:
@@ -784,6 +882,9 @@ async def stage(body: AsyncIterable[bytes], content_length: int | None) -> dict[
                 if received > MAX_STAGE_BYTES:
                     raise BackupError("too_large", 413, limit=MAX_STAGE_BYTES // (1024 * 1024))
                 handle.write(chunk)  # lokale schijf en stukken van hoogstens een paar MB: dat mag op de loop
+                # Elk stuk meteen naar schijf: de buffer van een bestand is sinds Python 3.15 128 KB (was 8 KB), en zonder
+                # flush bleven stukken tot die grootte in het geheugen staan.
+                handle.flush()
         await ensure_schemas()
         summary = await asyncio.to_thread(_check_staged, path)
     except BaseException:
@@ -936,9 +1037,7 @@ async def start_job(token: str, passphrase: str, *, skip_links: bool = False, sk
         except BaseException:
             await conn.rollback()
             raise
-    tasks.spawn(
-        f"backup-restore-{job_id}", run_job(job_id, running, passphrase, skip_links=skip_links, skip_parts=skip_parts)
-    )
+    tasks.spawn(f"backup-restore-{job_id}", run_job(job_id, running, passphrase, skip_links=skip_links, skip_parts=skip_parts))
     return {"id": job_id}
 
 
@@ -1094,7 +1193,8 @@ def register_routes(app: Quart) -> None:
         body = await request_body.json_object()
         try:
             job = await start_job(
-                str(body.get("token") or ""), str(body.get("passphrase") or ""),
+                str(body.get("token") or ""),
+                str(body.get("passphrase") or ""),
                 skip_links=body.get("links", True) is False,  # standaard zet je alles terug wat in het bestand zit
                 skip_parts=[part for part in OPTIONAL_PARTS if body.get(part, True) is False],
             )

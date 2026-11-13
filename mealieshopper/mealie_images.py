@@ -4,6 +4,7 @@ Mealie staat vaak op een adres dat de browser niet kan bereiken (of achter een
 token). De server haalt de afbeelding dus op met de API-token en bewaart hem in
 SQLite; daarna is Mealie niet meer nodig om het weekmenu met plaatjes te tonen.
 """
+
 from __future__ import annotations
 
 import re

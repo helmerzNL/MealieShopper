@@ -101,7 +101,9 @@ class ConfirmDialogTest(unittest.TestCase):
             code = re.sub(r"//[^\n]*", "", source)
             self.assertNotRegex(code, r"window\.(confirm|alert)\(|(?<![\w.])(confirm|alert)\(", name)
         self.assertEqual(sum(source.count("confirmDialog(") for source in ALL_JS.values()), 15, "veertien vragen en de functie zelf")
-        self.assertIn('<dialog id="confirm-dialog" class="product-dialog confirm-dialog" role="alertdialog" aria-labelledby="confirm-dialog-text">', INDEX_HTML)
+        self.assertIn(
+            '<dialog id="confirm-dialog" class="product-dialog confirm-dialog" role="alertdialog" aria-labelledby="confirm-dialog-text">', INDEX_HTML
+        )
 
 
 TOAST_PAGE = r"""
@@ -128,7 +130,12 @@ const $ = (selector) => (selector === "#toasts" ? box : null);
 @unittest.skipUnless(shutil.which("node"), "Node is niet geïnstalleerd")
 class ToastTest(unittest.TestCase):
     def test_a_success_goes_away_and_an_error_stays_until_closed(self):
-        out = run_node(self, [TOAST_PAGE, function_source(APP_JS, "toast"), """
+        out = run_node(
+            self,
+            [
+                TOAST_PAGE,
+                function_source(APP_JS, "toast"),
+                """
             toast("Opgeslagen");
             toast("Opgeslagen");                                   // dezelfde melding stapelt niet
             toast("Uitloggen is niet gelukt", "error");
@@ -138,11 +145,16 @@ class ToastTest(unittest.TestCase):
             box.children[0].children[1].listeners.click();         // Sluiten
             toast("");                                             // zonder tekst geen melding
             console.log(JSON.stringify({ shown, ms: timers.map((timer) => timer.ms), after, left: box.children.length }));
-            """])
-        self.assertEqual(out["shown"], [
-            {"cls": "toast toast--success", "role": "status", "text": "Opgeslagen", "close": False},
-            {"cls": "toast toast--error", "role": "alert", "text": "Uitloggen is niet gelukt", "close": True},
-        ])
+            """,
+            ],
+        )
+        self.assertEqual(
+            out["shown"],
+            [
+                {"cls": "toast toast--success", "role": "status", "text": "Opgeslagen", "close": False},
+                {"cls": "toast toast--error", "role": "alert", "text": "Uitloggen is niet gelukt", "close": True},
+            ],
+        )
         self.assertEqual(set(out["ms"]), {4000})
         self.assertEqual(out["after"], ["toast toast--error"], "een fout verdwijnt niet vanzelf")
         self.assertEqual(out["left"], 0)
@@ -158,12 +170,18 @@ class ToastTest(unittest.TestCase):
 @unittest.skipUnless(shutil.which("node"), "Node is niet geïnstalleerd")
 class LoadingAndChartTest(unittest.TestCase):
     def test_loading_reserves_room_and_is_announced(self):
-        out = run_node(self, [
-            "const t = (key) => key; const escapeHtml = (value) => String(value).replace('<', '&lt;'); const mdiIcon = (path, cls) => `<svg class=\"${cls}\"></svg>`; const MDI_LOADING = '';",
-            function_source(APP_JS, "loadingHtml"), function_source(APP_JS, "mealPlanSkeletonHtml"),
-            "console.log(JSON.stringify({ plain: loadingHtml(), named: loadingHtml('Mandje <laden>'), week: mealPlanSkeletonHtml([1, 2, 3, 4, 5, 6, 7]) }));",
-        ])
-        self.assertEqual(out["plain"], '<div class="loading-box" role="status"><svg class="loading-box__icon"></svg><span>common.loading</span></div>')
+        out = run_node(
+            self,
+            [
+                "const t = (key) => key; const escapeHtml = (value) => String(value).replace('<', '&lt;'); const mdiIcon = (path, cls) => `<svg class=\"${cls}\"></svg>`; const MDI_LOADING = '';",
+                function_source(APP_JS, "loadingHtml"),
+                function_source(APP_JS, "mealPlanSkeletonHtml"),
+                "console.log(JSON.stringify({ plain: loadingHtml(), named: loadingHtml('Mandje <laden>'), week: mealPlanSkeletonHtml([1, 2, 3, 4, 5, 6, 7]) }));",
+            ],
+        )
+        self.assertEqual(
+            out["plain"], '<div class="loading-box" role="status"><svg class="loading-box__icon"></svg><span>common.loading</span></div>'
+        )
         self.assertIn("Mandje &lt;laden>", out["named"])
         self.assertEqual(out["week"].count('class="day-card day-card--skeleton" aria-hidden="true"'), 7)
         self.assertRegex(CSS, r"\.loading-box \{[^}]*min-height: 160px;")
@@ -174,15 +192,23 @@ class LoadingAndChartTest(unittest.TestCase):
         self.assertIn('message("#ah-orders-message", ordersState.loaded ? "" : t("common.loading"), "info");', ALL_JS["orders.js"])
 
     def test_the_chart_is_one_tab_stop_and_the_arrow_keys_walk_the_points(self):
-        out = run_node(self, [function_source(HISTORY_JS, "offerChartNext"), """
+        out = run_node(
+            self,
+            [
+                function_source(HISTORY_JS, "offerChartNext"),
+                """
             const moves = {};
             for (const [name, key, index, count] of [["first", "ArrowRight", -1, 5], ["next", "ArrowRight", 1, 5], ["last", "ArrowRight", 4, 5], ["prev", "ArrowLeft", 2, 5],
                 ["start", "ArrowLeft", 0, 5], ["fromChart", "ArrowLeft", -1, 5], ["home", "Home", 3, 5], ["end", "End", 0, 5], ["other", "a", 2, 5], ["empty", "ArrowRight", -1, 0]]) {
               moves[name] = offerChartNext(key, index, count);
             }
             console.log(JSON.stringify(moves));
-            """])
-        self.assertEqual(out, {"first": 0, "next": 2, "last": 4, "prev": 1, "start": 0, "fromChart": 0, "home": 0, "end": 4, "other": None, "empty": None})
+            """,
+            ],
+        )
+        self.assertEqual(
+            out, {"first": 0, "next": 2, "last": 4, "prev": 1, "start": 0, "fromChart": 0, "home": 0, "end": 4, "other": None, "empty": None}
+        )
         chart = function_source(HISTORY_JS, "offerHistoryChart") if "function offerHistoryChart(" in HISTORY_JS else HISTORY_JS
         self.assertNotIn('tabindex="0"><title>', HISTORY_JS, "geen Tab-stop per balk of stip")
         self.assertEqual(HISTORY_JS.count('tabindex="-1" role="img" aria-label="${escapeHtml('), 5)
@@ -190,10 +216,15 @@ class LoadingAndChartTest(unittest.TestCase):
         self.assertIn('document.addEventListener("keydown", offerChartKeys);', HISTORY_JS)
 
     def test_the_app_behind_an_overlay_is_out_of_reach(self):
-        out = run_node(self, ["""
+        out = run_node(
+            self,
+            [
+                """
             const layers = { "#auth-gate": { hidden: true }, "#invite-gate": { hidden: true }, "#onboarding": { hidden: true }, ".topbar": {}, "main.shell": {} };
             const document = { querySelector: (selector) => layers[selector] || null };
-            """, function_source(APP_JS, "syncAppInert"), """
+            """,
+                function_source(APP_JS, "syncAppInert"),
+                """
             const states = [];
             const read = () => [Boolean(layers[".topbar"].inert), Boolean(layers["main.shell"].inert)];
             syncAppInert(); states.push(read());
@@ -202,14 +233,16 @@ class LoadingAndChartTest(unittest.TestCase):
             layers["#auth-gate"].hidden = true; syncAppInert(); states.push(read());
             delete layers["#invite-gate"]; syncAppInert(); states.push(read());
             console.log(JSON.stringify(states));
-            """])
+            """,
+            ],
+        )
         self.assertEqual(out, [[False, False], [True, True], [True, True], [False, False], [False, False]])
         self.assertIn("syncAppInert();", function_source(APP_JS, "renderAuthState"))
         self.assertEqual(ALL_JS["onboarding.js"].count('if (typeof syncAppInert === "function") syncAppInert();'), 2)
 
 
 def luminance(colour):
-    values = [int(colour[i:i + 2], 16) / 255 for i in (1, 3, 5)]
+    values = [int(colour[i : i + 2], 16) / 255 for i in (1, 3, 5)]
     linear = [value / 12.92 if value <= 0.03928 else ((value + 0.055) / 1.055) ** 2.4 for value in values]
     return 0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2]
 
@@ -241,7 +274,14 @@ class StylesheetTest(unittest.TestCase):
 
     def test_small_controls_get_a_44_px_touch_area(self):
         block = re.search(r"@media \(pointer: coarse\) \{(.*?)\n\}\n", CSS, re.S).group(1)
-        for selector in (".qty__step::after", ".meal__edit::after", ".day-card__add--compact::after", ".purchase-table__action::after", ".offer-row__links .icon-button::after", ".list-card__action::after"):
+        for selector in (
+            ".qty__step::after",
+            ".meal__edit::after",
+            ".day-card__add--compact::after",
+            ".purchase-table__action::after",
+            ".offer-row__links .icon-button::after",
+            ".list-card__action::after",
+        ):
             self.assertIn(selector, block)
         self.assertRegex(block, r"width: 44px;\s*height: 44px;")
         self.assertRegex(block, r"\.ohc-range-button,\s*details\.help > summary,\s*\.user-menu__item \{\s*min-height: 44px;")
@@ -255,7 +295,9 @@ class StylesheetTest(unittest.TestCase):
             self.assertRegex(CSS, selector + r" \{[^}]*border: 1px solid var\(--control-border\);")
 
     def test_the_first_tab_stop_skips_to_the_content(self):
-        self.assertLess(INDEX_HTML.index('<a class="skip-link" href="#main" data-i18n="nav.skip">Naar de inhoud</a>'), INDEX_HTML.index('<header class="topbar">'))
+        self.assertLess(
+            INDEX_HTML.index('<a class="skip-link" href="#main" data-i18n="nav.skip">Naar de inhoud</a>'), INDEX_HTML.index('<header class="topbar">')
+        )
         self.assertIn('<main class="shell" id="main" tabindex="-1">', INDEX_HTML)
         self.assertRegex(CSS, r"\.skip-link:focus \{\s*transform: none;")
 
@@ -266,14 +308,23 @@ class FormsAndTextsTest(unittest.TestCase):
             tag = re.search(rf'<(?:input|textarea)[^>]*id="{field}"[^>]*>', INDEX_HTML).group(0)
             self.assertIn("aria-label=", tag, field)
             self.assertRegex(tag, r'data-i18n-attr="[^"]*aria-label:', field)
-        self.assertRegex(INDEX_HTML, r'<label class="field field--inline"><span data-i18n="sec\.passkeys\.name">[^<]+</span><input class="input" id="new-passkey-name"')
+        self.assertRegex(
+            INDEX_HTML,
+            r'<label class="field field--inline"><span data-i18n="sec\.passkeys\.name">[^<]+</span><input class="input" id="new-passkey-name"',
+        )
 
     def test_the_password_rule_stands_at_the_field_and_matches_the_server(self):
         from mealieshopper import auth_password, backup
 
         for field in ("invite-password", "pw-new"):
-            self.assertRegex(INDEX_HTML, rf'id="{field}" type="password" autocomplete="new-password" minlength="{auth_password.MIN_PASSWORD_LENGTH}"[^>]*>\s*<small class="muted field__hint" data-i18n="field\.password_rule">Minstens {auth_password.MIN_PASSWORD_LENGTH} tekens')
-        self.assertRegex(INDEX_HTML, rf'id="backup-passphrase" type="password" autocomplete="new-password" minlength="{backup.MIN_PASSPHRASE_LENGTH}">\s*<small class="muted field__hint" data-i18n="backup\.passphrase_rule">Minstens {backup.MIN_PASSPHRASE_LENGTH} tekens')
+            self.assertRegex(
+                INDEX_HTML,
+                rf'id="{field}" type="password" autocomplete="new-password" minlength="{auth_password.MIN_PASSWORD_LENGTH}"[^>]*>\s*<small class="muted field__hint" data-i18n="field\.password_rule">Minstens {auth_password.MIN_PASSWORD_LENGTH} tekens',
+            )
+        self.assertRegex(
+            INDEX_HTML,
+            rf'id="backup-passphrase" type="password" autocomplete="new-password" minlength="{backup.MIN_PASSPHRASE_LENGTH}">\s*<small class="muted field__hint" data-i18n="backup\.passphrase_rule">Minstens {backup.MIN_PASSPHRASE_LENGTH} tekens',
+        )
 
     def test_the_server_answers_in_the_language_of_the_user(self):
         for module in ("auth.py", "profile.py"):

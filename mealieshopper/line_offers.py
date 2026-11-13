@@ -13,6 +13,9 @@ De regel is bewust streng, want een lijnactie op de verkeerde plek is erger dan 
   elk deel apart: dan moeten alle woorden van een deel erin staan, plus het eerste woord van de naam, meestal het merk. Een
   deel telt alleen met minstens twee eigen woorden naast dat eerste woord: in "AH Biologisch en Excellent soep" hoort "soep"
   ook bij "AH Biologisch", dus dat deel zegt te weinig, en "Tradizionale" alleen ook (`line_alternatives`).
+* Een woord dat de categorie van het product noemt mag in de naam ontbreken: "Alle AH Bakkersbrood Les Pains heel" hoort bij
+  "AH Les pains triomphe heel" uit Brood & Bakkerij, want "bakkersbrood" eindigt op "brood". Dat mag een woord zijn, en de andere
+  woorden moeten er wel staan, minstens drie: "Alle AH Bakkersbrood tijgerbrood heel" en "AH Tijgerbrood heel" horen er niet bij.
 * Het huismerk telt als woord: "AH Chips paprika" hoort niet bij "Lay's Paprika chips".
 * Een biologisch product krijgt alleen een biologische actie: "AH Rundergehakt" hoort niet bij "AH Biologisch Rundergehakt".
 * Noemt de foldernaam een verpakking ("Coca-Cola 1,5 liter") en kent de app de verpakking van het product, dan moeten ze gelijk
@@ -115,9 +118,7 @@ _NOT_THE_PRODUCT: frozenset[str] = frozenset(
 )
 ORGANIC: frozenset[str] = frozenset({"biologisch", "biologische", "bio", "organic", "eko"})  # zoals prices.ORGANIC_WORDS
 _WORD: re.Pattern[str] = re.compile(r"[a-z0-9]+")
-_MULTIPACK: re.Pattern[str] = re.compile(
-    r"\d\s*x\s*\d|\b\d+\s*-?\s*(?:pack|packs|pak|pakken)\b|\bmultipack\b"
-)
+_MULTIPACK: re.Pattern[str] = re.compile(r"\d\s*x\s*\d|\b\d+\s*-?\s*(?:pack|packs|pak|pakken)\b|\bmultipack\b")
 
 
 def _stem(word: str) -> str:
@@ -127,6 +128,15 @@ def _stem(word: str) -> str:
     if len(word) > 3 and word.endswith("s"):
         return word[:-1]
     return word
+
+
+CATEGORY_WORD_LENGTH: int = 4  # korter zegt te weinig: "vis" zit ook in "advies"
+NAMED_WORDS: int = 3  # zoveel woorden van de regel moeten in de naam staan als een (en niet meer dan een) woord de categorie noemt
+
+
+def category_words(category: str | None) -> frozenset[str]:
+    """De woorden van een categorie ("brood_bakkerij": brood, bakkerij), enkelvoud, waarmee een folderwoord de categorie noemt."""
+    return frozenset(word for word in (_stem(part) for part in str(category or "").split("_")) if len(word) >= CATEGORY_WORD_LENGTH)
 
 
 def _tokens(name: str | None) -> list[str]:
@@ -181,9 +191,7 @@ def _size(title: str) -> tuple[float, str] | None:
 
 
 def _same_size(one: tuple[float, str], other: tuple[float, str]) -> bool:
-    return one[1] == other[1] and abs(one[0] - other[0]) <= 0.005 * max(
-        one[0], other[0]
-    )
+    return one[1] == other[1] and abs(one[0] - other[0]) <= 0.005 * max(one[0], other[0])
 
 
 class Line(NamedTuple):
@@ -198,6 +206,7 @@ class LineIndex:
 
     def __init__(self, folder_products: Iterable[tuple[str, str]]) -> None:
         self._by_word: dict[str, list[Line]] = {}
+        self._by_ending: dict[str, list[Line]] = {}  # categoriewoord -> de regels met een woord dat erop eindigt, zie `_ending`
         seen: set[str] = set()
         for product_id, title in folder_products:
             if product_id in seen:
@@ -210,24 +219,29 @@ class LineIndex:
     def __len__(self) -> int:
         return sum(len(lines) for lines in self._by_word.values())
 
+    def _ending(self, kind: str) -> list[Line]:
+        """De regels met een woord dat op een categoriewoord eindigt ("bakkersbrood" op "brood"), een keer uitgezocht per woord."""
+        if kind not in self._by_ending:
+            self._by_ending[kind] = [line for lines in self._by_word.values() for line in lines if any(word.endswith(kind) for word in line.words)]
+        return self._by_ending[kind]
+
     def _fits(
         self,
         line: Line,
         have: frozenset[str],
         several: bool,
         sizes: list[tuple[float, str]],
+        kinds: frozenset[str] = frozenset(),
     ) -> bool:
-        if line.multipack != several or not line.words <= have or (have & ORGANIC and not line.words & ORGANIC):
-            return False
-        return (
-            line.size is None
-            or not sizes
-            or any(_same_size(line.size, size) for size in sizes)
+        missing: frozenset[str] = line.words - have
+        named: bool = not missing or (
+            len(missing) == 1 and len(line.words & have) >= NAMED_WORDS and all(any(word.endswith(kind) for kind in kinds) for word in missing)
         )
+        if line.multipack != several or not named or (have & ORGANIC and not line.words & ORGANIC):
+            return False
+        return line.size is None or not sizes or any(_same_size(line.size, size) for size in sizes)
 
-    def lines_for(
-        self, names: Iterable[str], sizes: Iterable[tuple[float, str]] = ()
-    ) -> list[str]:
+    def lines_for(self, names: Iterable[str], sizes: Iterable[tuple[float, str]] = (), kinds: frozenset[str] = frozenset()) -> list[str]:
         """De folderproducten waarvan elk woord in een van de namen staat, en waarvan de verpakking (als hij er een noemt) bij
         een van de verpakkingen past (als die bekend zijn). Gesorteerd, zodat de uitkomst vastligt."""
         known_sizes: list[tuple[float, str]] = list(sizes)
@@ -236,11 +250,9 @@ class LineIndex:
             have: frozenset[str] = words(name)
             several: bool = multipack(name)
             for word in have:
-                found.update(
-                    line.product_id
-                    for line in self._by_word.get(word, ())
-                    if self._fits(line, have, several, known_sizes)
-                )
+                found.update(line.product_id for line in self._by_word.get(word, ()) if self._fits(line, have, several, known_sizes))
+            for kind in kinds:  # een woord van de regel noemt de categorie van het product (`category_words`)
+                found.update(line.product_id for line in self._ending(kind) if self._fits(line, have, several, known_sizes, kinds))
         return sorted(found)
 
 

@@ -38,15 +38,23 @@ def const_source(source, name):
     return match.group(0)
 
 
-APP_HELPERS = ["preferredSupermarket", "preferredSupermarketKnown", "defaultStoreOf", "linkedStoreKeys", "offersStoreParam",
-               "offersOnlyStore", "storeWithoutLink"]
+APP_HELPERS = [
+    "preferredSupermarket",
+    "preferredSupermarketKnown",
+    "defaultStoreOf",
+    "linkedStoreKeys",
+    "offersStoreParam",
+    "offersOnlyStore",
+    "storeWithoutLink",
+]
 
 # Aanbiedingen: wat offersFollowPreferred, offersSwitchStore en routerApplyOffers aanraken, nagebootst. `loads` telt elke
 # keer dat de aanbiedingen laden; `active` zegt of de pagina Aanbiedingen open staat.
 OFFERS_PAGE = r"""
 const state = { auth: { preferredStore: "ah" }, linkedStores: { jumbo: false, picnic: false, crisp: false },
   storeStatusKnown: { jumbo: false, picnic: false, crisp: false } };
-const offersState = { store: "ah", category: "x", course: "x", chosen: false, waiting: false };
+const offersState = { store: "ah", category: "x", courses: { shown: ["x"], hidden: [] }, chosen: false, waiting: false };
+function facetSelection() { return { shown: [], hidden: [] }; }
 const router = { pending: "", applying: 0 };
 const window = { location: { href: "https://shop.example/offers" } };
 const loads = [];
@@ -103,15 +111,18 @@ class PreferredStoreTest(unittest.TestCase):
             console.log(JSON.stringify(rows));
             """
         )
-        self.assertEqual(out, [
-            ["ah", True, "ah"],
-            ["ah", True, "ah"],
-            ["jumbo", False, "ah"],
-            ["jumbo", True, "ah"],
-            ["jumbo", True, "jumbo"],
-            ["ah", True, "ah"],
-            ["crisp", True, "crisp"],
-        ])
+        self.assertEqual(
+            out,
+            [
+                ["ah", True, "ah"],
+                ["ah", True, "ah"],
+                ["jumbo", False, "ah"],
+                ["jumbo", True, "ah"],
+                ["jumbo", True, "jumbo"],
+                ["ah", True, "ah"],
+                ["crisp", True, "crisp"],
+            ],
+        )
 
     def test_the_address_leaves_out_only_the_store_the_page_opens_with(self):
         out = self.run_js(
@@ -123,7 +134,7 @@ class PreferredStoreTest(unittest.TestCase):
         )
         self.assertEqual(out[0], ["", "jumbo"])
         self.assertEqual(out[1], ["ah", "", "picnic"], "met Jumbo als voorkeur heeft Albert Heijn zijn eigen adres")
-        self.assertIn('store: offersStoreParam(store)', APP_JS, "ook de links naar de prijsgeschiedenis (een kassabon van AH)")
+        self.assertIn("store: offersStoreParam(store)", APP_JS, "ook de links naar de prijsgeschiedenis (een kassabon van AH)")
 
     def test_offers_follow_the_preferred_store_until_you_choose_one(self):
         out = self.run_js(
@@ -152,11 +163,13 @@ class PreferredStoreTest(unittest.TestCase):
             active = false;
             state.auth = { preferredStore: "crisp" }; link("crisp");
             offersFollowPreferred();
-            console.log(JSON.stringify({ ...result(), category: offersState.category, course: offersState.course }));
+            console.log(JSON.stringify({ ...result(), course: offersState.courses }));
             """
         )
         self.assertEqual((out["store"], out["loads"]), ("crisp", []), "laden doet showOffers bij het openen")
-        self.assertEqual((out["category"], out["course"], out["historyChanged"]), ("all", "all", 1))
+        self.assertEqual(
+            (out["course"], out["historyChanged"]), ({"shown": [], "hidden": []}, 1)
+        )  # de categorieen zijn filters per winkel (offersFilters)
 
     def test_an_address_waiting_for_a_link_decides_first(self):
         out = self.run_js(
@@ -201,8 +214,8 @@ class PreferredStoreTest(unittest.TestCase):
         self.assertIn("if (offersState.waiting && preferredSupermarketKnown() && offersTabActive()", render, "daarna alsnog laden")
         for name in ("jumbo", "picnic", "crisp"):
             script = (STATIC / f"{name}.js").read_text(encoding="utf-8")
-            status = script[script.index("Status() {"):]
-            self.assertIn(f"state.storeStatusKnown.{name} = true;", status[:status.index("renderStoreChoice();")], name)
+            status = script[script.index("Status() {") :]
+            self.assertIn(f"state.storeStatusKnown.{name} = true;", status[: status.index("renderStoreChoice();")], name)
 
     def test_the_old_remembered_offers_store_is_gone(self):
         # Die gold nooit (AH stond er altijd al) en zou de voorkeurssupermarkt overschrijven.
@@ -222,7 +235,9 @@ class PreferredStoreTest(unittest.TestCase):
         )
         before, address, linked, lidl, jumbo = out
         self.assertEqual(before, ["ah", "lidl", "aldi"], "zonder koppelingen: AH, Lidl en Aldi")
-        self.assertEqual((address[0]["store"], address[0]["chosen"], address[0]["pending"]), ("lidl", True, ""), "een adres met Lidl wacht nergens op")
+        self.assertEqual(
+            (address[0]["store"], address[0]["chosen"], address[0]["pending"]), ("lidl", True, ""), "een adres met Lidl wacht nergens op"
+        )
         self.assertEqual((address[1]["store"], address[1]["loads"]), ("aldi", ["aldi"]))
         self.assertEqual(linked, ["ah"], "Lidl en Aldi horen niet bij het mandje, Winkels of de voorkeurssupermarkt")
         self.assertEqual((lidl, jumbo), (True, False))
@@ -248,8 +263,14 @@ class StoresFollowPreferredTest(unittest.TestCase):
         const offersState = { chosen: true };
         function link(store) { state.linkedStores[store] = true; state.storeStatusKnown[store] = true; }
         """
-        parts = [page, const_source(APP_JS, "STORES"), *(function_source(APP_JS, name) for name in APP_HELPERS),
-                 function_source(APP_JS, "itemsFollowPreferred"), function_source(APP_JS, "preferredSupermarketChanged"), scenario]
+        parts = [
+            page,
+            const_source(APP_JS, "STORES"),
+            *(function_source(APP_JS, name) for name in APP_HELPERS),
+            function_source(APP_JS, "itemsFollowPreferred"),
+            function_source(APP_JS, "preferredSupermarketChanged"),
+            scenario,
+        ]
         result = subprocess.run(["node", "-e", "\n".join(parts)], capture_output=True, text=True, timeout=30, check=False)
         self.assertEqual(result.returncode, 0, result.stderr)
         return json.loads(result.stdout.strip().splitlines()[-1])
@@ -322,7 +343,6 @@ class PreferencesMarkupTest(unittest.TestCase):
         self.assertIn("JSON.stringify({ preferredStore: store })", body)
         self.assertIn("preferredSupermarketChanged();", body)
         self.assertIn("state.auth = { ...state.auth, preferredStore: previous };", body, "geweigerd: de vorige terug")
-
 
 
 if __name__ == "__main__":

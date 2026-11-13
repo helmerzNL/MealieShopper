@@ -14,6 +14,7 @@ docs/onderzoek-supermarkten.md.
 - Wat alleen in een groep met non-food staat (speelgoed, kleding, kerstverlichting), laten we weg.
 - Een lege lijst is een fout (`AldiError`): dan blijft de vorige kopie staan, zoals bij de andere winkels.
 """
+
 from __future__ import annotations
 
 import json
@@ -254,20 +255,22 @@ def offers_from_html(text: str, today: date | None = None) -> list[dict[str, Any
                 continue
             label, price = _label_and_price(period["price"])
             before = _number(_dict(period["price"].get("strikePrice")).get("strikePriceValue"))
-            found.append({
-                "id": product_id,
-                "title": name,
-                "brand": brand.strip() if isinstance(brand, str) and brand.strip() else None,
-                "unitSize": _unit_size(item.get("salesUnit")),
-                "price": price,
-                "priceBefore": before if before and before > price else None,
-                "promoLabel": label,
-                "image": _image(item),
-                "url": PRODUCT_URL.format(slug=slug) if isinstance(slug, str) and _SLUG.match(slug) else "",
-                "validFrom": period["from"].isoformat() if period["from"] else None,
-                "validUntil": period["until"].isoformat() if period["until"] else None,
-                "categoryHint": _category_hint(item, groups),
-            })
+            found.append(
+                {
+                    "id": product_id,
+                    "title": name,
+                    "brand": brand.strip() if isinstance(brand, str) and brand.strip() else None,
+                    "unitSize": _unit_size(item.get("salesUnit")),
+                    "price": price,
+                    "priceBefore": before if before and before > price else None,
+                    "promoLabel": label,
+                    "image": _image(item),
+                    "url": PRODUCT_URL.format(slug=slug) if isinstance(slug, str) and _SLUG.match(slug) else "",
+                    "validFrom": period["from"].isoformat() if period["from"] else None,
+                    "validUntil": period["until"].isoformat() if period["until"] else None,
+                    "categoryHint": _category_hint(item, groups),
+                }
+            )
     return found
 
 
@@ -275,8 +278,10 @@ async def get_offers() -> list[dict[str, Any]]:
     """De aanbiedingen van Aldi voor `offers.sync`. Geen account nodig."""
     found = offers_from_html(await _page())
     if not found:
-        raise AldiError(tr(
-            "Aldi gaf geen aanbiedingen (de pagina is leeg of anders van vorm)",
-            "Aldi returned no offers (the page is empty or has changed)",
-        ))
+        raise AldiError(
+            tr(
+                "Aldi gaf geen aanbiedingen (de pagina is leeg of anders van vorm)",
+                "Aldi returned no offers (the page is empty or has changed)",
+            )
+        )
     return found

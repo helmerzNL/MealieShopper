@@ -1,26 +1,82 @@
 import hashlib
 import inspect
 import mimetypes
+import sqlite3
 from collections.abc import Awaitable, Callable, Iterable
 from datetime import date, timedelta
 from os import environ
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote_plus
-import sqlite3
 
 import httpx
 from quart import Quart, Response, jsonify, redirect, render_template, request, send_file, send_from_directory
 
-from . import about, ah, ah_explore, ah_lists, ah_orders, ah_planner, ah_recipes, ai_match, ai_review, audit, auth_password, backup, cart_memory, crisp, crisp_orders, factory_reset, hellofresh, image_cache, jumbo, jumbo_explore, jumbo_lists, jumbo_orders, jumbo_recipes, marleyspoon, mcp_http, mealie, mealie_images, offers, offers_schedule, onboarding, picnic, picnic_explore, picnic_orders, picnic_recipes, price_archive, price_import, prices, product_images, product_links, profile, push, recipe_bulk, recipe_nutrition, request_body, server_settings, updates, users
-from . import auth, deals, http_client, tasks, urls
-from . import assets
+from . import (
+    about,
+    ah,
+    ah_explore,
+    ah_lists,
+    ah_orders,
+    ah_planner,
+    ah_recipes,
+    ai_match,
+    ai_review,
+    assets,
+    audit,
+    auth,
+    auth_password,
+    backup,
+    cart_memory,
+    crisp,
+    crisp_orders,
+    deals,
+    factory_reset,
+    hellofresh,
+    http_client,
+    image_cache,
+    jumbo,
+    jumbo_explore,
+    jumbo_lists,
+    jumbo_orders,
+    jumbo_recipes,
+    loose_names,
+    loose_names_ai,
+    marleyspoon,
+    mcp_http,
+    mealie,
+    mealie_images,
+    offers,
+    offers_schedule,
+    onboarding,
+    picnic,
+    picnic_explore,
+    picnic_orders,
+    picnic_recipes,
+    price_archive,
+    price_import,
+    prices,
+    product_images,
+    product_links,
+    profile,
+    push,
+    recipe_bulk,
+    recipe_diet,
+    recipe_nutrition,
+    request_body,
+    server_settings,
+    shared_links,
+    shared_links_export,
+    tasks,
+    updates,
+    urls,
+    users,
+)
 from .body_limits import DEFAULT_MAX_BODY, SizedRequest
 from .forwarded import ForwardedHeaders
+from .i18n import tr
 from .keep_running import FinishAfterDisconnect
 from .response_cache import ResponseCache
-from .i18n import tr
-
 
 # Python kent .webmanifest niet overal; browsers verwachten application/manifest+json.
 mimetypes.add_type("application/manifest+json", ".webmanifest")
@@ -114,6 +170,7 @@ def create_app() -> Quart:
     async def offers_recipes_flag():
         # Het tabblad Recepten bij Aanbiedingen: aan met de omgevingsvariabele, of zodra er een AI-sleutel is ingesteld (zie ai_review.py).
         return {"offers_recipes_visible": app.config["OFFERS_RECIPES"] or await ai_review.configured()}
+
     audit.register_routes(app)
     auth.register_routes(app)
     auth_password.register_routes(app)
@@ -201,9 +258,7 @@ def create_app() -> Quart:
     @app.get("/favicon.ico")
     async def favicon():
         # Browsers vragen /favicon.ico op zonder <link>; dit blijft zonder inloggen bereikbaar.
-        return await send_from_directory(
-            Path(app.static_folder) / "brand", "favicon.ico", mimetype="image/x-icon"
-        )
+        return await send_from_directory(Path(app.static_folder) / "brand", "favicon.ico", mimetype="image/x-icon")
 
     @app.get("/healthz")
     async def healthz():
@@ -284,14 +339,21 @@ def create_app() -> Quart:
     @app.get("/api/mealie/recipes")
     async def mealie_recipes_search():
         async def found() -> dict[str, Any]:
-            # Met een grens op een voedingswaarde (kcalMin, proteinMax, saltMax ..., zie nutrition.FILTERS) zoekt de cache van
-            # recipe_nutrition.py, anders Mealie zelf.
+            # Met een grens op een voedingswaarde (kcalMin, proteinMax, saltMax ..., zie nutrition.FILTERS) of een filter op tags,
+            # categorieën, bereidingstijd of volgorde (issue #322, zie recipe_nutrition.filters) zoekt de cache van
+            # recipe_nutrition.py, anders Mealie zelf. Zonder zoekterm en filters geeft Mealie alle recepten op naam (bladeren).
             limits = recipe_nutrition.bounds(request.args)
-            if not limits:
+            wanted = recipe_nutrition.filters(request.args)
+            if not limits and not wanted.active():
                 return await mealie.search_recipes(request.args.get("q"), request.args.get("page") or 1)
-            return await recipe_nutrition.search(request.args.get("q"), limits, request.args.get("page") or 1)
+            return await recipe_nutrition.search(request.args.get("q"), limits, request.args.get("page") or 1, wanted=wanted)
 
         return await mealie_action(found, tr("Zoeken in Mealie mislukt", "Searching Mealie failed"))
+
+    # De tags en categorieën van je recepten met het aantal per stuk: de lijsten met plus en min van Recepten zoeken (issue #322).
+    @app.get("/api/mealie/recipes/facets")
+    async def mealie_recipes_facets():
+        return await mealie_action(recipe_nutrition.facets, tr("Tags uit Mealie laden mislukt", "Loading the tags from Mealie failed"))
 
     # Voedingswaarden van oude AH-recepten in Mealie aanvullen (alleen de beheerder: het pad staat in auth.ADMIN_PATHS).
     @app.get("/api/mealie/nutrition/backfill")
@@ -373,15 +435,33 @@ def create_app() -> Quart:
 
         return await bulk_action(cancel)
 
+    def search_filters() -> recipe_diet.Wanted | None:
+        """De filters van Recepten zoeken voor een winkel of maaltijdbox (menugang, dieet, vlees/vis/gevogelte, tijd), of None
+        zonder filter. Een tijd die geen getal is, geeft een ValueError: de routes maken daar een 400 of een winkelfout van."""
+        wanted = recipe_diet.wanted_from(request.args)
+        return wanted if wanted.active() else None
+
+    def filtered(source: str, found: dict[str, Any]) -> dict[str, Any]:
+        """Een zoekuitkomst met alles op één pagina (Picnic, Crisp): alleen de kaarten die door de filters komen."""
+        wanted = search_filters()
+        if wanted is None:
+            return found
+        recipes = recipe_diet.filter_cards(source, list(found.get("recipes") or []), wanted)
+        return {**found, "recipes": recipes, "total": len(recipes)}
+
     @app.get("/api/ah/search")
     async def ah_search():
         query = (request.args.get("q") or "").strip()
         page = int(request.args.get("page") or 0)
         if not query:
             return jsonify({"error": tr("Zoekterm ontbreekt", "Search term is missing")}), 400
+        try:
+            wanted = recipe_diet.wanted_from(request.args)  # menugang, dieet, vlees/vis/gevogelte en tijd (4.22.0)
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
 
         try:
-            return jsonify(await ah.search_recipes(query, page))
+            return jsonify(await ah.search_recipes(query, page, wanted=wanted if wanted.active() else None))
         except Exception as exc:
             app.logger.exception("AH search error")
             return jsonify({"error": str(exc) or tr("Zoeken mislukt", "Search failed")}), 424
@@ -465,9 +545,7 @@ def create_app() -> Quart:
             return jsonify({"error": tr("Ongeldig recept", "Invalid recipe")}), 400
         version = (request.args.get("v") or "")[:64]
         try:
-            content_type, data = await mealie_images.get_image(
-                recipe_id, request.args.get("size") or mealie_images.DEFAULT_SIZE, version
-            )
+            content_type, data = await mealie_images.get_image(recipe_id, request.args.get("size") or mealie_images.DEFAULT_SIZE, version)
         except mealie_images.ImageNotFound:
             return jsonify({"error": tr("Dit recept heeft geen afbeelding", "This recipe has no image")}), 404
         except Exception as exc:
@@ -475,9 +553,7 @@ def create_app() -> Quart:
             return jsonify({"error": str(exc) or tr("Afbeelding ophalen mislukt", "Could not fetch the image")}), 424
         response = Response(data, mimetype=content_type)
         # Met ?v= (de afbeeldingsversie van Mealie) verandert het adres als het plaatje verandert.
-        response.headers["Cache-Control"] = (
-            "private, max-age=31536000, immutable" if version else "private, max-age=3600"
-        )
+        response.headers["Cache-Control"] = "private, max-age=31536000, immutable" if version else "private, max-age=3600"
         response.headers["X-Content-Type-Options"] = "nosniff"
         return response
 
@@ -598,6 +674,23 @@ def create_app() -> Quart:
     async def ah_basket_sync():
         return await ah_sync(ah_orders.sync_basket, tr("Mandje ophalen mislukt", "Fetching the basket failed"))
 
+    @app.get("/api/ah/cart")
+    async def ah_cart_get():
+        # Het mandje vers van AH, per product het aantal: voor de aantallen bij de aanbiedingen. Zelfde vorm als Picnic en Crisp.
+        return await ah_sync(ah_orders.sync_cart, tr("Mandje ophalen mislukt", "Fetching the basket failed"))
+
+    @app.put("/api/ah/cart/items/<product_id>")
+    async def ah_cart_set_quantity(product_id: str):
+        # Een exact aantal in het AH-mandje (de boodschappenlijst); 0 haalt het product weg. Plaatst nooit een bestelling.
+        body = await request_body.json_object()
+        try:
+            return jsonify(await ah_orders.set_cart_quantity(product_id, body.get("quantity"), body.get("title")))
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+        except Exception as exc:  # noqa: BLE001 - AH is onofficieel; geef de fout door
+            app.logger.exception("AH cart quantity error")
+            return jsonify({"error": str(exc) or tr("Mandje bijwerken mislukt", "Updating the basket failed")}), 424
+
     @app.get("/api/ah/orders")
     async def ah_orders_list():
         return jsonify(await ah_orders.list_orders(summary=True))
@@ -630,7 +723,11 @@ def create_app() -> Quart:
         # Bij het openen van een bon: de regels die nog bij geen webwinkelproduct horen opzoeken bij AH (zuinig, zie
         # ah_orders.resolve_receipt_names), de foto's van de gekoppelde regels die er nog geen hebben erbij halen, en de bon met
         # de koppelingen teruggeven. Mislukt het opzoeken, dan komt de bon toch.
-        receipt = await ah_orders.get_receipt(receipt_id, lookup=lambda names: ah_orders.resolve_receipt_names(names, searches=ah_orders.RECEIPT_PRODUCTS_OPEN_SEARCHES, trigger="open"), images=True)
+        receipt = await ah_orders.get_receipt(
+            receipt_id,
+            lookup=lambda names: ah_orders.resolve_receipt_names(names, searches=ah_orders.RECEIPT_PRODUCTS_OPEN_SEARCHES, trigger="open"),
+            images=True,
+        )
         if not receipt:
             return jsonify({"error": tr("Kassabon niet gevonden.", "Receipt not found.")}), 404
         return jsonify(receipt)
@@ -653,10 +750,24 @@ def create_app() -> Quart:
         force = body.get("force", False) if isinstance(body, dict) else False
         images = body.get("images", False) if isinstance(body, dict) else False
         if not isinstance(body, dict) or not isinstance(receipt_id, (str, type(None))) or not isinstance(force, bool) or not isinstance(images, bool):
-            return jsonify({"error": tr("Ongeldige aanvraag: receiptId is tekst, force en images zijn waar of onwaar.", "Invalid request: receiptId is text, force and images are true or false.")}), 400
+            return jsonify(
+                {
+                    "error": tr(
+                        "Ongeldige aanvraag: receiptId is tekst, force en images zijn waar of onwaar.",
+                        "Invalid request: receiptId is text, force and images are true or false.",
+                    )
+                }
+            ), 400
         receipt_id = (receipt_id or "").strip() or None
         if images and receipt_id:
-            return jsonify({"error": tr("Ongeldige aanvraag: foto's aanvullen gaat over alle bonnen, niet over één bon.", "Invalid request: filling in photos covers all receipts, not one receipt.")}), 400
+            return jsonify(
+                {
+                    "error": tr(
+                        "Ongeldige aanvraag: foto's aanvullen gaat over alle bonnen, niet over één bon.",
+                        "Invalid request: filling in photos covers all receipts, not one receipt.",
+                    )
+                }
+            ), 400
         if force and not await auth.is_owner():
             return jsonify({"error": tr("Alleen de beheerder kan de pauze van AH opheffen.", "Only the administrator can lift the AH pause.")}), 403
         if receipt_id and not await ah_orders.receipt_exists(receipt_id):
@@ -767,7 +878,8 @@ def create_app() -> Quart:
         # Dezelfde ETag is dezelfde lijst: een tweede browser of apparaat, en aanvragen die tegelijk binnenkomen, krijgen de lijst die
         # er al ligt of op komst is, in plaats van het prijsoordeel opnieuw uit te rekenen (response_cache.py).
         response = await offers_action(
-            lambda: offers_cache.get(offers_cache_key(store, week), etag, lambda: offers_with_verdicts(store, week)), tr("Aanbiedingen laden mislukt", "Loading the offers failed")
+            lambda: offers_cache.get(offers_cache_key(store, week), etag, lambda: offers_with_verdicts(store, week)),
+            tr("Aanbiedingen laden mislukt", "Loading the offers failed"),
         )
         if isinstance(response, Response) and response.status_code == 200:
             response.headers.update(headers)
@@ -788,9 +900,20 @@ def create_app() -> Quart:
         return await offers_action(
             # Namen op de bon die bij de zoekterm passen en nog bij geen product horen, zoekt dit meteen op bij AH (zuinig: zie
             # ah_orders.resolve_receipt_names).
-            lambda: prices.history(request.args.get("store") or None, request.args.get("q") or "", request.args.get("limit") or 50, bought=bought,
-                                   lookup=ah_orders.resolve_receipt_names, product=request.args.get("product") or None,
-                                   pin=request.args.get("pin") or None),
+            lambda: prices.history(
+                request.args.get("store") or None,
+                request.args.get("q") or "",
+                request.args.get("limit") or 50,
+                bought=bought,
+                lookup=ah_orders.resolve_receipt_names,
+                product=request.args.get("product") or None,
+                pin=request.args.get("pin") or None,
+                # De keuzelijsten: ?brand=Unox&brand=AH (alleen deze), ?brand_out= (verbergen), en zo ook category.
+                brands=request.args.getlist("brand"),
+                brands_out=request.args.getlist("brand_out"),
+                categories=request.args.getlist("category"),
+                categories_out=request.args.getlist("category_out"),
+            ),
             tr("Prijsgeschiedenis laden mislukt", "Loading the price history failed"),
         )
 
@@ -901,6 +1024,108 @@ def create_app() -> Quart:
 
         return await import_action(remove)
 
+    # Een koppeling uit het gedeelde bestand (shared_links.py) die voor deze installatie niet klopt: Klopt niet zet hem uit, en
+    # terugzetten zet hem weer aan. Voor iedereen die is ingelogd, net als je eigen koppelingen hierboven.
+    @app.post("/api/shared-links/reject")
+    async def shared_links_reject():
+        body = await request_body.json_object()
+
+        async def reject() -> dict[str, Any]:
+            return {"changed": await shared_links.reject(body.get("store"), body.get("name"), body.get("productId"))}
+
+        return await import_action(reject)
+
+    @app.post("/api/shared-links/restore")
+    async def shared_links_restore():
+        body = await request_body.json_object()
+
+        async def restore() -> dict[str, Any]:
+            return {"changed": await shared_links.restore(body.get("store"), body.get("name"), body.get("productId"))}
+
+        return await import_action(restore)
+
+    # De export van je eigen koppelingen voor een pull request (shared_links_export.py). Alleen de beheerder, op dit exacte pad
+    # (auth.ADMIN_PATHS): reject en restore hierboven blijven voor iedereen.
+    @app.get("/api/shared-links/export")
+    async def shared_links_export_pending():
+        return await import_action(lambda: shared_links_export.pending(request.args.get("store")))
+
+    @app.post("/api/shared-links/export")
+    async def shared_links_export_file():
+        body = await request_body.json_object()
+        try:
+            store: str = shared_links_export.store_of(body.get("store"))
+            text: str = await shared_links_export.merged(store, shared_links_export.keys_of(body.get("keys")))
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+        return Response(text, mimetype="application/json", headers={"Content-Disposition": f'attachment; filename="{store}.json"'})
+
+    # De pagina "Losse aankopen" (loose_names.py). Alleen de beheerder: /api/loose-names staat in auth.ADMIN_PREFIXES, want de ronde
+    # gebruikt het tempo van de winkels en de AI kost geld.
+    def page_number(name: str, default: int) -> int:
+        raw: str | None = request.args.get(name)
+        if raw is None or raw == "":
+            return default
+        try:
+            return int(raw)
+        except ValueError:
+            raise ValueError(tr(f"{name} moet een geheel getal zijn", f"{name} must be an integer")) from None
+
+    @app.get("/api/loose-names")
+    async def loose_names_page():
+        async def read() -> dict[str, Any]:
+            return await loose_names.overview(request.args.get("store"), page_number("offset", 0), page_number("limit", loose_names.PAGE_SIZE))
+
+        return await import_action(read)
+
+    @app.post("/api/loose-names/run")
+    async def loose_names_run():
+        body = await request_body.json_object()
+
+        async def run() -> dict[str, Any]:
+            store: str = loose_names._store(body.get("store"))
+            if loose_names.start(store, "manual"):
+                return {"started": True}
+            return {"started": False, "reason": loose_names.busy_reason(store)}
+
+        return await import_action(run)
+
+    @app.post("/api/loose-names/propose")
+    async def loose_names_propose():
+        body = await request_body.json_object()
+
+        async def propose() -> dict[str, Any]:
+            store: str = loose_names._store(body.get("store"))
+            try:
+                return await loose_names_ai.propose(store, limit=loose_names_ai.CLICK_LIMIT)
+            except ai_review.AiError as exc:
+                raise ValueError(str(exc)) from exc
+
+        return await import_action(propose)
+
+    @app.post("/api/loose-names/confirm")
+    async def loose_names_confirm():
+        body = await request_body.json_object()
+        return await import_action(lambda: loose_names.confirm(body.get("store"), body.get("key"), body.get("productId")))
+
+    @app.post("/api/loose-names/reject")
+    async def loose_names_reject():
+        body = await request_body.json_object()
+
+        async def reject() -> dict[str, Any]:
+            return {"changed": await loose_names.reject(body.get("store"), body.get("key"))}
+
+        return await import_action(reject)
+
+    @app.post("/api/loose-names/restore")
+    async def loose_names_restore():
+        body = await request_body.json_object()
+
+        async def restore() -> dict[str, Any]:
+            return {"changed": await loose_names.restore(body.get("store"), body.get("key"))}
+
+        return await import_action(restore)
+
     @app.get("/api/prices/compare")
     async def prices_compare():
         # Doet één zoekopdracht bij de winkel: andere verpakkingen van hetzelfde product, per kilo, liter of stuk naast elkaar.
@@ -912,7 +1137,9 @@ def create_app() -> Quart:
     @app.post("/api/offers/sync")
     async def offers_sync():
         body = await request_body.json_object()
-        response = await offers_action(lambda: offers.sync(body.get("store") or "ah"), tr("Aanbiedingen ophalen mislukt", "Fetching the offers failed"))
+        response = await offers_action(
+            lambda: offers.sync(body.get("store") or "ah"), tr("Aanbiedingen ophalen mislukt", "Fetching the offers failed")
+        )
         # De lijst is anders: het oordeel alvast uitrekenen, op de achtergrond, zodat de knop niet wacht en de eerste bezoeker ook niet.
         if isinstance(response, Response) and response.status_code == 200:
             tasks.spawn("warm-offers", app.extensions["mealieshopper_warm_offers"]((_valid_store_arg(body.get("store")),)))
@@ -934,7 +1161,13 @@ def create_app() -> Quart:
     @app.get("/api/offers/recipes")
     async def offers_recipes():
         return await offers_action(
-            lambda: offers.suggest(request.args.get("store") or "ah", course=request.args.get("course"), week=offers_week()),
+            lambda: offers.suggest(
+                request.args.get("store") or "ah",
+                course=request.args.get("course"),
+                week=offers_week(),
+                courses=request.args.getlist("course_in"),
+                courses_out=request.args.getlist("course_out"),
+            ),
             tr("Receptvoorstellen laden mislukt", "Loading the recipe suggestions failed"),
         )
 
@@ -964,6 +1197,7 @@ def create_app() -> Quart:
     @app.put("/api/offers/ai")
     async def offers_ai_save():
         body = await request_body.json_object()
+
         async def save_and_report() -> dict[str, Any]:
             await ai_review.save(body)
             return await ai_status()
@@ -1009,7 +1243,8 @@ def create_app() -> Quart:
     @app.get("/api/mealie/status")
     async def mealie_status():
         verify = (request.args.get("verify") or "").strip().lower() in {"1", "true", "yes"}
-        return jsonify(await mealie.status(verify=verify))
+        # `dietTags`: of MealieShopper tags voor vegetarisch, vlees, vis en gevogelte in Mealie zet (4.22.0).
+        return jsonify({**await mealie.status(verify=verify), "dietTags": await recipe_nutrition.diet_tags_enabled()})
 
     @app.post("/api/mealie/auth")
     async def mealie_auth():
@@ -1033,7 +1268,9 @@ def create_app() -> Quart:
         try:
             url = urls.public_http_url(url)
         except urls.UnsafeUrl:
-            return jsonify({"error": tr("Alleen een openbaar http(s)-adres kan worden geimporteerd.", "Only a public http(s) address can be imported.")}), 400
+            return jsonify(
+                {"error": tr("Alleen een openbaar http(s)-adres kan worden geimporteerd.", "Only a public http(s) address can be imported.")}
+            ), 400
 
         try:
             slug = await mealie.import_from_url(url)
@@ -1066,7 +1303,11 @@ def create_app() -> Quart:
         Mislukt het bewaren, dan staat het mandje er nog: het is een geheugensteun, geen deel van het toevoegen. `skip` zijn de
         producten die de winkel weigerde; die onthouden we niet."""
         refused = {str(product_id) for product_id in skip}
-        chosen = [item for item in items if isinstance(item, dict) and item.get("remember") is True and item.get("productId") and str(item["productId"]) not in refused]
+        chosen = [
+            item
+            for item in items
+            if isinstance(item, dict) and item.get("remember") is True and item.get("productId") and str(item["productId"]) not in refused
+        ]
         if not chosen:
             return
         try:
@@ -1231,9 +1472,7 @@ def create_app() -> Quart:
                         {
                             "query": query,
                             "productId": product["webshopId"],
-                            "quantity": ah.packs_needed(
-                                item.get("quantity"), item.get("unit"), product.get("unitSize")
-                            ),
+                            "quantity": ah.packs_needed(item.get("quantity"), item.get("unit"), product.get("unitSize")),
                             "title": product["title"],
                             "price": product["price"]["now"],
                             "unitSize": product.get("unitSize") or product["price"].get("unitSize"),
@@ -1244,9 +1483,7 @@ def create_app() -> Quart:
                 else:
                     diagnostics.append({"query": query, "status": "niet gevonden"})
             except Exception as exc:
-                diagnostics.append(
-                    {"query": item.get("query", "onbekend"), "status": "fout", "error": str(exc)}
-                )
+                diagnostics.append({"query": item.get("query", "onbekend"), "status": "fout", "error": str(exc)})
 
         if not matched:
             return (
@@ -1260,9 +1497,7 @@ def create_app() -> Quart:
             )
 
         try:
-            await ah.add_to_shopping_list(
-                [{"productId": item["productId"], "quantity": item["quantity"]} for item in matched]
-            )
+            await ah.add_to_shopping_list([{"productId": item["productId"], "quantity": item["quantity"]} for item in matched])
         except Exception as exc:
             app.logger.exception("AH cart error")
             return jsonify({"error": str(exc)}), 424
@@ -1335,7 +1570,12 @@ def create_app() -> Quart:
             matched.append({"productId": found["productId"], "quantity": found["packs"], "query": query})
 
         if not matched:
-            return jsonify({"error": tr("Geen producten gevonden voor de opgegeven ingredienten", "No products found for the given ingredients"), "skippedItems": skipped}), 404
+            return jsonify(
+                {
+                    "error": tr("Geen producten gevonden voor de opgegeven ingredienten", "No products found for the given ingredients"),
+                    "skippedItems": skipped,
+                }
+            ), 404
         try:
             result = await store.add_to_cart(matched)
         except Exception as exc:  # noqa: BLE001
@@ -1484,10 +1724,12 @@ def create_app() -> Quart:
         # met `refresh=1` vergeet de server eerst wat hij wist.
         budget = request.args.get("budget", type=int)
         try:
-            return jsonify(await picnic.get_favorites(
-                budget=max(1, min(budget, 30)) if budget else None,
-                refresh=request.args.get("refresh") == "1",
-            ))
+            return jsonify(
+                await picnic.get_favorites(
+                    budget=max(1, min(budget, 30)) if budget else None,
+                    refresh=request.args.get("refresh") == "1",
+                )
+            )
         except Exception as exc:  # noqa: BLE001
             return picnic_error(exc)
 
@@ -1498,7 +1740,7 @@ def create_app() -> Quart:
         query = (request.args.get("q") or "").strip()
         try:
             if query:  # zoeken in je bewaarde recepten en het kookboek, voor Recepten zoeken
-                return jsonify({"source": "search", **await picnic_recipes.search(query)})
+                return jsonify({"source": "search", **filtered("picnic", await picnic_recipes.search(query))})
             return jsonify({"source": source, "recipes": await picnic_recipes.get_recipes(source)})
         except Exception as exc:  # noqa: BLE001
             return picnic_error(exc)
@@ -1671,7 +1913,7 @@ def create_app() -> Quart:
         source = (request.args.get("source") or "saved").strip().lower()
         try:
             if query is not None:
-                return jsonify(await crisp.search_recipes(query))
+                return jsonify(filtered("crisp", await crisp.search_recipes(query)))
             if source != "saved":
                 raise ValueError(tr("Onbekende bron voor recepten (kies saved)", "Unknown recipe source (choose saved)"))
             return jsonify({"source": "saved", **await crisp.get_saved_recipes()})
@@ -1746,7 +1988,7 @@ def create_app() -> Quart:
     @app.get("/api/hellofresh/search")
     async def hellofresh_search():
         try:
-            return jsonify(await hellofresh.search(request.args.get("q"), load=load_weeks()))
+            return jsonify(await hellofresh.search(request.args.get("q"), load=load_weeks(), wanted=search_filters()))
         except Exception as exc:  # noqa: BLE001
             return hellofresh_error(exc)
 
@@ -1792,7 +2034,7 @@ def create_app() -> Quart:
     @app.get("/api/marleyspoon/search")
     async def marleyspoon_search():
         try:
-            return jsonify(await marleyspoon.search(request.args.get("q"), load=load_weeks()))
+            return jsonify(await marleyspoon.search(request.args.get("q"), load=load_weeks(), wanted=search_filters()))
         except Exception as exc:  # noqa: BLE001
             return marleyspoon_error(exc)
 
@@ -1948,11 +2190,7 @@ def create_app() -> Quart:
         items = body.get("items") or []
         if not items:
             return jsonify({"error": tr("Geen ingredienten opgegeven", "No ingredients given")}), 400
-        lines = [
-            {"term": item.get("title") or item.get("query") or "", "sku": item.get("productId")}
-            for item in items
-            if isinstance(item, dict)
-        ]
+        lines = [{"term": item.get("title") or item.get("query") or "", "sku": item.get("productId")} for item in items if isinstance(item, dict)]
         try:
             result = await jumbo.add_to_shopping_list(lines)
         except Exception as exc:  # noqa: BLE001
@@ -1989,7 +2227,8 @@ def create_app() -> Quart:
     async def jumbo_recipe_list():
         # Alleen lezen: zoeken in alle recepten van Jumbo (`offset` voor de volgende pagina).
         try:
-            return jsonify({**await jumbo_recipes.search(request.args.get("q"), request.args.get("offset")), "pageSize": jumbo_recipes.RECIPE_PAGE})
+            found = await jumbo_recipes.search(request.args.get("q"), request.args.get("offset"), wanted=search_filters())
+            return jsonify({**found, "pageSize": jumbo_recipes.RECIPE_PAGE})
         except Exception as exc:  # noqa: BLE001
             return jumbo_error(exc)
 
@@ -2095,9 +2334,7 @@ def create_app() -> Quart:
             await ah.exchange_and_store_oauth_code(code, callback_url)
             return redirect("/?ah_connected=1")
         except Exception as exc:
-            return redirect(
-                f"/?ah_error={quote_plus(f'Code inwisselen mislukt: {str(exc)[:100]}')}"
-            )
+            return redirect(f"/?ah_error={quote_plus(f'Code inwisselen mislukt: {str(exc)[:100]}')}")
 
     @app.get("/api/ah/auth/proxy/callback")
     async def ah_auth_proxy_callback():
@@ -2114,9 +2351,7 @@ def create_app() -> Quart:
             await ah.exchange_and_store_oauth_code(code)
             return redirect("/?ah_connected=1")
         except Exception as exc:
-            return redirect(
-                f"/?ah_error={quote_plus(f'Code inwisselen mislukt: {str(exc)[:100]}')}"
-            )
+            return redirect(f"/?ah_error={quote_plus(f'Code inwisselen mislukt: {str(exc)[:100]}')}")
 
     @app.route(
         "/api/ah/auth/proxy/<path:proxy_path>",
@@ -2129,9 +2364,7 @@ def create_app() -> Quart:
     )
     async def ah_auth_proxy(proxy_path: str) -> Response | tuple[str, int]:
         target_url = f"{ah.AH_LOGIN_BASE}/{proxy_path}".rstrip("/")
-        headers: dict[str, str] = {
-            key: value for key, value in request.headers.items() if key.lower() not in AH_PROXY_DROPPED_HEADERS
-        }
+        headers: dict[str, str] = {key: value for key, value in request.headers.items() if key.lower() not in AH_PROXY_DROPPED_HEADERS}
         cookie: str | None = _ah_proxy_cookie(request.headers.getlist("Cookie"))
         if cookie is not None:
             headers["Cookie"] = cookie
@@ -2141,11 +2374,7 @@ def create_app() -> Quart:
         proxy_base = await ah_proxy_base_url()
         public_origin = await public_base_url()
         if "Referer" in headers:
-            headers["Referer"] = (
-                headers["Referer"]
-                .replace(proxy_base, ah.AH_LOGIN_BASE)
-                .replace(public_origin, ah.AH_LOGIN_BASE)
-            )
+            headers["Referer"] = headers["Referer"].replace(proxy_base, ah.AH_LOGIN_BASE).replace(public_origin, ah.AH_LOGIN_BASE)
         if headers.get("Origin", "").rstrip("/") == public_origin:
             headers["Origin"] = ah.AH_LOGIN_BASE
 

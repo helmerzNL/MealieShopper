@@ -6,8 +6,8 @@ import tempfile
 import threading
 import types
 import unittest
-from pathlib import Path
 from collections.abc import Callable
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from unittest import mock
 
@@ -15,10 +15,11 @@ import pytest
 
 os.environ["PASSKEY_AUTH_ENABLED"] = "false"
 
+from helpers import AppTestCase  # noqa: E402
+from test_users import FakeAuthenticator, b64  # noqa: E402
+
 from mealieshopper import auth, auth_password, factory_reset  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
-from test_users import FakeAuthenticator, b64  # noqa: E402
-from helpers import AppTestCase  # noqa: E402
 
 if TYPE_CHECKING:  # niet bij de import: pytest zou TestClientProtocol voor een testklasse aanzien
     from quart.typing import TestClientProtocol
@@ -66,6 +67,41 @@ class PasswordResetTest(FactoryResetCase):
         self.assertEqual(response.get_json(), {"status": "ok", "restarting": False})
         self.assertEqual(self.files(), [])
         self.assertIn("ms_session=;", response.headers.get("Set-Cookie", ""))
+
+    async def test_a_rejected_shared_link_goes_with_the_database(self):
+        from mealieshopper import shared_links
+
+        cherries = {
+            shared_links.name_keys.key("AH Doosjevol kersen"): shared_links.SharedLink("ah doosjevol kersen", "1234", "AH Doosje met kersen", "250 g")
+        }
+        with mock.patch.object(shared_links, "load", return_value=cherries):
+            self.assertTrue(await shared_links.reject("ah", "AH Doosjevol kersen", "1234"))
+            response = await self.reset({"password": PASSWORD})
+            self.assertEqual(response.status_code, 200, response.get_json())
+            auth.forget_runtime_state()
+            await auth.init_db()
+            self.assertTrue(await shared_links.reject("ah", "AH Doosjevol kersen", "1234"), "na de reset is de afwijzing weg")
+
+    async def test_the_loose_names_go_with_the_database(self):
+        from contextlib import closing
+
+        from helpers import db
+
+        from mealieshopper import loose_names
+
+        with closing(db(loose_names)) as conn, conn:
+            conn.execute(
+                "INSERT INTO loose_names (store, key, name, checked_at, outcome, candidates, proposal) "
+                "VALUES ('jumbo', '~kersen', 'Jumbo Kersen', '2026-11-11T01:00:00+00:00', 'candidates', '[]', NULL)"
+            )
+        self.assertTrue(await loose_names.reject("jumbo", "~kersen"))
+        response = await self.reset({"password": PASSWORD})
+        self.assertEqual(response.status_code, 200, response.get_json())
+        auth.forget_runtime_state()
+        await auth.init_db()
+        self.assertFalse(await loose_names.reject("jumbo", "~kersen"), "na de reset is de stand weg")
+        with closing(db(loose_names)) as conn:
+            self.assertEqual(conn.execute("SELECT COUNT(*) FROM loose_names").fetchone()[0], 0)
 
     async def test_the_image_cache_folder_goes_too(self):
         cached = self.data / "images" / "ab" / "abcd.webp"
@@ -241,7 +277,9 @@ class PasskeyResetTest(FactoryResetCase):
     async def test_the_challenge_works_once(self):
         options = await self.challenge()
         credential = self.phone.get(options["challenge"])
-        self.assertEqual((await self.reset({"credential": {**credential, "response": {**credential["response"], "signature": "AAAA"}}})).status_code, 403)
+        self.assertEqual(
+            (await self.reset({"credential": {**credential, "response": {**credential["response"], "signature": "AAAA"}}})).status_code, 403
+        )
         self.assertEqual((await self.reset({"credential": credential})).status_code, 400)  # de uitdaging is al gebruikt
         self.assertIn("auth.sqlite3", self.files())
 
@@ -279,9 +317,7 @@ class PasskeyResetTest(FactoryResetCase):
 
 class WithoutLoginTest(AppTestCase):
     async def test_without_login_only_the_word_is_needed(self):
-        with tempfile.TemporaryDirectory() as tmp, mock.patch.dict(
-            os.environ, {"PASSKEY_AUTH_ENABLED": "false", "MEALIESHOPPER_DATA_DIR": tmp}
-        ):
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.dict(os.environ, {"PASSKEY_AUTH_ENABLED": "false", "MEALIESHOPPER_DATA_DIR": tmp}):
             auth.forget_runtime_state()
             self.addCleanup(auth.forget_runtime_state)
             client = self.client_for(create_app())
@@ -312,9 +348,7 @@ def in_a_container(monkeypatch: pytest.MonkeyPatch) -> mock.Mock:
     return restart
 
 
-async def test_in_a_container_the_restart_is_scheduled_on_the_loop_after_answering(
-    admin: "TestClientProtocol", in_a_container: mock.Mock
-) -> None:
+async def test_in_a_container_the_restart_is_scheduled_on_the_loop_after_answering(admin: "TestClientProtocol", in_a_container: mock.Mock) -> None:
     loop = asyncio.get_running_loop()
     with mock.patch.object(loop, "call_later", wraps=loop.call_later) as call_later:
         response = await admin.post(URL, json={"confirm": "RESET", "password": PASSWORD})
@@ -355,8 +389,9 @@ class RestartTest(FactoryResetCase):
 
     def test_restart_is_supported_with_dockerenv_or_ha_options(self):
         for present in ("/.dockerenv", "/data/options.json"):
-            with self.subTest(present=present), mock.patch.object(
-                factory_reset.Path, "exists", autospec=True, side_effect=lambda path, present=present: str(path) == present
+            with (
+                self.subTest(present=present),
+                mock.patch.object(factory_reset.Path, "exists", autospec=True, side_effect=lambda path, present=present: str(path) == present),
             ):
                 self.assertTrue(factory_reset.restart_supported())
 
@@ -369,7 +404,7 @@ class PageTest(AppTestCase):
     def test_the_tab_is_called_system_and_holds_updates_and_clean_up(self):
         tab = re.search(r'<a[^>]*data-subtab="settings-system"[^>]*>(.*?)</a>', HTML, re.S).group(1)
         self.assertIn('data-i18n="settings.tab.system"', tab)
-        panel = HTML[HTML.index('id="settings-system"'):HTML.index('<section id="about"')]
+        panel = HTML[HTML.index('id="settings-system"') : HTML.index('<section id="about"')]
         self.assertLess(panel.index("update.title"), panel.index("system.cleanup_title"))
         self.assertLess(panel.index("system.cleanup_title"), panel.index("system.reset_title"))
         self.assertNotIn("settings-updates", HTML)

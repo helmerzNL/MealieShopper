@@ -25,8 +25,14 @@ def normalize_quantity(value: Any) -> int:
 
 _MASS_UNITS = {"g": 1, "gr": 1, "gram": 1, "kg": 1000, "kilo": 1000, "kilogram": 1000}
 _VOLUME_UNITS = {
-    "ml": 1, "milliliter": 1, "cl": 10, "centiliter": 10,
-    "dl": 100, "deciliter": 100, "l": 1000, "liter": 1000,
+    "ml": 1,
+    "milliliter": 1,
+    "cl": 10,
+    "centiliter": 10,
+    "dl": 100,
+    "deciliter": 100,
+    "l": 1000,
+    "liter": 1000,
 }
 _COUNT_UNITS = {"", "stuk", "stuks", "st"}
 _PACK_SIZE_RE = re.compile(

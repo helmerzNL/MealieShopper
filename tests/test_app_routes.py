@@ -51,9 +51,7 @@ def login_page() -> httpx.Response:
     )
 
 
-async def test_the_proxy_forwards_status_body_and_headers(
-    client: TestClientProtocol, respx_mock: respx.MockRouter
-) -> None:
+async def test_the_proxy_forwards_status_body_and_headers(client: TestClientProtocol, respx_mock: respx.MockRouter) -> None:
     route: respx.Route = respx_mock.get(STEP).mock(return_value=login_page())
     reply = await client.get(
         "/api/ah/auth/proxy/login/step",
@@ -68,50 +66,31 @@ async def test_the_proxy_forwards_status_body_and_headers(
     assert await reply.get_data() == ah.rewrite_login_body(PAGE, PROXY)
     assert reply.headers["Content-Type"] == "text/html; charset=utf-8"
     assert reply.headers["Location"] == f"{PROXY}/next?a=1"
-    assert reply.headers.getlist("Set-Cookie") == [
-        ah.sanitize_login_cookie(cookie) for cookie in COOKIES
-    ]
+    assert reply.headers.getlist("Set-Cookie") == [ah.sanitize_login_cookie(cookie) for cookie in COOKIES]
     assert reply.headers["X-Spam"] == "eggs"
-    assert reply.headers["X-Dup"] == "a, b", (
-        "dubbele headers komen samen, zoals bij requests"
-    )
+    assert reply.headers["X-Dup"] == "a, b", "dubbele headers komen samen, zoals bij requests"
     for blocked in (
         "Content-Security-Policy",
         "Strict-Transport-Security",
         "X-Frame-Options",
     ):
         assert blocked not in reply.headers, blocked
-    assert respx_mock.calls.call_count == 1, (
-        "de proxy volgt een doorverwijzing niet zelf, de browser doet dat"
-    )
+    assert respx_mock.calls.call_count == 1, "de proxy volgt een doorverwijzing niet zelf, de browser doet dat"
     sent: httpx.Request = route.calls.last.request
     assert str(sent.url) == f"{STEP}?client_id=appie"
     assert sent.headers["Host"] == "login.ah.nl"
     assert sent.headers["Referer"] == f"{ah.AH_LOGIN_BASE}/login"
-    assert sent.headers["User-Agent"] == "Browser/1", (
-        "die van de browser, niet de standaard van http_client"
-    )
-    assert sent.headers["Accept-Encoding"] == "gzip, deflate", (
-        "de keuze van de browser gaat niet mee"
-    )
-    assert (
-        sent.headers["Accept"]
-        == "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
-    )
+    assert sent.headers["User-Agent"] == "Browser/1", "die van de browser, niet de standaard van http_client"
+    assert sent.headers["Accept-Encoding"] == "gzip, deflate", "de keuze van de browser gaat niet mee"
+    assert sent.headers["Accept"] == "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
     assert sent.headers["Accept-Language"] == "nl-NL,nl;q=0.9,en;q=0.8"
-    assert "Remote-Addr" not in sent.headers, (
-        "Quart zet die er zelf bij, de browser stuurde hem niet"
-    )
+    assert "Remote-Addr" not in sent.headers, "Quart zet die er zelf bij, de browser stuurde hem niet"
     assert "Content-Length" not in sent.headers
     assert sent.extensions["timeout"] == httpx.Timeout(30).as_dict()
 
 
-async def test_the_proxy_forwards_the_body_and_the_origin_of_a_post(
-    client: TestClientProtocol, respx_mock: respx.MockRouter
-) -> None:
-    route: respx.Route = respx_mock.post(STEP).mock(
-        return_value=httpx.Response(200, json={"next": "/login/done"})
-    )
+async def test_the_proxy_forwards_the_body_and_the_origin_of_a_post(client: TestClientProtocol, respx_mock: respx.MockRouter) -> None:
+    route: respx.Route = respx_mock.post(STEP).mock(return_value=httpx.Response(200, json={"next": "/login/done"}))
     reply = await client.post(
         "/api/ah/auth/proxy/login/step",
         data=b"user=spam&pw=eggs",
@@ -127,9 +106,7 @@ async def test_the_proxy_forwards_the_body_and_the_origin_of_a_post(
     assert sent.headers["Origin"] == ah.AH_LOGIN_BASE
 
 
-async def test_an_empty_delete_says_content_length_zero_like_requests(
-    client: TestClientProtocol, respx_mock: respx.MockRouter
-) -> None:
+async def test_an_empty_delete_says_content_length_zero_like_requests(client: TestClientProtocol, respx_mock: respx.MockRouter) -> None:
     route: respx.Route = respx_mock.delete(STEP).respond(204)
     reply = await client.delete("/api/ah/auth/proxy/login/step")
     assert reply.status_code == 204
@@ -176,9 +153,7 @@ async def test_a_header_with_a_utf8_byte_reaches_ah_byte_for_byte(client: TestCl
     assert sent[b"user-agent"] == "Browser/café".encode("utf-8")
 
 
-async def test_the_proxy_never_sends_mealieshoppers_own_cookies(
-    client: TestClientProtocol, respx_mock: respx.MockRouter
-) -> None:
+async def test_the_proxy_never_sends_mealieshoppers_own_cookies(client: TestClientProtocol, respx_mock: respx.MockRouter) -> None:
     route: respx.Route = respx_mock.get(STEP).respond(200, text="ok")
     reply = await client.get(
         "/api/ah/auth/proxy/login/step",
@@ -188,18 +163,14 @@ async def test_the_proxy_never_sends_mealieshoppers_own_cookies(
     assert route.calls.last.request.headers["Cookie"] == "ah_sess=abc; other=1"
 
 
-async def test_the_proxy_sends_no_cookie_header_when_only_own_cookies_remain(
-    client: TestClientProtocol, respx_mock: respx.MockRouter
-) -> None:
+async def test_the_proxy_sends_no_cookie_header_when_only_own_cookies_remain(client: TestClientProtocol, respx_mock: respx.MockRouter) -> None:
     route: respx.Route = respx_mock.get(STEP).respond(200, text="ok")
     reply = await client.get("/api/ah/auth/proxy/login/step", headers={"Cookie": "ms_session=x; ms_lang=nl"})
     assert reply.status_code == 200
     assert "Cookie" not in route.calls.last.request.headers
 
 
-async def test_the_proxy_drops_forwarding_and_authorization_headers(
-    client: TestClientProtocol, respx_mock: respx.MockRouter
-) -> None:
+async def test_the_proxy_drops_forwarding_and_authorization_headers(client: TestClientProtocol, respx_mock: respx.MockRouter) -> None:
     route: respx.Route = respx_mock.get(STEP).respond(200, text="ok")
     reply = await client.get(
         "/api/ah/auth/proxy/login/step",
@@ -219,7 +190,16 @@ async def test_the_proxy_drops_forwarding_and_authorization_headers(
     )
     assert reply.status_code == 200
     sent: httpx.Headers = route.calls.last.request.headers
-    for name in ("X-Forwarded-For", "X-Forwarded-Proto", "X-Forwarded-Host", "X-Forwarded-Port", "X-Forwarded-Prefix", "Forwarded", "X-Real-IP", "Authorization"):
+    for name in (
+        "X-Forwarded-For",
+        "X-Forwarded-Proto",
+        "X-Forwarded-Host",
+        "X-Forwarded-Port",
+        "X-Forwarded-Prefix",
+        "Forwarded",
+        "X-Real-IP",
+        "Authorization",
+    ):
         assert name not in sent, name
     assert sent["User-Agent"] == "Browser/1"
     assert sent["Accept-Language"] == "en"
@@ -227,8 +207,16 @@ async def test_the_proxy_drops_forwarding_and_authorization_headers(
 
 
 HOP_BY_HOP: tuple[str, ...] = (
-    "Connection", "Keep-Alive", "Proxy-Authenticate", "Proxy-Authorization", "TE", "Trailer", "Transfer-Encoding", "Upgrade",
-    "Date", "Server",  # zet hypercorn zelf, zoals Gunicorn in 3.x
+    "Connection",
+    "Keep-Alive",
+    "Proxy-Authenticate",
+    "Proxy-Authorization",
+    "TE",
+    "Trailer",
+    "Transfer-Encoding",
+    "Upgrade",
+    "Date",
+    "Server",  # zet hypercorn zelf, zoals Gunicorn in 3.x
 )
 
 

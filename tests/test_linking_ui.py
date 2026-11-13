@@ -34,9 +34,7 @@ def function_source(source, name):
 
 
 def const_source(source, name):
-    match = re.search(
-        rf"^const {re.escape(name)} = .*?;$", source, re.DOTALL | re.MULTILINE
-    )
+    match = re.search(rf"^const {re.escape(name)} = .*?;$", source, re.DOTALL | re.MULTILINE)
     if not match:
         raise AssertionError(f"constante {name} niet gevonden")
     return match.group(0)
@@ -106,9 +104,7 @@ class NodeCase(unittest.TestCase):
     """Een expressie uit linking.js in Node, met de prelude erboven; de uitkomst komt als JSON terug."""
 
     def render(self, expression: str, clock_stub: bool = True):
-        return self.js(
-            f"console.log(JSON.stringify({expression}));", clock_stub=clock_stub
-        )
+        return self.js(f"console.log(JSON.stringify({expression}));", clock_stub=clock_stub)
 
     def js(self, scenario: str, clock_stub: bool = True):
         script = f"{prelude(clock_stub)}\n{scenario}"
@@ -127,7 +123,6 @@ class NodeCase(unittest.TestCase):
 
 @unittest.skipUnless(shutil.which("node"), "Node is niet geïnstalleerd")
 class LinkingNoticeTest(NodeCase):
-
     def test_nothing_to_report_gives_no_notice(self):
         self.assertEqual(
             self.render(
@@ -144,9 +139,7 @@ class LinkingNoticeTest(NodeCase):
         regular = self.render(f"linkingNotice({paused}, {{ admin: false }})")
         self.assertNotIn("data-linking-run", regular)
         self.assertIn("orders.linking.paused", regular)
-        self.assertIn(
-            'data-force="1"', self.render(f"linkingNotice({paused}, {{ admin: true }})")
-        )
+        self.assertIn('data-force="1"', self.render(f"linkingNotice({paused}, {{ admin: true }})"))
 
     def test_a_pause_is_a_warning_with_the_times_the_status_and_what_waits(self):
         html = self.render(f"linkingNotice({PAUSED}, {{ admin: true }})")
@@ -155,7 +148,9 @@ class LinkingNoticeTest(NodeCase):
             "orders.linking.paused since=clock(2026-11-05T14:02:00+00:00),status=429,until=clock(2026-11-06T02:02:00+00:00)",
             html,
         )
-        self.assertIn("orders.linking.todo_short lines=orders.linking.count.articles.other count=19,receipts=orders.linking.count.receipts.other count=6", html)
+        self.assertIn(
+            "orders.linking.todo_short lines=orders.linking.count.articles.other count=19,receipts=orders.linking.count.receipts.other count=6", html
+        )
         self.assertIn("orders.linking.try_anyway", html)
         self.assertNotIn("data-receipt-id", html)
 
@@ -163,9 +158,7 @@ class LinkingNoticeTest(NodeCase):
         html = self.render(
             'linkingNotice({ pausedUntil: "2026-11-06T02:02:00+00:00", pausedSince: null, pausedStatus: null, budget: { used: 0, limit: 120 }, todo: { lines: 0, receipts: 0, images: 0 }, running: null }, { admin: true })'
         )
-        self.assertIn(
-            "orders.linking.paused_until until=clock(2026-11-06T02:02:00+00:00)", html
-        )
+        self.assertIn("orders.linking.paused_until until=clock(2026-11-06T02:02:00+00:00)", html)
         self.assertNotIn("todo_short", html, "zonder werk geen regel over wat wacht")
 
     def test_a_spent_budget_disables_the_button(self):
@@ -179,9 +172,7 @@ class LinkingNoticeTest(NodeCase):
         self.assertIn("data-linking-run", button)
         self.assertIn("disabled", button)
         self.assertIn('data-force="0"', button)
-        self.assertIn(
-            'title="orders.linking.wait reset=clock(2026-11-05T15:10:00+00:00)"', button
-        )
+        self.assertIn('title="orders.linking.wait reset=clock(2026-11-05T15:10:00+00:00)"', button)
         self.assertIn("orders.linking.run<", html)
 
     def test_work_waiting_for_the_night_is_a_success_with_the_run_button(self):
@@ -197,21 +188,15 @@ class LinkingNoticeTest(NodeCase):
         self.assertIn('data-force="0"', button, "Nu ophalen mag elke gebruiker")
 
     def test_a_receipt_notice_counts_its_unlinked_lines(self):
-        html = self.render(
-            f'linkingNotice({TODO}, {{ receiptId: "R1", unlinked: 19, due: 19, total: 40 }})'
-        )
+        html = self.render(f'linkingNotice({TODO}, {{ receiptId: "R1", unlinked: 19, due: 19, total: 40 }})')
         self.assertIn("orders.linking.receipt_todo.other count=19,total=40", html)
         self.assertIn("orders.linking.run_receipt.other count=19", html)
         self.assertIn('data-receipt-id="R1"', html)
-        self.assertNotIn(
-            "orders.linking.todo ", html, "op een bon niet het werk van alle bonnen"
-        )
+        self.assertNotIn("orders.linking.todo ", html, "op een bon niet het werk van alle bonnen")
 
     def test_the_receipt_button_counts_only_the_lines_a_round_would_search(self):
         # 19 regels zonder product, 4 daarvan aan de beurt: de rest zocht AH de laatste 30 dagen al op.
-        html = self.render(
-            f'linkingNotice({TODO}, {{ receiptId: "R1", unlinked: 19, due: 4, total: 40 }})'
-        )
+        html = self.render(f'linkingNotice({TODO}, {{ receiptId: "R1", unlinked: 19, due: 4, total: 40 }})')
         self.assertIn("orders.linking.receipt_todo.other count=19,total=40", html)
         self.assertIn("orders.linking.run_receipt.other count=4", html)
         self.assertNotIn("orders.linking.receipt_waiting", html)
@@ -219,9 +204,7 @@ class LinkingNoticeTest(NodeCase):
 
     def test_a_receipt_whose_lines_were_all_searched_recently_waits_with_a_disabled_button(self):
         for status in (TODO, PAUSED, SPENT):
-            html = self.render(
-                f'linkingNotice({status}, {{ receiptId: "R1", unlinked: 19, due: 0, total: 40, admin: true }})'
-            )
+            html = self.render(f'linkingNotice({status}, {{ receiptId: "R1", unlinked: 19, due: 0, total: 40, admin: true }})')
             self.assertIn("orders.linking.receipt_todo.other count=19,total=40", html)
             self.assertIn("orders.linking.receipt_waiting", html)
             self.assertNotIn("orders.linking.run_receipt", html)
@@ -234,39 +217,29 @@ class LinkingNoticeTest(NodeCase):
         self,
     ):
         self.assertEqual(
-            self.render(
-                f'linkingNotice({TODO}, {{ receiptId: "R1", unlinked: 0, total: 40 }})'
-            ),
+            self.render(f'linkingNotice({TODO}, {{ receiptId: "R1", unlinked: 0, total: 40 }})'),
             "",
         )
         self.assertEqual(
-            self.render(
-                f'linkingNotice({PAUSED}, {{ receiptId: "R1", unlinked: 0, total: 40, admin: true }})'
-            ),
+            self.render(f'linkingNotice({PAUSED}, {{ receiptId: "R1", unlinked: 0, total: 40, admin: true }})'),
             "",
         )
 
     def test_a_receipt_during_a_pause_adds_the_pause_and_the_force_button_for_the_administrator(
         self,
     ):
-        html = self.render(
-            f'linkingNotice({PAUSED}, {{ receiptId: "R1", unlinked: 19, total: 40, admin: true }})'
-        )
+        html = self.render(f'linkingNotice({PAUSED}, {{ receiptId: "R1", unlinked: 19, total: 40, admin: true }})')
         self.assertIn("orders.linking.receipt_todo.other count=19,total=40", html)
         self.assertIn("orders.linking.paused since=", html)
         self.assertIn('data-receipt-id="R1"', html)
         self.assertIn('data-force="1"', html)
         self.assertNotIn(
             "data-linking-run",
-            self.render(
-                f'linkingNotice({PAUSED}, {{ receiptId: "R1", unlinked: 19, total: 40, admin: false }})'
-            ),
+            self.render(f'linkingNotice({PAUSED}, {{ receiptId: "R1", unlinked: 19, total: 40, admin: false }})'),
         )
 
     def test_a_receipt_with_a_spent_budget_disables_its_button(self):
-        html = self.render(
-            f'linkingNotice({SPENT}, {{ receiptId: "R1", unlinked: 4, total: 9 }})'
-        )
+        html = self.render(f'linkingNotice({SPENT}, {{ receiptId: "R1", unlinked: 4, total: 9 }})')
         self.assertIn("orders.linking.budget used=120", html)
         self.assertIn("disabled", tag(r"<button[^>]*>", html))
 
@@ -274,15 +247,11 @@ class LinkingNoticeTest(NodeCase):
         running = TODO.replace("running: null", "running: { receiptId: null }")
         html = self.render(f"linkingNotice({running}, {{ admin: true }})")
         self.assertIn("orders.linking.running", html)
-        self.assertNotIn(
-            "data-linking-run", html, "een tweede ronde kan niet zolang er een loopt"
-        )
+        self.assertNotIn("data-linking-run", html, "een tweede ronde kan niet zolang er een loopt")
         self.assertIn("disabled", tag(r"<button[^>]*>", html))
 
     def test_every_value_in_the_notice_is_escaped(self):
-        html = self.render(
-            f'linkingNotice({TODO}, {{ receiptId: "\\"><img src=x>", unlinked: 1, total: 2 }})'
-        )
+        html = self.render(f'linkingNotice({TODO}, {{ receiptId: "\\"><img src=x>", unlinked: 1, total: 2 }})')
         self.assertNotIn("<img", html)
         self.assertIn('data-receipt-id="&quot;&gt;&lt;img src=x&gt;"', html)
 
@@ -334,16 +303,24 @@ class LinkingPluralTest(unittest.TestCase):
     def render(self, lang: str, expression: str) -> str:
         # Via stdin: met het hele woordenboek erin is het script groter dan wat Linux als één argument toestaat (128 KiB).
         done = subprocess.run(
-            ["node", "-"], input=f"{dictionary_prelude(lang)}\nconsole.log(JSON.stringify({expression}));",
-            capture_output=True, text=True, timeout=30, check=False,
+            ["node", "-"],
+            input=f"{dictionary_prelude(lang)}\nconsole.log(JSON.stringify({expression}));",
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
         )
         self.assertEqual(done.returncode, 0, done.stderr)
         return json.loads(done.stdout)
 
     def test_dutch_counts_take_the_singular_at_one(self):
         self.assertIn("Nog 1 artikel op 1 bon zonder product, 1 foto te halen.", self.render("nl", f"linkingNotice({counts_status(1, 1, 1)})"))
-        self.assertIn("Nog 19 artikelen op 6 bonnen zonder product, 12 foto's te halen.", self.render("nl", f"linkingNotice({counts_status(19, 6, 12)})"))
-        self.assertIn("Nog 1 artikel op 1 bon zonder product.", self.render("nl", f"linkingNotice({counts_status(1, 1, 0, paused=True)}, {{ admin: true }})"))
+        self.assertIn(
+            "Nog 19 artikelen op 6 bonnen zonder product, 12 foto's te halen.", self.render("nl", f"linkingNotice({counts_status(19, 6, 12)})")
+        )
+        self.assertIn(
+            "Nog 1 artikel op 1 bon zonder product.", self.render("nl", f"linkingNotice({counts_status(1, 1, 0, paused=True)}, {{ admin: true }})")
+        )
         one = self.render("nl", f'linkingNotice({TODO}, {{ receiptId: "R1", unlinked: 1, due: 1, total: 40 }})')
         self.assertIn("1 van de 40 regels heeft nog geen product", one)
         self.assertIn("Nu ophalen (1 zoekopdracht)<", one)
@@ -353,13 +330,20 @@ class LinkingPluralTest(unittest.TestCase):
         self.assertIn("1 artikel op 1 bon zonder product, 1 foto te halen", self.render("nl", f"linkingBox({counts_status(1, 1, 1)})"))
 
     def test_english_counts_take_the_singular_at_one(self):
-        self.assertIn("Still 1 article on 1 receipt without a product, 1 photo to fetch.", self.render("en", f"linkingNotice({counts_status(1, 1, 1)})"))
-        self.assertIn("Still 19 articles on 6 receipts without a product, 12 photos to fetch.", self.render("en", f"linkingNotice({counts_status(19, 6, 12)})"))
+        self.assertIn(
+            "Still 1 article on 1 receipt without a product, 1 photo to fetch.", self.render("en", f"linkingNotice({counts_status(1, 1, 1)})")
+        )
+        self.assertIn(
+            "Still 19 articles on 6 receipts without a product, 12 photos to fetch.", self.render("en", f"linkingNotice({counts_status(19, 6, 12)})")
+        )
         one = self.render("en", f'linkingNotice({TODO}, {{ receiptId: "R1", unlinked: 1, due: 1, total: 40 }})')
         self.assertIn("1 of the 40 lines has no product yet", one)
         self.assertIn("Fetch now (1 search)<", one)
         self.assertIn("Fetch now (2 searches)<", self.render("en", f'linkingNotice({TODO}, {{ receiptId: "R1", unlinked: 3, due: 2, total: 40 }})'))
-        self.assertIn("These lines were already searched in the last 30 days", self.render("en", f'linkingNotice({TODO}, {{ receiptId: "R1", unlinked: 3, due: 0, total: 40 }})'))
+        self.assertIn(
+            "These lines were already searched in the last 30 days",
+            self.render("en", f'linkingNotice({TODO}, {{ receiptId: "R1", unlinked: 3, due: 0, total: 40 }})'),
+        )
 
 
 @unittest.skipUnless(shutil.which("node"), "Node is niet geïnstalleerd")
@@ -408,9 +392,7 @@ class LinkingBoxTest(NodeCase):
         )
 
     def test_a_running_round_disables_both_buttons_in_the_box(self):
-        html = self.render(
-            f"linkingBox({TODO.replace('running: null', 'running: { receiptId: null }')})"
-        )
+        html = self.render(f"linkingBox({TODO.replace('running: null', 'running: { receiptId: null }')})")
         self.assertIn("orders.linking.running", html)
         self.assertEqual(len(re.findall(r"<button[^>]*disabled", html)), 2)
 
@@ -433,17 +415,11 @@ class LinkingBoxTest(NodeCase):
 
     def test_an_empty_nightly_round_still_shows_its_zero_counts(self):
         last = '{ at: "2026-11-05T03:00:00+00:00", trigger: "nightly", searches: 0, found: 0, missing: 0, failed: 0, images: 0 }'
-        self.assertIn(
-            "settings.linking.last_round_text", self.render(f"linkingLastRound({last})")
-        )
+        self.assertIn("settings.linking.last_round_text", self.render(f"linkingLastRound({last})"))
 
     def test_an_unknown_trigger_keeps_the_time_without_a_name(self):
         last = '{ at: "2026-11-05T03:00:00+00:00", trigger: "<x>", searches: 1, found: 1, missing: 0, failed: 0, images: 0 }'
-        self.assertTrue(
-            self.render(f"linkingLastRound({last})").startswith(
-                "settings.linking.last_round_text at=date(2026-11-05T03:00:00+00:00),"
-            )
-        )
+        self.assertTrue(self.render(f"linkingLastRound({last})").startswith("settings.linking.last_round_text at=date(2026-11-05T03:00:00+00:00),"))
 
     def test_every_trigger_of_the_backend_has_a_name(self):
         self.assertEqual(
@@ -454,9 +430,7 @@ class LinkingBoxTest(NodeCase):
     def test_a_box_without_a_next_round_says_so(self):
         self.assertIn(
             "next(null)",
-            self.render(
-                f"linkingBox({TODO.replace('nextRound: "2026-11-06T02:00:00+00:00"', 'nextRound: null')})"
-            ),
+            self.render(f"linkingBox({TODO.replace('nextRound: "2026-11-06T02:00:00+00:00"', 'nextRound: null')})"),
         )
 
 
@@ -465,9 +439,7 @@ class LinkingTimeTest(unittest.TestCase):
     NOW = 'new Date("2026-11-05T14:30:00+00:00")'
 
     def run_js(self, expression):
-        script = (
-            f"{prelude(clock_stub=False)}\nconsole.log(JSON.stringify({expression}));"
-        )
+        script = f"{prelude(clock_stub=False)}\nconsole.log(JSON.stringify({expression}));"
         env = {**os.environ, "TZ": "Europe/Amsterdam"}
         done = subprocess.run(
             ["node", "-e", script],
@@ -512,9 +484,7 @@ class LinkingTimeTest(unittest.TestCase):
             self.run_js(f'linkingNext("2026-11-08T02:00:00+00:00", {self.NOW})'),
             "orders.linking.at_date when=date(2026-11-08T02:00:00+00:00)",
         )
-        self.assertEqual(
-            self.run_js(f"linkingNext(null, {self.NOW})"), "orders.linking.next_off"
-        )
+        self.assertEqual(self.run_js(f"linkingNext(null, {self.NOW})"), "orders.linking.next_off")
 
 
 @unittest.skipUnless(shutil.which("node"), "Node is niet geïnstalleerd")
@@ -542,7 +512,7 @@ const jsonFetch = async (url) => { calls.push(url); if (fail) throw new Error('d
         script = "\n".join(
             [
                 const_source(LINKING, "LINKING_POLL_MS"),
-            const_source(LINKING, "linkingState"),
+                const_source(LINKING, "linkingState"),
                 function_source(LINKING, "linkingSchedule"),
                 function_source(LINKING, "linkingRoundDone"),
                 function_source(LINKING, "linkingNoticeRefresh"),
@@ -567,9 +537,7 @@ await linkingNoticeRefresh();
 console.log(JSON.stringify({ timers: timers.map((x) => x.ms), cleared, timer: linkingState.timer }));
 """)
         self.assertEqual(result["timers"], [2000, 2000])
-        self.assertGreaterEqual(
-            result["cleared"], 1, "de tweede verversing ruimt de eerste timer op"
-        )
+        self.assertGreaterEqual(result["cleared"], 1, "de tweede verversing ruimt de eerste timer op")
         self.assertEqual(result["timer"], 2)
 
     def test_no_poll_when_nothing_runs_or_the_places_are_hidden(self):
@@ -645,9 +613,7 @@ const receiptLinkCounts = () => ({});
                 "refreshReceipt('R1').then(() => console.log(JSON.stringify([...purchaseDetailCache.keys()])));",
             ]
         )
-        done = subprocess.run(
-            ["node", "-e", full], capture_output=True, text=True, timeout=30, check=False
-        )
+        done = subprocess.run(["node", "-e", full], capture_output=True, text=True, timeout=30, check=False)
         self.assertEqual(done.returncode, 0, done.stderr)
         self.assertEqual(json.loads(done.stdout), ["ah:receipt:R2", "ah:order:R1"])
         self.assertIn("popoverForget(", function_source(ORDERS, "refreshReceipt"), "via de helper van popover.js")
@@ -683,31 +649,23 @@ const linkingSchedule = () => {};
                 "linkingRun(button).then(() => console.log(JSON.stringify(posted)));",
             ]
         )
-        done = subprocess.run(
-            ["node", "-e", full], capture_output=True, text=True, timeout=30, check=False
-        )
+        done = subprocess.run(["node", "-e", full], capture_output=True, text=True, timeout=30, check=False)
         self.assertEqual(done.returncode, 0, done.stderr)
         return json.loads(done.stdout)
 
     def test_the_images_button_asks_for_photos_only(self):
-        posted = self.posted(
-            {"dataset": {"force": "0"}, "attributes": ["data-linking-images"]}
-        )
+        posted = self.posted({"dataset": {"force": "0"}, "attributes": ["data-linking-images"]})
         self.assertEqual(
             posted,
             [{"url": "/api/ah/linking/run", "body": {"force": False, "images": True}}],
         )
 
     def test_the_images_button_during_a_pause_forces_and_asks_for_photos(self):
-        posted = self.posted(
-            {"dataset": {"force": "1"}, "attributes": ["data-linking-images"]}
-        )
+        posted = self.posted({"dataset": {"force": "1"}, "attributes": ["data-linking-images"]})
         self.assertEqual(posted[0]["body"], {"force": True, "images": True})
 
     def test_the_run_button_does_not_ask_for_photos_only(self):
-        posted = self.posted(
-            {"dataset": {"force": "0"}, "attributes": ["data-linking-run"]}
-        )
+        posted = self.posted({"dataset": {"force": "0"}, "attributes": ["data-linking-run"]})
         self.assertEqual(posted[0]["body"], {"force": False})
 
 
@@ -736,12 +694,8 @@ class LinkingMarkupTest(unittest.TestCase):
 
     def test_the_settings_box_comes_after_the_link_statuses(self):
         section = HTML[HTML.index('id="settings-link"') :]
-        self.assertLess(
-            section.index('class="link-statuses"'), section.index('id="linking-box"')
-        )
-        self.assertLess(
-            section.index('id="linking-box"'), section.index('id="offers-sync-box"')
-        )
+        self.assertLess(section.index('class="link-statuses"'), section.index('id="linking-box"'))
+        self.assertLess(section.index('id="linking-box"'), section.index('id="offers-sync-box"'))
         self.assertIn(
             'data-i18n="settings.linking.title"',
             section[: section.index('id="offers-sync-box"')],
@@ -827,7 +781,9 @@ class LinkingMarkupTest(unittest.TestCase):
         for key in keys:
             self.assertTrue(f'  "{key}": ' in NL_JS, key)
             self.assertTrue(f'  "{key}": ' in EN_JS, key)
-        self.assertTrue('"orders.linking.paused": "AH weigerde onze verzoeken om {since} ({status}). Koppelen en foto\'s ophalen wachten tot {until}."' in NL_JS)
+        self.assertTrue(
+            '"orders.linking.paused": "AH weigerde onze verzoeken om {since} ({status}). Koppelen en foto\'s ophalen wachten tot {until}."' in NL_JS
+        )
         self.assertTrue('"orders.linking.run": "Nu ophalen"' in NL_JS)
 
 

@@ -3,6 +3,7 @@
 De import leest de vorm van de site (price_archive.py: `site_document`, `_from_site`, `_from_site_gist`, `fetch_site`), de export
 maakt hem (price_archive_export.py: `write_site_export`, `site_schema`). De regels van de site zelf (scripts/datastore.py in
 helmerzNL/data.mealieshopper.nl) staan hieronder nagebouwd, zodat een export daar zonder fouten door de controle komt."""
+
 import asyncio
 import base64
 import hashlib
@@ -15,10 +16,10 @@ from typing import Any, Callable
 
 import httpx
 import jsonschema
-
 from helpers import routes  # noqa: E402
-from mealieshopper import about, price_archive, price_archive_export, price_archive_tidy  # noqa: E402
 from test_price_archive import TOP, ArchiveCase, by_store, offer, price  # noqa: E402
+
+from mealieshopper import about, price_archive, price_archive_export, price_archive_tidy  # noqa: E402
 
 SITE = "https://data.mealieshopper.nl"
 # De regels van data.mealieshopper.nl (scripts/datastore.py): namen, grootte en sleutels die op een geheim wijzen.
@@ -53,7 +54,9 @@ def default_packages() -> dict[str, dict[str, bytes]]:
 
 
 def site_gist_zip(
-    packages: dict[str, dict[str, bytes]] | None = None, part_size: int = 400, top: str = TOP,
+    packages: dict[str, dict[str, bytes]] | None = None,
+    part_size: int = 400,
+    top: str = TOP,
     tamper: Callable[[dict, dict[str, bytes]], None] | None = None,
 ) -> bytes:
     """De gist voor data.mealieshopper.nl zoals Download ZIP hem geeft: data-site-manifest.json en per winkel Base64-delen van de
@@ -67,18 +70,26 @@ def site_gist_zip(
         names = []
         for index, at in enumerate(range(0, len(encoded), part_size), 1):
             name = f"data-site-{store}.part-{index:03d}.b64"
-            parts[name] = encoded[at:at + part_size] + b"\n"
+            parts[name] = encoded[at : at + part_size] + b"\n"
             names.append(name)
-        listed.append({
-            "store": store, "title": store.upper(), "uploadPath": f"data/{store}/{store}-history-20261107.zip",
-            "zipBytes": len(inner), "sha256": hashlib.sha256(inner).hexdigest(), "counts": {"offers": 0},
-            "documents": [
-                {"path": f"{store}/{name}", "bytes": len(data), "sha256": hashlib.sha256(data).hexdigest(), "items": len(json.loads(data))}
-                for name, data in documents.items()
-            ],
-            "schema": f"schemas/{store}.schema.json", "schemaSha256": "0" * 64, "gistSchemaFile": f"data-site-{store}.schema.json",
-            "parts": [{"file": name, "bytes": len(parts[name]), "sha256": hashlib.sha256(parts[name]).hexdigest()} for name in names],
-        })
+        listed.append(
+            {
+                "store": store,
+                "title": store.upper(),
+                "uploadPath": f"data/{store}/{store}-history-20261107.zip",
+                "zipBytes": len(inner),
+                "sha256": hashlib.sha256(inner).hexdigest(),
+                "counts": {"offers": 0},
+                "documents": [
+                    {"path": f"{store}/{name}", "bytes": len(data), "sha256": hashlib.sha256(data).hexdigest(), "items": len(json.loads(data))}
+                    for name, data in documents.items()
+                ],
+                "schema": f"schemas/{store}.schema.json",
+                "schemaSha256": "0" * 64,
+                "gistSchemaFile": f"data-site-{store}.schema.json",
+                "parts": [{"file": name, "bytes": len(parts[name]), "sha256": hashlib.sha256(parts[name]).hexdigest()} for name in names],
+            }
+        )
     manifest = {"specification": f"{SITE}/", "created": "2026-11-07", "currency": "EUR", "packages": listed}
     if tamper:
         tamper(manifest, parts)
@@ -117,8 +128,11 @@ class SiteGistTest(ArchiveCase):
         self.assertEqual((summary["lines"], job["summary"]["prices"]), (3, 3))
         self.assertEqual(
             sorted((row["store"], row["product_id"], row["source"]) for row in self.rows("price_observations")),
-            [("crisp", "folder:crispp0003", "public_press_release"), ("picnic", "folder:picnicp0001", "public_observed_unknown"),
-             ("picnic", "folder:picnicp0002", "public_observed_unknown")],
+            [
+                ("crisp", "folder:crispp0003", "public_press_release"),
+                ("picnic", "folder:picnicp0001", "public_observed_unknown"),
+                ("picnic", "folder:picnicp0002", "public_observed_unknown"),
+            ],
         )
         self.assertEqual(price_archive.site_document("picnic/observations/2022-001.json"), ("price", "picnic"))
 
@@ -142,16 +156,19 @@ class SiteGistTest(ArchiveCase):
         def part(field, value):
             def tamper(manifest, parts):
                 manifest["packages"][0]["parts"][0][field] = value
+
             return tamper
 
         def package(field, value):
             def tamper(manifest, parts):
                 manifest["packages"][0][field] = value
+
             return tamper
 
         def document(field, value):
             def tamper(manifest, parts):
                 manifest["packages"][0]["documents"][0][field] = value
+
             return tamper
 
         def extra_document(manifest, parts):
@@ -214,7 +231,9 @@ class SiteGistTest(ArchiveCase):
                 nl, en = (text.split("{")[0].strip() for text in price_archive.REASONS[reason])
                 self.assertTrue(nl in body["error"] or en in body["error"], body["error"])
         # Een regel die de import niet aanneemt, noemt het document en de plek in de lijst.
-        body = await self.refused(site_gist_zip({"ah": {"offers/2013-001.json": site_doc([gist_offer(1), gist_offer(2, url="http://x")])}}), "bad_row")
+        body = await self.refused(
+            site_gist_zip({"ah": {"offers/2013-001.json": site_doc([gist_offer(1), gist_offer(2, url="http://x")])}}), "bad_row"
+        )
         self.assertIn("ah/offers/2013-001.json", body["error"])
         self.assertIn(", regel 2:", body["error"])
 
@@ -229,22 +248,28 @@ class SiteZipTest(ArchiveCase):
 
     async def test_the_zip_of_the_data_repository_imports(self):
         top = "data.mealieshopper.nl-main"
-        data = plain_zip({
-            f"{top}/README.md": b"# MealieShopper data\n",
-            f"{top}/schemas/ah.schema.json": b"{}",
-            f"{top}/data/README.md": b"# data/\n",
-            f"{top}/data/ah/offers/2013-001.json": site_doc([gist_offer(1)]),
-            f"{top}/data/picnic/prices/2022-001.json": site_doc([price(1), price(2)]),
-            f"{top}/data/recepten/soepen.json": site_doc([{"naam": "Erwtensoep"}]),
-        })
+        data = plain_zip(
+            {
+                f"{top}/README.md": b"# MealieShopper data\n",
+                f"{top}/schemas/ah.schema.json": b"{}",
+                f"{top}/data/README.md": b"# data/\n",
+                f"{top}/data/ah/offers/2013-001.json": site_doc([gist_offer(1)]),
+                f"{top}/data/picnic/prices/2022-001.json": site_doc([price(1), price(2)]),
+                f"{top}/data/recepten/soepen.json": site_doc([{"naam": "Erwtensoep"}]),
+            }
+        )
         summary, job = await self.run_import(data)
         self.assertEqual((job["summary"]["offers"], job["summary"]["prices"]), (1, 2))
         self.assertEqual(by_store(summary)["picnic"]["prices"]["new"], 2)
 
     async def test_the_published_site_with_its_catalogue_names_the_source(self):
         catalog = {"site": SITE, "generated_at": "2026-11-08T10:00:00Z", "commit": "abc1234def", "license": {"name": "MIT"}, "collections": []}
-        summary = (await self.stage(plain_zip({"index.json": json.dumps(catalog).encode(), "ah/offers/2013-001.json": site_doc([gist_offer(1)])}))).get_json()
-        self.assertEqual((summary["source"], summary["createdAt"], summary["license"]), ("data.mealieshopper.nl (abc1234)", "2026-11-08T10:00:00Z", "MIT"))
+        summary = (
+            await self.stage(plain_zip({"index.json": json.dumps(catalog).encode(), "ah/offers/2013-001.json": site_doc([gist_offer(1)])}))
+        ).get_json()
+        self.assertEqual(
+            (summary["source"], summary["createdAt"], summary["license"]), ("data.mealieshopper.nl (abc1234)", "2026-11-08T10:00:00Z", "MIT")
+        )
 
     async def test_a_line_in_the_folder_of_another_store_is_refused(self):
         body = await self.refused(plain_zip({"data/ah/offers/2013-001.json": site_doc([gist_offer(1, "jumbo")])}), "bad_row")
@@ -260,26 +285,115 @@ class SiteExportTest(ArchiveCase):
     """Exporteren voor data.mealieshopper.nl (price_archive_export.write_site_export)."""
 
     def fill(self):
-        offer_sql = ("INSERT INTO offer_history (store, product_id, title, unit_size, price, price_before, promo_label, image, url, "
-                     "valid_from, valid_until, first_seen, last_seen, personal) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
-        price_sql = ("INSERT INTO price_observations (store, product_id, day, source, title, brand, unit_size, image, url, price, seen_at) "
-                     "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+        offer_sql = (
+            "INSERT INTO offer_history (store, product_id, title, unit_size, price, price_before, promo_label, image, url, "
+            "valid_from, valid_until, first_seen, last_seen, personal) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+        )
+        price_sql = (
+            "INSERT INTO price_observations (store, product_id, day, source, title, brand, unit_size, image, url, price, seen_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+        )
         with closing(self.connect()) as conn, conn:
-            conn.executemany(offer_sql, [
-                ("ah", "8001", "AH Halfvolle melk", "1 l", 1.19, 1.39, "voor 1.19", "https://static.ah.nl/melk.jpg",
-                 "https://www.ah.nl/producten/product/wi8001", "2026-10-26", "2026-11-01", "2026-10-26T06:00:00+00:00", "2026-11-01T06:00:00+00:00", 0),
-                ("ah", "8002", "AH Persoonlijke kaas", "500 g", 3.0, 4.0, "Bonus Box", None,
-                 "https://www.ah.nl/producten/product/wi8002", "2026-10-26", "2026-11-01", "2026-10-26T06:00:00+00:00", "2026-11-01T06:00:00+00:00", 1),
-                ("picnic", "s1001", "Picnic eieren", "10 stuks", 2.49, 2.99, "1+1 gratis", None,
-                 None, "2026-11-02", "2026-11-08", "2026-11-02T06:00:00+00:00", "2026-11-03T06:00:00+00:00", 0),
-                ("ah", "folder:ah0002", "Folder: Product 2", "500 g", 1.39, 1.79, "voor: 1.39 Los", "",
-                 "https://www.supermarktaanbiedingen.com/folders/albert_heijn/2013/23/product-2", "2013-06-03", "2013-06-09",
-                 "2013-06-03T00:00:00+00:00", "2013-06-09T23:59:59+00:00", 0),
-            ])
-            conn.executemany(price_sql, [
-                ("ah", "8001", "2026-10-05", "search", "AH Halfvolle melk", "AH", "1 l", None, "https://www.ah.nl/producten/product/wi8001", 1.39, "2026-10-05T10:00:00+00:00"),
-                ("picnic", "s1001", "2022-11-30", "public_observed_unknown", "Picnic eieren", None, "10 stuks", None, None, 2.79, "2022-11-30T19:56:18+01:00"),
-            ])
+            conn.executemany(
+                offer_sql,
+                [
+                    (
+                        "ah",
+                        "8001",
+                        "AH Halfvolle melk",
+                        "1 l",
+                        1.19,
+                        1.39,
+                        "voor 1.19",
+                        "https://static.ah.nl/melk.jpg",
+                        "https://www.ah.nl/producten/product/wi8001",
+                        "2026-10-26",
+                        "2026-11-01",
+                        "2026-10-26T06:00:00+00:00",
+                        "2026-11-01T06:00:00+00:00",
+                        0,
+                    ),
+                    (
+                        "ah",
+                        "8002",
+                        "AH Persoonlijke kaas",
+                        "500 g",
+                        3.0,
+                        4.0,
+                        "Bonus Box",
+                        None,
+                        "https://www.ah.nl/producten/product/wi8002",
+                        "2026-10-26",
+                        "2026-11-01",
+                        "2026-10-26T06:00:00+00:00",
+                        "2026-11-01T06:00:00+00:00",
+                        1,
+                    ),
+                    (
+                        "picnic",
+                        "s1001",
+                        "Picnic eieren",
+                        "10 stuks",
+                        2.49,
+                        2.99,
+                        "1+1 gratis",
+                        None,
+                        None,
+                        "2026-11-02",
+                        "2026-11-08",
+                        "2026-11-02T06:00:00+00:00",
+                        "2026-11-03T06:00:00+00:00",
+                        0,
+                    ),
+                    (
+                        "ah",
+                        "folder:ah0002",
+                        "Folder: Product 2",
+                        "500 g",
+                        1.39,
+                        1.79,
+                        "voor: 1.39 Los",
+                        "",
+                        "https://www.supermarktaanbiedingen.com/folders/albert_heijn/2013/23/product-2",
+                        "2013-06-03",
+                        "2013-06-09",
+                        "2013-06-03T00:00:00+00:00",
+                        "2013-06-09T23:59:59+00:00",
+                        0,
+                    ),
+                ],
+            )
+            conn.executemany(
+                price_sql,
+                [
+                    (
+                        "ah",
+                        "8001",
+                        "2026-10-05",
+                        "search",
+                        "AH Halfvolle melk",
+                        "AH",
+                        "1 l",
+                        None,
+                        "https://www.ah.nl/producten/product/wi8001",
+                        1.39,
+                        "2026-10-05T10:00:00+00:00",
+                    ),
+                    (
+                        "picnic",
+                        "s1001",
+                        "2022-11-30",
+                        "public_observed_unknown",
+                        "Picnic eieren",
+                        None,
+                        "10 stuks",
+                        None,
+                        None,
+                        2.79,
+                        "2022-11-30T19:56:18+01:00",
+                    ),
+                ],
+            )
 
     async def export(self) -> zipfile.ZipFile:
         response = await self.admin.post("/api/price-archive/export?format=site")
@@ -294,12 +408,19 @@ class SiteExportTest(ArchiveCase):
     async def test_a_document_per_store_kind_and_year_with_a_schema(self):
         self.fill()
         archive = await self.export()
-        self.assertEqual(sorted(archive.namelist()), [
-            "MEALIESHOPPER-EXPORT.md",
-            "data/ah/offers/2013-001.json", "data/ah/offers/2026-001.json", "data/ah/prices/2026-001.json",
-            "data/picnic/offers/2026-001.json", "data/picnic/prices/2022-001.json",
-            "schemas/ah.schema.json", "schemas/picnic.schema.json",
-        ])
+        self.assertEqual(
+            sorted(archive.namelist()),
+            [
+                "MEALIESHOPPER-EXPORT.md",
+                "data/ah/offers/2013-001.json",
+                "data/ah/offers/2026-001.json",
+                "data/ah/prices/2026-001.json",
+                "data/picnic/offers/2026-001.json",
+                "data/picnic/prices/2022-001.json",
+                "schemas/ah.schema.json",
+                "schemas/picnic.schema.json",
+            ],
+        )
         documents = self.documents(archive)
         self.assertFalse(any(b"Persoonlijke kaas" in archive.read(name) for name in archive.namelist()))
         melk = documents["data/ah/offers/2026-001.json"][0]
@@ -324,7 +445,11 @@ class SiteExportTest(ArchiveCase):
     async def test_every_document_follows_the_rules_of_the_site(self):
         self.fill()
         archive = await self.export()
-        schemas = {name.split("/")[1].removesuffix(".schema.json"): json.loads(archive.read(name)) for name in archive.namelist() if name.startswith("schemas/")}
+        schemas = {
+            name.split("/")[1].removesuffix(".schema.json"): json.loads(archive.read(name))
+            for name in archive.namelist()
+            if name.startswith("schemas/")
+        }
         for schema in schemas.values():
             jsonschema.Draft202012Validator.check_schema(schema)
         for name, data in self.documents(archive).items():
@@ -363,8 +488,12 @@ class SiteExportTest(ArchiveCase):
         pattern = re.compile(price_archive_export.ARCHIVE_URL_PATTERN)
         for prefix in price_archive_tidy.ARCHIVE_URLS:
             self.assertTrue(pattern.match(prefix + "x"), prefix)
-        for address in ("https://www.ah.nl/producten/product/wi4183", "https://crisp.nl/download/12/175/persbericht.pdf",
-                        "https://www.supermarktaanbiedingen.nl/folders/x", "https://wwwXsupermarktaanbiedingen.com/folders/x"):
+        for address in (
+            "https://www.ah.nl/producten/product/wi4183",
+            "https://crisp.nl/download/12/175/persbericht.pdf",
+            "https://www.supermarktaanbiedingen.nl/folders/x",
+            "https://wwwXsupermarktaanbiedingen.com/folders/x",
+        ):
             self.assertIsNone(pattern.match(address), address)
         # Alleen een escape voor . en ?: zo werkt de regex ook als ECMAScript-regex (JSON Schema).
         self.assertEqual(set(re.findall(r"\\(.)", price_archive_export.ARCHIVE_URL_PATTERN)), {".", "?"})
@@ -373,8 +502,19 @@ class SiteExportTest(ArchiveCase):
         with closing(self.connect()) as conn, conn:
             conn.executemany(
                 "INSERT INTO offer_history (store, product_id, title, url, valid_from, valid_until, first_seen, last_seen) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                [("ah", f"{8000 + n}", f"AH Product {n}", f"https://www.ah.nl/producten/product/wi{8000 + n}", "2025-01-06", "2025-01-12",
-                  "2025-01-06T00:00:00+00:00", "2025-01-12T00:00:00+00:00") for n in range(40)],
+                [
+                    (
+                        "ah",
+                        f"{8000 + n}",
+                        f"AH Product {n}",
+                        f"https://www.ah.nl/producten/product/wi{8000 + n}",
+                        "2025-01-06",
+                        "2025-01-12",
+                        "2025-01-06T00:00:00+00:00",
+                        "2025-01-12T00:00:00+00:00",
+                    )
+                    for n in range(40)
+                ],
             )
         await price_archive.ensure_schema()
         path = self.data / "export.zip"
@@ -413,11 +553,16 @@ class SiteExportTest(ArchiveCase):
             return sorted([row[key] for key in columns] for row in rows)
 
         # Alles komt terug, behalve het adres van het folderarchief: dat ging niet mee naar de site.
-        expected = [{**row, "url": None if str(row["url"] or "").startswith(price_archive_tidy.ARCHIVE_URLS) else row["url"]}
-                    for row in before[0] if not row["personal"]]
+        expected = [
+            {**row, "url": None if str(row["url"] or "").startswith(price_archive_tidy.ARCHIVE_URLS) else row["url"]}
+            for row in before[0]
+            if not row["personal"]
+        ]
         self.assertEqual(plain(self.rows("offer_history")), plain(expected))
-        self.assertEqual(sorted((row["store"], row["source"], row["price"]) for row in self.rows("price_observations")),
-                         [("ah", "archive_search", 1.39), ("picnic", "public_observed_unknown", 2.79)])
+        self.assertEqual(
+            sorted((row["store"], row["source"], row["price"]) for row in self.rows("price_observations")),
+            [("ah", "archive_search", 1.39), ("picnic", "public_observed_unknown", 2.79)],
+        )
 
     async def test_lines_that_only_differed_in_the_archive_address_go_once(self):
         # Het archief noemde dezelfde aanbieding twee keer (twee folderpagina's); een variant (andere actietekst) blijft.
@@ -430,21 +575,30 @@ class SiteExportTest(ArchiveCase):
         rows = json.loads(zipfile.ZipFile(self.data / "export.zip").read("data/ah/offers/2013-001.json"))
         self.assertEqual(sorted(row["promo_label"] for row in rows), ["2 voor", "Stuk 100 gram"])
         self.assertEqual((header["merged"], header["counts"]["offers"]), ({"offers": 1, "prices": 0}, {"ah": 2}))
-        self.assertIn("1 regels die alleen in het adres van het archief verschilden",
-                      zipfile.ZipFile(self.data / "export.zip").read("MEALIESHOPPER-EXPORT.md").decode("utf-8"))
+        self.assertIn(
+            "1 regels die alleen in het adres van het archief verschilden",
+            zipfile.ZipFile(self.data / "export.zip").read("MEALIESHOPPER-EXPORT.md").decode("utf-8"),
+        )
 
     async def test_the_gist_comes_out_under_the_same_names(self):
         await self.run_import(site_gist_zip())
         archive = await self.export()
-        self.assertEqual(sorted(name for name in archive.namelist() if name.startswith("data/")),
-                         ["data/ah/offers/2013-001.json", "data/jumbo/offers/2013-001.json"])
+        self.assertEqual(
+            sorted(name for name in archive.namelist() if name.startswith("data/")),
+            ["data/ah/offers/2013-001.json", "data/jumbo/offers/2013-001.json"],
+        )
         self.assertIn(f"MealieShopper {about.read_version()}", archive.read("MEALIESHOPPER-EXPORT.md").decode("utf-8"))
-
 
     async def test_a_pack_only_in_the_leaflet_text_keeps_its_price_on_the_way_back(self):
         # De verpakking staat alleen in `description`, die de app niet bewaart; in de export staat ze nog in de actietekst.
-        row = gist_offer(1, unit_size=None, description="Bakje 40 gram", promo_label="Folder | Bakje 40 gram | bron: oud=1.69, actie=1.27",
-                         price=1.27, price_before=1.69)
+        row = gist_offer(
+            1,
+            unit_size=None,
+            description="Bakje 40 gram",
+            promo_label="Folder | Bakje 40 gram | bron: oud=1.69, actie=1.27",
+            price=1.27,
+            price_before=1.69,
+        )
         await self.run_import(plain_zip({"offers/2013-001.json": site_doc([row])}))
         archive = await self.export()
         exported = self.documents(archive)["data/ah/offers/2013-001.json"][0]
@@ -462,12 +616,20 @@ class FetchTest(ArchiveCase):
     def catalog(self, documents: dict[str, bytes], **changes) -> dict:
         collections: dict[str, list[dict]] = {}
         for path, data in documents.items():
-            collections.setdefault(path.split("/")[0], []).append({
-                "path": path, "url": f"https://elders.example/{path}", "bytes": len(data), "sha256": hashlib.sha256(data).hexdigest(),
-                "items": len(json.loads(data)),
-            })
+            collections.setdefault(path.split("/")[0], []).append(
+                {
+                    "path": path,
+                    "url": f"https://elders.example/{path}",
+                    "bytes": len(data),
+                    "sha256": hashlib.sha256(data).hexdigest(),
+                    "items": len(json.loads(data)),
+                }
+            )
         catalog = {
-            "site": SITE, "generated_at": "2026-11-08T10:00:00Z", "commit": "abc1234def5678", "license": {"name": "MIT"},
+            "site": SITE,
+            "generated_at": "2026-11-08T10:00:00Z",
+            "commit": "abc1234def5678",
+            "license": {"name": "MIT"},
             "collections": [{"name": name, "title": name, "files": files} for name, files in collections.items()],
         }
         catalog.update(changes)
@@ -495,7 +657,9 @@ class FetchTest(ArchiveCase):
             self.assertEqual(response.status_code, 200, summary)
             called = sorted(str(call.request.url) for call in router.calls)
         self.assertEqual(called, [f"{SITE}/ah/offers/2013-001.json", f"{SITE}/index.json", f"{SITE}/picnic/prices/2022-001.json"])
-        self.assertEqual((summary["format"], summary["source"], summary["license"]), ("data.mealieshopper.nl", "data.mealieshopper.nl (abc1234)", "MIT"))
+        self.assertEqual(
+            (summary["format"], summary["source"], summary["license"]), ("data.mealieshopper.nl", "data.mealieshopper.nl (abc1234)", "MIT")
+        )
         self.assertEqual(by_store(summary)["ah"]["offers"]["new"], 2)
         self.assertEqual(by_store(summary)["picnic"]["prices"]["new"], 1)
         started = await self.admin.post("/api/price-archive/jobs", json={"token": summary["token"]})

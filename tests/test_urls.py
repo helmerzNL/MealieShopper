@@ -3,6 +3,7 @@
 import unittest
 
 from helpers import db  # noqa: F401 - zet het pad naar de app
+
 from mealieshopper import urls
 
 
@@ -12,8 +13,23 @@ class PublicHttpUrlTest(unittest.TestCase):
         self.assertEqual(urls.public_http_url("http://93.184.216.34/recipe"), "http://93.184.216.34/recipe")
 
     def test_private_and_local_hosts_are_refused(self) -> None:
-        for value in ("http://localhost:9000/x", "http://mealie/x", "http://10.0.0.5/x", "http://[::1]/x", "http://192.168.1.10/r", "http://nas.local/x", "http://169.254.169.254/latest",
-                      "http://127.1/x", "http://10.1/x", "http://0x7f.0.0.1/x", "http://0177.0.0.1/x", "http://169.254.43518/x", "http://router.box/x", "http://api.default.svc.cluster.local/x", "http://nas.home/x"):
+        for value in (
+            "http://localhost:9000/x",
+            "http://mealie/x",
+            "http://10.0.0.5/x",
+            "http://[::1]/x",
+            "http://192.168.1.10/r",
+            "http://nas.local/x",
+            "http://169.254.169.254/latest",
+            "http://127.1/x",
+            "http://10.1/x",
+            "http://0x7f.0.0.1/x",
+            "http://0177.0.0.1/x",
+            "http://169.254.43518/x",
+            "http://router.box/x",
+            "http://api.default.svc.cluster.local/x",
+            "http://nas.home/x",
+        ):
             with self.subTest(value=value), self.assertRaises(urls.UnsafeUrl) as caught:
                 urls.public_http_url(value)
             self.assertIn("eigen netwerk", str(caught.exception))

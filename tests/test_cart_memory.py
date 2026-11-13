@@ -7,15 +7,20 @@ from unittest import mock
 
 os.environ["PASSKEY_AUTH_ENABLED"] = "false"
 
+from helpers import AppTestCase  # noqa: E402
+
 from mealieshopper import ah, auth, cart_memory, picnic, users  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
-from helpers import AppTestCase  # noqa: E402
 
 
 def search_result(webshop_id, title, unit_size, price=1.5):
     return {
-        "webshopId": str(webshop_id), "title": title, "brand": "AH", "unitSize": unit_size,
-        "price": {"now": price, "unitSize": unit_size}, "images": [{"url": f"https://img/{webshop_id}.jpg"}],
+        "webshopId": str(webshop_id),
+        "title": title,
+        "brand": "AH",
+        "unitSize": unit_size,
+        "price": {"now": price, "unitSize": unit_size},
+        "images": [{"url": f"https://img/{webshop_id}.jpg"}],
         "isBonus": False,
     }
 
@@ -44,7 +49,15 @@ class ChoicesTest(MemoryCase):
         self.assertEqual(await cart_memory.remember("owner", "ah", [self.ITEM], now="2026-11-09T10:00:00+00:00"), 1)
         self.assertEqual(
             await cart_memory.chosen("owner", "ah"),
-            {"rundergehakt": {"productId": "42", "title": "AH Rundergehakt 1000 g", "unitSize": "1000 g", "image": "https://img/42.jpg", "chosenAt": "2026-11-09T10:00:00+00:00"}},
+            {
+                "rundergehakt": {
+                    "productId": "42",
+                    "title": "AH Rundergehakt 1000 g",
+                    "unitSize": "1000 g",
+                    "image": "https://img/42.jpg",
+                    "chosenAt": "2026-11-09T10:00:00+00:00",
+                }
+            },
         )
         self.assertEqual(await cart_memory.chosen("owner", "picnic"), {}, "een andere winkel heeft andere producten")
         self.assertEqual(await cart_memory.chosen("u-2", "ah"), {}, "een andere gebruiker kiest zelf")
@@ -57,13 +70,17 @@ class ChoicesTest(MemoryCase):
         self.assertEqual((choice["productId"], choice["title"], choice["unitSize"], choice["image"]), ("7", "AH Biologisch rundergehakt", None, None))
 
     async def test_incomplete_rows_and_odd_images_are_left_out(self):
-        saved = await cart_memory.remember("owner", "ah", [
-            {"query": "", "productId": 1, "title": "x"},
-            {"query": "ui", "productId": None, "title": "x"},
-            {"query": "ui", "productId": 1, "title": ""},
-            "geen regel",
-            {"query": "melk", "productId": 2, "title": "Melk", "image": "javascript:alert(1)"},
-        ])
+        saved = await cart_memory.remember(
+            "owner",
+            "ah",
+            [
+                {"query": "", "productId": 1, "title": "x"},
+                {"query": "ui", "productId": None, "title": "x"},
+                {"query": "ui", "productId": 1, "title": ""},
+                "geen regel",
+                {"query": "melk", "productId": 2, "title": "Melk", "image": "javascript:alert(1)"},
+            ],
+        )
         self.assertEqual(saved, 1)
         self.assertEqual((await cart_memory.chosen("owner", "ah"))["melk"]["image"], None)
         with self.assertRaises(ValueError):
@@ -104,8 +121,12 @@ class PantryTest(MemoryCase):
         self.assertEqual(len(await cart_memory.pantry("owner")), 1)
 
     async def test_deleting_a_user_calls_it(self):
-        with mock.patch.object(users, "get_user", return_value={"id": "u-2"}), mock.patch.object(users.profile, "delete"), \
-                mock.patch.object(users.oauth, "forget_user"), mock.patch.object(cart_memory, "remove_user") as remove:
+        with (
+            mock.patch.object(users, "get_user", return_value={"id": "u-2"}),
+            mock.patch.object(users.profile, "delete"),
+            mock.patch.object(users.oauth, "forget_user"),
+            mock.patch.object(cart_memory, "remove_user") as remove,
+        ):
             await auth.ensure_db()
             self.assertTrue(await users.delete_user("u-2"))
         remove.assert_awaited_once_with("u-2")

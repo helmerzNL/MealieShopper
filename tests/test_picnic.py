@@ -10,9 +10,10 @@ import httpx
 
 os.environ.setdefault("MEALIESHOPPER_DATA_DIR", tempfile.mkdtemp())
 
+from helpers import AppTestCase, run, sent_json, sent_url, served  # noqa: E402
+
 from mealieshopper import auth, picnic  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
-from helpers import AppTestCase, run, sent_json, sent_url, served  # noqa: E402
 
 
 def response(data=None, *, status=200, token=None):
@@ -52,8 +53,15 @@ def path_of(call):
 
 def tile(unit_id, name, unit_quantity, cents=199, **extra):
     """Een zoektegel zoals Picnic die in de widgetboom zet."""
-    unit = {"id": unit_id, "name": name, "display_price": cents, "image_id": f"img{unit_id}",
-            "unit_quantity": unit_quantity, "decorators": [], **extra}
+    unit = {
+        "id": unit_id,
+        "name": name,
+        "display_price": cents,
+        "image_id": f"img{unit_id}",
+        "unit_quantity": unit_quantity,
+        "decorators": [],
+        **extra,
+    }
     return {"type": "SELLING_UNIT_TILE", "sellingUnit": unit}
 
 
@@ -92,8 +100,7 @@ class SearchParsingTest(AppTestCase):
         self.assertEqual([p["isBonus"] for p in products], [True, False])
 
     def test_promotion_label_and_regular_price_are_kept(self):
-        promo = tile("s1", "Kaas", "400 g", cents=299, price=399,
-                     decorators=[{"type": "PROMOTION_LABEL", "text": "2e halve prijs"}])
+        promo = tile("s1", "Kaas", "400 g", cents=299, price=399, decorators=[{"type": "PROMOTION_LABEL", "text": "2e halve prijs"}])
         plain = tile("s2", "Brood", "800 g")
         found, other = picnic.products_from_search_page(search_page(promo, plain))
         self.assertEqual(found["promo"]["label"], "2e halve prijs")
@@ -107,8 +114,7 @@ class SearchParsingTest(AppTestCase):
 
 class CandidateTest(AppTestCase):
     def test_same_shape_as_the_ah_candidates(self):
-        product = {"id": "s1", "title": "Eieren", "unitSize": "10 stuks", "price": 2.49,
-                   "image": "https://img", "isBonus": False, "maxCount": None}
+        product = {"id": "s1", "title": "Eieren", "unitSize": "10 stuks", "price": 2.49, "image": "https://img", "isBonus": False, "maxCount": None}
         found = picnic.candidate(product, 12, "stuks")
         self.assertEqual(found["productId"], "s1")
         self.assertEqual(found["packs"], 2)
@@ -279,11 +285,16 @@ class AuthenticatedCallTest(TempDataDirTest):
 
 class CartTest(TempDataDirTest):
     CART = {
-        "total_count": 3, "total_price": 450,
+        "total_count": 3,
+        "total_price": 450,
         "items": [
-            {"id": "l1", "display_price": 300, "items": [
-                {"id": "s1", "name": "Melk", "unit_quantity": "1 l", "image_ids": ["i1"],
-                 "decorators": [{"type": "QUANTITY", "quantity": 2}]}]},
+            {
+                "id": "l1",
+                "display_price": 300,
+                "items": [
+                    {"id": "s1", "name": "Melk", "unit_quantity": "1 l", "image_ids": ["i1"], "decorators": [{"type": "QUANTITY", "quantity": 2}]}
+                ],
+            },
             {"id": "l2", "price": 150, "items": [{"id": "s2", "name": "Brood", "unit_quantity": "800 g"}]},
         ],
     }
@@ -291,8 +302,7 @@ class CartTest(TempDataDirTest):
     def test_cart_summary(self):
         summary = picnic.cart_summary(self.CART)
         self.assertEqual(summary["totalPrice"], 4.5)
-        self.assertEqual([(i["id"], i["quantity"], i["price"]) for i in summary["items"]],
-                         [("s1", 2, 3.0), ("s2", 1, 1.5)])
+        self.assertEqual([(i["id"], i["quantity"], i["price"]) for i in summary["items"]], [("s1", 2, 3.0), ("s2", 1, 1.5)])
 
     def test_cart_summary_has_checkout_total_and_savings(self):
         summary = picnic.cart_summary({**self.CART, "checkout_total_price": 695, "membership_savings": 120})
@@ -306,10 +316,13 @@ class CartTest(TempDataDirTest):
 
 def cart_with(**quantities):
     """Een mandje met de gegeven producten (id -> aantal), zoals Picnic het teruggeeft."""
-    return {"total_count": sum(quantities.values()), "items": [
-        {"id": f"l{pid}", "items": [{"id": pid, "name": pid.upper(),
-                                     "decorators": [{"type": "QUANTITY", "quantity": qty}]}]}
-        for pid, qty in quantities.items()]}
+    return {
+        "total_count": sum(quantities.values()),
+        "items": [
+            {"id": f"l{pid}", "items": [{"id": pid, "name": pid.upper(), "decorators": [{"type": "QUANTITY", "quantity": qty}]}]}
+            for pid, qty in quantities.items()
+        ],
+    }
 
 
 def paths_and_bodies(call):
@@ -320,17 +333,39 @@ class RealCartShapeTest(AppTestCase):
     """De vorm van een gevuld mandje, zoals de verkenner hem meldde (veldnamen, geen echte waarden)."""
 
     def line(self, pid, display_price, price, quantity=1, max_count=10):
-        return {"id": f"l{pid}", "display_price": display_price, "price": price, "type": "ORDER_LINE",
-                "decorators": [{"type": "PRICE", "display_price": display_price, "text": "x"}],
-                "items": [{"id": pid, "name": pid.upper(), "price": 100, "unit_quantity": "1 st", "max_count": max_count,
-                           "image_ids": ["i"], "decorators": [{"type": "QUANTITY", "quantity": quantity}]}]}
+        return {
+            "id": f"l{pid}",
+            "display_price": display_price,
+            "price": price,
+            "type": "ORDER_LINE",
+            "decorators": [{"type": "PRICE", "display_price": display_price, "text": "x"}],
+            "items": [
+                {
+                    "id": pid,
+                    "name": pid.upper(),
+                    "price": 100,
+                    "unit_quantity": "1 st",
+                    "max_count": max_count,
+                    "image_ids": ["i"],
+                    "decorators": [{"type": "QUANTITY", "quantity": quantity}],
+                }
+            ],
+        }
 
     def cart(self):
-        return {"total_count": 3, "total_price": 480, "checkout_total_price": 480, "membership_savings": 70,
-                "analytics_context_data": {"items_list": [
+        return {
+            "total_count": 3,
+            "total_price": 480,
+            "checkout_total_price": 480,
+            "membership_savings": 70,
+            "analytics_context_data": {
+                "items_list": [
                     {"product_id": "s1", "is_available": True, "is_in_recipe": False, "quantity": 2},
-                    {"product_id": "s2", "is_available": False, "is_in_recipe": False, "quantity": 1}]},
-                "items": [self.line("s1", 300, 300, quantity=2, max_count=8), self.line("s2", 250, 180)]}
+                    {"product_id": "s2", "is_available": False, "is_in_recipe": False, "quantity": 1},
+                ]
+            },
+            "items": [self.line("s1", 300, 300, quantity=2, max_count=8), self.line("s2", 250, 180)],
+        }
 
     def test_the_paid_price_is_the_lower_one_and_the_other_is_the_list_price(self):
         first, second = picnic.cart_summary(self.cart())["items"]
@@ -415,8 +450,7 @@ class CartEditingTest(TempDataDirTest):
 
     def test_bad_input_is_rejected_before_any_request(self):
         with served(side_effect=AssertionError("geen verzoek")):
-            for product, quantity in (("", 1), ("s1", -1), ("s1", 100), ("s1", "veel"), ("s1", None),
-                                      ("s1", 1.5), ("s1", True)):
+            for product, quantity in (("", 1), ("s1", -1), ("s1", 100), ("s1", "veel"), ("s1", None), ("s1", 1.5), ("s1", True)):
                 with self.assertRaises(ValueError, msg=repr((product, quantity))):
                     run(picnic.set_quantity(product, quantity))
 
@@ -428,13 +462,13 @@ class CartEditingTest(TempDataDirTest):
         self.assertEqual((result["removed"], result["cart"]["items"]), (3, []))
 
     def test_clear_falls_back_to_removing_each_product(self):
-        replies = [response(cart_with(s1=2, s2=1)), response({"x": 1}, status=404),
-                   response(cart_with(s2=1)), response(cart_with())]
+        replies = [response(cart_with(s1=2, s2=1)), response({"x": 1}, status=404), response(cart_with(s2=1)), response(cart_with())]
         with served(side_effect=replies) as call:
             result = run(picnic.clear_cart())
-        self.assertEqual(paths_and_bodies(call)[2:], [
-            ("/cart/remove_product", {"product_id": "s1", "count": 2}),
-            ("/cart/remove_product", {"product_id": "s2", "count": 1})])
+        self.assertEqual(
+            paths_and_bodies(call)[2:],
+            [("/cart/remove_product", {"product_id": "s1", "count": 2}), ("/cart/remove_product", {"product_id": "s2", "count": 1})],
+        )
         self.assertEqual((result["removed"], result["cart"]["items"]), (3, []))
 
     def test_clearing_an_empty_cart_is_a_no_op(self):
@@ -463,13 +497,36 @@ class DeliverySlotsTest(TempDataDirTest):
     CART = {
         "selected_slot": {"slot_id": "s2", "state": "IMPLICIT"},
         "delivery_slots": [
-            {"slot_id": "s2", "window_start": "2026-10-23T17:00:00", "window_end": "2026-10-23T18:00:00",
-             "cut_off_time": "2026-10-22T23:00:00", "is_available": True, "reserved": False,
-             "selected": False, "minimum_order_value": 3500, "hub_id": "h", "fc_id": "f"},
-            {"slot_id": "s1", "window_start": "2026-10-22T17:00:00", "window_end": "2026-10-22T18:00:00",
-             "is_available": False, "reserved": False, "selected": False, "minimum_order_value": 0},
-            {"slot_id": "s3", "window_start": "2026-10-24T09:00:00", "window_end": "2026-10-24T10:00:00",
-             "is_available": True, "reserved": True, "selected": True, "minimum_order_value": 3500},
+            {
+                "slot_id": "s2",
+                "window_start": "2026-10-23T17:00:00",
+                "window_end": "2026-10-23T18:00:00",
+                "cut_off_time": "2026-10-22T23:00:00",
+                "is_available": True,
+                "reserved": False,
+                "selected": False,
+                "minimum_order_value": 3500,
+                "hub_id": "h",
+                "fc_id": "f",
+            },
+            {
+                "slot_id": "s1",
+                "window_start": "2026-10-22T17:00:00",
+                "window_end": "2026-10-22T18:00:00",
+                "is_available": False,
+                "reserved": False,
+                "selected": False,
+                "minimum_order_value": 0,
+            },
+            {
+                "slot_id": "s3",
+                "window_start": "2026-10-24T09:00:00",
+                "window_end": "2026-10-24T10:00:00",
+                "is_available": True,
+                "reserved": True,
+                "selected": True,
+                "minimum_order_value": 3500,
+            },
             {"slot_id": None, "window_start": "x"},
             None,
         ],
@@ -503,8 +560,7 @@ class DeliverySlotsTest(TempDataDirTest):
             result = run(picnic.add_to_cart([{"productId": "s1", "quantity": 500}, {"productId": "s2", "quantity": 0}]))
         paths = {path_of(c) for c in call.calls}
         self.assertEqual(paths, {"/cart/add_product"})
-        self.assertEqual([sent_json(c) for c in call.calls],
-                         [{"product_id": "s1", "count": 99}, {"product_id": "s2", "count": 1}])
+        self.assertEqual([sent_json(c) for c in call.calls], [{"product_id": "s1", "count": 99}, {"product_id": "s2", "count": 1}])
         self.assertEqual(len(result["added"]), 2)
         self.assertEqual(result["failed"], [])
 
@@ -525,8 +581,15 @@ class DeliverySlotsTest(TempDataDirTest):
 
     def test_deliveries(self):
         run(picnic.save_auth_key("key"))
-        data = [{"delivery_id": "d1", "status": "CURRENT", "slot": {"window_start": "a", "window_end": "b"},
-                 "eta2": {"start": "c", "end": "d"}, "orders": [{"checkout_total_price": 2500}]}]
+        data = [
+            {
+                "delivery_id": "d1",
+                "status": "CURRENT",
+                "slot": {"window_start": "a", "window_end": "b"},
+                "eta2": {"start": "c", "end": "d"},
+                "orders": [{"checkout_total_price": 2500}],
+            }
+        ]
         with served(return_value=response(data)) as call:
             deliveries = run(picnic.get_deliveries(current_only=True))
         self.assertEqual(sent_json(call.calls.last), ["CURRENT"])
@@ -536,9 +599,11 @@ class DeliverySlotsTest(TempDataDirTest):
 
     def test_deliveries_come_newest_first(self):
         run(picnic.save_auth_key("key"))
-        data = [{"delivery_id": "old", "status": "COMPLETED", "slot": {"window_start": "2026-09-01T10:00:00+02:00"}, "orders": []},
-                {"delivery_id": "new", "status": "CURRENT", "slot": {"window_start": "2026-10-25T10:00:00+02:00"}, "orders": []},
-                {"delivery_id": "gone", "status": "COMPLETED", "delivery_time": {"start": "2026-08-01T10:00:00+02:00", "end": "x"}, "orders": []}]
+        data = [
+            {"delivery_id": "old", "status": "COMPLETED", "slot": {"window_start": "2026-09-01T10:00:00+02:00"}, "orders": []},
+            {"delivery_id": "new", "status": "CURRENT", "slot": {"window_start": "2026-10-25T10:00:00+02:00"}, "orders": []},
+            {"delivery_id": "gone", "status": "COMPLETED", "delivery_time": {"start": "2026-08-01T10:00:00+02:00", "end": "x"}, "orders": []},
+        ]
         with served(return_value=response(data)):
             deliveries = run(picnic.get_deliveries())
         self.assertEqual([d["id"] for d in deliveries], ["new", "old", "gone"])
@@ -546,20 +611,40 @@ class DeliverySlotsTest(TempDataDirTest):
 
     def delivery_detail(self):
         line = lambda article_id, name, quantity, price: {  # noqa: E731
-            "type": "ORDER_LINE", "id": "l" + article_id, "price": price, "display_price": price,
-            "items": [{"type": "ORDER_ARTICLE", "id": article_id, "name": name, "unit_quantity": "1 l", "image_ids": ["img"],
-                       "decorators": [{"type": "QUANTITY", "quantity": quantity}]}]}
-        return {"delivery_id": "d1", "status": "COMPLETED", "slot": {"window_start": "a", "window_end": "b"},
-                "orders": [{"id": "o1", "checkout_total_price": 1000, "items": [line("s1", "Melk", 2, 258), line("s2", "Eieren", 1, 249)]},
-                           {"id": "o2", "checkout_total_price": 500, "items": [line("s3", "Kaas", 1, 599)]}]}
+            "type": "ORDER_LINE",
+            "id": "l" + article_id,
+            "price": price,
+            "display_price": price,
+            "items": [
+                {
+                    "type": "ORDER_ARTICLE",
+                    "id": article_id,
+                    "name": name,
+                    "unit_quantity": "1 l",
+                    "image_ids": ["img"],
+                    "decorators": [{"type": "QUANTITY", "quantity": quantity}],
+                }
+            ],
+        }
+        return {
+            "delivery_id": "d1",
+            "status": "COMPLETED",
+            "slot": {"window_start": "a", "window_end": "b"},
+            "orders": [
+                {"id": "o1", "checkout_total_price": 1000, "items": [line("s1", "Melk", 2, 258), line("s2", "Eieren", 1, 249)]},
+                {"id": "o2", "checkout_total_price": 500, "items": [line("s3", "Kaas", 1, 599)]},
+            ],
+        }
 
     def test_a_delivery_lists_its_products(self):
         run(picnic.save_auth_key("key"))
         with served(return_value=response(self.delivery_detail())) as call:
             found = run(picnic.get_delivery("d1"))
         self.assertTrue(str(call.calls.last.request.url).endswith("/deliveries/d1"))
-        self.assertEqual([(i["id"], i["title"], i["quantity"], i["price"]) for i in found["items"]],
-                         [("s1", "Melk", 2, 2.58), ("s2", "Eieren", 1, 2.49), ("s3", "Kaas", 1, 5.99)])
+        self.assertEqual(
+            [(i["id"], i["title"], i["quantity"], i["price"]) for i in found["items"]],
+            [("s1", "Melk", 2, 2.58), ("s2", "Eieren", 1, 2.49), ("s3", "Kaas", 1, 5.99)],
+        )
         self.assertEqual((found["itemCount"], found["total"], found["status"]), (4, 15.0, "COMPLETED"))
         self.assertNotIn("available", found["items"][0])
 
@@ -582,6 +667,7 @@ class DeliverySlotsTest(TempDataDirTest):
 class ExploreTest(TempDataDirTest):
     def test_report_lists_more_routes_and_contains_no_values(self):
         from mealieshopper import picnic_explore
+
         page = search_page(tile("s1", "Geheime melk van Jan", "1 l", 129))
         replies = {"/user": {"firstname": "Jan", "address": {"street": "Hoofdstraat"}}}
 
@@ -603,8 +689,13 @@ class ExploreTest(TempDataDirTest):
 
     def test_report_shows_the_shape_of_the_first_delivery_without_values(self):
         from mealieshopper import picnic_explore
+
         summary = [{"delivery_id": "d-geheim-1", "status": "COMPLETED", "slot": {"window_start": "x"}, "orders": []}]
-        detail = {"delivery_id": "d-geheim-1", "status": "COMPLETED", "orders": [{"items": [{"type": "ORDER_LINE", "items": [{"name": "Geheime melk"}]}]}]}
+        detail = {
+            "delivery_id": "d-geheim-1",
+            "status": "COMPLETED",
+            "orders": [{"items": [{"type": "ORDER_LINE", "items": [{"name": "Geheime melk"}]}]}],
+        }
         asked = []
 
         def fake(method, path, body=None, text=False):
@@ -628,12 +719,20 @@ class ExploreTest(TempDataDirTest):
 
 def recipe_tile(recipe_id, name, kind="selling_group_regular_tile"):
     """Een receptonderdeel zoals de verkenner het meldde: id en naam staan in de analysegegevens."""
-    return {"id": f"t-{recipe_id}", "type": "PML", "pml": {"component": {"type": "STACK"}, "images": {}},
-            "analytics": {"contexts": [
+    return {
+        "id": f"t-{recipe_id}",
+        "type": "PML",
+        "pml": {"component": {"type": "STACK"}, "images": {}},
+        "analytics": {
+            "contexts": [
                 {"schema": "iglu:tech.picnic.snowplow.analytics/pml_", "data": {"type": "pml"}},
-                {"schema": "iglu:tech.picnic.snowplow.analytics/reci", "data": {
-                    "position": {"x": 0, "y": 1.5}, "recipe_id": recipe_id, "recipe_name": name,
-                    "template_id": "t", "type": kind}}]}}
+                {
+                    "schema": "iglu:tech.picnic.snowplow.analytics/reci",
+                    "data": {"position": {"x": 0, "y": 1.5}, "recipe_id": recipe_id, "recipe_name": name, "template_id": "t", "type": kind},
+                },
+            ]
+        },
+    }
 
 
 def recipe_page(*tiles):
@@ -649,8 +748,13 @@ def bootstrap(*tabs):
 
 
 def page_tab(tab_id, reference, label=None, title=None):
-    return {"id": tab_id, "tab_type": "PAGE", "title": title, "accessibility": {"label": label, "hint": "x"},
-            "target": {"type": "PICNIC_PAGE_REFERENCE", "reference": reference}}
+    return {
+        "id": tab_id,
+        "tab_type": "PAGE",
+        "title": title,
+        "accessibility": {"label": label, "hint": "x"},
+        "target": {"type": "PICNIC_PAGE_REFERENCE", "reference": reference},
+    }
 
 
 def pml_tile(unit, saved=None, where="analytics"):
@@ -673,8 +777,12 @@ class SavedMarkersTest(AppTestCase):
         return picnic.mark_favorites(picnic.products_from_page(page), page)
 
     def test_a_flag_per_product_picks_the_favorites(self):
-        page = self.page(pml_tile(tile("s1", "Melk", "1 l"), True), pml_tile(tile("s2", "Kaas", "400 g"), False),
-                         pml_tile(tile("s3", "Brood", "800 g"), True, where="sibling"), pml_tile(tile("s4", "Ham", "100 g")))
+        page = self.page(
+            pml_tile(tile("s1", "Melk", "1 l"), True),
+            pml_tile(tile("s2", "Kaas", "400 g"), False),
+            pml_tile(tile("s3", "Brood", "800 g"), True, where="sibling"),
+            pml_tile(tile("s4", "Ham", "100 g")),
+        )
         products = self.products(page)
         self.assertEqual([p["favorite"] for p in products], [True, False, True, None])
         favorites, filtered = picnic.only_favorites(products)
@@ -696,8 +804,11 @@ class SavedMarkersTest(AppTestCase):
         self.assertEqual(picnic.only_favorites(products), ([], True))
 
     def test_a_flag_of_a_tile_with_several_products_says_nothing_about_them(self):
-        double = {"type": "PML", "analytics": {"contexts": [{"data": {"saved": True}}]},
-                  "pml": {"component": {"children": [tile("s1", "Melk", "1 l"), tile("s2", "Kaas", "400 g")]}}}
+        double = {
+            "type": "PML",
+            "analytics": {"contexts": [{"data": {"saved": True}}]},
+            "pml": {"component": {"children": [tile("s1", "Melk", "1 l"), tile("s2", "Kaas", "400 g")]}},
+        }
         self.assertEqual([p["favorite"] for p in self.products(self.page(double))], [None, None])
 
     def test_odd_values_do_not_crash(self):
@@ -707,8 +818,12 @@ class SavedMarkersTest(AppTestCase):
 
 
 class FavoritesTest(TempDataDirTest):
-    TABS = bootstrap(page_tab("store", "store-root", "Winkel"), page_tab("favs", "favorites-root", "Favorieten"),
-                     {"id": "cart", "tab_type": "CART", "target": None}, page_tab("cook", "meals-page-root", "Koken"))
+    TABS = bootstrap(
+        page_tab("store", "store-root", "Winkel"),
+        page_tab("favs", "favorites-root", "Favorieten"),
+        {"id": "cart", "tab_type": "CART", "target": None},
+        page_tab("cook", "meals-page-root", "Koken"),
+    )
 
     def setUp(self):
         super().setUp()
@@ -719,6 +834,7 @@ class FavoritesTest(TempDataDirTest):
             if path == "/bootstrap":
                 return response(self.TABS)
             return response(pages[path.split("/pages/", 1)[1]]) if "/pages/" in path else response({})
+
         return served(side_effect=lambda request: fake(request.method, str(request.url).rsplit("/api/15", 1)[1]))
 
     def test_the_tabs_are_read_from_bootstrap(self):
@@ -740,7 +856,11 @@ class FavoritesTest(TempDataDirTest):
         self.assertIsNone(find([{"id": "favorites", "label": "Favorieten", "reference": "a/b"}]))  # geen geldige paginanaam
 
     def test_products_come_from_the_page_of_the_tab(self):
-        pages = {"favorites-root": self_page(pml_tile(tile("s1", "Halfvolle melk", "1 l", 129), True), pml_tile(tile("s2", "Eieren", "10 stuks", 249), False))}
+        pages = {
+            "favorites-root": self_page(
+                pml_tile(tile("s1", "Halfvolle melk", "1 l", 129), True), pml_tile(tile("s2", "Eieren", "10 stuks", 249), False)
+            )
+        }
         with self.serve(pages):
             found = run(picnic.get_favorites())
         self.assertEqual([(p["id"], p["title"], p["price"]) for p in found["products"]], [("s1", "Halfvolle melk", 1.29)])
@@ -762,12 +882,18 @@ class FavoritesTest(TempDataDirTest):
         return {"type": "PML", "pml": {"component": {"children": [{"type": "RICH_TEXT", "markdown": text}]}}}
 
     def test_favorites_are_read_from_the_heart_code_of_the_products_under_the_favorites_heading(self):
-        pages = {"favorites-root": self_page(self.heading("#(GREY5)Favorieten#(GREY5)"), pml_tile(tile("s1", "Prei", "1 st")),
-                                             pml_tile(tile("s2", "Melk", "1 l")), self.heading("#(#12)Fruit#(#12)"),
-                                             pml_tile(tile("s3", "Appel", "1 kg"))),
-                 "product-details-page-root?id=s1": self.heart_page("s1", True),
-                 "product-details-page-root?id=s2": self.heart_page("s2", False),
-                 "product-details-page-root?id=s3": self.heart_page("s3", True)}
+        pages = {
+            "favorites-root": self_page(
+                self.heading("#(GREY5)Favorieten#(GREY5)"),
+                pml_tile(tile("s1", "Prei", "1 st")),
+                pml_tile(tile("s2", "Melk", "1 l")),
+                self.heading("#(#12)Fruit#(#12)"),
+                pml_tile(tile("s3", "Appel", "1 kg")),
+            ),
+            "product-details-page-root?id=s1": self.heart_page("s1", True),
+            "product-details-page-root?id=s2": self.heart_page("s2", False),
+            "product-details-page-root?id=s3": self.heart_page("s3", True),
+        }
         asked = []
         real = picnic.product_favorite_flag
         with self.serve(pages), mock.patch.object(picnic, "product_favorite_flag", side_effect=spying(asked, real)):
@@ -822,6 +948,7 @@ class FavoritesTest(TempDataDirTest):
         def broken(product_id):
             asked.append(product_id)
             raise RuntimeError("404")
+
         with self.serve(pages), mock.patch.object(picnic, "product_favorite_flag", side_effect=broken):
             first = run(picnic.get_favorites(budget=1))
             second = run(picnic.get_favorites(budget=1))
@@ -829,16 +956,20 @@ class FavoritesTest(TempDataDirTest):
         self.assertEqual((second["filtered"], len(asked)), (False, 1))
 
     def test_without_a_favorites_heading_the_first_products_are_checked(self):
-        pages = {"favorites-root": self_page(pml_tile(tile("s1", "Prei", "1 st")), pml_tile(tile("s2", "Melk", "1 l"))),
-                 "product-details-page-root?id=s1": self.heart_page("s1", False),
-                 "product-details-page-root?id=s2": self.heart_page("s2", True)}
+        pages = {
+            "favorites-root": self_page(pml_tile(tile("s1", "Prei", "1 st")), pml_tile(tile("s2", "Melk", "1 l"))),
+            "product-details-page-root?id=s1": self.heart_page("s1", False),
+            "product-details-page-root?id=s2": self.heart_page("s2", True),
+        }
         with self.serve(pages):
             found = run(picnic.get_favorites())
         self.assertEqual(([p["id"] for p in found["products"]], found["filtered"]), (["s2"], True))
 
     def test_checked_and_no_favorite_is_an_empty_list_that_is_not_unknown(self):
-        pages = {"favorites-root": self_page(self.heading("Favorieten"), pml_tile(tile("s1", "Prei", "1 st"))),
-                 "product-details-page-root?id=s1": self.heart_page("s1", False)}
+        pages = {
+            "favorites-root": self_page(self.heading("Favorieten"), pml_tile(tile("s1", "Prei", "1 st"))),
+            "product-details-page-root?id=s1": self.heart_page("s1", False),
+        }
         with self.serve(pages):
             found = run(picnic.get_favorites())
         self.assertEqual((found["products"], found["filtered"]), ([], True))
@@ -857,23 +988,32 @@ class FavoritesTest(TempDataDirTest):
                 run(picnic.get_favorites())
 
     def test_the_purchases_page_is_tried_when_the_tab_page_has_no_products(self):
-        pages = {"favorites-root": {"body": {"children": []}},
-                 "purchases-page-root": self_page(pml_tile(tile("s3", "Kaas", "400 g"), True), pml_tile(tile("s4", "Ham", "100 g"), False))}
+        pages = {
+            "favorites-root": {"body": {"children": []}},
+            "purchases-page-root": self_page(pml_tile(tile("s3", "Kaas", "400 g"), True), pml_tile(tile("s4", "Ham", "100 g"), False)),
+        }
         with self.serve(pages):
             found = run(picnic.get_favorites())
         self.assertEqual(([p["id"] for p in found["products"]], found["total"], found["filtered"]), (["s3"], 2, True))
 
     def test_only_the_saved_products_of_the_page_are_returned(self):
-        pages = {"favorites-root": self_page(pml_tile(tile("s1", "Melk", "1 l"), True), pml_tile(tile("s2", "Kaas", "400 g"), False),
-                                            pml_tile(tile("s3", "Eieren", "10 st"), False))}
+        pages = {
+            "favorites-root": self_page(
+                pml_tile(tile("s1", "Melk", "1 l"), True),
+                pml_tile(tile("s2", "Kaas", "400 g"), False),
+                pml_tile(tile("s3", "Eieren", "10 st"), False),
+            )
+        }
         with self.serve(pages):
             found = run(picnic.get_favorites())
         self.assertEqual(([p["id"] for p in found["products"]], found["total"], found["filtered"]), (["s1"], 3, True))
 
     def test_the_pages_it_links_to_are_followed_when_the_tab_has_no_products(self):
         link = {"onPress": "open picnic://store/page;id=favorites-deep-dive-page-content,presentation-mode=X"}
-        pages = {"favorites-root": {"body": {"children": [link]}},
-                 "favorites-deep-dive-page-content": {"child": {"children": [pml_tile(tile("s9", "Kaas", "400 g", 599), True)]}}}
+        pages = {
+            "favorites-root": {"body": {"children": [link]}},
+            "favorites-deep-dive-page-content": {"child": {"children": [pml_tile(tile("s9", "Kaas", "400 g", 599), True)]}},
+        }
         with self.serve(pages):
             self.assertEqual([p["id"] for p in run(picnic.get_favorites())["products"]], ["s9"])
 
@@ -885,6 +1025,7 @@ class FavoritesTest(TempDataDirTest):
             path = url.rsplit("/api/15", 1)[1]
             asked.append(path)
             return response(self.TABS if path == "/bootstrap" else page if path == "/pages/favorites-root" else {})
+
         with served(side_effect=requested(fake)):
             self.assertEqual(run(picnic.get_favorites())["products"], [])
         self.assertEqual([p for p in asked if p.startswith("/pages/sub-")], [f"/pages/sub-{n}" for n in range(picnic.MAX_LINKED_PAGES)])
@@ -902,6 +1043,7 @@ class FavoritesTest(TempDataDirTest):
         def fake(method, url, **kwargs):
             calls.append(method)
             return response(self.TABS) if url.endswith("/bootstrap") else reply
+
         with served(side_effect=requested(fake)):
             with self.assertRaisesRegex(RuntimeError, "onbekend formaat"):
                 run(picnic.get_favorites())
@@ -922,7 +1064,10 @@ class FavoritesTest(TempDataDirTest):
             await client.get("/api/picnic/favorites?budget=4&refresh=1")
             await client.get("/api/picnic/favorites?budget=999")
             await client.get("/api/picnic/favorites")
-        self.assertEqual([c.kwargs for c in get.call_args_list], [{"budget": 4, "refresh": True}, {"budget": 30, "refresh": False}, {"budget": None, "refresh": False}])
+        self.assertEqual(
+            [c.kwargs for c in get.call_args_list],
+            [{"budget": 4, "refresh": True}, {"budget": 30, "refresh": False}, {"budget": None, "refresh": False}],
+        )
 
     async def test_delivery_route(self):
         client = self.client_for(create_app())
@@ -940,7 +1085,10 @@ class FavoritesTest(TempDataDirTest):
 
     def test_the_explorer_reports_how_the_page_marks_favorites_without_leaking(self):
         from mealieshopper import picnic_explore
-        page = self_page(pml_tile(tile("s1", "Geheime melk", "1 l"), True), pml_tile(tile("s2", "Kaas", "400 g"), False), pml_tile(tile("s3", "Ham", "1 st")))
+
+        page = self_page(
+            pml_tile(tile("s1", "Geheime melk", "1 l"), True), pml_tile(tile("s2", "Kaas", "400 g"), False), pml_tile(tile("s3", "Ham", "1 st"))
+        )
         report = picnic_explore.saved_report(page)
         self.assertEqual(report["aantal keer saved"], 2)
         self.assertEqual(report["producten"], {"favoriet": 1, "niet favoriet": 1, "onbekend": 1})
@@ -951,9 +1099,13 @@ class FavoritesTest(TempDataDirTest):
 
     def test_code_report_finds_addresses_and_favorite_code_and_redacts_ids(self):
         from mealieshopper import picnic_explore
-        page = {"a": {"type": "EXPRESSION", "name": "onPressHeart12345", "expression": "toggleFavorite(sellable_id)"},
-                "b": {"type": "SUSPENSE", "id": "x", "url": "/api/15/favorites/s1000024"}, "c": {"state": {"saved": {}}},
-                "d": {"type": "RICH_TEXT", "markdown": "Geheime melk"}}
+
+        page = {
+            "a": {"type": "EXPRESSION", "name": "onPressHeart12345", "expression": "toggleFavorite(sellable_id)"},
+            "b": {"type": "SUSPENSE", "id": "x", "url": "/api/15/favorites/s1000024"},
+            "c": {"state": {"saved": {}}},
+            "d": {"type": "RICH_TEXT", "markdown": "Geheime melk"},
+        }
         report = picnic_explore.code_report(page)
         self.assertEqual(report["adressen en verzoeken"], ["url: /api/15/favorites/s<id>"])
         self.assertIn("name: onPressHeart<id>", report["code over favorieten of opslaan"])
@@ -963,6 +1115,7 @@ class FavoritesTest(TempDataDirTest):
 
     def test_code_report_gives_the_whole_heart_code_and_the_lazy_pages(self):
         from mealieshopper import picnic_explore
+
         code = 'getGlobalState("sellable-favorites").likedSellables["s1000024"] ' + "x" * 300
         page = {"a": {"expression": code}, "b": {"pageConfig": {"id": "aisle-page", "parameters": {"aisle_id": "FRUIT", "index": 3}}}}
         report = picnic_explore.code_report(page)
@@ -976,8 +1129,15 @@ class FavoritesTest(TempDataDirTest):
             return {"type": "PML", "pml": {"component": {"children": [{"type": "RICH_TEXT", "markdown": text}]}}}
 
         def product(unit_id):
-            return {"type": "PML", "pml": {"component": {"children": [{"type": "RICH_TEXT", "markdown": "Geheime melk"},
-                                                                          {"type": "SELLING_UNIT_TILE", "sellingUnit": {"id": unit_id}}]}}}
+            return {
+                "type": "PML",
+                "pml": {
+                    "component": {
+                        "children": [{"type": "RICH_TEXT", "markdown": "Geheime melk"}, {"type": "SELLING_UNIT_TILE", "sellingUnit": {"id": unit_id}}]
+                    }
+                },
+            }
+
         page = {"body": {"children": [head("Jouw favorieten"), product("s1"), product("s2"), head("Bakkerij"), product("s3")]}}
         outline = picnic_explore.page_outline(page)
         self.assertEqual(outline, ["kop: Jouw favorieten", "tegels: 2", "kop: Bakkerij", "tegels: 1"])
@@ -986,13 +1146,17 @@ class FavoritesTest(TempDataDirTest):
 
     def test_like_constants_read_the_values_the_server_put_in_the_heart_code(self):
         from mealieshopper import picnic_explore
-        page = {"a": {"expression": 'const f = likedSellables["s1000"] === undefined ? true : likedSellables["s1000"];'},
-                "b": {"expression": 'setGlobalState("sellable-favorites", {likedSellables: {["s1000"]: false}}); let isSavedValue = true;'}}
+
+        page = {
+            "a": {"expression": 'const f = likedSellables["s1000"] === undefined ? true : likedSellables["s1000"];'},
+            "b": {"expression": 'setGlobalState("sellable-favorites", {likedSellables: {["s1000"]: false}}); let isSavedValue = true;'},
+        }
         self.assertEqual(picnic_explore.like_constants(page), {"plek 1": ["true"], "plek 2": ["true"], "plek 3": ["false"]})
         self.assertEqual(picnic_explore.like_constants({}), {})
 
     def test_favorite_values_report_flags_and_shapes_but_no_texts(self):
         from mealieshopper import picnic_explore
+
         page = {"a": {"isFavorite": True, "favoriteTitle": "Melk van Anna"}, "b": {"isFavorite": False, "saved": {"x": 1}}}
         values = picnic_explore.favorite_values(page)
         self.assertEqual(values["isFavorite"], ["false", "true"])
@@ -1000,6 +1164,7 @@ class FavoritesTest(TempDataDirTest):
 
     def test_the_explorer_reports_the_tabs_and_the_page_it_chose(self):
         from mealieshopper import picnic_explore
+
         pages = {"favorites-root": search_page(tile("s1", "Melk", "1 l"))}
 
         def fake(method, url, **kwargs):
@@ -1007,6 +1172,7 @@ class FavoritesTest(TempDataDirTest):
             if path == "/bootstrap":
                 return response(self.TABS)
             return response(pages.get(path.split("/pages/", 1)[1], {}) if "/pages/" in path else {})
+
         with served(side_effect=requested(fake)):
             report = run(picnic_explore.explore(extended=True))
         names = {p["name"]: p for p in report["probes"]}
@@ -1018,33 +1184,54 @@ class FavoritesTest(TempDataDirTest):
 
 
 class RecipeExploreTest(TempDataDirTest):
-    TILE = {"type": "TILE", "analytics": {"contexts": [{"schema": "iglu:x/recipe/1", "data": {"selling_group_id": "abc123def456", "rank": 1}}]},
-            "pml": {"component": {"text": "Geheime pasta van Jan"}}}
+    TILE = {
+        "type": "TILE",
+        "analytics": {"contexts": [{"schema": "iglu:x/recipe/1", "data": {"selling_group_id": "abc123def456", "rank": 1}}]},
+        "pml": {"component": {"text": "Geheime pasta van Jan"}},
+    }
 
     def page(self):
-        return {"body": {"children": [self.TILE, {"type": "TEXT", "markdown": "Geheim"}], "link": "picnic://page?page_id=favorites-page-root&user=jan"}}
+        return {
+            "body": {"children": [self.TILE, {"type": "TEXT", "markdown": "Geheim"}], "link": "picnic://page?page_id=favorites-page-root&user=jan"}
+        }
 
     def test_recipe_tiles_are_found_by_their_analytics_context(self):
         from mealieshopper import picnic_explore
+
         self.assertEqual(picnic_explore.recipe_tiles(self.page()), [self.TILE])
         self.assertEqual(picnic_explore.recipe_tiles({"body": []}), [])
         self.assertEqual(picnic_explore.recipe_tiles("tekst"), [])
 
     def test_links_are_reduced_to_page_names_and_parameter_names(self):
         from mealieshopper import picnic_explore
-        links = picnic_explore.page_links({"a": "open /pages/recipe-details?selling_group_id=abc123def456&portions=4 nu",
-                                           "b": "picnic://deeplink/saved?token=geheim"})
+
+        links = picnic_explore.page_links(
+            {"a": "open /pages/recipe-details?selling_group_id=abc123def456&portions=4 nu", "b": "picnic://deeplink/saved?token=geheim"}
+        )
         self.assertEqual(links, ["/pages/recipe-details?portions&selling_group_id", "picnic://deeplink/saved?token"])
         self.assertEqual(picnic_explore.page_links("x /pages/item-9876543210"), ["/pages/item-<id>"])
 
     def test_favorite_names_come_from_field_names_and_ids_not_from_texts(self):
         from mealieshopper import picnic_explore
-        page = {"id": "favorites-tab-root", "is_favorite": True, "type": "HEART_BUTTON",
-                "children": [{"id": "x", "markdown": "Favoriete kaas van Jan", "iconKey": "icon-heart", "name": "Mijn favoriete boter"},
-                             {"callback": "toggleFavoriteTask", "state": {"saved_at": None}}]}
+
+        page = {
+            "id": "favorites-tab-root",
+            "is_favorite": True,
+            "type": "HEART_BUTTON",
+            "children": [
+                {"id": "x", "markdown": "Favoriete kaas van Jan", "iconKey": "icon-heart", "name": "Mijn favoriete boter"},
+                {"callback": "toggleFavoriteTask", "state": {"saved_at": None}},
+            ],
+        }
         hits = picnic_explore.favorite_hits(page)
-        for expected in ("id: favorites-tab-root", "veld: is_favorite", "type: HEART_BUTTON", "iconKey: icon-heart",
-                         "callback: toggleFavoriteTask", "veld: saved_at"):
+        for expected in (
+            "id: favorites-tab-root",
+            "veld: is_favorite",
+            "type: HEART_BUTTON",
+            "iconKey: icon-heart",
+            "callback: toggleFavoriteTask",
+            "veld: saved_at",
+        ):
             self.assertIn(expected, hits)
         self.assertNotIn("Jan", json.dumps(hits))
         self.assertNotIn("boter", json.dumps(hits))
@@ -1052,14 +1239,24 @@ class RecipeExploreTest(TempDataDirTest):
 
     def test_the_census_counts_node_kinds(self):
         from mealieshopper import picnic_explore
+
         page = {"type": "FLOW", "children": [{"type": "PML"}, {"type": "PML"}, {"type": "x" * 41}, {"type": 5}]}
         self.assertEqual(picnic_explore.type_census(page), {"PML": 2, "FLOW": 1})
 
     def test_the_vocabulary_names_node_kinds_and_fields_but_no_content(self):
         from mealieshopper import picnic_explore
-        tile = {"pml": {"component": {"type": "STACK", "children": [
-            {"type": "RICH_TEXT", "markdown": "Geheime pasta", "padding": {"top": 1}},
-            {"type": "IMAGE", "source": {"id": "abc"}}]}}}
+
+        tile = {
+            "pml": {
+                "component": {
+                    "type": "STACK",
+                    "children": [
+                        {"type": "RICH_TEXT", "markdown": "Geheime pasta", "padding": {"top": 1}},
+                        {"type": "IMAGE", "source": {"id": "abc"}},
+                    ],
+                }
+            }
+        }
         vocabulary = picnic_explore.pml_vocabulary(tile)
         self.assertEqual(sorted(vocabulary), ["IMAGE", "RICH_TEXT", "STACK"])
         self.assertIn("markdown", vocabulary["RICH_TEXT"])
@@ -1068,6 +1265,7 @@ class RecipeExploreTest(TempDataDirTest):
 
     def test_analytics_fields_of_the_recipe_tiles_are_merged_without_values(self):
         from mealieshopper import picnic_explore
+
         fields = picnic_explore.analytics_fields(recipe_page(recipe_tile("r1", "Geheim recept"), recipe_tile("r2", "Ander")))
         self.assertIn("recipe_name", json.dumps(fields))
         self.assertNotIn("Geheim", json.dumps(fields))
@@ -1075,6 +1273,7 @@ class RecipeExploreTest(TempDataDirTest):
 
     def test_the_report_finds_recipes_favorites_and_leaks_nothing(self):
         from mealieshopper import picnic_explore
+
         tile_page, calls = self.page(), []
 
         def fake(method, path, body=None, text=False):
@@ -1088,7 +1287,7 @@ class RecipeExploreTest(TempDataDirTest):
             if path == "/pages/favorites-deep-dive-page-content":
                 return {"body": {"children": []}}
             if path.startswith("/pages/") or path in ("/lists", "/my_store"):
-                raise RuntimeError("404: {\"error\": \"geheim\"}")
+                raise RuntimeError('404: {"error": "geheim"}')
             return {}
 
         run(picnic.save_auth_key("key"))
@@ -1124,8 +1323,7 @@ class PicnicRoutesTest(TempDataDirTest):
     async def test_preview_uses_picnic_candidates(self):
         products = [{"id": "s1", "title": "Eieren", "unitSize": "10 stuks", "price": 2.49, "image": None}]
         with mock.patch.object(picnic, "search_products", return_value=products):
-            response_ = await self.client.post("/api/picnic/cart/preview", json={"items": [
-                {"query": "eieren", "quantity": 12, "unit": "stuks"}]})
+            response_ = await self.client.post("/api/picnic/cart/preview", json={"items": [{"query": "eieren", "quantity": 12, "unit": "stuks"}]})
         candidate = response_.get_json()["items"][0]["candidates"][0]
         self.assertEqual((candidate["productId"], candidate["packs"]), ("s1", 2))
 
@@ -1138,31 +1336,35 @@ class PicnicRoutesTest(TempDataDirTest):
     async def test_cart_searches_and_adds(self):
         product = {"id": "s1", "title": "Eieren", "unitSize": "10 stuks", "price": 2.49}
         result = {"added": [{"productId": "s1", "quantity": 2}], "failed": [], "cart": {"items": []}}
-        with mock.patch.object(picnic, "search_product", return_value=product), \
-                mock.patch.object(picnic, "add_to_cart", return_value=result) as add:
-            body = (await self.client.post("/api/picnic/cart", json={"items": [
-                {"query": "eieren", "quantity": 12, "unit": "stuks"}]})).get_json()
+        with mock.patch.object(picnic, "search_product", return_value=product), mock.patch.object(picnic, "add_to_cart", return_value=result) as add:
+            body = (await self.client.post("/api/picnic/cart", json={"items": [{"query": "eieren", "quantity": 12, "unit": "stuks"}]})).get_json()
         self.assertEqual(add.call_args.args[0][0]["quantity"], 2)
         self.assertEqual((body["added"], body["skipped"]), (1, 0))
 
     async def test_cart_skips_products_that_are_not_found_or_fail(self):
         result = {"added": [], "failed": [{"productId": "s9", "error": "x"}], "cart": None}
-        with mock.patch.object(picnic, "search_product", return_value=None), \
-                mock.patch.object(picnic, "add_to_cart", return_value=result):
-            body = (await self.client.post("/api/picnic/cart", json={"items": [
-                {"query": "iets", "quantity": 1}, {"query": "zout", "productId": "s9", "quantity": 1}]})).get_json()
+        with mock.patch.object(picnic, "search_product", return_value=None), mock.patch.object(picnic, "add_to_cart", return_value=result):
+            body = (
+                await self.client.post(
+                    "/api/picnic/cart", json={"items": [{"query": "iets", "quantity": 1}, {"query": "zout", "productId": "s9", "quantity": 1}]}
+                )
+            ).get_json()
         self.assertEqual(body["skippedItems"], ["iets", "zout"])
 
     async def test_cart_with_nothing_found_is_404_and_adds_nothing(self):
-        with mock.patch.object(picnic, "search_product", return_value=None), \
-                mock.patch.object(picnic, "add_to_cart", side_effect=AssertionError("niets toevoegen")):
+        with (
+            mock.patch.object(picnic, "search_product", return_value=None),
+            mock.patch.object(picnic, "add_to_cart", side_effect=AssertionError("niets toevoegen")),
+        ):
             response_ = await self.client.post("/api/picnic/cart", json={"items": [{"query": "iets"}]})
         self.assertEqual(response_.status_code, 404)
 
     async def test_confirmed_products_skip_the_search(self):
         result = {"added": [{"productId": "s7", "quantity": 4}], "failed": [], "cart": None}
-        with mock.patch.object(picnic, "search_product", side_effect=AssertionError("niet zoeken")), \
-                mock.patch.object(picnic, "add_to_cart", return_value=result) as add:
+        with (
+            mock.patch.object(picnic, "search_product", side_effect=AssertionError("niet zoeken")),
+            mock.patch.object(picnic, "add_to_cart", return_value=result) as add,
+        ):
             await self.client.post("/api/picnic/cart", json={"items": [{"query": "melk", "productId": "s7", "quantity": 4}]})
         self.assertEqual(add.call_args.args[0], [{"productId": "s7", "quantity": 4, "query": "melk"}])
 

@@ -10,9 +10,10 @@ import httpx
 
 os.environ.setdefault("MEALIESHOPPER_DATA_DIR", tempfile.mkdtemp())
 
+from helpers import AppTestCase, returned, run, served  # noqa: E402
+
 from mealieshopper import ah_orders, auth, crisp, image_cache, jumbo, offers, offers_schedule, picnic, prices  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
-from helpers import AppTestCase, returned, run, served  # noqa: E402
 
 
 class TempDataDirTest(AppTestCase):
@@ -34,9 +35,16 @@ class TempDataDirTest(AppTestCase):
 
 
 def jumbo_product(sku, title, price=299, promo=None, tags=(), **extra):
-    return {"sku": sku, "title": title, "link": f"/producten/{sku}", "subtitle": "500 g",
-            "price": {"price": price, "promoPrice": promo}, "availability": {"isAvailable": True},
-            "promotions": [{"tags": [{"text": text} for text in tags]}] if tags else [], **extra}
+    return {
+        "sku": sku,
+        "title": title,
+        "link": f"/producten/{sku}",
+        "subtitle": "500 g",
+        "price": {"price": price, "promoPrice": promo},
+        "availability": {"isAvailable": True},
+        "promotions": [{"tags": [{"text": text} for text in tags]}] if tags else [],
+        **extra,
+    }
 
 
 class JumboOffersTest(TempDataDirTest):
@@ -47,12 +55,16 @@ class JumboOffersTest(TempDataDirTest):
         self.assertEqual((offer["validFrom"], offer["validUntil"]), ("2026-10-21", "2026-10-27"))
 
     def test_only_products_with_an_action_are_offers(self):
-        data = {"searchProducts": {"products": [
-            jumbo_product("1", "Kipfilet", 499, 349, ["2e halve prijs"]),
-            jumbo_product("2", "Melk", 129),
-            jumbo_product("3", "Kaas", 599, tags=["Nu 10% korting"]),
-            jumbo_product("4", "Brood", 199, 99, availability={"isAvailable": False}),
-        ]}}
+        data = {
+            "searchProducts": {
+                "products": [
+                    jumbo_product("1", "Kipfilet", 499, 349, ["2e halve prijs"]),
+                    jumbo_product("2", "Melk", 129),
+                    jumbo_product("3", "Kaas", 599, tags=["Nu 10% korting"]),
+                    jumbo_product("4", "Brood", 199, 99, availability={"isAvailable": False}),
+                ]
+            }
+        }
         found = {o["id"]: o for o in jumbo.offers_in_search(data)}
         self.assertEqual(sorted(found), ["1", "3"])
         chicken = found["1"]
@@ -204,7 +216,13 @@ class PicnicOffersTest(TempDataDirTest):
             self.assertEqual([o["id"] for o in run(picnic.get_offers())], ["s1", "s2"])
 
     HOME_TABS = [
-        {"id": "home-tab", "title": "Ontdek", "label": "Ontdek", "tab_type": "PAGE", "target": {"type": "PICNIC_PAGE_REFERENCE", "reference": "home_page_root"}},
+        {
+            "id": "home-tab",
+            "title": "Ontdek",
+            "label": "Ontdek",
+            "tab_type": "PAGE",
+            "target": {"type": "PICNIC_PAGE_REFERENCE", "reference": "home_page_root"},
+        },
         {"id": "meals-page", "title": "Koken", "tab_type": "PAGE", "target": {"type": "PICNIC_PAGE_REFERENCE", "reference": "meals-page-root"}},
     ]
 
@@ -245,9 +263,28 @@ class PicnicOffersTest(TempDataDirTest):
     def test_discount_markers_cover_ranges_and_other_promo_decorators(self):
         ranged = picnic.offers_from_page(page(tile("s1", "Koffie", 599, price_ranges=[{"x": 1}])))
         self.assertTrue(ranged[0]["promo"])
-        other = picnic.offers_from_page(page({"type": "SELLING_UNIT_TILE", "sellingUnit": {"id": "s2", "name": "Thee", "display_price": 199, "decorators": [{"type": "DISCOUNT_LABEL", "text": "25% korting"}]}}))
+        other = picnic.offers_from_page(
+            page(
+                {
+                    "type": "SELLING_UNIT_TILE",
+                    "sellingUnit": {
+                        "id": "s2",
+                        "name": "Thee",
+                        "display_price": 199,
+                        "decorators": [{"type": "DISCOUNT_LABEL", "text": "25% korting"}],
+                    },
+                }
+            )
+        )
         self.assertEqual((other[0]["promo"], other[0]["promoLabel"]), (True, "25% korting"))
-        plain = picnic.offers_from_page(page({"type": "SELLING_UNIT_TILE", "sellingUnit": {"id": "s3", "name": "Water", "display_price": 59, "decorators": [{"type": "QUANTITY", "quantity": 1}]}}))
+        plain = picnic.offers_from_page(
+            page(
+                {
+                    "type": "SELLING_UNIT_TILE",
+                    "sellingUnit": {"id": "s3", "name": "Water", "display_price": 59, "decorators": [{"type": "QUANTITY", "quantity": 1}]},
+                }
+            )
+        )
         self.assertFalse(plain[0]["promo"])
 
     def test_no_page_at_all_is_a_clear_error_and_an_unlinked_account_too(self):
@@ -261,19 +298,35 @@ class PicnicOffersTest(TempDataDirTest):
 
 def text_tile(unit_id, name, cents, *texts):
     """Een tegel zoals de startpagina hem toont: de tegel zelf met de teksten ernaast in hetzelfde onderdeel."""
-    children = [{"type": "SELLING_UNIT_TILE", "sellingUnit": {"id": unit_id, "name": name, "display_price": cents, "image_id": "i", "unit_quantity": "1 st", "decorators": []}}]
+    children = [
+        {
+            "type": "SELLING_UNIT_TILE",
+            "sellingUnit": {"id": unit_id, "name": name, "display_price": cents, "image_id": "i", "unit_quantity": "1 st", "decorators": []},
+        }
+    ]
     children += [{"type": "RICH_TEXT", "markdown": text} for text in texts]
     return {"type": "PML", "id": f"tile-{unit_id}", "pml": {"component": {"children": children}}}
 
 
 def promo_card(title, reference):
-    return {"type": "PML", "id": "core-horizontal-card-item_0__3", "pml": {"component": {"children": [
-        {"type": "RICH_TEXT", "markdown": f"#(#123456){title}#(#123456)"},
-        {"type": "TOUCHABLE", "onPress": {"actionType": "OPEN", "target": f"nl.picnic-supermarkt://store/page;id={reference}"}}]}}}
+    return {
+        "type": "PML",
+        "id": "core-horizontal-card-item_0__3",
+        "pml": {
+            "component": {
+                "children": [
+                    {"type": "RICH_TEXT", "markdown": f"#(#123456){title}#(#123456)"},
+                    {"type": "TOUCHABLE", "onPress": {"actionType": "OPEN", "target": f"nl.picnic-supermarkt://store/page;id={reference}"}},
+                ]
+            }
+        },
+    }
 
 
 class PicnicHomePageOffersTest(TempDataDirTest):
-    HOME_TABS = [{"id": "home-tab", "title": "Ontdek", "tab_type": "PAGE", "target": {"type": "PICNIC_PAGE_REFERENCE", "reference": "home_page_root"}}]
+    HOME_TABS = [
+        {"id": "home-tab", "title": "Ontdek", "tab_type": "PAGE", "target": {"type": "PICNIC_PAGE_REFERENCE", "reference": "home_page_root"}}
+    ]
 
     def setUp(self):
         super().setUp()
@@ -296,18 +349,30 @@ class PicnicHomePageOffersTest(TempDataDirTest):
         return mock.patch.object(picnic, "_authed", side_effect=authed)
 
     def test_the_discount_text_next_to_a_tile_makes_it_an_offer_with_that_label(self):
-        page = {"body": {"children": [
-            text_tile("s1", "Pasta", 129, "Pasta 500 g", "1+1 gratis"),
-            text_tile("s2", "Kaas", 299, "Kaas 400 g", "25% korting"),
-            text_tile("s3", "Melk", 129, "Melk 1 l"),
-            text_tile("s4", "Cola", 199, "Cola", "2 voor €5"),
-            text_tile("s5", "Brood", 189, "2e = 50% korting"),
-            text_tile("s6", "Thee", 249, "nu €1.99"),
-        ]}}
+        page = {
+            "body": {
+                "children": [
+                    text_tile("s1", "Pasta", 129, "Pasta 500 g", "1+1 gratis"),
+                    text_tile("s2", "Kaas", 299, "Kaas 400 g", "25% korting"),
+                    text_tile("s3", "Melk", 129, "Melk 1 l"),
+                    text_tile("s4", "Cola", 199, "Cola", "2 voor €5"),
+                    text_tile("s5", "Brood", 189, "2e = 50% korting"),
+                    text_tile("s6", "Thee", 249, "nu €1.99"),
+                ]
+            }
+        }
         offers_on_page = {o["id"]: o for o in picnic.offers_from_page(page)}
-        self.assertEqual({k: (v["promo"], v["promoLabel"]) for k, v in offers_on_page.items()}, {
-            "s1": (True, "1+1 gratis"), "s2": (True, "25% korting"), "s3": (False, ""), "s4": (True, "2 voor €5"),
-            "s5": (True, "2e = 50% korting"), "s6": (True, "nu €1.99")})
+        self.assertEqual(
+            {k: (v["promo"], v["promoLabel"]) for k, v in offers_on_page.items()},
+            {
+                "s1": (True, "1+1 gratis"),
+                "s2": (True, "25% korting"),
+                "s3": (False, ""),
+                "s4": (True, "2 voor €5"),
+                "s5": (True, "2e = 50% korting"),
+                "s6": (True, "nu €1.99"),
+            },
+        )
         self.assertEqual(offers_on_page["s1"]["price"], 1.29)
 
     def test_color_markup_is_removed_from_texts(self):
@@ -315,22 +380,47 @@ class PicnicHomePageOffersTest(TempDataDirTest):
         self.assertEqual(picnic._clean_text(None), "")
 
     def test_references_keep_their_parameters_and_both_app_schemes_are_read(self):
-        page = {"a": "nl.picnic-supermarkt://store/page;id=promo-group-deep-dive,promo_group_id=abc-4",
-                "b": "picnic://store/page;id=product-details-page-root,id=s1&show_category_action=true",
-                "c": "picnic://store/page;id=loyalty-page-root-1-09", "d": "picnic://store/page"}
-        self.assertEqual(picnic.page_references(page), [
-            "promo-group-deep-dive?promo_group_id=abc-4", "product-details-page-root?id=s1&show_category_action=true", "loyalty-page-root-1-09"])
+        page = {
+            "a": "nl.picnic-supermarkt://store/page;id=promo-group-deep-dive,promo_group_id=abc-4",
+            "b": "picnic://store/page;id=product-details-page-root,id=s1&show_category_action=true",
+            "c": "picnic://store/page;id=loyalty-page-root-1-09",
+            "d": "picnic://store/page",
+        }
+        self.assertEqual(
+            picnic.page_references(page),
+            ["promo-group-deep-dive?promo_group_id=abc-4", "product-details-page-root?id=s1&show_category_action=true", "loyalty-page-root-1-09"],
+        )
 
     def test_cards_under_acties_are_followed_and_every_product_there_counts(self):
-        home = {"body": {"children": [
-            text_tile("s1", "Pasta", 129, "1+1 gratis"), text_tile("s2", "Melk", 129, "Melk"),
-            promo_card("Appels en peren", "promo-group-deep-dive,promo_group_id=g1-4"),
-            promo_card("Pringles", "promo-group-deep-dive,promo_group_id=g2-7"),
-            {"type": "PML", "id": "recipe", "pml": {"component": {"children": [{"type": "TOUCHABLE", "onPress": {"target": "picnic://store/page;id=selling-group-details-page,selling_group_id=x"}}]}}},
-        ]}}
+        home = {
+            "body": {
+                "children": [
+                    text_tile("s1", "Pasta", 129, "1+1 gratis"),
+                    text_tile("s2", "Melk", 129, "Melk"),
+                    promo_card("Appels en peren", "promo-group-deep-dive,promo_group_id=g1-4"),
+                    promo_card("Pringles", "promo-group-deep-dive,promo_group_id=g2-7"),
+                    {
+                        "type": "PML",
+                        "id": "recipe",
+                        "pml": {
+                            "component": {
+                                "children": [
+                                    {
+                                        "type": "TOUCHABLE",
+                                        "onPress": {"target": "picnic://store/page;id=selling-group-details-page,selling_group_id=x"},
+                                    }
+                                ]
+                            }
+                        },
+                    },
+                ]
+            }
+        }
         pages = {
             "home_page_root": home,
-            "promo-group-deep-dive?promo_group_id=g1-4": {"body": {"children": [text_tile("s3", "Elstar", 199, "Elstar", "20% korting"), text_tile("s4", "Conference", 249, "Conference")]}},
+            "promo-group-deep-dive?promo_group_id=g1-4": {
+                "body": {"children": [text_tile("s3", "Elstar", 199, "Elstar", "20% korting"), text_tile("s4", "Conference", 249, "Conference")]}
+            },
             "promo-group-deep-dive?promo_group_id=g2-7": {"body": {"children": [text_tile("s5", "Pringles", 199, "Pringles")]}},
         }
         with self.serve(pages):
@@ -346,8 +436,19 @@ class PicnicHomePageOffersTest(TempDataDirTest):
 
     def test_lazy_pages_of_an_action_page_are_read_and_a_failing_card_does_not_stop_the_rest(self):
         group = {"body": {"children": [text_tile("s3", "Elstar", 199, "Elstar")]}, "lazy": {"pageConfig": {"id": "promo-group-content"}}}
-        home = {"body": {"children": [promo_card("Een", "promo-group-deep-dive,promo_group_id=g1-4"), promo_card("Twee", "promo-group-deep-dive,promo_group_id=g2-7")]}}
-        pages = {"home_page_root": home, "promo-group-deep-dive?promo_group_id=g2-7": group, "promo-group-content": {"body": {"children": [text_tile("s9", "Peer", 99, "Peer")]}}}
+        home = {
+            "body": {
+                "children": [
+                    promo_card("Een", "promo-group-deep-dive,promo_group_id=g1-4"),
+                    promo_card("Twee", "promo-group-deep-dive,promo_group_id=g2-7"),
+                ]
+            }
+        }
+        pages = {
+            "home_page_root": home,
+            "promo-group-deep-dive?promo_group_id=g2-7": group,
+            "promo-group-content": {"body": {"children": [text_tile("s9", "Peer", 99, "Peer")]}},
+        }
         with self.serve(pages):
             found = run(picnic.get_offers())
         self.assertEqual(sorted(o["id"] for o in found), ["s3", "s9"])
@@ -368,7 +469,11 @@ class PicnicExplorerTest(TempDataDirTest):
 
         home = page(tile("s1", "Kipfilet", 349, 499, "2e halve prijs"), tile("s2", "Melk", 129), links=["aanbiedingen-page"])
         home["body"]["lazy"] = {"pageConfig": {"id": "week-deals-content"}}
-        pages = {"home_page_root": home, "aanbiedingen-page": page(tile("s3", "Kaas", 299, 399)), "week-deals-content": page(tile("s4", "Brood", 99, 149))}
+        pages = {
+            "home_page_root": home,
+            "aanbiedingen-page": page(tile("s3", "Kaas", 299, 399)),
+            "week-deals-content": page(tile("s4", "Brood", 99, 149)),
+        }
         tabs = [{"id": "home-tab", "title": "Ontdek", "tab_type": "PAGE", "target": {"type": "PICNIC_PAGE_REFERENCE", "reference": "home_page_root"}}]
 
         def authed(method, path, **kwargs):
@@ -397,16 +502,38 @@ class PicnicExplorerTest(TempDataDirTest):
 
 
 class PicnicExplorerDetailTest(TempDataDirTest):
-    PAGE = {"body": {"children": [
-        {"type": "PML", "id": "h", "pml": {"component": {"type": "RICH_TEXT", "markdown": "#(X)Acties#(X) van de week"}}},
-        {"type": "PML", "id": "card-1", "pml": {"component": {"children": [
-            {"type": "RICH_TEXT", "markdown": "Geheime merknaam"},
-            {"type": "TOUCHABLE", "onPress": {"actionType": "OPEN", "target": "picnic://store/page;id=promo-appels-123"}}]}},
-         "analytics": {"contexts": [{"data": {"campaign_id": "abc", "type": "promo"}, "schema": "iglu:x/promo"}]}},
-        {"type": "PML", "id": "tile", "pml": {"children": [
-            {"type": "SELLING_UNIT_TILE", "sellingUnit": {"id": "s1", "name": "Geheime melk", "display_price": 129}},
-            {"type": "RICH_TEXT", "markdown": "Geheime melk 1 l"}, {"type": "RICH_TEXT", "markdown": "-25%"}, {"type": "RICH_TEXT", "markdown": "€ 1,29"}]}},
-    ]}}
+    PAGE = {
+        "body": {
+            "children": [
+                {"type": "PML", "id": "h", "pml": {"component": {"type": "RICH_TEXT", "markdown": "#(X)Acties#(X) van de week"}}},
+                {
+                    "type": "PML",
+                    "id": "card-1",
+                    "pml": {
+                        "component": {
+                            "children": [
+                                {"type": "RICH_TEXT", "markdown": "Geheime merknaam"},
+                                {"type": "TOUCHABLE", "onPress": {"actionType": "OPEN", "target": "picnic://store/page;id=promo-appels-123"}},
+                            ]
+                        }
+                    },
+                    "analytics": {"contexts": [{"data": {"campaign_id": "abc", "type": "promo"}, "schema": "iglu:x/promo"}]},
+                },
+                {
+                    "type": "PML",
+                    "id": "tile",
+                    "pml": {
+                        "children": [
+                            {"type": "SELLING_UNIT_TILE", "sellingUnit": {"id": "s1", "name": "Geheime melk", "display_price": 129}},
+                            {"type": "RICH_TEXT", "markdown": "Geheime melk 1 l"},
+                            {"type": "RICH_TEXT", "markdown": "-25%"},
+                            {"type": "RICH_TEXT", "markdown": "€ 1,29"},
+                        ]
+                    },
+                },
+            ]
+        }
+    }
 
     def test_text_patterns_show_discount_like_texts_without_product_names(self):
         from mealieshopper import picnic_explore
@@ -451,7 +578,9 @@ class PicnicExplorerDetailTest(TempDataDirTest):
         from mealieshopper import picnic_explore
 
         client = self.client_for(create_app())
-        with mock.patch.object(picnic_explore, "explore", new_callable=mock.AsyncMock, return_value={"probes": [], "ok": 0, "linked": True}) as explore:
+        with mock.patch.object(
+            picnic_explore, "explore", new_callable=mock.AsyncMock, return_value={"probes": [], "ok": 0, "linked": True}
+        ) as explore:
             await client.post("/api/picnic/explore")
             await client.post("/api/picnic/explore?extended=1")
         self.assertEqual([call.kwargs for call in explore.call_args_list], [{"extended": False}, {"extended": True}])
@@ -580,34 +709,42 @@ class ScheduleTest(TempDataDirTest, unittest.IsolatedAsyncioTestCase):
         self.assertEqual((await offers_schedule.status())["lastTrigger"], "scheduled")
 
     async def test_the_scheduled_run_also_links_receipts_fills_their_images_and_the_cache(self):
-        with mock.patch.object(ah_orders, "resolve_receipt_products_nightly", new_callable=mock.AsyncMock, return_value={"found": 1}) as link, \
-             mock.patch.object(ah_orders, "backfill_receipt_images_nightly", new_callable=mock.AsyncMock, return_value={"products": 2}) as fill, \
-             mock.patch.object(prices, "fill_regular_prices_nightly", new_callable=mock.AsyncMock, return_value={"lines": 4}) as regular, \
-             mock.patch.object(image_cache, "prefetch_nightly", new_callable=mock.AsyncMock, return_value={"fetched": 3}) as prefetch:
+        with (
+            mock.patch.object(ah_orders, "resolve_receipt_products_nightly", new_callable=mock.AsyncMock, return_value={"found": 1}) as link,
+            mock.patch.object(ah_orders, "backfill_receipt_images_nightly", new_callable=mock.AsyncMock, return_value={"products": 2}) as fill,
+            mock.patch.object(prices, "fill_regular_prices_nightly", new_callable=mock.AsyncMock, return_value={"lines": 4}) as regular,
+            mock.patch.object(image_cache, "prefetch_nightly", new_callable=mock.AsyncMock, return_value={"fetched": 3}) as prefetch,
+        ):
             self.assertTrue(await offers_schedule.run_if_due(datetime(2026, 10, 22, 6, 0).astimezone()))
         self.assertEqual((link.call_count, fill.call_count, regular.call_count, prefetch.call_count), (1, 1, 1, 1))
         self.assertIsNotNone(link.call_args.args[0])
         self.assertEqual(link.call_args.args, fill.call_args.args, "koppelen en foto's delen een tijdstip: een laatste ronde")
         result = (await offers_schedule.status())["lastResult"]
-        self.assertEqual((result["receiptProducts"], result["receiptImages"], result["regularPrices"], result["images"]),
-                         ({"found": 1}, {"products": 2}, {"lines": 4}, {"fetched": 3}))
+        self.assertEqual(
+            (result["receiptProducts"], result["receiptImages"], result["regularPrices"], result["images"]),
+            ({"found": 1}, {"products": 2}, {"lines": 4}, {"fetched": 3}),
+        )
         self.assertEqual(result["stores"]["ah"]["count"], 1)
 
     async def test_the_button_does_not_wait_for_the_image_round(self):
         # De knop onder Koppelen is een gewone aanvraag: de foto's gaan in de achtergrond, alleen de nachtelijke run wacht erop.
-        with mock.patch.object(ah_orders, "resolve_receipt_products_nightly", new_callable=mock.AsyncMock, return_value=None), \
-             mock.patch.object(ah_orders, "backfill_receipt_images_nightly", new_callable=mock.AsyncMock, return_value=None), \
-             mock.patch.object(image_cache, "prefetch_nightly", new_callable=mock.AsyncMock) as nightly, \
-             mock.patch.object(image_cache, "prefetch_async", new_callable=mock.AsyncMock) as background:
+        with (
+            mock.patch.object(ah_orders, "resolve_receipt_products_nightly", new_callable=mock.AsyncMock, return_value=None),
+            mock.patch.object(ah_orders, "backfill_receipt_images_nightly", new_callable=mock.AsyncMock, return_value=None),
+            mock.patch.object(image_cache, "prefetch_nightly", new_callable=mock.AsyncMock) as nightly,
+            mock.patch.object(image_cache, "prefetch_async", new_callable=mock.AsyncMock) as background,
+        ):
             result = await offers_schedule.sync_now()
         nightly.assert_not_called()
         background.assert_awaited_once_with(limit=image_cache.PREFETCH_LIMIT)
         self.assertNotIn("images", result)
 
     async def test_the_manual_run_skips_what_has_nothing_to_do(self):
-        with mock.patch.object(ah_orders, "resolve_receipt_products_nightly", new_callable=mock.AsyncMock, return_value=None), \
-             mock.patch.object(ah_orders, "backfill_receipt_images_nightly", new_callable=mock.AsyncMock, return_value=None), \
-             mock.patch.object(image_cache, "prefetch_nightly", new_callable=mock.AsyncMock, return_value=None):
+        with (
+            mock.patch.object(ah_orders, "resolve_receipt_products_nightly", new_callable=mock.AsyncMock, return_value=None),
+            mock.patch.object(ah_orders, "backfill_receipt_images_nightly", new_callable=mock.AsyncMock, return_value=None),
+            mock.patch.object(image_cache, "prefetch_nightly", new_callable=mock.AsyncMock, return_value=None),
+        ):
             result = await offers_schedule.sync_now()
         self.assertEqual(sorted(result), ["finishedAt", "stores"])
 
@@ -640,20 +777,32 @@ class RoutesTest(TempDataDirTest):
 
     async def test_the_connect_page_has_the_sync_button(self):
         html = (await self.client.get("/")).get_data(as_text=True)
-        link = html[html.index('id="settings-link"'):html.index('id="settings-users"')]
+        link = html[html.index('id="settings-link"') : html.index('id="settings-users"')]
         self.assertIn('id="offers-sync-all"', link)
         self.assertIn('id="offers-sync-stores"', link)
-
 
 
 class OfferOnlyStoresTest(TempDataDirTest):
     """Lidl en Aldi: de aanbiedingen van hun openbare pagina, door de gewone synchronisatie (zie test_lidl.py en test_aldi.py)."""
 
     LIDL_CARD = {
-        "productId": 11563244, "fullTitle": "Croky chips", "category": "Food", "canonicalUrl": "/p/croky-chips/p11563244",
-        "image": "https://www.lidl.nl/assets/croky.png", "storeStartDate": None,
-        "regionsPrices": {"1": {"currentPrice": {"price": 1.99, "startDate": "2026-01-01T00:00Z", "endDate": "2099-12-31T22:59:59Z",
-                                                 "discount": {"discountText": "XXL"}, "packaging": {"text": "300 g"}}}},
+        "productId": 11563244,
+        "fullTitle": "Croky chips",
+        "category": "Food",
+        "canonicalUrl": "/p/croky-chips/p11563244",
+        "image": "https://www.lidl.nl/assets/croky.png",
+        "storeStartDate": None,
+        "regionsPrices": {
+            "1": {
+                "currentPrice": {
+                    "price": 1.99,
+                    "startDate": "2026-01-01T00:00Z",
+                    "endDate": "2099-12-31T22:59:59Z",
+                    "discount": {"discountText": "XXL"},
+                    "packaging": {"text": "300 g"},
+                }
+            }
+        },
     }
 
     def lidl_page(self, *cards):
@@ -681,16 +830,29 @@ class OfferOnlyStoresTest(TempDataDirTest):
     def test_sync_aldi_from_the_page(self):
         today = datetime.now(timezone.utc).date()
         item = {
-            "objectID": "1219324", "name": "Mandarijnen", "salesUnit": "1 kg", "productSlug": "mandarijnen-1219324",
-            "promotionPrices": [{"priceValue": 1.69, "strikePrice": {"strikePriceValue": 1.99}, "priceTagLabels": {"promoText1": "-15%"},
-                                 "validFromLocalDate": str(today - timedelta(days=1)), "validUntilLocalDate": str(today + timedelta(days=5))}],
+            "objectID": "1219324",
+            "name": "Mandarijnen",
+            "salesUnit": "1 kg",
+            "productSlug": "mandarijnen-1219324",
+            "promotionPrices": [
+                {
+                    "priceValue": 1.69,
+                    "strikePrice": {"strikePriceValue": 1.99},
+                    "priceTagLabels": {"promoText1": "-15%"},
+                    "validFromLocalDate": str(today - timedelta(days=1)),
+                    "validUntilLocalDate": str(today + timedelta(days=5)),
+                }
+            ],
         }
         api = [["OFFER_GET", {"res": {"algoliaDataMap": {"1219324": item}, "categories": []}}]]
         page = f'<script id="__NEXT_DATA__" type="application/json">{json.dumps({"props": {"pageProps": {"apiData": json.dumps(api)}}})}</script>'
         with served(return_value=httpx.Response(200, text=page)):
             data = run(offers.sync("aldi"))
         [offer] = data["offers"]
-        self.assertEqual((offer["title"], offer["price"], offer["priceBefore"], offer["mechanic"], offer["unitPrice"]), ("Mandarijnen", 1.69, 1.99, "percent", 1.69))
+        self.assertEqual(
+            (offer["title"], offer["price"], offer["priceBefore"], offer["mechanic"], offer["unitPrice"]),
+            ("Mandarijnen", 1.69, 1.99, "percent", 1.69),
+        )
         self.assertEqual(offer["url"], "https://www.aldi.nl/product/mandarijnen-1219324.html")
 
 

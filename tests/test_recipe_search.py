@@ -7,27 +7,39 @@ import httpx
 
 os.environ["PASSKEY_AUTH_ENABLED"] = "false"
 
+from helpers import AppTestCase, routes, run, sent_json, sent_url, served  # noqa: E402
+
 from mealieshopper import ah  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
-from helpers import AppTestCase, routes, run, sent_json, sent_url, served  # noqa: E402
 
 
 def graphql_response(result, total=None, has_next=True):
-    response = httpx.Response(200, json={
-        "data": {"recipeSearch": {
-            "page": {"total": len(result) if total is None else total, "hasNextPage": has_next},
-            "result": result,
-        }}
-    })
+    response = httpx.Response(
+        200,
+        json={
+            "data": {
+                "recipeSearch": {
+                    "page": {"total": len(result) if total is None else total, "hasNextPage": has_next},
+                    "result": result,
+                }
+            }
+        },
+    )
     return response
 
 
 def item(recipe_id=1302917, **extra):
     base = {
-        "id": recipe_id, "title": "Panlasagne met zalm", "slug": "panlasagne-met-zalm",
-        "time": {"cook": 30, "oven": None, "wait": None}, "serving": {"number": 4},
-        "images": [{"url": "https://img/220.jpg", "width": 220}, {"url": "https://img/440.jpg", "width": 440},
-                   {"url": "https://img/1024.jpg", "width": 1024}],
+        "id": recipe_id,
+        "title": "Panlasagne met zalm",
+        "slug": "panlasagne-met-zalm",
+        "time": {"cook": 30, "oven": None, "wait": None},
+        "serving": {"number": 4},
+        "images": [
+            {"url": "https://img/220.jpg", "width": 220},
+            {"url": "https://img/440.jpg", "width": 440},
+            {"url": "https://img/1024.jpg", "width": 1024},
+        ],
         "courses": ["hoofdgerecht"],
     }
     base.update(extra)
@@ -65,11 +77,18 @@ class SearchRecipesTest(SearchTestCase):
     def test_maps_a_result_to_a_card(self):
         result, _ = self.search(graphql_response([item()], total=2396), "pasta")
         card = result["recipes"][0]
-        self.assertEqual(card, {
-            "id": "1302917", "title": "Panlasagne met zalm",
-            "webPath": "/allerhande/recept/R-R1302917/panlasagne-met-zalm",
-            "images": [{"url": "https://img/440.jpg"}], "totalTime": 30, "servings": 4, "courses": ["hoofdgerecht"],
-        })
+        self.assertEqual(
+            card,
+            {
+                "id": "1302917",
+                "title": "Panlasagne met zalm",
+                "webPath": "/allerhande/recept/R-R1302917/panlasagne-met-zalm",
+                "images": [{"url": "https://img/440.jpg"}],
+                "totalTime": 30,
+                "servings": 4,
+                "courses": ["hoofdgerecht"],
+            },
+        )
         self.assertEqual(result["total"], 2396)
 
     def test_total_time_adds_cooking_oven_and_waiting(self):
@@ -177,7 +196,7 @@ class SearchRouteTest(AppTestCase):
         with mock.patch.object(ah, "search_recipes", return_value=found) as search:
             response = await self.client.get("/api/ah/search?q=pasta&page=2")
         self.assertEqual(response.get_json(), found)
-        search.assert_called_once_with("pasta", 2)
+        search.assert_called_once_with("pasta", 2, wanted=None)  # zonder filters (4.21.0) zoals voorheen
 
     async def test_requires_a_search_term(self):
         self.assertEqual((await self.client.get("/api/ah/search")).status_code, 400)

@@ -9,9 +9,10 @@ import httpx
 
 os.environ["PASSKEY_AUTH_ENABLED"] = "false"
 
+from helpers import AppTestCase, routes, run, sent_params  # noqa: E402
+
 from mealieshopper import ah, auth, hellofresh, jumbo_recipes, marleyspoon, mealie, picnic_recipes  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
-from helpers import AppTestCase, routes, run, sent_params  # noqa: E402
 
 URL = "https://mealie.example.nl"
 HF_KEY = "pasta-pesto-0123456789abcdef01234567"
@@ -47,9 +48,14 @@ class FindBySourceTest(ReuseTestCase):
             get = api.get(RECIPES).mock(return_value=response(body={"items": [{"slug": "pasta-pesto"}]}))
             slug = run(mealie.find_recipe_by_source("https://www.ah.nl/allerhande/recept/R-R1199999/pasta-pesto"))
         self.assertEqual(slug, "pasta-pesto")
-        self.assertEqual(sent_params(get.calls.last), {
-            "queryFilter": 'org_url LIKE "%/r-r1199999/%" OR org_url LIKE "%/r-r1199999"', "page": "1", "perPage": "1",
-        })
+        self.assertEqual(
+            sent_params(get.calls.last),
+            {
+                "queryFilter": 'org_url LIKE "%/r-r1199999/%" OR org_url LIKE "%/r-r1199999"',
+                "page": "1",
+                "perPage": "1",
+            },
+        )
 
     def test_jumbo_is_found_by_its_number(self):
         # De link op een kaart, die van het recept zelf en de kale link /recepten/<nummer>: allemaal hetzelfde recept.
@@ -88,11 +94,13 @@ class FindBySourceTest(ReuseTestCase):
 class ReuseOnImportTest(ReuseTestCase):
     async def reused(self, path, source_url, patches=()):
         """Met ?reuse=1 komt het bestaande recept terug en wordt er niets geïmporteerd."""
-        with mock.patch.object(mealie, "find_recipe_by_source", new_callable=mock.AsyncMock, return_value="al-in-mealie") as find, \
-                mock.patch.object(mealie, "import_via_jsonld", new_callable=mock.AsyncMock, side_effect=AssertionError("niet importeren")), \
-                mock.patch.object(mealie, "import_from_url", new_callable=mock.AsyncMock, side_effect=AssertionError("niet importeren")), \
-                mock.patch.object(hellofresh, "run_import", side_effect=AssertionError("niet importeren")), \
-                mock.patch.object(marleyspoon, "run_import", side_effect=AssertionError("niet importeren")):
+        with (
+            mock.patch.object(mealie, "find_recipe_by_source", new_callable=mock.AsyncMock, return_value="al-in-mealie") as find,
+            mock.patch.object(mealie, "import_via_jsonld", new_callable=mock.AsyncMock, side_effect=AssertionError("niet importeren")),
+            mock.patch.object(mealie, "import_from_url", new_callable=mock.AsyncMock, side_effect=AssertionError("niet importeren")),
+            mock.patch.object(hellofresh, "run_import", side_effect=AssertionError("niet importeren")),
+            mock.patch.object(marleyspoon, "run_import", side_effect=AssertionError("niet importeren")),
+        ):
             for patch in patches:
                 patch.start()
             try:
@@ -107,39 +115,54 @@ class ReuseOnImportTest(ReuseTestCase):
     async def test_every_store_looks_in_mealie_first(self):
         jumbo_recipe = {"id": "700001", "url": "https://www.jumbo.com/recepten/pasta-pesto-700001"}
         await self.reused("/api/ah/recipes/1199999/import", "https://www.ah.nl/allerhande/recept/R-R1199999")
-        await self.reused("/api/jumbo/recipes/700001/import", jumbo_recipe["url"],
-                    [mock.patch.object(jumbo_recipes, "get_recipe", new_callable=mock.AsyncMock, return_value=jumbo_recipe)])
+        await self.reused(
+            "/api/jumbo/recipes/700001/import",
+            jumbo_recipe["url"],
+            [mock.patch.object(jumbo_recipes, "get_recipe", new_callable=mock.AsyncMock, return_value=jumbo_recipe)],
+        )
         await self.reused("/api/picnic/recipes/r1/import", picnic_recipes.source_url("r1"))
         await self.reused(f"/api/hellofresh/recipes/{HF_KEY}/import", hellofresh.source_url(HF_KEY))
         await self.reused(f"/api/marleyspoon/recipes/{MS_KEY}/import", marleyspoon.source_url(MS_KEY))
 
     async def test_without_reuse_nothing_changes(self):
         # Importeer (zonder plannen) importeert altijd, ook als het recept er al staat.
-        with mock.patch.object(mealie, "find_recipe_by_source", new_callable=mock.AsyncMock, side_effect=AssertionError("niet zoeken")), \
-                mock.patch.object(mealie, "import_from_url", new_callable=mock.AsyncMock, return_value="pasta-pesto-1") as send:
+        with (
+            mock.patch.object(mealie, "find_recipe_by_source", new_callable=mock.AsyncMock, side_effect=AssertionError("niet zoeken")),
+            mock.patch.object(mealie, "import_from_url", new_callable=mock.AsyncMock, return_value="pasta-pesto-1") as send,
+        ):
             answer = await self.client.post("/api/ah/recipes/1199999/import")
         self.assertEqual(answer.get_json(), {"slug": "pasta-pesto-1", "mealieUrl": f"{URL}/g/thuis/r/pasta-pesto-1"})
         send.assert_awaited_once_with("https://www.ah.nl/allerhande/recept/R-R1199999")
 
     async def test_not_found_imports_after_all(self):
-        with mock.patch.object(mealie, "find_recipe_by_source", new_callable=mock.AsyncMock, return_value=None), \
-                mock.patch.object(hellofresh, "run_import", return_value={"slug": "nieuw", "mealieUrl": "x"}) as run:
+        with (
+            mock.patch.object(mealie, "find_recipe_by_source", new_callable=mock.AsyncMock, return_value=None),
+            mock.patch.object(hellofresh, "run_import", return_value={"slug": "nieuw", "mealieUrl": "x"}) as run,
+        ):
             answer = await self.client.post(f"/api/hellofresh/recipes/{HF_KEY}/import?reuse=1")
         self.assertEqual(answer.get_json(), {"slug": "nieuw", "mealieUrl": "x"})
         run.assert_called_once_with(HF_KEY)
 
     async def test_an_invalid_meal_kit_key_is_not_looked_up(self):
-        with mock.patch.object(mealie, "find_recipe_by_source", new_callable=mock.AsyncMock, side_effect=AssertionError("niet zoeken")), \
-                mock.patch.object(hellofresh, "run_import", side_effect=hellofresh.HelloFreshError("Ongeldig recept")):
+        with (
+            mock.patch.object(mealie, "find_recipe_by_source", new_callable=mock.AsyncMock, side_effect=AssertionError("niet zoeken")),
+            mock.patch.object(hellofresh, "run_import", side_effect=hellofresh.HelloFreshError("Ongeldig recept")),
+        ):
             answer = await self.client.post("/api/hellofresh/recipes/onzin/import?reuse=1")
         self.assertEqual(answer.status_code, 424)
 
 
 class AllerhandeRecipeTest(ReuseTestCase):
     LD = {
-        "@type": "Recipe", "name": "Pasta pesto", "url": "https://www.ah.nl/allerhande/recept/R-R1199999",
-        "description": "Snel en groen.", "image": ["https://static.ah.nl/pasta.jpg"], "recipeYield": "4 personen", "totalTime": "PT25M",
-        "recipeIngredient": ["300 g pasta", "1 potje pesto"], "recipeInstructions": [{"@type": "HowToStep", "text": "Kook de pasta."}],
+        "@type": "Recipe",
+        "name": "Pasta pesto",
+        "url": "https://www.ah.nl/allerhande/recept/R-R1199999",
+        "description": "Snel en groen.",
+        "image": ["https://static.ah.nl/pasta.jpg"],
+        "recipeYield": "4 personen",
+        "totalTime": "PT25M",
+        "recipeIngredient": ["300 g pasta", "1 potje pesto"],
+        "recipeInstructions": [{"@type": "HowToStep", "text": "Kook de pasta."}],
     }
 
     async def test_detail_in_the_shape_of_the_other_stores(self):
@@ -147,26 +170,42 @@ class AllerhandeRecipeTest(ReuseTestCase):
             answer = await self.client.get("/api/ah/recipes/1199999")
         self.assertEqual(answer.status_code, 200)
         get.assert_called_once_with(1199999)
-        self.assertEqual(answer.get_json(), {
-            "id": "1199999", "name": "Pasta pesto", "description": "Snel en groen.", "image": "https://static.ah.nl/pasta.jpg",
-            "portions": 4, "minutes": 25, "url": "https://www.ah.nl/allerhande/recept/R-R1199999",
-            "ingredients": [{"line": "300 g pasta"}, {"line": "1 potje pesto"}], "steps": ["Kook de pasta."], "nutrition": [],
-        })
+        self.assertEqual(
+            answer.get_json(),
+            {
+                "id": "1199999",
+                "name": "Pasta pesto",
+                "description": "Snel en groen.",
+                "image": "https://static.ah.nl/pasta.jpg",
+                "portions": 4,
+                "minutes": 25,
+                "url": "https://www.ah.nl/allerhande/recept/R-R1199999",
+                "ingredients": [{"line": "300 g pasta"}, {"line": "1 potje pesto"}],
+                "steps": ["Kook de pasta."],
+                "nutrition": [],
+            },
+        )
 
     async def test_detail_has_the_nutrition_per_person(self):
         ld = dict(self.LD, nutrition={"@type": "NutritionInformation", "calories": "490 kcal", "sodiumContent": "200 mg"})
         with mock.patch.object(ah, "get_recipe_jsonld", return_value=ld):
             answer = await self.client.get("/api/ah/recipes/1199999")
-        self.assertEqual(answer.get_json()["nutrition"], [
-            {"key": "calories", "quantity": 490, "unit": "kcal"}, {"key": "sodiumContent", "quantity": 200, "unit": "mg"},
-        ])
+        self.assertEqual(
+            answer.get_json()["nutrition"],
+            [
+                {"key": "calories", "quantity": 490, "unit": "kcal"},
+                {"key": "sodiumContent", "quantity": 200, "unit": "mg"},
+            ],
+        )
 
     async def test_errors_do_not_leak_the_answer_of_ah(self):
         with mock.patch.object(ah, "get_recipe_jsonld", side_effect=RuntimeError("AH zei: geheim")):
             answer = await self.client.get("/api/ah/recipes/1199999")
         self.assertEqual(answer.status_code, 424)
         self.assertNotIn("geheim", answer.get_data(as_text=True))
-        with mock.patch.object(mealie, "import_from_url", new_callable=mock.AsyncMock, side_effect=RuntimeError("Mealie import mislukt (500): geheim")):
+        with mock.patch.object(
+            mealie, "import_from_url", new_callable=mock.AsyncMock, side_effect=RuntimeError("Mealie import mislukt (500): geheim")
+        ):
             answer = await self.client.post("/api/ah/recipes/1199999/import")
         self.assertEqual(answer.status_code, 424)
         self.assertNotIn("geheim", answer.get_data(as_text=True))
@@ -180,8 +219,10 @@ class AllerhandeRecipeTest(ReuseTestCase):
             self.assertEqual((await self.client.get("/api/ah/recipes/saved")).status_code, 200)
 
     async def test_import_without_mealie_says_so(self):
-        with mock.patch.dict(os.environ, {"MEALIE_URL": "", "MEALIE_API_TOKEN": ""}), \
-                mock.patch.object(mealie, "import_from_url", new_callable=mock.AsyncMock, side_effect=AssertionError("niet importeren")):
+        with (
+            mock.patch.dict(os.environ, {"MEALIE_URL": "", "MEALIE_API_TOKEN": ""}),
+            mock.patch.object(mealie, "import_from_url", new_callable=mock.AsyncMock, side_effect=AssertionError("niet importeren")),
+        ):
             answer = await self.client.post("/api/ah/recipes/1199999/import")
         self.assertEqual(answer.status_code, 400)
         self.assertIn("niet gekoppeld", answer.get_json()["error"])

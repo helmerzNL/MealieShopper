@@ -4,6 +4,7 @@ De bestelpagina haalt ze op als je daar op de knop drukt. Zonder die knop bleef 
 "open" staan en ontbraken haar producten in de prijsgeschiedenis. De dagelijkse run (`offers_schedule.run_all`) haalt ze
 daarom ook op, voor elke winkel die gekoppeld is. Een winkel die het niet doet, houdt de rest niet tegen.
 """
+
 from __future__ import annotations
 
 import logging
@@ -25,8 +26,9 @@ class _Store(NamedTuple):
 
 # Lambda's: zo geldt de functie van het moment van aanroepen (een test vervangt hem).
 _STORES: tuple[_Store, ...] = (
-    _Store("ah", lambda: ah.configured_refresh_token(),
-           (("orders", lambda: ah_orders.sync_orders()), ("receipts", lambda: ah_orders.sync_receipts()))),
+    _Store(
+        "ah", lambda: ah.configured_refresh_token(), (("orders", lambda: ah_orders.sync_orders()), ("receipts", lambda: ah_orders.sync_receipts()))
+    ),
     _Store("jumbo", lambda: jumbo.configured_refresh_token(), (("orders", lambda: jumbo_orders.sync_orders()),)),
     _Store("picnic", lambda: picnic.configured_auth_key(), (("orders", lambda: picnic_orders.sync_orders()),)),
     _Store("crisp", lambda: crisp.configured_client_id(), (("orders", lambda: crisp_orders.sync_orders()),)),

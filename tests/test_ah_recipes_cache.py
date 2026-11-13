@@ -6,9 +6,10 @@ from unittest import mock
 
 os.environ["PASSKEY_AUTH_ENABLED"] = "false"
 
+from helpers import AppTestCase, run  # noqa: E402
+
 from mealieshopper import ah, ah_recipes, tasks  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
-from helpers import AppTestCase, run  # noqa: E402
 
 
 def recipe(n):
@@ -19,7 +20,7 @@ def pager(total, size=ah_recipes.PAGE_SIZE):
     everything = [recipe(n) for n in range(1, total + 1)]
 
     def fake(page=0, size_=size):
-        return {"recipes": everything[page * size_:(page + 1) * size_], "total": total}
+        return {"recipes": everything[page * size_ : (page + 1) * size_], "total": total}
 
     return fake
 
@@ -257,10 +258,14 @@ class NutritionTest(SavedRecipesCacheTestCase):
             data = await ah_recipes.get(force=True)
         first = data["recipes"][0]
         self.assertEqual(first["kcal"], 490)
-        self.assertEqual(first["nutrition"], [
-            {"key": "calories", "quantity": 490, "unit": "kcal"}, {"key": "proteinContent", "quantity": 27, "unit": "g"},
-            {"key": "sodiumContent", "quantity": 200, "unit": "mg"},
-        ])
+        self.assertEqual(
+            first["nutrition"],
+            [
+                {"key": "calories", "quantity": 490, "unit": "kcal"},
+                {"key": "proteinContent", "quantity": 27, "unit": "g"},
+                {"key": "sodiumContent", "quantity": 200, "unit": "mg"},
+            ],
+        )
         self.assertEqual((data["recipes"][1]["kcal"], data["recipes"][1]["nutrition"]), (None, []))
         self.assertEqual(data["nutritionPending"], 2, "een vernieuwing laat de voedingswaarden staan")
 
@@ -293,7 +298,12 @@ class NutritionTest(SavedRecipesCacheTestCase):
         self.assertEqual(self.asked, [1, 2])
         self.assertEqual((await ah_recipes.load())["recipes"][0]["kcal"], 490)
         await ah_recipes.remember_nutrition("2", None)  # weer leeg
-        with mock.patch.object(ah, "recipe_detail", new_callable=mock.AsyncMock, return_value={"id": "2", "nutrition": [{"key": "calories", "quantity": 610, "unit": "kcal"}]}):
+        with mock.patch.object(
+            ah,
+            "recipe_detail",
+            new_callable=mock.AsyncMock,
+            return_value={"id": "2", "nutrition": [{"key": "calories", "quantity": 610, "unit": "kcal"}]},
+        ):
             await self.client.get("/api/ah/recipes/2")
         self.assertEqual((await ah_recipes.load())["recipes"][1]["kcal"], 610)
         with mock.patch.object(ah, "get_saved_recipes", side_effect=AssertionError("niet bij AH vragen")):

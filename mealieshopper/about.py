@@ -6,6 +6,7 @@ omgeving als MEALIESHOPPER_COMMIT); bij lokaal draaien uit git zelf. Het kanaal 
 volgt de image-tag uit MEALIESHOPPER_TAG, dezelfde waarde als in docker-compose.yml. De versies van de Python-pakketten
 worden live uit de installatie gelezen, zodat ze altijd kloppen.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -86,9 +87,7 @@ def read_commit() -> str:
     if not (ROOT / ".git").exists():
         return ""
     try:
-        result = subprocess.run(
-            ["git", "rev-parse", "--short=7", "HEAD"], cwd=ROOT, capture_output=True, text=True, timeout=3, check=False
-        )
+        result = subprocess.run(["git", "rev-parse", "--short=7", "HEAD"], cwd=ROOT, capture_output=True, text=True, timeout=3, check=False)
     except (OSError, subprocess.SubprocessError):
         return ""
     return result.stdout.strip() if result.returncode == 0 else ""
@@ -100,7 +99,7 @@ def read_tag() -> str:
 
 
 def build_channel() -> str:
-    """"beta" als de tag een beta-build aanwijst, anders "stable"."""
+    """ "beta" als de tag een beta-build aanwijst, anders "stable"."""
     return "beta" if "beta" in read_tag().lower() else "stable"
 
 

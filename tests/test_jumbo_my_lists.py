@@ -3,6 +3,7 @@
 De fixtures hebben de vorm van de echte antwoorden van jumbo.com (GetCustomerProductLists en GetProductList),
 met verzonnen id's, titels en plaatjes.
 """
+
 import json
 import os
 import sqlite3
@@ -14,9 +15,10 @@ import httpx
 
 os.environ.setdefault("MEALIESHOPER_DATA_DIR", tempfile.mkdtemp())
 
+from helpers import AppTestCase, run, sent_json, sent_params, served  # noqa: E402
+
 from mealieshopper import auth, jumbo, jumbo_explore, jumbo_lists, mcp  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
-from helpers import AppTestCase, run, sent_json, sent_params, served  # noqa: E402
 
 OWN = "5e8f398d5c1add2c185b229d"
 OWN2 = "5eeb8bd189e849bb83470697"
@@ -24,9 +26,17 @@ FAV = "5daedbf40b105b0010e28ce6"
 
 
 def summary(list_id, title, count, kind="CUSTOMER", description=None):
-    return {"id": list_id, "productsCount": count, "title": title, "type": kind, "followersCount": 0,
-            "description": description, "author": None, "__typename": "ProductList",
-            "items": [{"product": {"image": "https://img/1.png", "__typename": "Product"}, "__typename": "ProductListItem"}]}
+    return {
+        "id": list_id,
+        "productsCount": count,
+        "title": title,
+        "type": kind,
+        "followersCount": 0,
+        "description": description,
+        "author": None,
+        "__typename": "ProductList",
+        "items": [{"product": {"image": "https://img/1.png", "__typename": "Product"}, "__typename": "ProductListItem"}],
+    }
 
 
 OVERVIEW = {
@@ -39,15 +49,25 @@ OVERVIEW = {
 def product_item(n, *, price=449, promo=None, amount=1, image="https://img/p.png", promotions=None, available=True):
     sku = f"{n:06d}ZK"
     return {
-        "id": f"item{n}", "sku": sku, "orderIndex": n, "__typename": "ProductListItem",
+        "id": f"item{n}",
+        "sku": sku,
+        "orderIndex": n,
+        "__typename": "ProductListItem",
         "quantity": {"amount": amount, "unit": "pieces", "__typename": "ProductQuantity"},
         "product": {
-            "sku": sku, "id": sku, "brand": "Jumbo", "category": "Diepvries", "subtitle": "750 g",
-            "title": f"Jumbo Mango Blokjes {n}", "image": image,
+            "sku": sku,
+            "id": sku,
+            "brand": "Jumbo",
+            "category": "Diepvries",
+            "subtitle": "750 g",
+            "title": f"Jumbo Mango Blokjes {n}",
+            "image": image,
             "availability": {"availability": "AVAILABLE", "isAvailable": available},
             "link": f"/producten/jumbo-mango-blokjes-{sku}",
             "price": {"price": price, "promoPrice": promo, "pricePerUnit": {"price": 599, "unit": "kg"}},
-            "promotions": promotions or [], "quantityDetails": {"maxAmount": 99.0}, "__typename": "Product",
+            "promotions": promotions or [],
+            "quantityDetails": {"maxAmount": 99.0},
+            "__typename": "Product",
         },
     }
 
@@ -76,8 +96,10 @@ class OverviewTest(TempDataDirTest):
             lists = run(jumbo.get_product_lists())
         self.assertEqual(query.call_args.args[0], "GetCustomerProductLists")
         self.assertEqual(query.call_args.args[1], {"listItemPagination": {"offset": 0, "limit": 4}, "listPagination": {"offset": 0, "limit": 25}})
-        self.assertEqual([(i["name"], i["kind"], i["itemCount"]) for i in lists],
-                         [("Basis Lijstje", "own", 24), ("Dit vinden we lekker", "own", 35), ("Favorieten", "favorites", 16)])
+        self.assertEqual(
+            [(i["name"], i["kind"], i["itemCount"]) for i in lists],
+            [("Basis Lijstje", "own", 24), ("Dit vinden we lekker", "own", 35), ("Favorieten", "favorites", 16)],
+        )
         self.assertEqual((lists[0]["id"], lists[1]["description"], lists[0]["description"]), (OWN, "Lekker", None))
 
     def test_odd_entries_are_skipped(self):
@@ -91,8 +113,7 @@ class OverviewTest(TempDataDirTest):
 class PersistedQueryTest(TempDataDirTest):
     def test_the_request_has_a_hash_and_no_query_text(self):
         with served(return_value=httpx.Response(200, json={"data": {"x": 1}})) as post:
-            run(jumbo._graphql(None, {"a": 1}, "GetCustomerProductLists", "JUMBO_WEB-lists",
-                           {"persistedQuery": {"version": 1, "sha256Hash": "abc"}}))
+            run(jumbo._graphql(None, {"a": 1}, "GetCustomerProductLists", "JUMBO_WEB-lists", {"persistedQuery": {"version": 1, "sha256Hash": "abc"}}))
         self.assertEqual(post.calls.last.request.method, "POST")
         sent = sent_json(post.calls.last)
         self.assertNotIn("query", sent)
@@ -101,8 +122,11 @@ class PersistedQueryTest(TempDataDirTest):
 
     def test_get_puts_everything_in_the_query_string_like_the_website(self):
         with served(return_value=httpx.Response(200, json={"data": {}})) as get:
-            run(jumbo._graphql(None, {"a": 1}, "GetProductList", "JUMBO_WEB-lists",
-                           {"persistedQuery": {"version": 1, "sha256Hash": "abc"}}, method="GET"))
+            run(
+                jumbo._graphql(
+                    None, {"a": 1}, "GetProductList", "JUMBO_WEB-lists", {"persistedQuery": {"version": 1, "sha256Hash": "abc"}}, method="GET"
+                )
+            )
         self.assertEqual(get.calls.last.request.method, "GET")
         params = sent_params(get.calls.last)
         self.assertEqual(params["operationName"], "GetProductList")
@@ -166,8 +190,7 @@ class ProductListTest(TempDataDirTest):
         pages = [list_page([product_item(n) for n in range(25)], 30), list_page([product_item(n) for n in range(25, 30)], 30)]
         with mock.patch.object(jumbo, "_persisted_query", side_effect=pages) as query:
             result = run(jumbo.get_product_list(OWN))
-        self.assertEqual([c.args[1]["listItemsPagination"] for c in query.call_args_list],
-                         [{"offset": 0, "limit": 25}, {"offset": 25, "limit": 25}])
+        self.assertEqual([c.args[1]["listItemsPagination"] for c in query.call_args_list], [{"offset": 0, "limit": 25}, {"offset": 25, "limit": 25}])
         first = query.call_args_list[0].args[1]
         self.assertEqual((first["listId"], first["includeDelistedItems"], first["includeThumbnail"]), (OWN, False, False))
         self.assertRegex(first["referenceDate"], r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.000Z$")
@@ -211,8 +234,11 @@ class ProductListTest(TempDataDirTest):
 
 class LocalCopyTest(TempDataDirTest):
     def live(self, *amounts):
-        return {"id": OWN, "name": "Basis Lijstje", "items": [
-            jumbo._product_list_item(product_item(n, amount=amount)) for n, amount in enumerate(amounts, 1)]}
+        return {
+            "id": OWN,
+            "name": "Basis Lijstje",
+            "items": [jumbo._product_list_item(product_item(n, amount=amount)) for n, amount in enumerate(amounts, 1)],
+        }
 
     def test_ids_keep_their_case_except_the_shopping_list(self):
         self.assertEqual(jumbo_lists.normalize_id(f" {OWN} "), OWN)
@@ -220,8 +246,10 @@ class LocalCopyTest(TempDataDirTest):
         self.assertEqual((jumbo_lists.normalize_id("jumbo"), jumbo_lists.normalize_id("JUMBO")), ("JUMBO", "JUMBO"))
 
     def test_fetch_live_uses_the_right_source(self):
-        with mock.patch.object(jumbo, "get_product_list", return_value={"id": OWN, "name": "x", "items": []}) as own, \
-                mock.patch.object(jumbo, "get_shopping_list", return_value={"active": True, "items": []}) as shopping:
+        with (
+            mock.patch.object(jumbo, "get_product_list", return_value={"id": OWN, "name": "x", "items": []}) as own,
+            mock.patch.object(jumbo, "get_shopping_list", return_value={"active": True, "items": []}) as shopping,
+        ):
             run(jumbo_lists.fetch_live(OWN))
             own.assert_called_once_with(OWN)
             shopping.assert_not_called()
@@ -242,34 +270,55 @@ class LocalCopyTest(TempDataDirTest):
             conn.execute("DROP TABLE IF EXISTS jumbo_list_items")
             conn.execute("DROP TABLE IF EXISTS jumbo_lists")
             conn.execute("CREATE TABLE jumbo_lists (id TEXT PRIMARY KEY, name TEXT NOT NULL, synced_at TEXT NOT NULL)")
-            conn.execute("CREATE TABLE jumbo_list_items (list_id TEXT NOT NULL, position INTEGER NOT NULL, item_id TEXT, sku TEXT, "
-                         "term TEXT NOT NULL, quantity INTEGER NOT NULL DEFAULT 1, default_quantity INTEGER NOT NULL DEFAULT 1, "
-                         "title TEXT, unit_size TEXT, price REAL, image TEXT, url TEXT, is_bonus INTEGER NOT NULL DEFAULT 0, "
-                         "PRIMARY KEY (list_id, position))")
+            conn.execute(
+                "CREATE TABLE jumbo_list_items (list_id TEXT NOT NULL, position INTEGER NOT NULL, item_id TEXT, sku TEXT, "
+                "term TEXT NOT NULL, quantity INTEGER NOT NULL DEFAULT 1, default_quantity INTEGER NOT NULL DEFAULT 1, "
+                "title TEXT, unit_size TEXT, price REAL, image TEXT, url TEXT, is_bonus INTEGER NOT NULL DEFAULT 0, "
+                "PRIMARY KEY (list_id, position))"
+            )
         snapshot = run(jumbo_lists.save_snapshot(self.live(1)))
         self.assertEqual(snapshot["items"][0]["product"]["brand"], "Jumbo")
 
     def test_merged_lists_order_and_kinds(self):
         run(jumbo_lists.save_snapshot({"id": "oud", "name": "Verdwenen lijst", "items": []}))
-        with mock.patch.object(jumbo, "get_shopping_list", return_value={"active": True, "items": [{"term": "a", "completed": False}]}), \
-                mock.patch.object(jumbo, "get_product_lists", return_value=[
+        with (
+            mock.patch.object(jumbo, "get_shopping_list", return_value={"active": True, "items": [{"term": "a", "completed": False}]}),
+            mock.patch.object(
+                jumbo,
+                "get_product_lists",
+                return_value=[
                     {"id": FAV, "name": "Favorieten", "kind": "favorites", "itemCount": 16, "description": None},
-                    {"id": OWN, "name": "Basis Lijstje", "kind": "own", "itemCount": 24, "description": None}]):
+                    {"id": OWN, "name": "Basis Lijstje", "kind": "own", "itemCount": 24, "description": None},
+                ],
+            ),
+        ):
             result = run(jumbo_lists.merged_lists())
-        self.assertEqual([(i["name"], i["kind"], i["source"]) for i in result["lists"]],
-                         [("Boodschappenlijstje", "shopping", "jumbo"), ("Basis Lijstje", "own", "jumbo"),
-                          ("Favorieten", "favorites", "jumbo"), ("Verdwenen lijst", "own", "local")])
+        self.assertEqual(
+            [(i["name"], i["kind"], i["source"]) for i in result["lists"]],
+            [
+                ("Boodschappenlijstje", "shopping", "jumbo"),
+                ("Basis Lijstje", "own", "jumbo"),
+                ("Favorieten", "favorites", "jumbo"),
+                ("Verdwenen lijst", "own", "local"),
+            ],
+        )
         self.assertIsNone(result["storeError"])
 
     def test_one_failing_source_does_not_hide_the_other(self):
-        with mock.patch.object(jumbo, "get_shopping_list", return_value={"active": True, "items": []}), \
-                mock.patch.object(jumbo, "get_product_lists", side_effect=jumbo.JumboPersistedQueryError("PersistedQueryNotFound")):
+        with (
+            mock.patch.object(jumbo, "get_shopping_list", return_value={"active": True, "items": []}),
+            mock.patch.object(jumbo, "get_product_lists", side_effect=jumbo.JumboPersistedQueryError("PersistedQueryNotFound")),
+        ):
             result = run(jumbo_lists.merged_lists())
         self.assertEqual([i["kind"] for i in result["lists"]], ["shopping"])
         self.assertEqual(result["storeError"], "Jumbo fout")
         run(jumbo_lists.save_snapshot(self.live(1)))
-        with mock.patch.object(jumbo, "get_shopping_list", side_effect=RuntimeError("x")), \
-                mock.patch.object(jumbo, "get_product_lists", return_value=[{"id": OWN, "name": "Basis Lijstje", "kind": "own", "itemCount": 24, "description": None}]):
+        with (
+            mock.patch.object(jumbo, "get_shopping_list", side_effect=RuntimeError("x")),
+            mock.patch.object(
+                jumbo, "get_product_lists", return_value=[{"id": OWN, "name": "Basis Lijstje", "kind": "own", "itemCount": 24, "description": None}]
+            ),
+        ):
             result = run(jumbo_lists.merged_lists())
         self.assertEqual([(i["kind"], i["synced"], i["syncedCount"]) for i in result["lists"]], [("own", True, 1)])
 
@@ -295,43 +344,67 @@ class RoutesAndToolsTest(TempDataDirTest):
         with mock.patch.object(jumbo_lists, "fetch_live", new_callable=mock.AsyncMock, return_value=live):
             self.assertEqual((await self.client.post(f"/api/jumbo/lists/{OWN}/sync")).get_json()["totalSize"], 2)
         result = {"added": [], "failed": [], "cart": None}
-        with mock.patch.object(jumbo, "search_product", side_effect=AssertionError("producten hebben al een SKU")), \
-                mock.patch.object(jumbo, "add_to_cart", return_value=result) as add:
+        with (
+            mock.patch.object(jumbo, "search_product", side_effect=AssertionError("producten hebben al een SKU")),
+            mock.patch.object(jumbo, "add_to_cart", return_value=result) as add,
+        ):
             body = (await self.client.post(f"/api/jumbo/lists/{OWN}/cart")).get_json()
         self.assertEqual([(m["productId"], m["quantity"]) for m in add.call_args.args[0]], [("000001ZK", 1), ("000002ZK", 2)])
         self.assertEqual((body["added"], body["units"], body["name"]), (2, 3, "Basis Lijstje"))
         self.assertEqual((await self.client.get("/api/jumbo/lists/bad%20id")).status_code, 400)
 
     async def test_the_overview_route_has_all_kinds(self):
-        with mock.patch.object(jumbo, "get_shopping_list", return_value={"active": True, "items": []}), \
-                mock.patch.object(jumbo, "get_product_lists", return_value=[{"id": OWN, "name": "Basis Lijstje", "kind": "own", "itemCount": 24, "description": None}]):
+        with (
+            mock.patch.object(jumbo, "get_shopping_list", return_value={"active": True, "items": []}),
+            mock.patch.object(
+                jumbo, "get_product_lists", return_value=[{"id": OWN, "name": "Basis Lijstje", "kind": "own", "itemCount": 24, "description": None}]
+            ),
+        ):
             body = (await self.client.get("/api/jumbo/lists")).get_json()
         self.assertEqual([i["kind"] for i in body["lists"]], ["shopping", "own"])
 
     def overview(self):
-        return mock.patch.object(jumbo_lists, "merged_lists", new_callable=mock.AsyncMock, return_value={"storeError": None, "lists": [
-            {"id": "JUMBO", "name": "Boodschappenlijstje", "kind": "shopping", "itemCount": 2, "synced": False, "syncedAt": None},
-            {"id": OWN, "name": "Basis Lijstje", "kind": "own", "itemCount": 24, "synced": True, "syncedAt": "x"},
-            {"id": FAV, "name": "Favorieten", "kind": "favorites", "itemCount": 16, "synced": False, "syncedAt": None}]})
+        return mock.patch.object(
+            jumbo_lists,
+            "merged_lists",
+            new_callable=mock.AsyncMock,
+            return_value={
+                "storeError": None,
+                "lists": [
+                    {"id": "JUMBO", "name": "Boodschappenlijstje", "kind": "shopping", "itemCount": 2, "synced": False, "syncedAt": None},
+                    {"id": OWN, "name": "Basis Lijstje", "kind": "own", "itemCount": 24, "synced": True, "syncedAt": "x"},
+                    {"id": FAV, "name": "Favorieten", "kind": "favorites", "itemCount": 16, "synced": False, "syncedAt": None},
+                ],
+            },
+        )
 
     def test_mcp_lists_and_resolves_lists_by_name(self):
         with self.overview():
             result = run(mcp.tool_list_jumbo_lists({}))
-            self.assertEqual([(i["name"], i["kind"]) for i in result["lists"]],
-                             [("Boodschappenlijstje", "shopping"), ("Basis Lijstje", "own"), ("Favorieten", "favorites")])
+            self.assertEqual(
+                [(i["name"], i["kind"]) for i in result["lists"]],
+                [("Boodschappenlijstje", "shopping"), ("Basis Lijstje", "own"), ("Favorieten", "favorites")],
+            )
             self.assertEqual(run(mcp._resolve_jumbo_list(None)), "JUMBO")
             self.assertEqual(run(mcp._resolve_jumbo_list("favo")), FAV)
             self.assertEqual(run(mcp._resolve_jumbo_list(OWN.upper())), OWN)
             with self.assertRaises(mcp.ToolError):
                 run(mcp._resolve_jumbo_list("bestaat niet"))
-            with mock.patch.object(jumbo_lists, "merged_lists", new_callable=mock.AsyncMock, return_value={"lists": [
-                    {"id": "a", "name": "Basis 1"}, {"id": "b", "name": "Basis 2"}], "storeError": None}):
+            with mock.patch.object(
+                jumbo_lists,
+                "merged_lists",
+                new_callable=mock.AsyncMock,
+                return_value={"lists": [{"id": "a", "name": "Basis 1"}, {"id": "b", "name": "Basis 2"}], "storeError": None},
+            ):
                 with self.assertRaisesRegex(mcp.ToolError, "Welk lijstje"):
                     run(mcp._resolve_jumbo_list("basis"))
 
     def test_mcp_reads_the_chosen_list(self):
         run(jumbo_lists.save_snapshot({"id": OWN, "name": "Basis Lijstje", "items": [jumbo._product_list_item(product_item(1, amount=2))]}))
-        with self.overview(), mock.patch.object(jumbo_lists, "fetch_live", new_callable=mock.AsyncMock, side_effect=AssertionError("lokale kopie gebruiken")):
+        with (
+            self.overview(),
+            mock.patch.object(jumbo_lists, "fetch_live", new_callable=mock.AsyncMock, side_effect=AssertionError("lokale kopie gebruiken")),
+        ):
             result = run(mcp.tool_jumbo_list({"list": "basis"}))
         self.assertEqual((result["name"], result["source"], result["total"]), ("Basis Lijstje", "lokale kopie", 1))
         self.assertEqual((result["items"][0]["quantity"], result["items"][0]["brand"]), (2, "Jumbo"))
@@ -342,17 +415,25 @@ class ExploreTest(TempDataDirTest):
         jumbo._persisted_route["GetCustomerProductLists"] = ("GET", "JUMBO_WEB-loyalty")
         jumbo._persisted_route["GetProductList"] = ("GET", "JUMBO_WEB-loyalty")
         blocked = httpx.Response(200, headers={"content-type": "application/json"})
-        found = [{"id": OWN, "name": "Geheime lijst", "kind": "own", "itemCount": 24, "description": "Persoonlijk"},
-                 {"id": FAV, "name": "Favorieten", "kind": "favorites", "itemCount": 16, "description": None}]
+        found = [
+            {"id": OWN, "name": "Geheime lijst", "kind": "own", "itemCount": 24, "description": "Persoonlijk"},
+            {"id": FAV, "name": "Favorieten", "kind": "favorites", "itemCount": 16, "description": None},
+        ]
         live = {"id": OWN, "name": "Geheime lijst", "items": [jumbo._product_list_item(product_item(7))]}
-        with served(blocked), \
-                mock.patch.object(jumbo, "get_access_token", return_value="acc"), \
-                mock.patch.object(jumbo, "search_products", return_value=[]), \
-                mock.patch.object(jumbo, "get_cart", return_value={"items": []}), \
-                mock.patch.object(jumbo, "get_shopping_list", return_value={"active": True, "items": []}), \
-                mock.patch.object(jumbo, "get_product_lists", return_value=found), \
-                mock.patch.object(jumbo, "get_product_list", return_value=live), \
-                mock.patch.object(jumbo, "_graphql", return_value={"addBasketLines": {"__typename": "Basket"}, "editShoppingListItems": {"__typename": "EditShoppingListItemsResult"}}):
+        with (
+            served(blocked),
+            mock.patch.object(jumbo, "get_access_token", return_value="acc"),
+            mock.patch.object(jumbo, "search_products", return_value=[]),
+            mock.patch.object(jumbo, "get_cart", return_value={"items": []}),
+            mock.patch.object(jumbo, "get_shopping_list", return_value={"active": True, "items": []}),
+            mock.patch.object(jumbo, "get_product_lists", return_value=found),
+            mock.patch.object(jumbo, "get_product_list", return_value=live),
+            mock.patch.object(
+                jumbo,
+                "_graphql",
+                return_value={"addBasketLines": {"__typename": "Basket"}, "editShoppingListItems": {"__typename": "EditShoppingListItemsResult"}},
+            ),
+        ):
             report = run(jumbo_explore.explore())
         by_name = {probe["name"]: probe for probe in report["probes"]}
         overview = by_name["mijn lijstjes: opgeslagen query GetCustomerProductLists"]

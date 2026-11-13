@@ -232,7 +232,6 @@ async def test_shielded_work_finishes_although_its_caller_is_cancelled() -> None
     assert done == ["bewaard"]
 
 
-
 async def test_map_bounded_stops_what_it_started_when_the_items_raise() -> None:
     """Gooit de iterable zelf halverwege, dan blijven de al gestarte items niet als losse tasks achter."""
     started: list[int] = []

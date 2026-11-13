@@ -2,6 +2,7 @@
 
 De fixtures hebben de vorm van de bekende Picnic-antwoorden, met verzonnen ids, titels en bedragen.
 """
+
 import json
 import os
 import tempfile
@@ -10,20 +11,43 @@ from unittest import mock
 
 os.environ.setdefault("MEALIESHOPPER_DATA_DIR", tempfile.mkdtemp())
 
+from helpers import AppTestCase, db, run, served  # noqa: E402
+
 from mealieshopper import auth, mcp, picnic, picnic_orders  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
-from helpers import AppTestCase, db, run, served  # noqa: E402
 
 
 def summary(delivery_id, status="COMPLETED", start="2026-10-10T10:00:00+02:00", total=15.0):
-    return {"id": delivery_id, "status": status, "windowStart": start, "windowEnd": "2026-10-10T11:00:00+02:00",
-            "etaStart": None, "etaEnd": None, "deliveredStart": None, "deliveredEnd": None, "total": total}
+    return {
+        "id": delivery_id,
+        "status": status,
+        "windowStart": start,
+        "windowEnd": "2026-10-10T11:00:00+02:00",
+        "etaStart": None,
+        "etaEnd": None,
+        "deliveredStart": None,
+        "deliveredEnd": None,
+        "total": total,
+    }
 
 
 def detail(delivery_id, *names, status="COMPLETED", start="2026-10-10T10:00:00+02:00", total=15.0):
-    return {**summary(delivery_id, status, start, total), "itemCount": len(names),
-            "items": [{"id": f"s{n}", "title": name, "quantity": 2 if n == 1 else 1, "unitSize": "1 l", "price": 1.5 + n,
-                       "listPrice": None, "image": "https://img/p.png"} for n, name in enumerate(names, 1)]}
+    return {
+        **summary(delivery_id, status, start, total),
+        "itemCount": len(names),
+        "items": [
+            {
+                "id": f"s{n}",
+                "title": name,
+                "quantity": 2 if n == 1 else 1,
+                "unitSize": "1 l",
+                "price": 1.5 + n,
+                "listPrice": None,
+                "image": "https://img/p.png",
+            }
+            for n, name in enumerate(names, 1)
+        ],
+    }
 
 
 class PicnicOrdersTest(AppTestCase):
@@ -45,8 +69,11 @@ class PicnicOrdersTest(AppTestCase):
             if isinstance(result, Exception):
                 raise result
             return result
-        with mock.patch.object(picnic, "get_deliveries", side_effect=lambda: list(self.listed)), \
-                mock.patch.object(picnic, "get_delivery", side_effect=get_delivery):
+
+        with (
+            mock.patch.object(picnic, "get_deliveries", side_effect=lambda: list(self.listed)),
+            mock.patch.object(picnic, "get_delivery", side_effect=get_delivery),
+        ):
             return run(picnic_orders.sync_orders())
 
     def test_delivered_orders_are_stored_with_their_products(self):
@@ -91,7 +118,10 @@ class PicnicOrdersTest(AppTestCase):
         self.listed = [summary(i, start=f"2026-09-{n + 1:02d}T10:00:00+02:00") for n, i in enumerate(ids)]
         self.details = {i: detail(i, "Melk") for i in ids}
         first = self.sync()
-        self.assertEqual((first["orders"], first["remaining"], len(self.asked)), (30, 30 - picnic_orders.ORDER_DETAILS_PER_SYNC, picnic_orders.ORDER_DETAILS_PER_SYNC))
+        self.assertEqual(
+            (first["orders"], first["remaining"], len(self.asked)),
+            (30, 30 - picnic_orders.ORDER_DETAILS_PER_SYNC, picnic_orders.ORDER_DETAILS_PER_SYNC),
+        )
         second = self.sync()
         self.assertEqual(second["remaining"], 0)
         self.assertEqual(len(self.asked), 30)
@@ -116,8 +146,10 @@ class PicnicOrdersTest(AppTestCase):
         self.listed = [summary("d1")]
         self.details = {"d1": detail("d1", "Melk")}
         self.sync()
-        with mock.patch.object(picnic, "_authed", side_effect=AssertionError("geen verbinding")), \
-                served(side_effect=AssertionError("geen verbinding")):
+        with (
+            mock.patch.object(picnic, "_authed", side_effect=AssertionError("geen verbinding")),
+            served(side_effect=AssertionError("geen verbinding")),
+        ):
             self.assertEqual(len(run(picnic_orders.list_orders())["orders"]), 1)
             self.assertEqual(run(picnic_orders.get_order("d1"))["items"][0]["title"], "Melk")
             self.assertEqual(run(picnic_orders.search_purchases("melk"))["total"], 1)
@@ -143,8 +175,10 @@ class PicnicOrdersTest(AppTestCase):
         self.listed = [summary("d1")]
         self.details = {"d1": detail("d1", "Melk")}
         client = self.client_for(create_app())
-        with mock.patch.object(picnic, "get_deliveries", side_effect=lambda: list(self.listed)), \
-                mock.patch.object(picnic, "get_delivery", side_effect=lambda i: self.details[i]):
+        with (
+            mock.patch.object(picnic, "get_deliveries", side_effect=lambda: list(self.listed)),
+            mock.patch.object(picnic, "get_delivery", side_effect=lambda i: self.details[i]),
+        ):
             reply = await client.post("/api/picnic/orders/sync")
         self.assertEqual((reply.status_code, reply.get_json()["orders"]), (200, 1))
         self.assertEqual((await client.get("/api/picnic/orders")).get_json()["orders"][0]["id"], "d1")

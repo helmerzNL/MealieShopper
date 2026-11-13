@@ -42,6 +42,7 @@ function applyAiReviewStatus(status) {
     $(`#ai-model-${provider}`).placeholder = info.defaultModel;
     $(`#ai-clear-${provider}`).hidden = info.source !== "app";
   }
+  $("#ai-loose-nightly").checked = Boolean(status.looseNightly);
   setOffersRecipesTab(status.recipesTab);
   applyStoreFold("ai", true); // standaard dicht, ook zonder sleutel: het blok is optioneel en lang
 }
@@ -63,10 +64,12 @@ async function saveAiReview(extra = {}) {
     if (key) keys[provider] = key;
     models[provider] = $(`#ai-model-${provider}`).value.trim();
   }
+  // Het vinkje voor 's nachts gaat alleen mee als de stand al bekend is: anders zou een mislukte lading hem uitzetten.
+  const loose = aiReviewState.status ? { looseNightly: $("#ai-loose-nightly").checked } : {};
   const status = await jsonFetch("/api/offers/ai", {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ provider: $("#ai-provider").value || "auto", models, keys, ...extra }),
+    body: JSON.stringify({ provider: $("#ai-provider").value || "auto", models, keys, ...loose, ...extra }),
   });
   for (const provider of AI_REVIEW_PROVIDERS) $(`#ai-key-${provider}`).value = "";
   applyAiReviewStatus(status);

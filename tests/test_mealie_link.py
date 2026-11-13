@@ -15,9 +15,10 @@ from cryptography.x509.oid import NameOID
 
 os.environ["PASSKEY_AUTH_ENABLED"] = "false"
 
+from helpers import AppTestCase, routes, run, sent_url  # noqa: E402
+
 from mealieshopper import auth, http_client, mealie  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
-from helpers import AppTestCase, routes, run, sent_url  # noqa: E402
 
 TOKEN = "eyJhbGciOiJIUzI1NiJ9.geheime-mealie-token.handtekening"
 URL = "https://mealie.example.nl"
@@ -55,8 +56,13 @@ def self_signed(folder: str) -> ssl.SSLContext:
     name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "127.0.0.1")])
     now = datetime.datetime.now(datetime.timezone.utc)
     certificate = (
-        x509.CertificateBuilder().subject_name(name).issuer_name(name).public_key(key.public_key())
-        .serial_number(x509.random_serial_number()).not_valid_before(now).not_valid_after(now + datetime.timedelta(days=1))
+        x509.CertificateBuilder()
+        .subject_name(name)
+        .issuer_name(name)
+        .public_key(key.public_key())
+        .serial_number(x509.random_serial_number())
+        .not_valid_before(now)
+        .not_valid_after(now + datetime.timedelta(days=1))
         .sign(key, hashes.SHA256())
     )
     cert_file, key_file = Path(folder, "cert.pem"), Path(folder, "key.pem")
@@ -168,8 +174,7 @@ class ClientTest(MealieTestCase):
         )
         for label, call in calls:
             mealie._week_start_cache.clear()
-            with self.subTest(label), routes() as api, \
-                    mock.patch.object(mealie, "_config", new_callable=mock.AsyncMock, side_effect=real) as config:
+            with self.subTest(label), routes() as api, mock.patch.object(mealie, "_config", new_callable=mock.AsyncMock, side_effect=real) as config:
                 api.get(f"{URL}/api/households/mealplans").mock(return_value=response(body={"items": []}))
                 api.get(f"{URL}/api/recipes/pasta").mock(return_value=response(body={"recipeIngredient": []}))
                 api.get(PREFERENCES).mock(return_value=preferences())
@@ -192,9 +197,7 @@ class RecipePageUrlTest(MealieTestCase):
     def test_the_recipe_link_has_the_group_of_the_user(self):
         with routes() as api:
             get = api.get(SELF).mock(return_value=response(body={"username": "helmer", "groupSlug": "zb"}))
-            self.assertEqual(
-                run(mealie.recipe_page_url("witlof-met-ham-en-kaas-uit-de-oven")), f"{URL}/g/zb/r/witlof-met-ham-en-kaas-uit-de-oven"
-            )
+            self.assertEqual(run(mealie.recipe_page_url("witlof-met-ham-en-kaas-uit-de-oven")), f"{URL}/g/zb/r/witlof-met-ham-en-kaas-uit-de-oven")
         self.assertEqual(get.calls.last.request.headers["Authorization"], f"Bearer {TOKEN}", "met het token van de koppeling")
 
     def test_the_group_is_remembered_so_a_list_of_recipes_costs_one_request(self):
@@ -257,17 +260,22 @@ class UnreadableDatabaseTest(MealieTestCase):
 
     def test_environment_configuration_survives_a_broken_database(self):
         env = {"MEALIE_URL": "https://env.example.nl", "MEALIE_API_TOKEN": "env-token"}
-        with mock.patch.dict(os.environ, env), \
-                mock.patch.object(mealie.auth, "get_secret", new_callable=mock.AsyncMock, side_effect=OSError("read-only")):
+        with (
+            mock.patch.dict(os.environ, env),
+            mock.patch.object(mealie.auth, "get_secret", new_callable=mock.AsyncMock, side_effect=OSError("read-only")),
+        ):
             self.assertEqual(run(mealie._config()), ("https://env.example.nl", "env-token", "env"))
             self.assertEqual(run(mealie.mealie_url()), "https://env.example.nl")
             run(mealie.ensure_configured())
 
     def test_sqlite_errors_are_treated_the_same(self):
         import sqlite3
+
         env = {"MEALIE_URL": "https://env.example.nl", "MEALIE_API_TOKEN": "env-token"}
-        with mock.patch.dict(os.environ, env), \
-                mock.patch.object(mealie.auth, "get_secret", new_callable=mock.AsyncMock, side_effect=sqlite3.OperationalError("no such table")):
+        with (
+            mock.patch.dict(os.environ, env),
+            mock.patch.object(mealie.auth, "get_secret", new_callable=mock.AsyncMock, side_effect=sqlite3.OperationalError("no such table")),
+        ):
             self.assertEqual(run(mealie._config())[2], "env")
 
     def test_without_environment_it_is_simply_not_linked(self):
@@ -280,8 +288,10 @@ class UnreadableDatabaseTest(MealieTestCase):
             for _ in range(5):
                 await mealie._config()
 
-        with mock.patch.object(mealie.auth, "get_secret", new_callable=mock.AsyncMock, side_effect=OSError("read-only")), \
-                self.assertLogs("mealieshopper.mealie", level="WARNING") as logs:
+        with (
+            mock.patch.object(mealie.auth, "get_secret", new_callable=mock.AsyncMock, side_effect=OSError("read-only")),
+            self.assertLogs("mealieshopper.mealie", level="WARNING") as logs,
+        ):
             run(five_times())
         self.assertEqual(len(logs.records), 1)
         self.assertIn("omgevingsvariabelen", logs.output[0])
@@ -392,9 +402,8 @@ class LinkTest(MealieTestCase):
         self.assertEqual(run(auth.get_secret("MEALIE_API_TOKEN")), TOKEN)
         self.assertNotIn(TOKEN, repr(result))
         import sqlite3
-        raw = sqlite3.connect(auth.db_path()).execute(
-            "SELECT value FROM app_settings WHERE key='MEALIE_API_TOKEN'"
-        ).fetchone()[0]
+
+        raw = sqlite3.connect(auth.db_path()).execute("SELECT value FROM app_settings WHERE key='MEALIE_API_TOKEN'").fetchone()[0]
         self.assertNotEqual(raw, TOKEN, "token staat leesbaar in de database")
         self.assertNotIn(TOKEN, raw)
 
@@ -413,8 +422,7 @@ class LinkTest(MealieTestCase):
     def test_input_validation_before_any_request(self):
         with routes() as api:
             anything = api.route()
-            for url, token in (("", TOKEN), (URL, ""), (URL, None), (URL, "twee woorden"), (URL, "regel\neinde"),
-                               ("ftp://x.nl", TOKEN)):
+            for url, token in (("", TOKEN), (URL, ""), (URL, None), (URL, "twee woorden"), (URL, "regel\neinde"), ("ftp://x.nl", TOKEN)):
                 with self.assertRaises(ValueError, msg=(url, token)):
                     run(mealie.link(url, token))
         self.assertFalse(anything.called)
@@ -534,8 +542,7 @@ class RoutesTest(MealieTestCase):
 
     async def test_routes_need_a_session_when_auth_is_on(self):
         with mock.patch.dict(os.environ, {"PASSKEY_AUTH_ENABLED": "true"}):
-            for method, path in (("get", "/api/mealie/status"), ("post", "/api/mealie/auth"),
-                                 ("post", "/api/mealie/auth/logout")):
+            for method, path in (("get", "/api/mealie/status"), ("post", "/api/mealie/auth"), ("post", "/api/mealie/auth/logout")):
                 self.assertEqual((await getattr(self.client, method)(path)).status_code, 401, path)
 
     def test_ui_configuration_drives_imports_and_the_planner(self):
@@ -551,9 +558,15 @@ class RoutesTest(MealieTestCase):
 
     async def test_page_shows_the_tab_and_the_notice(self):
         html = (await self.client.get("/")).get_data(as_text=True)
-        for fragment in ('data-subtab="settings-link"', 'id="mealie-login-box"', 'id="mealie-form"', 'id="mealie-token" type="password"',
-                         'class="message warning message--action" id="mealie-setup"', 'id="check-mealie"',
-                         'id="mealie-unlink"'):
+        for fragment in (
+            'data-subtab="settings-link"',
+            'id="mealie-login-box"',
+            'id="mealie-form"',
+            'id="mealie-token" type="password"',
+            'class="message warning message--action" id="mealie-setup"',
+            'id="check-mealie"',
+            'id="mealie-unlink"',
+        ):
             self.assertIn(fragment, html, fragment)
 
 

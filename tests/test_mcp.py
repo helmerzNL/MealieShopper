@@ -7,16 +7,31 @@ import secrets
 import tempfile
 import unittest
 from contextlib import closing
-from pathlib import Path
 from datetime import timedelta
+from pathlib import Path
 from unittest import mock
 from urllib.parse import parse_qs, urlsplit
 
 os.environ["PASSKEY_AUTH_ENABLED"] = "false"
 
-from mealieshopper import ah, ah_lists, ah_recipes, auth, auth_password, crisp, image_cache, mcp, mealie, oauth, picnic, picnic_recipes, recipe_nutrition  # noqa: E402
-from mealieshopper.app import create_app  # noqa: E402
 from helpers import AppTestCase, db, returned, run  # noqa: E402
+
+from mealieshopper import (  # noqa: E402
+    ah,
+    ah_lists,
+    ah_recipes,
+    auth,
+    auth_password,
+    crisp,
+    image_cache,
+    mcp,
+    mealie,
+    oauth,
+    picnic,
+    picnic_recipes,
+    recipe_nutrition,
+)
+from mealieshopper.app import create_app  # noqa: E402
 
 PASSWORD = "koffie-met-melk-42"
 ANNA = "een-heel-ander-wachtwoord"
@@ -60,8 +75,16 @@ class McpTestCase(AppTestCase):
         return response.get_json()["client_id"]
 
     async def authorize(self, user, client_id, challenge, **extra):
-        params = {"response_type": "code", "client_id": client_id, "redirect_uri": REDIRECT, "code_challenge": challenge,
-                  "code_challenge_method": "S256", "state": "xyz", "resource": MCP_URL, **extra}
+        params = {
+            "response_type": "code",
+            "client_id": client_id,
+            "redirect_uri": REDIRECT,
+            "code_challenge": challenge,
+            "code_challenge_method": "S256",
+            "state": "xyz",
+            "resource": MCP_URL,
+            **extra,
+        }
         page = await user.get("/oauth/authorize", query_string=params)
         self.assertEqual(page.status_code, 200, page.get_data(as_text=True)[:300])
         signed = re.search(r'name="request" value="([^"]+)"', page.get_data(as_text=True)).group(1)
@@ -79,13 +102,24 @@ class McpTestCase(AppTestCase):
         self.assertEqual(query["state"], ["xyz"])
         token = await self.client_for(self.app).post(
             "/oauth/token",
-            data={"grant_type": "authorization_code", "code": query["code"][0], "client_id": client_id, "redirect_uri": REDIRECT, "code_verifier": verifier},
+            data={
+                "grant_type": "authorization_code",
+                "code": query["code"][0],
+                "client_id": client_id,
+                "redirect_uri": REDIRECT,
+                "code_verifier": verifier,
+            },
         )
         self.assertEqual(token.status_code, 200, token.get_json())
         return token.get_json(), client_id
 
     async def rpc(self, token, method, params=None, request_id=1, **kwargs):
-        body = {"jsonrpc": "2.0", "method": method, **({"id": request_id} if request_id is not None else {}), **({"params": params} if params is not None else {})}
+        body = {
+            "jsonrpc": "2.0",
+            "method": method,
+            **({"id": request_id} if request_id is not None else {}),
+            **({"params": params} if params is not None else {}),
+        }
         return await self.client_for(self.app).post("/mcp", json=body, headers={"Authorization": f"Bearer {token}"}, **kwargs)
 
     async def call(self, token, name, arguments=None):
@@ -129,7 +163,9 @@ class MetadataTest(McpTestCase):
         with mock.patch.dict(os.environ, {"MEALIESHOPPER_PUBLIC_BASE_URL": "https://shop.example.com"}):
             meta = (await self.client_for(self.app).get("/.well-known/oauth-authorization-server")).get_json()
             self.assertEqual(meta["issuer"], "https://shop.example.com")
-            self.assertEqual((await self.client_for(self.app).get("/.well-known/oauth-protected-resource")).get_json()["resource"], "https://shop.example.com/mcp")
+            self.assertEqual(
+                (await self.client_for(self.app).get("/.well-known/oauth-protected-resource")).get_json()["resource"], "https://shop.example.com/mcp"
+            )
 
     async def test_cors_for_token_and_metadata(self):
         client = self.client_for(self.app)
@@ -143,8 +179,26 @@ class MetadataTest(McpTestCase):
 
 class RegistrationTest(McpTestCase):
     def test_redirect_uri_rules(self):
-        good = ["https://claude.ai/api/mcp/auth_callback", "http://localhost:33418/callback", "http://127.0.0.1/cb", "http://[::1]:8000/cb", "vscode://ms-vscode.cursor/auth", "cursor://anysphere.cursor-mcp/oauth/callback"]
-        bad = ["http://evil.example.com/cb", "javascript:alert(1)", "data:text/html,x", "file:///etc/passwd", "https://claude.ai/cb#frag", "", "/relative", "https://", "http://localhost.evil.com/cb", "ftp://x.example.com/"]
+        good = [
+            "https://claude.ai/api/mcp/auth_callback",
+            "http://localhost:33418/callback",
+            "http://127.0.0.1/cb",
+            "http://[::1]:8000/cb",
+            "vscode://ms-vscode.cursor/auth",
+            "cursor://anysphere.cursor-mcp/oauth/callback",
+        ]
+        bad = [
+            "http://evil.example.com/cb",
+            "javascript:alert(1)",
+            "data:text/html,x",
+            "file:///etc/passwd",
+            "https://claude.ai/cb#frag",
+            "",
+            "/relative",
+            "https://",
+            "http://localhost.evil.com/cb",
+            "ftp://x.example.com/",
+        ]
         for uri in good:
             self.assertTrue(oauth.valid_redirect_uri(uri), uri)
         for uri in bad:
@@ -154,15 +208,23 @@ class RegistrationTest(McpTestCase):
 
     async def test_registration_validates_the_request(self):
         client = self.client_for(self.app)
-        for body in ({}, {"redirect_uris": []}, {"redirect_uris": ["http://evil.example.com/"]}, {"redirect_uris": [REDIRECT], "token_endpoint_auth_method": "client_secret_basic"},
-                     {"redirect_uris": [REDIRECT], "grant_types": ["password"]}, {"redirect_uris": ["https://a.example/%d" % i for i in range(11)]}):
+        for body in (
+            {},
+            {"redirect_uris": []},
+            {"redirect_uris": ["http://evil.example.com/"]},
+            {"redirect_uris": [REDIRECT], "token_endpoint_auth_method": "client_secret_basic"},
+            {"redirect_uris": [REDIRECT], "grant_types": ["password"]},
+            {"redirect_uris": ["https://a.example/%d" % i for i in range(11)]},
+        ):
             response = await client.post("/oauth/register", json=body)
             self.assertEqual(response.status_code, 400, body)
             self.assertIn("error", response.get_json())
         self.assertEqual((await client.post("/oauth/register", data="no json")).status_code, 400)
 
     async def test_registration_gives_a_public_client(self):
-        data = (await self.client_for(self.app).post("/oauth/register", json={"client_name": "  Claude\n  Desktop ", "redirect_uris": [REDIRECT]})).get_json()
+        data = (
+            await self.client_for(self.app).post("/oauth/register", json={"client_name": "  Claude\n  Desktop ", "redirect_uris": [REDIRECT]})
+        ).get_json()
         self.assertTrue(data["client_id"].startswith("msc_"))
         self.assertEqual(data["client_name"], "Claude Desktop")
         self.assertNotIn("client_secret", data)
@@ -178,7 +240,9 @@ class RegistrationTest(McpTestCase):
             _, used = await self.grant()
             unused = await self.register()
             with closing(db()) as conn, conn:
-                conn.execute("UPDATE oauth_clients SET created_at = ? WHERE client_id = ?", ((oauth._now() - timedelta(minutes=20)).isoformat(), unused))
+                conn.execute(
+                    "UPDATE oauth_clients SET created_at = ? WHERE client_id = ?", ((oauth._now() - timedelta(minutes=20)).isoformat(), unused)
+                )
             await self.register()  # er is plek gemaakt
             self.assertIsNone(await oauth.get_client(unused))
             self.assertIsNotNone(await oauth.get_client(used))
@@ -196,7 +260,16 @@ class AuthorizeTest(McpTestCase):
     async def test_not_logged_in_goes_to_the_login_and_back(self):
         client_id = await self.register()
         _, challenge = pkce()
-        response = await self.client_for(self.app).get("/oauth/authorize", query_string={"response_type": "code", "client_id": client_id, "redirect_uri": REDIRECT, "code_challenge": challenge, "code_challenge_method": "S256"})
+        response = await self.client_for(self.app).get(
+            "/oauth/authorize",
+            query_string={
+                "response_type": "code",
+                "client_id": client_id,
+                "redirect_uri": REDIRECT,
+                "code_challenge": challenge,
+                "code_challenge_method": "S256",
+            },
+        )
         self.assertEqual(response.status_code, 302)
         location = urlsplit(response.headers["Location"])
         self.assertEqual(location.path, "/")
@@ -207,7 +280,16 @@ class AuthorizeTest(McpTestCase):
     async def test_consent_page_names_the_app_and_the_user(self):
         client_id = await self.register(name="Mijn <b>AI</b>")
         _, challenge = pkce()
-        page = await self.admin.get("/oauth/authorize", query_string={"response_type": "code", "client_id": client_id, "redirect_uri": REDIRECT, "code_challenge": challenge, "code_challenge_method": "S256"})
+        page = await self.admin.get(
+            "/oauth/authorize",
+            query_string={
+                "response_type": "code",
+                "client_id": client_id,
+                "redirect_uri": REDIRECT,
+                "code_challenge": challenge,
+                "code_challenge_method": "S256",
+            },
+        )
         html = page.get_data(as_text=True)
         self.assertIn("Mijn &lt;b&gt;AI&lt;/b&gt;", html)
         self.assertNotIn("<b>AI</b>", html)
@@ -220,7 +302,10 @@ class AuthorizeTest(McpTestCase):
         client_id = await self.register()
         _, challenge = pkce()
         base = {"response_type": "code", "code_challenge": challenge, "code_challenge_method": "S256"}
-        for params in ({**base, "client_id": "unknown", "redirect_uri": REDIRECT}, {**base, "client_id": client_id, "redirect_uri": "https://evil.example.com/cb"}):
+        for params in (
+            {**base, "client_id": "unknown", "redirect_uri": REDIRECT},
+            {**base, "client_id": client_id, "redirect_uri": "https://evil.example.com/cb"},
+        ):
             response = await self.admin.get("/oauth/authorize", query_string=params)
             self.assertEqual(response.status_code, 400)
             self.assertNotIn("Location", response.headers)
@@ -228,7 +313,14 @@ class AuthorizeTest(McpTestCase):
     async def test_protocol_errors_go_back_to_the_app(self):
         client_id = await self.register()
         _, challenge = pkce()
-        good = {"response_type": "code", "client_id": client_id, "redirect_uri": REDIRECT, "code_challenge": challenge, "code_challenge_method": "S256", "state": "s1"}
+        good = {
+            "response_type": "code",
+            "client_id": client_id,
+            "redirect_uri": REDIRECT,
+            "code_challenge": challenge,
+            "code_challenge_method": "S256",
+            "state": "s1",
+        }
         cases = [
             ({"response_type": "token"}, "unsupported_response_type"),
             ({"code_challenge_method": "plain"}, "invalid_request"),
@@ -255,7 +347,9 @@ class AuthorizeTest(McpTestCase):
         client_id = await self.register()
         _, challenge = pkce()
         signed = await self.authorize(self.admin, client_id, challenge)
-        post = lambda client, **kw: client.post("/oauth/authorize", data={"request": kw.get("request", signed), "decision": "allow"}, headers=kw.get("headers", {}))
+        post = lambda client, **kw: client.post(
+            "/oauth/authorize", data={"request": kw.get("request", signed), "decision": "allow"}, headers=kw.get("headers", {})
+        )
         self.assertEqual((await post(self.admin, request=signed + "x")).status_code, 400)  # aangepaste ondertekening
         self.assertEqual((await post(self.admin, headers={"Origin": "https://evil.example.com"})).status_code, 403)
         self.assertEqual((await post(self.client_for(self.app))).status_code, 401)  # niet ingelogd
@@ -272,15 +366,40 @@ class AuthorizeTest(McpTestCase):
     async def test_loopback_redirect_may_pick_its_own_port(self):
         client_id = await self.register(("http://localhost:33418/callback",))
         _, challenge = pkce()
-        page = await self.admin.get("/oauth/authorize", query_string={"response_type": "code", "client_id": client_id, "redirect_uri": "http://localhost:51234/callback", "code_challenge": challenge, "code_challenge_method": "S256"})
+        page = await self.admin.get(
+            "/oauth/authorize",
+            query_string={
+                "response_type": "code",
+                "client_id": client_id,
+                "redirect_uri": "http://localhost:51234/callback",
+                "code_challenge": challenge,
+                "code_challenge_method": "S256",
+            },
+        )
         self.assertEqual(page.status_code, 200)
-        other_path = await self.admin.get("/oauth/authorize", query_string={"response_type": "code", "client_id": client_id, "redirect_uri": "http://localhost:51234/other", "code_challenge": challenge, "code_challenge_method": "S256"})
+        other_path = await self.admin.get(
+            "/oauth/authorize",
+            query_string={
+                "response_type": "code",
+                "client_id": client_id,
+                "redirect_uri": "http://localhost:51234/other",
+                "code_challenge": challenge,
+                "code_challenge_method": "S256",
+            },
+        )
         self.assertEqual(other_path.status_code, 400)
 
 
 class TokenTest(McpTestCase):
     async def exchange(self, client_id, code, verifier, **extra):
-        form = {"grant_type": "authorization_code", "code": code, "client_id": client_id, "redirect_uri": REDIRECT, "code_verifier": verifier, **extra}
+        form = {
+            "grant_type": "authorization_code",
+            "code": code,
+            "client_id": client_id,
+            "redirect_uri": REDIRECT,
+            "code_verifier": verifier,
+            **extra,
+        }
         return await self.client_for(self.app).post("/oauth/token", data=form)
 
     async def code(self, user=None, client_id=None):
@@ -295,13 +414,18 @@ class TokenTest(McpTestCase):
         self.assertEqual((tokens["token_type"], tokens["expires_in"], tokens["scope"]), ("Bearer", 3600, "mealieshopper"))
         self.assertTrue(tokens["access_token"].startswith("msa_") and tokens["refresh_token"].startswith("msr_"))
         with closing(db()) as conn:
-            stored = json.dumps([dict(r) for r in conn.execute("SELECT * FROM oauth_tokens")] + [dict(r) for r in conn.execute("SELECT * FROM oauth_codes")])
+            stored = json.dumps(
+                [dict(r) for r in conn.execute("SELECT * FROM oauth_tokens")] + [dict(r) for r in conn.execute("SELECT * FROM oauth_codes")]
+            )
         self.assertNotIn(tokens["access_token"], stored)
         self.assertNotIn(tokens["refresh_token"], stored)
 
     async def test_token_endpoint_accepts_json_too(self):
         client_id, verifier, code = await self.code()
-        response = await self.client_for(self.app).post("/oauth/token", json={"grant_type": "authorization_code", "code": code, "client_id": client_id, "redirect_uri": REDIRECT, "code_verifier": verifier})
+        response = await self.client_for(self.app).post(
+            "/oauth/token",
+            json={"grant_type": "authorization_code", "code": code, "client_id": client_id, "redirect_uri": REDIRECT, "code_verifier": verifier},
+        )
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.headers["Cache-Control"], "no-store")
 
@@ -339,7 +463,9 @@ class TokenTest(McpTestCase):
 
     async def test_refresh_rotates_and_a_replay_revokes_everything(self):
         tokens, client_id = await self.grant()
-        refresh = lambda token, cid=client_id: self.client_for(self.app).post("/oauth/token", data={"grant_type": "refresh_token", "refresh_token": token, "client_id": cid})
+        refresh = lambda token, cid=client_id: self.client_for(self.app).post(
+            "/oauth/token", data={"grant_type": "refresh_token", "refresh_token": token, "client_id": cid}
+        )
         second = await refresh(tokens["refresh_token"])
         self.assertEqual(second.status_code, 200)
         new = second.get_json()
@@ -353,7 +479,9 @@ class TokenTest(McpTestCase):
 
     async def test_refresh_needs_the_same_client(self):
         tokens, _ = await self.grant()
-        response = await self.client_for(self.app).post("/oauth/token", data={"grant_type": "refresh_token", "refresh_token": tokens["refresh_token"], "client_id": await self.register(name="x")})
+        response = await self.client_for(self.app).post(
+            "/oauth/token", data={"grant_type": "refresh_token", "refresh_token": tokens["refresh_token"], "client_id": await self.register(name="x")}
+        )
         self.assertEqual(response.status_code, 400)
 
     async def test_revoke(self):
@@ -399,7 +527,10 @@ class UserBindingTest(McpTestCase):
         await anna.post("/api/auth/password", json={"password": "nieuw-wachtwoord-123", "currentPassword": ANNA})
         self.assertEqual((await self.rpc(anna_tokens["access_token"], "ping")).status_code, 401)
         self.assertEqual((await self.rpc(admin_tokens["access_token"], "ping")).status_code, 200)
-        refresh = await self.client_for(self.app).post("/oauth/token", data={"grant_type": "refresh_token", "refresh_token": anna_tokens["refresh_token"], "client_id": await self.register(name="x")})
+        refresh = await self.client_for(self.app).post(
+            "/oauth/token",
+            data={"grant_type": "refresh_token", "refresh_token": anna_tokens["refresh_token"], "client_id": await self.register(name="x")},
+        )
         self.assertEqual(refresh.status_code, 400)
 
     async def test_deleting_the_user_removes_their_apps(self):
@@ -423,7 +554,14 @@ class UserBindingTest(McpTestCase):
         client = self.client_for(self.app)
         self.assertEqual((await client.get("/api/ah/lists", headers={"Authorization": f"Bearer {tokens['access_token']}"})).status_code, 401)
         cookie = self.admin.get_cookie(auth.SESSION_COOKIE_NAME).value
-        self.assertEqual((await self.client_for(self.app).post("/mcp", json={"jsonrpc": "2.0", "id": 1, "method": "ping"}, headers={"Authorization": f"Bearer {cookie}"})).status_code, 401)
+        self.assertEqual(
+            (
+                await self.client_for(self.app).post(
+                    "/mcp", json={"jsonrpc": "2.0", "id": 1, "method": "ping"}, headers={"Authorization": f"Bearer {cookie}"}
+                )
+            ).status_code,
+            401,
+        )
 
 
 class LoginReturnTest(McpTestCase):
@@ -443,8 +581,12 @@ class SettingsEffectTest(McpTestCase):
         self.assertEqual((await self.rpc(tokens["access_token"], "ping")).status_code, 200)
         self.assertEqual((await self.admin.put("/api/server-settings", json={"publicBaseUrl": "https://shop.example.com"})).status_code, 200)
         # Het token is uitgegeven voor het oude adres van de MCP-server.
-        response = await self.client_for(self.app).post("/mcp", json={"jsonrpc": "2.0", "id": 1, "method": "ping"}, base_url="https://shop.example.com",
-                                               headers={"Authorization": f"Bearer {tokens['access_token']}"})
+        response = await self.client_for(self.app).post(
+            "/mcp",
+            json={"jsonrpc": "2.0", "id": 1, "method": "ping"},
+            base_url="https://shop.example.com",
+            headers={"Authorization": f"Bearer {tokens['access_token']}"},
+        )
         self.assertEqual(response.status_code, 401)
 
     async def test_a_token_stops_answering_while_the_server_is_switched_off_and_works_again_after(self):
@@ -466,11 +608,21 @@ class ProtocolTest(McpTestCase):
             self.assertEqual(response.status_code, 401)
             challenge = response.headers["WWW-Authenticate"]
             self.assertIn(f'resource_metadata="{BASE}/.well-known/oauth-protected-resource"', challenge)
-        self.assertIn("invalid_token", (await self.client_for(self.app).post("/mcp", json={}, headers={"Authorization": "Bearer msa_wrong"})).headers["WWW-Authenticate"])
+        self.assertIn(
+            "invalid_token",
+            (await self.client_for(self.app).post("/mcp", json={}, headers={"Authorization": "Bearer msa_wrong"})).headers["WWW-Authenticate"],
+        )
 
     async def test_initialize_negotiates_the_version(self):
-        for asked, expected in (("2025-03-26", "2025-03-26"), ("2025-06-18", "2025-06-18"), ("1999-01-01", mcp.LATEST_PROTOCOL), (None, mcp.LATEST_PROTOCOL)):
-            result = (await self.rpc(self.token, "initialize", {"protocolVersion": asked, "capabilities": {}, "clientInfo": {"name": "t", "version": "1"}})).get_json()["result"]
+        for asked, expected in (
+            ("2025-03-26", "2025-03-26"),
+            ("2025-06-18", "2025-06-18"),
+            ("1999-01-01", mcp.LATEST_PROTOCOL),
+            (None, mcp.LATEST_PROTOCOL),
+        ):
+            result = (
+                await self.rpc(self.token, "initialize", {"protocolVersion": asked, "capabilities": {}, "clientInfo": {"name": "t", "version": "1"}})
+            ).get_json()["result"]
             self.assertEqual(result["protocolVersion"], expected)
             self.assertEqual(result["serverInfo"]["name"], "mealieshopper")
             self.assertIn("tools", result["capabilities"])
@@ -481,7 +633,11 @@ class ProtocolTest(McpTestCase):
         self.assertEqual((response.status_code, response.get_data()), (202, b""))
 
     async def test_batches(self):
-        batch = [{"jsonrpc": "2.0", "id": 1, "method": "ping"}, {"jsonrpc": "2.0", "method": "notifications/initialized"}, {"jsonrpc": "2.0", "id": 2, "method": "tools/list"}]
+        batch = [
+            {"jsonrpc": "2.0", "id": 1, "method": "ping"},
+            {"jsonrpc": "2.0", "method": "notifications/initialized"},
+            {"jsonrpc": "2.0", "id": 2, "method": "tools/list"},
+        ]
         replies = (await self.client_for(self.app).post("/mcp", json=batch, headers={"Authorization": f"Bearer {self.token}"})).get_json()
         self.assertEqual([r["id"] for r in replies], [1, 2])
 
@@ -489,11 +645,20 @@ class ProtocolTest(McpTestCase):
         auth_header = {"Authorization": f"Bearer {self.token}"}
         client = self.client_for(self.app)
         self.assertEqual((await client.post("/mcp", data="{kapot", headers=auth_header)).get_json()["error"]["code"], -32700)
-        self.assertEqual((await client.post("/mcp", json={"jsonrpc": "1.0", "id": 1, "method": "ping"}, headers=auth_header)).get_json()["error"]["code"], -32600)
+        self.assertEqual(
+            (await client.post("/mcp", json={"jsonrpc": "1.0", "id": 1, "method": "ping"}, headers=auth_header)).get_json()["error"]["code"], -32600
+        )
         self.assertEqual((await self.rpc(self.token, "bogus/method")).get_json()["error"]["code"], -32601)
         self.assertEqual((await self.rpc(self.token, "tools/call", {"name": "nope"})).get_json()["error"]["code"], -32602)
         self.assertEqual((await self.rpc(self.token, "tools/list", [1])).get_json()["error"]["code"], -32602)
-        self.assertEqual((await client.post("/mcp", json={"jsonrpc": "2.0", "id": 1, "method": "ping"}, headers={**auth_header, "Mcp-Protocol-Version": "1999-01-01"})).status_code, 400)
+        self.assertEqual(
+            (
+                await client.post(
+                    "/mcp", json={"jsonrpc": "2.0", "id": 1, "method": "ping"}, headers={**auth_header, "Mcp-Protocol-Version": "1999-01-01"}
+                )
+            ).status_code,
+            400,
+        )
         self.assertEqual((await client.post("/mcp", data="x" * 2_000_000, headers=auth_header)).status_code, 413)
 
     async def test_no_streams_and_no_sessions(self):
@@ -504,12 +669,53 @@ class ProtocolTest(McpTestCase):
 
     async def test_tools_list_has_schemas_and_honest_annotations(self):
         tools = {t["name"]: t for t in (await self.rpc(self.token, "tools/list")).get_json()["result"]["tools"]}
-        self.assertEqual(set(tools), {"get_week_menu", "search_mealie_recipes", "plan_meal", "remove_planned_meal", "search_allerhande_recipes", "list_saved_ah_recipes", "list_ah_recipe_groups", "list_ah_lists", "get_ah_list", "search_ah_list_items", "search_ah_products", "import_recipe_to_mealie",
-                             "get_ah_basket", "list_ah_orders", "get_ah_order", "list_ah_receipts", "get_ah_receipt", "search_ah_purchases",
-                             "search_picnic_products", "get_picnic_basket", "list_picnic_deliveries", "get_picnic_delivery", "list_picnic_orders", "get_picnic_order",
-                             "list_picnic_delivery_slots", "list_picnic_recipes", "list_picnic_favorites", "list_crisp_recipes", "search_jumbo_products", "get_jumbo_basket", "get_jumbo_list", "list_jumbo_lists",
-                         "list_jumbo_orders", "get_jumbo_order", "search_jumbo_recipes", "list_jumbo_recipe_lists", "get_jumbo_recipe_list", "get_jumbo_recipe",
-                         "review_offer_matches", "report_offer_mismatch", "list_offer_mismatches", "get_price_history"})
+        self.assertEqual(
+            set(tools),
+            {
+                "get_week_menu",
+                "search_mealie_recipes",
+                "plan_meal",
+                "remove_planned_meal",
+                "search_allerhande_recipes",
+                "list_saved_ah_recipes",
+                "list_ah_recipe_groups",
+                "list_ah_lists",
+                "get_ah_list",
+                "search_ah_list_items",
+                "search_ah_products",
+                "import_recipe_to_mealie",
+                "get_ah_basket",
+                "list_ah_orders",
+                "get_ah_order",
+                "list_ah_receipts",
+                "get_ah_receipt",
+                "search_ah_purchases",
+                "search_picnic_products",
+                "get_picnic_basket",
+                "list_picnic_deliveries",
+                "get_picnic_delivery",
+                "list_picnic_orders",
+                "get_picnic_order",
+                "list_picnic_delivery_slots",
+                "list_picnic_recipes",
+                "list_picnic_favorites",
+                "list_crisp_recipes",
+                "search_jumbo_products",
+                "get_jumbo_basket",
+                "get_jumbo_list",
+                "list_jumbo_lists",
+                "list_jumbo_orders",
+                "get_jumbo_order",
+                "search_jumbo_recipes",
+                "list_jumbo_recipe_lists",
+                "get_jumbo_recipe_list",
+                "get_jumbo_recipe",
+                "review_offer_matches",
+                "report_offer_mismatch",
+                "list_offer_mismatches",
+                "get_price_history",
+            },
+        )
         # De enige tool die iets weghaalt, haalt een maaltijd uit het weekmenu (het recept blijft); die zegt dat eerlijk.
         destructive = {"remove_planned_meal"}
         for name, tool in tools.items():
@@ -517,7 +723,10 @@ class ProtocolTest(McpTestCase):
             self.assertFalse(tool["inputSchema"]["additionalProperties"], name)
             self.assertTrue(tool["description"], name)
             self.assertIs(tool["annotations"]["destructiveHint"], name in destructive, name)
-        self.assertEqual([n for n, t in tools.items() if not t["annotations"]["readOnlyHint"]], ["plan_meal", "remove_planned_meal", "report_offer_mismatch", "import_recipe_to_mealie"])
+        self.assertEqual(
+            [n for n, t in tools.items() if not t["annotations"]["readOnlyHint"]],
+            ["plan_meal", "remove_planned_meal", "report_offer_mismatch", "import_recipe_to_mealie"],
+        )
         self.assertIs(tools["report_offer_mismatch"]["annotations"]["idempotentHint"], True, "dezelfde melding twee keer is dezelfde melding")
         self.assertIs(tools["plan_meal"]["annotations"]["idempotentHint"], False, "twee keer plannen geeft twee maaltijden")
         # Geen enkele tool vult het mandje of verwijdert iets bij een winkel.
@@ -526,7 +735,9 @@ class ProtocolTest(McpTestCase):
             if any(word in name for word in ("cart", "basket", "order", "receipt", "delete", "remove", "clear")) and name not in destructive:
                 self.assertTrue(name.startswith(("get_", "list_", "search_")), name)
                 self.assertTrue(tool["annotations"]["readOnlyHint"], name)
-        self.assertFalse(any(name.startswith(("add_", "fill_", "place_", "delete_", "remove_", "clear_", "update_")) for name in set(tools) - destructive))
+        self.assertFalse(
+            any(name.startswith(("add_", "fill_", "place_", "delete_", "remove_", "clear_", "update_")) for name in set(tools) - destructive)
+        )
 
 
 class OfferReviewToolsTest(McpTestCase):
@@ -567,19 +778,29 @@ class OfferReviewToolsTest(McpTestCase):
         self.assertEqual((await self.data("review_offer_matches", {"store": "ah", "limit": 1, "offset": 1}))["pairs"][0]["offerId"], "3")
 
     async def test_a_reported_pair_leaves_the_review_and_can_be_listed_and_undone(self):
-        reported = await self.data("report_offer_mismatch", {"store": "ah", "ingredient": "400 g kipfilet", "offer_id": "1", "reason": "  geen\nkip "})
+        reported = await self.data(
+            "report_offer_mismatch", {"store": "ah", "ingredient": "400 g kipfilet", "offer_id": "1", "reason": "  geen\nkip "}
+        )
         self.assertTrue(reported["reported"])
         pairs = {p["offerId"] for p in (await self.data("review_offer_matches", {"store": "ah"}))["pairs"]}
         self.assertEqual(pairs, {"2", "3"}, "het andere kipfilet-product neemt de plaats in")
         listed = await self.data("list_offer_mismatches")
-        self.assertEqual((listed["total"], listed["reports"][0]["offerId"], listed["reports"][0]["source"], listed["reports"][0]["reason"]), (1, "1", "assistant", "geen kip"))
-        self.assertTrue((await self.data("report_offer_mismatch", {"store": "ah", "ingredient": "400 g kipfilet", "offer_id": "1", "undo": True}))["undone"])
+        self.assertEqual(
+            (listed["total"], listed["reports"][0]["offerId"], listed["reports"][0]["source"], listed["reports"][0]["reason"]),
+            (1, "1", "assistant", "geen kip"),
+        )
+        self.assertTrue(
+            (await self.data("report_offer_mismatch", {"store": "ah", "ingredient": "400 g kipfilet", "offer_id": "1", "undo": True}))["undone"]
+        )
         self.assertEqual((await self.data("list_offer_mismatches", {"store": "ah"}))["total"], 0)
         self.assertEqual((await self.data("review_offer_matches", {"store": "ah"}))["total"], 2)
 
     async def test_bad_input_is_a_readable_error(self):
-        for name, args in (("review_offer_matches", {"store": "nope"}), ("report_offer_mismatch", {"store": "ah", "ingredient": "kipfilet"}),
-                           ("report_offer_mismatch", {"store": "ah", "ingredient": "kipfilet", "offer_id": "999"})):
+        for name, args in (
+            ("review_offer_matches", {"store": "nope"}),
+            ("report_offer_mismatch", {"store": "ah", "ingredient": "kipfilet"}),
+            ("report_offer_mismatch", {"store": "ah", "ingredient": "kipfilet", "offer_id": "999"}),
+        ):
             self.assertTrue((await self.call(self.token, name, args))["isError"], name)
 
     async def test_the_app_flag_and_the_assistant_share_the_same_reports(self):
@@ -601,14 +822,42 @@ class PurchaseToolsTest(McpTestCase):
     async def seed(self):
         from mealieshopper import ah_orders
 
-        await ah_orders.save_basket({"id": 9, "state": "OPEN", "total": 4.5, "items": [{"productId": 1, "title": "Koffiebonen", "quantity": 2, "amount": 4.5}]})
-        with mock.patch.object(ah, "get_open_fulfillments", return_value=[{"id": 5, "state": "SCHEDULED", "total": 20.0, "deliveryDate": "2026-10-20"}]), mock.patch.object(ah, "get_closed_fulfillments", return_value=[]), mock.patch.object(
-            ah, "get_order_details", return_value={"id": 5, "state": "DELIVERED", "deliveryDate": "2026-10-20", "items": [{"productId": 1, "title": "Koffiebonen", "brand": "AH", "quantity": 1, "amount": 5.0, "taxonomy": "Koffie"}]}
-        ), mock.patch.object(image_cache, "prefetch_async", new_callable=mock.AsyncMock):  # geen task die echt foto's ophaalt
+        await ah_orders.save_basket(
+            {"id": 9, "state": "OPEN", "total": 4.5, "items": [{"productId": 1, "title": "Koffiebonen", "quantity": 2, "amount": 4.5}]}
+        )
+        with (
+            mock.patch.object(
+                ah, "get_open_fulfillments", return_value=[{"id": 5, "state": "SCHEDULED", "total": 20.0, "deliveryDate": "2026-10-20"}]
+            ),
+            mock.patch.object(ah, "get_closed_fulfillments", return_value=[]),
+            mock.patch.object(
+                ah,
+                "get_order_details",
+                return_value={
+                    "id": 5,
+                    "state": "DELIVERED",
+                    "deliveryDate": "2026-10-20",
+                    "items": [{"productId": 1, "title": "Koffiebonen", "brand": "AH", "quantity": 1, "amount": 5.0, "taxonomy": "Koffie"}],
+                },
+            ),
+            mock.patch.object(image_cache, "prefetch_async", new_callable=mock.AsyncMock),
+        ):  # geen task die echt foto's ophaalt
             await ah_orders.sync_orders()
-        with mock.patch.object(ah, "get_receipts", return_value=[{"id": "R1", "dateTime": "2026-10-01T10:00:00", "total": 5.0}]), mock.patch.object(
-            ah, "get_receipt", return_value={"id": "R1", "items": [{"productId": 1, "name": "Koffiebonen", "quantity": 1, "price": 5.0, "amount": 5.0}], "discounts": [], "payments": [{"method": "PIN", "amount": 5.0}]}
-        ), mock.patch.object(ah, "search_hq_ids", return_value=[]), mock.patch.object(image_cache, "prefetch_async", new_callable=mock.AsyncMock):
+        with (
+            mock.patch.object(ah, "get_receipts", return_value=[{"id": "R1", "dateTime": "2026-10-01T10:00:00", "total": 5.0}]),
+            mock.patch.object(
+                ah,
+                "get_receipt",
+                return_value={
+                    "id": "R1",
+                    "items": [{"productId": 1, "name": "Koffiebonen", "quantity": 1, "price": 5.0, "amount": 5.0}],
+                    "discounts": [],
+                    "payments": [{"method": "PIN", "amount": 5.0}],
+                },
+            ),
+            mock.patch.object(ah, "search_hq_ids", return_value=[]),
+            mock.patch.object(image_cache, "prefetch_async", new_callable=mock.AsyncMock),
+        ):
             await ah_orders.sync_receipts()
 
     async def test_empty_copy_says_so(self):
@@ -619,7 +868,10 @@ class PurchaseToolsTest(McpTestCase):
 
     async def test_tools_read_the_local_copy_and_never_ask_ah(self):
         await self.seed()
-        with mock.patch.object(ah, "_get_json", side_effect=AssertionError("AH")), mock.patch.object(ah, "_graphql", side_effect=AssertionError("AH")):
+        with (
+            mock.patch.object(ah, "_get_json", side_effect=AssertionError("AH")),
+            mock.patch.object(ah, "_graphql", side_effect=AssertionError("AH")),
+        ):
             basket = await self.data("get_ah_basket")
             orders = await self.data("list_ah_orders")
             order = await self.data("get_ah_order", {"order_id": 5})
@@ -635,7 +887,13 @@ class PurchaseToolsTest(McpTestCase):
 
     async def test_unknown_ids_and_bad_input_are_tool_errors(self):
         await self.seed()
-        for name, args in (("get_ah_order", {"order_id": 999}), ("get_ah_order", {"order_id": "x"}), ("get_ah_order", {}), ("get_ah_receipt", {"receipt_id": "nope"}), ("search_ah_purchases", {"query": " "})):
+        for name, args in (
+            ("get_ah_order", {"order_id": 999}),
+            ("get_ah_order", {"order_id": "x"}),
+            ("get_ah_order", {}),
+            ("get_ah_receipt", {"receipt_id": "nope"}),
+            ("search_ah_purchases", {"query": " "}),
+        ):
             self.assertTrue((await self.call(self.token, name, args))["isError"], (name, args))
 
     async def test_limits(self):
@@ -659,8 +917,10 @@ class ToolsTest(McpTestCase):
 
     async def test_picnic_recipes_tool(self):
         recipes = [{"id": f"r{n}", "name": f"Recept {n}", "image": "https://x/y.png", "minutes": 20, "tags": [], "segment": None} for n in range(5)]
-        with mock.patch.object(picnic, "configured_auth_key", return_value="key"), \
-                mock.patch.object(picnic_recipes, "get_recipes", new_callable=mock.AsyncMock, return_value=recipes) as get:
+        with (
+            mock.patch.object(picnic, "configured_auth_key", return_value="key"),
+            mock.patch.object(picnic_recipes, "get_recipes", new_callable=mock.AsyncMock, return_value=recipes) as get,
+        ):
             default = await self.data("list_picnic_recipes")
             cookbook = await self.data("list_picnic_recipes", {"source": "cookbook", "limit": 2})
         self.assertEqual((default["source"], default["total"], len(default["recipes"])), ("saved", 5, 5))
@@ -669,36 +929,56 @@ class ToolsTest(McpTestCase):
         self.assertEqual(set(default["recipes"][0]), {"id", "name", "minutes", "tags"})  # geen afbeeldingsadressen
 
     async def test_crisp_recipes_tool(self):
-        recipes = [{"id": str(n), "name": f"Recept {n}", "image": "https://crispapp.nl/blob/x?thumb=512", "minutes": 20, "portions": 2, "tags": []} for n in range(5)]
-        with mock.patch.object(crisp, "configured_client_id", return_value="apparaat-id"), \
-                mock.patch.object(crisp, "get_saved_recipes", return_value={"recipes": recipes, "total": 5}):
+        recipes = [
+            {"id": str(n), "name": f"Recept {n}", "image": "https://crispapp.nl/blob/x?thumb=512", "minutes": 20, "portions": 2, "tags": []}
+            for n in range(5)
+        ]
+        with (
+            mock.patch.object(crisp, "configured_client_id", return_value="apparaat-id"),
+            mock.patch.object(crisp, "get_saved_recipes", return_value={"recipes": recipes, "total": 5}),
+        ):
             default = await self.data("list_crisp_recipes")
             two = await self.data("list_crisp_recipes", {"limit": 2})
         self.assertEqual((default["source"], default["total"], len(default["recipes"])), ("saved", 5, 5))
         self.assertEqual((two["total"], len(two["recipes"])), (5, 2))
         self.assertEqual(set(default["recipes"][0]), {"id", "name", "minutes", "portions", "tags"})  # geen afbeeldingsadressen
-        with mock.patch.object(crisp, "configured_client_id", return_value=""), \
-                mock.patch.object(crisp, "get_saved_recipes", side_effect=AssertionError("niet ophalen")):
+        with (
+            mock.patch.object(crisp, "configured_client_id", return_value=""),
+            mock.patch.object(crisp, "get_saved_recipes", side_effect=AssertionError("niet ophalen")),
+        ):
             self.assertTrue((await self.call(self.token, "list_crisp_recipes"))["isError"])
 
     async def test_picnic_delivery_tool(self):
-        found = {"id": "d1", "status": "COMPLETED", "total": 15.0, "itemCount": 3,
-                 "items": [{"id": "s1", "title": "Melk", "unitSize": "1 l", "quantity": 2, "price": 2.58, "image": "https://x/y.png", "listPrice": None}]}
-        with mock.patch.object(picnic, "configured_auth_key", return_value="key"), \
-                mock.patch.object(picnic, "get_delivery", return_value=found) as get:
+        found = {
+            "id": "d1",
+            "status": "COMPLETED",
+            "total": 15.0,
+            "itemCount": 3,
+            "items": [{"id": "s1", "title": "Melk", "unitSize": "1 l", "quantity": 2, "price": 2.58, "image": "https://x/y.png", "listPrice": None}],
+        }
+        with (
+            mock.patch.object(picnic, "configured_auth_key", return_value="key"),
+            mock.patch.object(picnic, "get_delivery", return_value=found) as get,
+        ):
             data = await self.data("get_picnic_delivery", {"id": "d1"})
         self.assertEqual(get.call_args.args, ("d1",))
         self.assertEqual((data["id"], data["itemCount"]), ("d1", 3))
         self.assertEqual(data["items"], [{"title": "Melk", "size": "1 l", "quantity": 2, "price": 2.58}])
-        with mock.patch.object(picnic, "configured_auth_key", return_value="key"), \
-                mock.patch.object(picnic, "get_delivery", side_effect=ValueError("Ongeldige bestelling")):
+        with (
+            mock.patch.object(picnic, "configured_auth_key", return_value="key"),
+            mock.patch.object(picnic, "get_delivery", side_effect=ValueError("Ongeldige bestelling")),
+        ):
             self.assertTrue((await self.call(self.token, "get_picnic_delivery", {"id": "x"}))["isError"])
 
     async def test_picnic_favorites_tool(self):
-        products = [{"id": f"s{n}", "title": f"Product {n}", "unitSize": "1 l", "price": 1.5, "isBonus": n == 0,
-                     "image": "https://x/y.png", "maxCount": 5} for n in range(4)]
-        with mock.patch.object(picnic, "configured_auth_key", return_value="key"), \
-                mock.patch.object(picnic, "get_favorites", return_value={"products": products, "total": 40, "filtered": True}):
+        products = [
+            {"id": f"s{n}", "title": f"Product {n}", "unitSize": "1 l", "price": 1.5, "isBonus": n == 0, "image": "https://x/y.png", "maxCount": 5}
+            for n in range(4)
+        ]
+        with (
+            mock.patch.object(picnic, "configured_auth_key", return_value="key"),
+            mock.patch.object(picnic, "get_favorites", return_value={"products": products, "total": 40, "filtered": True}),
+        ):
             data = await self.data("list_picnic_favorites", {"limit": 2})
             self.assertEqual((data["total"], len(data["products"]), data["onlyFavorites"]), (4, 2, True))
             self.assertEqual(set(data["products"][0]), {"title", "size", "price", "promotion"})
@@ -706,22 +986,34 @@ class ToolsTest(McpTestCase):
             self.assertTrue((await self.call(self.token, "list_picnic_favorites"))["isError"])
 
     async def test_picnic_recipes_tool_refuses_unknown_sources_and_an_unlinked_account(self):
-        with mock.patch.object(picnic, "configured_auth_key", return_value="key"), \
-                mock.patch.object(picnic_recipes, "get_recipes", new_callable=mock.AsyncMock, side_effect=AssertionError("niet ophalen")):
+        with (
+            mock.patch.object(picnic, "configured_auth_key", return_value="key"),
+            mock.patch.object(picnic_recipes, "get_recipes", new_callable=mock.AsyncMock, side_effect=AssertionError("niet ophalen")),
+        ):
             self.assertTrue((await self.call(self.token, "list_picnic_recipes", {"source": "boodschappen"}))["isError"])
         with mock.patch.object(picnic, "configured_auth_key", return_value=""):
             self.assertTrue((await self.call(self.token, "list_picnic_recipes"))["isError"])
 
     async def test_week_menu(self):
         entries = [
-            {"id": 5, "date": "2026-10-20", "entryType": "dinner", "recipe": {"name": "Pasta", "slug": "pasta"}, "recipeDetail": {"recipeIngredient": [{"display": "400 g  spaghetti"}, {"note": "peper"}, {}]},
-             "servings": {"scale": 2.0, "base": 2, "planned": 4}, "kcal": {"perServing": 490, "total": 1960},
-             "nutrition": [{"key": "calories", "quantity": 490, "unit": "kcal"}, {"key": "sodiumContent", "quantity": 200, "unit": "mg"}],
-             "nutritionTotal": [{"key": "calories", "quantity": 1960, "unit": "kcal"}, {"key": "sodiumContent", "quantity": 800, "unit": "mg"}]},
+            {
+                "id": 5,
+                "date": "2026-10-20",
+                "entryType": "dinner",
+                "recipe": {"name": "Pasta", "slug": "pasta"},
+                "recipeDetail": {"recipeIngredient": [{"display": "400 g  spaghetti"}, {"note": "peper"}, {}]},
+                "servings": {"scale": 2.0, "base": 2, "planned": 4},
+                "kcal": {"perServing": 490, "total": 1960},
+                "nutrition": [{"key": "calories", "quantity": 490, "unit": "kcal"}, {"key": "sodiumContent", "quantity": 200, "unit": "mg"}],
+                "nutritionTotal": [{"key": "calories", "quantity": 1960, "unit": "kcal"}, {"key": "sodiumContent", "quantity": 800, "unit": "mg"}],
+            },
             {"id": 4, "date": "2026-10-19", "entryType": "dinner", "title": "Restjes", "text": "Van  zondag", "recipe": None, "recipeDetail": None},
         ]
-        with mock.patch.object(mealie, "get_meal_plan_with_recipes", new_callable=mock.AsyncMock, return_value=entries) as plan, mock.patch.object(mealie, "mealie_url", new_callable=mock.AsyncMock, return_value="https://mealie.example"), \
-                mock.patch.object(mealie, "group_slug", new_callable=mock.AsyncMock, return_value="home"):
+        with (
+            mock.patch.object(mealie, "get_meal_plan_with_recipes", new_callable=mock.AsyncMock, return_value=entries) as plan,
+            mock.patch.object(mealie, "mealie_url", new_callable=mock.AsyncMock, return_value="https://mealie.example"),
+            mock.patch.object(mealie, "group_slug", new_callable=mock.AsyncMock, return_value="home"),
+        ):
             data = await self.data("get_week_menu", {"start_date": "2026-10-19", "days": 3})
         plan.assert_called_once_with("2026-10-19", "2026-10-21")
         self.assertEqual([m["date"] for m in data["meals"]], ["2026-10-19", "2026-10-20"])
@@ -735,23 +1027,48 @@ class ToolsTest(McpTestCase):
         self.assertEqual((pasta["kcalPerServing"], pasta["kcalTotal"]), (490, 1960))
         self.assertEqual((pasta["nutritionPerServing"]["saltG"], pasta["nutritionTotal"]["saltG"], pasta["nutritionTotal"]["kcal"]), (0.5, 2.0, 1960))
         self.assertIsNone(next(m for m in data["meals"] if m["id"] == 4)["nutritionPerServing"], "een notitie heeft er geen")
-        self.assertEqual(data["days"], [{"date": "2026-10-20", "mealsWithoutNutrition": 0, "perPerson": pasta["nutritionPerServing"]}], "een notitie telt niet mee")
+        self.assertEqual(
+            data["days"], [{"date": "2026-10-20", "mealsWithoutNutrition": 0, "perPerson": pasta["nutritionPerServing"]}], "een notitie telt niet mee"
+        )
         # Het id is nodig om een maaltijd met remove_planned_meal weg te halen.
         self.assertEqual([(m["id"], m["note"]) for m in data["meals"]], [(4, "Van zondag"), (5, None)])
 
     async def test_week_menu_has_a_total_per_person_per_day(self):
         n = lambda **values: [{"key": key, "quantity": amount, "unit": "g"} for key, amount in values.items()]  # noqa: E731
         entries = [
-            {"id": 1, "date": "2026-10-20", "entryType": "dinner", "recipe": {"name": "Pasta", "slug": "pasta"}, "recipeDetail": {}, "servings": {"planned": 4},
-             "nutrition": n(calories=490, proteinContent=27, sodiumContent=200)},
-            {"id": 2, "date": "2026-10-20", "entryType": "lunch", "recipe": {"name": "Soep", "slug": "soep"}, "recipeDetail": {}, "nutrition": n(calories=300, proteinContent=12)},
+            {
+                "id": 1,
+                "date": "2026-10-20",
+                "entryType": "dinner",
+                "recipe": {"name": "Pasta", "slug": "pasta"},
+                "recipeDetail": {},
+                "servings": {"planned": 4},
+                "nutrition": n(calories=490, proteinContent=27, sodiumContent=200),
+            },
+            {
+                "id": 2,
+                "date": "2026-10-20",
+                "entryType": "lunch",
+                "recipe": {"name": "Soep", "slug": "soep"},
+                "recipeDetail": {},
+                "nutrition": n(calories=300, proteinContent=12),
+            },
             {"id": 3, "date": "2026-10-20", "entryType": "side", "recipe": {"name": "Brood", "slug": "brood"}, "recipeDetail": {}, "nutrition": []},
             {"id": 4, "date": "2026-10-20", "entryType": "dessert", "title": "Uit eten", "recipe": None, "recipeDetail": None},
-            {"id": 5, "date": "2026-10-21", "entryType": "dinner", "recipe": {"name": "Curry", "slug": "curry"}, "recipeDetail": {}, "nutrition": n(calories=650)},
+            {
+                "id": 5,
+                "date": "2026-10-21",
+                "entryType": "dinner",
+                "recipe": {"name": "Curry", "slug": "curry"},
+                "recipeDetail": {},
+                "nutrition": n(calories=650),
+            },
         ]
-        with mock.patch.object(mealie, "get_meal_plan_with_recipes", new_callable=mock.AsyncMock, return_value=entries), \
-                mock.patch.object(mealie, "mealie_url", new_callable=mock.AsyncMock, return_value="https://mealie.example"), \
-                mock.patch.object(mealie, "group_slug", new_callable=mock.AsyncMock, return_value="home"):
+        with (
+            mock.patch.object(mealie, "get_meal_plan_with_recipes", new_callable=mock.AsyncMock, return_value=entries),
+            mock.patch.object(mealie, "mealie_url", new_callable=mock.AsyncMock, return_value="https://mealie.example"),
+            mock.patch.object(mealie, "group_slug", new_callable=mock.AsyncMock, return_value="home"),
+        ):
             data = await self.data("get_week_menu", {"start_date": "2026-10-19", "days": 7})
         first, second = data["days"]
         # Per persoon: de som per portie (niet maal de porties); een notitie telt niet, een recept zonder waarden wel als ontbrekend.
@@ -760,25 +1077,76 @@ class ToolsTest(McpTestCase):
         self.assertEqual((second["perPerson"]["kcal"], second["mealsWithoutNutrition"]), (650, 0))
 
     async def test_search_mealie_recipes(self):
-        found = {"recipes": [{"id": "pasta", "slug": "pasta", "recipeId": "r1", "name": "Pasta", "image": "/api/mealie/recipes/r1/image?v=1",
-                              "minutes": 20, "portions": 4, "rating": None, "tags": ["Snel"]}], "total": 1, "page": 1, "more": False}
-        with mock.patch.object(mealie, "search_recipes", new_callable=mock.AsyncMock, return_value=found) as search, mock.patch.object(mealie, "mealie_url", new_callable=mock.AsyncMock, return_value="https://mealie.example"), \
-                mock.patch.object(mealie, "group_slug", new_callable=mock.AsyncMock, return_value="home"):
+        found = {
+            "recipes": [
+                {
+                    "id": "pasta",
+                    "slug": "pasta",
+                    "recipeId": "r1",
+                    "name": "Pasta",
+                    "image": "/api/mealie/recipes/r1/image?v=1",
+                    "minutes": 20,
+                    "portions": 4,
+                    "rating": None,
+                    "tags": ["Snel"],
+                }
+            ],
+            "total": 1,
+            "page": 1,
+            "more": False,
+        }
+        with (
+            mock.patch.object(mealie, "search_recipes", new_callable=mock.AsyncMock, return_value=found) as search,
+            mock.patch.object(mealie, "mealie_url", new_callable=mock.AsyncMock, return_value="https://mealie.example"),
+            mock.patch.object(mealie, "group_slug", new_callable=mock.AsyncMock, return_value="home"),
+        ):
             data = await self.data("search_mealie_recipes", {"query": "pasta", "limit": 5})
         search.assert_called_once_with("pasta", 1, 5)
-        self.assertEqual(data["recipes"], [{"slug": "pasta", "name": "Pasta", "minutes": 20, "portions": 4, "kcalPerServing": None, "nutritionPerServing": None, "tags": ["Snel"], "url": "https://mealie.example/g/home/r/pasta"}])
+        self.assertEqual(
+            data["recipes"],
+            [
+                {
+                    "slug": "pasta",
+                    "name": "Pasta",
+                    "minutes": 20,
+                    "portions": 4,
+                    "kcalPerServing": None,
+                    "nutritionPerServing": None,
+                    "tags": ["Snel"],
+                    "url": "https://mealie.example/g/home/r/pasta",
+                }
+            ],
+        )
         self.assertNotIn("withoutKcal", data)
         self.assertTrue((await self.call(self.token, "search_mealie_recipes", {"query": " "}))["isError"])
 
     async def test_search_mealie_recipes_on_kcal_per_person(self):
         # Issue #283: een AI vraagt om recepten met hoogstens x kcal per persoon, met of zonder zoekterm.
-        items = [{"key": "calories", "quantity": 490, "unit": "kcal"}, {"key": "proteinContent", "quantity": 32, "unit": "g"}, {"key": "sodiumContent", "quantity": 600, "unit": "mg"}]
-        card = {"id": "pasta", "slug": "pasta", "recipeId": "r1", "name": "Pasta", "image": None, "minutes": 20, "portions": 4, "rating": None, "tags": [], "kcal": 490, "nutrition": items}
+        items = [
+            {"key": "calories", "quantity": 490, "unit": "kcal"},
+            {"key": "proteinContent", "quantity": 32, "unit": "g"},
+            {"key": "sodiumContent", "quantity": 600, "unit": "mg"},
+        ]
+        card = {
+            "id": "pasta",
+            "slug": "pasta",
+            "recipeId": "r1",
+            "name": "Pasta",
+            "image": None,
+            "minutes": 20,
+            "portions": 4,
+            "rating": None,
+            "tags": [],
+            "kcal": 490,
+            "nutrition": items,
+        }
         found = {"recipes": [card], "total": 1, "page": 1, "more": False, "withoutValues": 2, "withoutKcal": 2, "indexing": None}
-        with mock.patch.object(recipe_nutrition, "search", new_callable=mock.AsyncMock, return_value=found) as search, \
-                mock.patch.object(mealie, "search_recipes", new_callable=mock.AsyncMock, side_effect=AssertionError("met een grens zoekt de cache")), \
-                mock.patch.object(mealie, "mealie_url", new_callable=mock.AsyncMock, return_value="https://mealie.example"), \
-                mock.patch.object(mealie, "group_slug", new_callable=mock.AsyncMock, return_value="home"):
+        with (
+            mock.patch.object(recipe_nutrition, "search", new_callable=mock.AsyncMock, return_value=found) as search,
+            mock.patch.object(mealie, "search_recipes", new_callable=mock.AsyncMock, side_effect=AssertionError("met een grens zoekt de cache")),
+            mock.patch.object(mealie, "mealie_url", new_callable=mock.AsyncMock, return_value="https://mealie.example"),
+            mock.patch.object(mealie, "group_slug", new_callable=mock.AsyncMock, return_value="home"),
+        ):
             data = await self.data("search_mealie_recipes", {"kcal_max": 600, "limit": 5})
             await self.data("search_mealie_recipes", {"query": "pasta", "kcal_min": 700, "kcal_max": 400})
             await self.data("search_mealie_recipes", {"protein_min": 30, "salt_max": 1.5, "sugar_max": 10})
@@ -793,39 +1161,54 @@ class ToolsTest(McpTestCase):
         recipe = data["recipes"][0]
         self.assertEqual((recipe["kcalPerServing"], data["withoutValues"], data["withoutKcal"]), (490, 2, 2))
         # Zout in gram uit het natrium (600 mg = 1,5 g); een onbekende waarde is null.
-        self.assertEqual(recipe["nutritionPerServing"], {"kcal": 490, "proteinG": 32.0, "fatG": None, "saturatedFatG": None, "carbsG": None, "sugarG": None, "fiberG": None, "saltG": 1.5})
+        self.assertEqual(
+            recipe["nutritionPerServing"],
+            {"kcal": 490, "proteinG": 32.0, "fatG": None, "saturatedFatG": None, "carbsG": None, "sugarG": None, "fiberG": None, "saltG": 1.5},
+        )
         self.assertIn("voedingswaarden", data["note"])
         self.assertIn("12 van 80", still["note"])
         self.assertTrue(bad["isError"])
         schema = mcp.TOOLS["search_mealie_recipes"]["inputSchema"]
-        self.assertEqual(set(schema["properties"]) - {"query", "limit"}, {f"{name}_{side}" for name in ("kcal", "protein", "fat", "carbs", "sugar", "fiber", "salt") for side in ("min", "max")})
+        self.assertEqual(
+            set(schema["properties"]) - {"query", "limit"},
+            {f"{name}_{side}" for name in ("kcal", "protein", "fat", "carbs", "sugar", "fiber", "salt") for side in ("min", "max")},
+        )
         self.assertEqual((schema["properties"]["salt_max"]["type"], schema["properties"]["protein_min"]["type"]), ("number", "integer"))
         self.assertNotIn("query", schema.get("required", []))
 
     async def test_plan_meal(self):
         created = {"id": 12, "date": "2026-11-03", "entryType": "dinner", "recipe": {"name": "Pasta", "slug": "pasta"}}
-        with mock.patch.object(mealie, "create_meal_plan_entry", new_callable=mock.AsyncMock, return_value=created) as create, mock.patch.object(mealie, "mealie_url", new_callable=mock.AsyncMock, return_value="https://mealie.example"), \
-                mock.patch.object(mealie, "group_slug", new_callable=mock.AsyncMock, return_value="home"):
+        with (
+            mock.patch.object(mealie, "create_meal_plan_entry", new_callable=mock.AsyncMock, return_value=created) as create,
+            mock.patch.object(mealie, "mealie_url", new_callable=mock.AsyncMock, return_value="https://mealie.example"),
+            mock.patch.object(mealie, "group_slug", new_callable=mock.AsyncMock, return_value="home"),
+        ):
             data = await self.data("plan_meal", {"date": "2026-11-03", "recipe_slug": "pasta"})
             note = await self.data("plan_meal", {"date": "2026-11-04", "meal": "lunch", "title": "Uit eten", "note": "Bij oma"})
         self.assertEqual(data, {"id": 12, "date": "2026-11-03", "meal": "dinner", "recipe": "Pasta", "url": "https://mealie.example/g/home/r/pasta"})
-        self.assertEqual(create.call_args_list[0].args[0], {"date": "2026-11-03", "entryType": "dinner", "title": "", "text": "", "recipeSlug": "pasta"})
+        self.assertEqual(
+            create.call_args_list[0].args[0], {"date": "2026-11-03", "entryType": "dinner", "title": "", "text": "", "recipeSlug": "pasta"}
+        )
         self.assertEqual(create.call_args_list[1].args[0], {"date": "2026-11-04", "entryType": "lunch", "title": "Uit eten", "text": "Bij oma"})
         self.assertEqual(note["id"], 12)
 
     async def test_plan_meal_with_servings(self):
         created = {"id": 13, "date": "2026-11-03", "entryType": "dinner", "recipe": {"name": "Pasta", "slug": "pasta"}, "recipeScale": 0.5}
-        with mock.patch.object(mealie, "create_meal_plan_entry", new_callable=mock.AsyncMock, return_value=created) as create, \
-                mock.patch.object(mealie, "get_recipe", new_callable=mock.AsyncMock, return_value={"id": "r1", "slug": "pasta", "recipeServings": 4}), \
-                mock.patch.object(mealie, "mealie_url", new_callable=mock.AsyncMock, return_value="https://mealie.example"), \
-                mock.patch.object(mealie, "group_slug", new_callable=mock.AsyncMock, return_value="home"):
+        with (
+            mock.patch.object(mealie, "create_meal_plan_entry", new_callable=mock.AsyncMock, return_value=created) as create,
+            mock.patch.object(mealie, "get_recipe", new_callable=mock.AsyncMock, return_value={"id": "r1", "slug": "pasta", "recipeServings": 4}),
+            mock.patch.object(mealie, "mealie_url", new_callable=mock.AsyncMock, return_value="https://mealie.example"),
+            mock.patch.object(mealie, "group_slug", new_callable=mock.AsyncMock, return_value="home"),
+        ):
             data = await self.data("plan_meal", {"date": "2026-11-03", "recipe_slug": "pasta", "servings": 2})
             note = await self.call(self.token, "plan_meal", {"date": "2026-11-03", "title": "Uit eten", "servings": 2})
         self.assertEqual(create.call_args.args[0]["recipeScale"], 0.5, "2 van de 4 porties")
         self.assertEqual(data["servings"], 2)
         self.assertTrue(note["isError"])
-        with mock.patch.object(mealie, "create_meal_plan_entry", new_callable=mock.AsyncMock) as create, \
-                mock.patch.object(mealie, "get_recipe", new_callable=mock.AsyncMock, return_value={"id": "r1", "slug": "pasta"}):
+        with (
+            mock.patch.object(mealie, "create_meal_plan_entry", new_callable=mock.AsyncMock) as create,
+            mock.patch.object(mealie, "get_recipe", new_callable=mock.AsyncMock, return_value={"id": "r1", "slug": "pasta"}),
+        ):
             unknown = await self.call(self.token, "plan_meal", {"date": "2026-11-03", "recipe_slug": "pasta", "servings": 2})
         self.assertTrue(unknown["isError"])
         self.assertIn("porties", self.text(unknown))
@@ -856,7 +1239,11 @@ class ToolsTest(McpTestCase):
         self.assertIn("JJJJ-MM-DD", self.text(bad))
 
     async def test_search_recipes(self):
-        found = {"total": 5, "hasNextPage": True, "recipes": [{"title": "Pesto", "webPath": "/allerhande/recept/R-R1/pesto", "totalTime": 20, "servings": 4}]}
+        found = {
+            "total": 5,
+            "hasNextPage": True,
+            "recipes": [{"title": "Pesto", "webPath": "/allerhande/recept/R-R1/pesto", "totalTime": 20, "servings": 4}],
+        }
         with mock.patch.object(ah, "search_recipes", return_value=found) as search:
             data = await self.data("search_allerhande_recipes", {"query": " pasta  pesto ", "page": 1})
         search.assert_called_once_with("pasta pesto", 1)
@@ -864,8 +1251,18 @@ class ToolsTest(McpTestCase):
         self.assertTrue((await self.call(self.token, "search_allerhande_recipes", {"query": "  "}))["isError"])
 
     async def test_saved_recipes_have_their_nutrition_once_fetched(self):
-        saved = {"recipes": [{"title": "Pasta", "url": "u1", "nutrition": [{"key": "calories", "quantity": 490, "unit": "kcal"}, {"key": "sodiumContent", "quantity": 400, "unit": "mg"}]},
-                             {"title": "Soep", "url": "u2", "nutrition": []}], "total": 2, "syncedAt": "x"}
+        saved = {
+            "recipes": [
+                {
+                    "title": "Pasta",
+                    "url": "u1",
+                    "nutrition": [{"key": "calories", "quantity": 490, "unit": "kcal"}, {"key": "sodiumContent", "quantity": 400, "unit": "mg"}],
+                },
+                {"title": "Soep", "url": "u2", "nutrition": []},
+            ],
+            "total": 2,
+            "syncedAt": "x",
+        }
         with mock.patch.object(ah_recipes, "get", new_callable=mock.AsyncMock, return_value=saved):
             recipes = (await self.data("list_saved_ah_recipes"))["recipes"]
         self.assertEqual((recipes[0]["nutritionPerServing"]["kcal"], recipes[0]["nutritionPerServing"]["saltG"]), (490, 1.0))
@@ -879,7 +1276,11 @@ class ToolsTest(McpTestCase):
 
     async def test_saved_recipes_per_group(self):
         saved = {
-            "recipes": [{"id": "1", "title": "Pasta pesto", "url": "u1"}, {"id": "2", "title": "Appeltaart", "url": "u2"}, {"id": "3", "title": "Kwarktaart", "url": "u3"}],
+            "recipes": [
+                {"id": "1", "title": "Pasta pesto", "url": "u1"},
+                {"id": "2", "title": "Appeltaart", "url": "u2"},
+                {"id": "3", "title": "Kwarktaart", "url": "u3"},
+            ],
             "total": 3,
             "syncedAt": "x",
             "groups": [
@@ -900,8 +1301,21 @@ class ToolsTest(McpTestCase):
             self.assertIn("Taarten", self.text(wrong))
 
     async def test_lists(self):
-        await ah_lists.save_snapshot({"id": "abc", "name": "Weekboodschappen", "items": [
-            {"id": "1", "productId": 10, "quantity": 2, "url": "", "product": {"title": "Melk", "brand": "AH", "unitSize": "1 l", "price": 1.25, "isBonus": True}}]})
+        await ah_lists.save_snapshot(
+            {
+                "id": "abc",
+                "name": "Weekboodschappen",
+                "items": [
+                    {
+                        "id": "1",
+                        "productId": 10,
+                        "quantity": 2,
+                        "url": "",
+                        "product": {"title": "Melk", "brand": "AH", "unitSize": "1 l", "price": 1.25, "isBonus": True},
+                    }
+                ],
+            }
+        )
         await ah_lists.set_quantity("abc", 0, 5)
         with mock.patch.object(ah, "get_favorite_lists", return_value=[{"id": "ABC", "name": "Weekboodschappen", "itemCount": 1}]):
             lists = await self.data("list_ah_lists")
@@ -933,21 +1347,38 @@ class ToolsTest(McpTestCase):
         self.assertEqual((data["products"][0]["price"], data["products"][0]["url"]), (1.25, "https://www.ah.nl/producten/product/wi42"))
 
     async def test_import_recipe(self):
-        with mock.patch.object(mealie, "import_from_url", new_callable=mock.AsyncMock, return_value="pasta-pesto") as imp, mock.patch.object(mealie, "mealie_url", new_callable=mock.AsyncMock, return_value="https://mealie.example"), \
-                mock.patch.object(mealie, "group_slug", new_callable=mock.AsyncMock, return_value="home"):
+        with (
+            mock.patch.object(mealie, "import_from_url", new_callable=mock.AsyncMock, return_value="pasta-pesto") as imp,
+            mock.patch.object(mealie, "mealie_url", new_callable=mock.AsyncMock, return_value="https://mealie.example"),
+            mock.patch.object(mealie, "group_slug", new_callable=mock.AsyncMock, return_value="home"),
+        ):
             data = await self.data("import_recipe_to_mealie", {"url": "https://www.ah.nl/allerhande/recept/R-R1/pesto"})
         imp.assert_called_once()
         self.assertEqual(data, {"slug": "pasta-pesto", "mealieUrl": "https://mealie.example/g/home/r/pasta-pesto"})
 
     async def test_import_refuses_addresses_on_your_own_network(self):
         with mock.patch.object(mealie, "import_from_url", new_callable=mock.AsyncMock) as imp:
-            for url in ("http://localhost:9000/x", "http://127.0.0.1/x", "http://192.168.1.10/recipe", "http://10.0.0.5/", "http://169.254.169.254/latest/meta-data",
-                        "http://[::1]/x", "http://nas/recept", "http://mealie.local/x", "http://box.lan/x", "http://service.internal/x", "https://LOCALHOST./x"):
+            for url in (
+                "http://localhost:9000/x",
+                "http://127.0.0.1/x",
+                "http://192.168.1.10/recipe",
+                "http://10.0.0.5/",
+                "http://169.254.169.254/latest/meta-data",
+                "http://[::1]/x",
+                "http://nas/recept",
+                "http://mealie.local/x",
+                "http://box.lan/x",
+                "http://service.internal/x",
+                "https://LOCALHOST./x",
+            ):
                 result = await self.call(self.token, "import_recipe_to_mealie", {"url": url})
                 self.assertTrue(result["isError"], url)
                 self.assertIn("eigen netwerk", self.text(result), url)
         imp.assert_not_called()
-        with mock.patch.object(mealie, "import_from_url", new_callable=mock.AsyncMock, return_value="x"), mock.patch.object(mealie, "mealie_url", new_callable=mock.AsyncMock, return_value="https://m.example"):
+        with (
+            mock.patch.object(mealie, "import_from_url", new_callable=mock.AsyncMock, return_value="x"),
+            mock.patch.object(mealie, "mealie_url", new_callable=mock.AsyncMock, return_value="https://m.example"),
+        ):
             for url in ("https://www.ah.nl/allerhande/recept/R-R1/x", "http://93.184.216.34/recipe", "https://recepten.example.org/pasta"):
                 self.assertFalse((await self.call(self.token, "import_recipe_to_mealie", {"url": url}))["isError"], url)
 

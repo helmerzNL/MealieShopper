@@ -60,7 +60,6 @@ class NodeCase(unittest.TestCase):
 
 
 class CookTimersJsTest(NodeCase):
-
     # ---- Tijden uit een stap
     def test_the_times_in_a_step(self):
         cases = {
@@ -90,10 +89,18 @@ class CookTimersJsTest(NodeCase):
           labels: [600, 45, 4500, 7200].map(cookDurationLabel),
           clocks: [0, 999, 61000, 600000, 3600000, 3725000].map(cookClock),
         });""")
-        self.assertEqual(found["labels"], [
-            'cook.timer_minutes_short{"n":10}', 'cook.timer_seconds_short{"n":45}', 'cook.timer_hours{"n":1} cook.timer_minutes_short{"n":15}', 'cook.timer_hours{"n":2}',
-        ])
-        self.assertEqual(found["clocks"], ["0:00", "0:01", "1:01", "10:00", "1:00:00", "1:02:05"], "naar boven afgerond: bij 0:01 is er nog iets over")
+        self.assertEqual(
+            found["labels"],
+            [
+                'cook.timer_minutes_short{"n":10}',
+                'cook.timer_seconds_short{"n":45}',
+                'cook.timer_hours{"n":1} cook.timer_minutes_short{"n":15}',
+                'cook.timer_hours{"n":2}',
+            ],
+        )
+        self.assertEqual(
+            found["clocks"], ["0:00", "0:01", "1:01", "10:00", "1:00:00", "1:02:05"], "naar boven afgerond: bij 0:01 is er nog iets over"
+        )
 
     # ---- Meer timers tegelijk
     def test_adding_pausing_resuming_and_ringing(self):
@@ -128,7 +135,17 @@ class CookTimersJsTest(NodeCase):
     # ---- Bewaren
     def test_timers_survive_a_reload(self):
         stored = [
-            {"id": "run", "total": 600, "label": "", "title": "Pasta", "key": "k", "step": 1, "state": "run", "end": 1700000000000 + 300000, "left": 0},
+            {
+                "id": "run",
+                "total": 600,
+                "label": "",
+                "title": "Pasta",
+                "key": "k",
+                "step": 1,
+                "state": "run",
+                "end": 1700000000000 + 300000,
+                "left": 0,
+            },
             {"id": "pause", "total": 600, "state": "pause", "left": 120000, "end": 0},
             {"id": "just-done", "total": 60, "state": "run", "end": 1700000000000 - 60000},
             {"id": "long-done", "total": 60, "state": "run", "end": 1700000000000 - 3600000},
@@ -143,8 +160,11 @@ class CookTimersJsTest(NodeCase):
           localStorage.setItem('kapot', '{{');
           out({{ loaded: loaded.map((timer) => [timer.id, timer.state]), saved: JSON.parse(localStorage.getItem(COOK_TIMERS_KEY)).length }});
         """)
-        self.assertEqual(found["loaded"], [["run", "run"], ["pause", "pause"], ["just-done", "ring"]],
-                         "een timer die net afliep gaat alsnog af; een oude, kapotte of onbekende valt weg")
+        self.assertEqual(
+            found["loaded"],
+            [["run", "run"], ["pause", "pause"], ["just-done", "ring"]],
+            "een timer die net afliep gaat alsnog af; een oude, kapotte of onbekende valt weg",
+        )
         self.assertEqual(found["saved"], 3)
 
     def test_without_storage_the_timers_still_run(self):
@@ -164,7 +184,7 @@ class CookTimersJsTest(NodeCase):
           cookTimersDue(NOW + 31000);
           out({ running: cookTimerHtml(a, NOW + 60000), ringing: cookTimerHtml(b, NOW + 60000), tray: cookTimersHtml(NOW), collapsed: (cookTimers.collapsed = true, cookTimersHtml(NOW)) });
         """)
-        self.assertIn('data-cook-timer-clock>9:00<', found["running"])
+        self.assertIn("data-cook-timer-clock>9:00<", found["running"])
         self.assertIn("data-cook-timer-toggle", found["running"])
         self.assertIn("cook.timer_step{&quot;n&quot;:&quot;2&quot;} · cook.timer_minutes_short{&quot;n&quot;:10}", found["running"])
         self.assertIn("is-ringing", found["ringing"])
@@ -235,14 +255,23 @@ class CookPushJsTest(NodeCase):
           cookTimersDue(NOW + 61000);
           out({ timers: cookPushTimers(NOW + 100000.4), ids: [a.id] });
         """)
-        self.assertEqual(found["timers"], [{
-            "id": found["ids"][0], "left": 500000,
-            "title": 'cook.timer_notify_title{"name":"cook.timer_minutes_short{\\"n\\":10}"}',
-            "body": 'Pasta · cook.timer_step{"n":"2"}',
-        }], "een gepauzeerde timer en een die afgaat krijgen geen push; de resttijd, niet de eindtijd (de klok van de server)")
+        self.assertEqual(
+            found["timers"],
+            [
+                {
+                    "id": found["ids"][0],
+                    "left": 500000,
+                    "title": 'cook.timer_notify_title{"name":"cook.timer_minutes_short{\\"n\\":10}"}',
+                    "body": 'Pasta · cook.timer_step{"n":"2"}',
+                }
+            ],
+            "een gepauzeerde timer en een die afgaat krijgen geen push; de resttijd, niet de eindtijd (de klok van de server)",
+        )
 
     def test_the_key_and_the_remembered_state(self):
-        found = self.run_js(PUSH_BROWSER + """
+        found = self.run_js(
+            PUSH_BROWSER
+            + """
           const key = cookPushKeyBytes(KEY);
           const same = cookPushSameKey(subscription(KEY), key);
           const other = cookPushSameKey(subscription(OLD), key);
@@ -254,7 +283,8 @@ class CookPushJsTest(NodeCase):
           const cleared = cookPushPending();
           globalThis.localStorage = { getItem() { throw new Error('geen opslag'); }, setItem() { throw new Error('geen opslag'); }, removeItem() { throw new Error('geen opslag'); } };
           out({ length: key.length, first: key[0], bad: cookPushKeyBytes('***').length, same, other, unknown, before, set, cleared, without: cookPushPending() });
-        """)
+        """
+        )
         self.assertEqual((found["length"], found["first"], found["bad"]), (65, 4, 0))
         self.assertEqual((found["same"], found["other"], found["unknown"]), (True, False, True))
         self.assertEqual((found["before"], found["set"], found["cleared"]), (False, True, False))
@@ -268,7 +298,9 @@ class CookPushJsTest(NodeCase):
         self.assertEqual(found, {"sent": False}, "zonder push in de browser (of zonder https) blijft alles zoals het was")
 
     def test_the_timers_and_the_subscription_go_to_the_server(self):
-        found = self.run_js(PUSH_BROWSER + """
+        found = self.run_js(
+            PUSH_BROWSER
+            + """
           (async () => {
             const a = cookTimerAdd(600, { title: 'Pasta', step: 2 }, Date.now());
             await cookPushSync();
@@ -278,9 +310,12 @@ class CookPushJsTest(NodeCase):
             await cookPushSync();  // niets meer bij de server: geen verzoek
             out({ calls, afterStop, subscribed: made.subscribed, pending: cookPushPending() });
           })();
-        """)
+        """
+        )
         calls = found["calls"]
-        self.assertEqual([(call["url"], call["method"]) for call in calls], [("/api/push/key", "GET"), ("/api/cook/timers", "PUT"), ("/api/cook/timers", "PUT")])
+        self.assertEqual(
+            [(call["url"], call["method"]) for call in calls], [("/api/push/key", "GET"), ("/api/cook/timers", "PUT"), ("/api/cook/timers", "PUT")]
+        )
         first = calls[1]["body"]
         self.assertEqual(first["subscription"], {"endpoint": "https://fcm.googleapis.com/fcm/send/abc", "keys": {"p256dh": "p", "auth": "a"}})
         self.assertEqual(first["url"], "/recipes?week=2026-11-16")
@@ -292,18 +327,23 @@ class CookPushJsTest(NodeCase):
         self.assertFalse(found["pending"])
 
     def test_a_subscription_with_an_old_key_is_replaced(self):
-        found = self.run_js(PUSH_BROWSER + """
+        found = self.run_js(
+            PUSH_BROWSER
+            + """
           (async () => {
             current = subscription(OLD);  // van voor de fabrieksinstellingen
             cookTimerAdd(60, {}, Date.now());
             await cookPushSync();
             out({ unsubscribed: made.unsubscribed, subscribed: made.subscribed.length, sent: calls.filter((call) => call.method === 'PUT').length });
           })();
-        """)
+        """
+        )
         self.assertEqual(found, {"unsubscribed": 1, "subscribed": 1, "sent": 1})
 
     def test_changes_during_a_request_follow_after_it(self):
-        found = self.run_js(PUSH_BROWSER + """
+        found = self.run_js(
+            PUSH_BROWSER
+            + """
           (async () => {
             cookTimerAdd(600, {}, Date.now());
             const first = cookPushSync();
@@ -312,20 +352,27 @@ class CookPushJsTest(NodeCase):
             await Promise.all([first, second]);
             out(calls.filter((call) => call.method === 'PUT').map((call) => call.body.timers.length));
           })();
-        """)
+        """
+        )
         self.assertEqual(found[-1], 2, "de laatste melding heeft beide timers")
         self.assertLessEqual(len(found), 2, "geen twee verzoeken tegelijk")
 
     def test_logging_out_forgets_the_subscription(self):
-        found = self.run_js(PUSH_BROWSER + """
+        found = self.run_js(
+            PUSH_BROWSER
+            + """
           (async () => {
             current = subscription(KEY);
             cookPushPending(true);
             await cookPushForget();
             out({ calls, unsubscribed: made.unsubscribed, pending: cookPushPending() });
           })();
-        """)
-        self.assertEqual([(call["url"], call["method"], call["body"]) for call in found["calls"]], [("/api/push/subscription", "DELETE", {"endpoint": "https://fcm.googleapis.com/fcm/send/abc"})])
+        """
+        )
+        self.assertEqual(
+            [(call["url"], call["method"], call["body"]) for call in found["calls"]],
+            [("/api/push/subscription", "DELETE", {"endpoint": "https://fcm.googleapis.com/fcm/send/abc"})],
+        )
         self.assertEqual((found["unsubscribed"], found["pending"]), (1, False))
 
 
@@ -334,7 +381,8 @@ class CookWorkerPushTest(unittest.TestCase):
     """De push-handler van de service worker, in Node met een nagemaakte `self`."""
 
     def run_worker(self, body):
-        script = r"""
+        script = (
+            r"""
 const handlers = {};
 const shown = [];
 let existing = [];
@@ -356,7 +404,12 @@ async function deliver(data) {
   if (waiting) await waiting;
 }
 const TIMER = { type: "cook-timer", id: "lz9-1", title: "Timer klaar: 10 min", body: "Pasta · Stap 2", url: "/recipes?week=2026-11-16" };
-""" + WORKER_JS + "\n(async () => {\n" + body + "\n})();"
+"""
+            + WORKER_JS
+            + "\n(async () => {\n"
+            + body
+            + "\n})();"
+        )
         result = subprocess.run(["node", "-e", script], capture_output=True, text=True, timeout=30)
         if result.returncode:
             self.fail(result.stderr[-2000:])
@@ -364,11 +417,21 @@ const TIMER = { type: "cook-timer", id: "lz9-1", title: "Timer klaar: 10 min", b
 
     def test_a_push_shows_the_timer(self):
         found = self.run_worker("await deliver(TIMER); process.stdout.write(JSON.stringify(shown));")
-        self.assertEqual(found, [{
-            "title": "Timer klaar: 10 min", "body": "Pasta · Stap 2", "tag": "cook-timer-lz9-1", "renotify": True, "requireInteraction": True,
-            "vibrate": [300, 150, 300, 150, 300], "icon": "https://shop.example.nl/static/brand/icon-192.png",
-            "data": {"url": "https://shop.example.nl/recipes?week=2026-11-16"},
-        }])
+        self.assertEqual(
+            found,
+            [
+                {
+                    "title": "Timer klaar: 10 min",
+                    "body": "Pasta · Stap 2",
+                    "tag": "cook-timer-lz9-1",
+                    "renotify": True,
+                    "requireInteraction": True,
+                    "vibrate": [300, 150, 300, 150, 300],
+                    "icon": "https://shop.example.nl/static/brand/icon-192.png",
+                    "data": {"url": "https://shop.example.nl/recipes?week=2026-11-16"},
+                }
+            ],
+        )
 
     def test_never_a_second_notification(self):
         found = self.run_worker("""
@@ -408,8 +471,8 @@ class CookTimersPageTest(unittest.TestCase):
         self.assertLess(scripts.index("cook_timers.js"), scripts.index("recipe_search.js"))
 
     def test_the_cooking_mode_has_a_place_for_the_timers(self):
-        dialog = HTML[HTML.index('<dialog id="cook-mode"'):]
-        dialog = dialog[:dialog.index("</dialog>")]
+        dialog = HTML[HTML.index('<dialog id="cook-mode"') :]
+        dialog = dialog[: dialog.index("</dialog>")]
         self.assertIn('id="cook-mode-timer-row"', dialog)
         tray = re.search(r'<section class="cook-timers" id="cook-timers"[^>]*>', HTML).group(0)
         self.assertIn("data-worker=\"{{ url_for('static', filename='cook_sw.js'", tray)
@@ -421,8 +484,8 @@ class CookTimersPageTest(unittest.TestCase):
         for function in re.findall(r"^(?:async )?function \w+\(.*?^}$", TIMERS_JS, re.S | re.M):
             if "localStorage." in function or "new Notification" in function or "navigator.vibrate" in function:
                 self.assertIn("try {", function, function.split("(")[0])
-        start = TIMERS_JS[TIMERS_JS.index("function cookTimerStartFromStep"):]
-        start = start[:start.index("\n}")]
+        start = TIMERS_JS[TIMERS_JS.index("function cookTimerStartFromStep") :]
+        start = start[: start.index("\n}")]
         self.assertIn("cookAudioReady()", start, "het geluid wordt bij de tik op Start klaargezet")
         self.assertIn("cookNotifyAsk()", start, "toestemming voor meldingen vragen we na een tik")
 
@@ -433,10 +496,10 @@ class CookTimersPageTest(unittest.TestCase):
         self.assertNotIn("caches.", WORKER_JS)
 
     def test_every_change_goes_to_the_server(self):
-        changed = TIMERS_JS[TIMERS_JS.index("function cookTimersChanged"):]
-        self.assertIn("cookPushSync()", changed[:changed.index("\n}")], "starten, pauzeren, verder laten lopen en stoppen")
-        tick = TIMERS_JS[TIMERS_JS.index("function cookTimersTick"):]
-        self.assertIn("cookPushSync()", tick[:tick.index("\n}")], "een timer die in de app afgaat, gaat er bij de server af")
+        changed = TIMERS_JS[TIMERS_JS.index("function cookTimersChanged") :]
+        self.assertIn("cookPushSync()", changed[: changed.index("\n}")], "starten, pauzeren, verder laten lopen en stoppen")
+        tick = TIMERS_JS[TIMERS_JS.index("function cookTimersTick") :]
+        self.assertIn("cookPushSync()", tick[: tick.index("\n}")], "een timer die in de app afgaat, gaat er bij de server af")
         self.assertIn('typeof cookPushForget === "function"', APP_JS, "uitloggen meldt het abonnement af")
 
     def test_the_styles(self):
@@ -445,9 +508,9 @@ class CookTimersPageTest(unittest.TestCase):
         self.assertIn("pointer-events: none", tray, "alleen de timers zelf vangen een tik, niet de lege ruimte eromheen")
         self.assertIn("env(safe-area-inset-bottom)", tray)
         self.assertIn("var(--cook-timers-room, 0px)", re.search(r"\.cook-mode__stage \{(.*?)\}", CSS, re.S).group(1))
-        motion = CSS[CSS.index(".cook-mode__nav .button"):]
-        motion = motion[motion.index("@media (prefers-reduced-motion: reduce)"):]
-        self.assertIn(".cook-timer.is-ringing", motion[:motion.index("}\n}")])
+        motion = CSS[CSS.index(".cook-mode__nav .button") :]
+        motion = motion[motion.index("@media (prefers-reduced-motion: reduce)") :]
+        self.assertIn(".cook-timer.is-ringing", motion[: motion.index("}\n}")])
 
 
 if __name__ == "__main__":

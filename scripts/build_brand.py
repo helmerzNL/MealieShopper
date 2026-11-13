@@ -8,6 +8,7 @@ dependency nodig. De vorm van het M-tasje staat hieronder op een plek: de SVG's
 en de PNG's komen uit dezelfde geometrie, zodat ze niet uit elkaar lopen.
 Tekst (woordmerk, deelafbeelding) gebruikt Manrope uit static/fonts/.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -59,8 +60,7 @@ FAV_M_W = 2.8
 # ---------------------------------------------------------------------------
 def _arc(cx: float, cy: float, r: float, a0: float, a1: float, steps: int = 24):
     return [
-        (cx + r * math.cos(math.radians(a0 + (a1 - a0) * i / steps)),
-         cy + r * math.sin(math.radians(a0 + (a1 - a0) * i / steps)))
+        (cx + r * math.cos(math.radians(a0 + (a1 - a0) * i / steps)), cy + r * math.sin(math.radians(a0 + (a1 - a0) * i / steps)))
         for i in range(steps + 1)
     ]
 
@@ -84,10 +84,7 @@ def rounded_rect(x0, y0, x1, y1, r_top, r_bottom=None):
 
 
 BODY_PTS = rounded_rect(12, 32.5, 84, 86.5, 6, 14)
-RIM_PTS = (
-    [(18, 32.5), (78, 32.5)] + _arc(78, 38.5, 6, -90, 0)
-    + [(84, 38.5), (84, 56.5), (12, 56.5), (12, 38.5)] + _arc(18, 38.5, 6, 180, 270)
-)
+RIM_PTS = [(18, 32.5), (78, 32.5)] + _arc(78, 38.5, 6, -90, 0) + [(84, 38.5), (84, 56.5), (12, 56.5), (12, 38.5)] + _arc(18, 38.5, 6, 180, 270)
 HANDLE_PTS = [(34, 32.5), (34, 26.5)] + _arc(48, 26.5, 14, 180, 360) + [(62, 26.5), (62, 32.5)]
 M_PTS = [(30, 51), (30, 38), (48, 47.5), (66, 38), (66, 51)]
 SEPARATOR_PTS = [(12, 56.5), (84, 56.5)]
@@ -241,10 +238,7 @@ def render_wordmark(style: str, scale: float = 1.0, background=None) -> Image.Im
 # SVG-bronnen
 # ---------------------------------------------------------------------------
 def _svg(view_box: str, body: str, title: str) -> str:
-    return (
-        f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="{view_box}" role="img">\n'
-        f"  <title>{title}</title>\n{body}</svg>\n"
-    )
+    return f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="{view_box}" role="img">\n  <title>{title}</title>\n{body}</svg>\n'
 
 
 def mark_group(style: str, mask_id: str = "cut") -> str:
@@ -253,12 +247,7 @@ def mark_group(style: str, mask_id: str = "cut") -> str:
     m_path = f'<path d="{M_D}" fill="none" stroke="%s" stroke-width="{M_W}" stroke-linecap="round" stroke-linejoin="round"/>'
     if style in ("color", "icon"):
         main = GREEN if style == "color" else WHITE
-        return (
-            "  " + handle % main + "\n"
-            f'  <path d="{BODY_D}" fill="{main}"/>\n'
-            f'  <path d="{RIM_D}" fill="{LEMON}"/>\n'
-            "  " + m_path % GREEN + "\n"
-        )
+        return "  " + handle % main + f'\n  <path d="{BODY_D}" fill="{main}"/>\n  <path d="{RIM_D}" fill="{LEMON}"/>\n  ' + m_path % GREEN + "\n"
     fill = WHITE if style == "white" else INK
     return (
         "  <defs>\n"
@@ -394,8 +383,15 @@ def render_preview() -> Image.Image:
     # Kleuren
     label((60, 995), "Kleuren", 18, 700, INK)
     swatches = [
-        ("Merk / primair", GREEN), ("Hover", GREEN_STRONG), ("Selectie", MIST), ("Citroen (decoratief)", LEMON),
-        ("Achtergrond", BG), ("Oppervlak", WHITE), ("Tekst", INK), ("Ondersteunend", MUTED), ("Rand", BORDER),
+        ("Merk / primair", GREEN),
+        ("Hover", GREEN_STRONG),
+        ("Selectie", MIST),
+        ("Citroen (decoratief)", LEMON),
+        ("Achtergrond", BG),
+        ("Oppervlak", WHITE),
+        ("Tekst", INK),
+        ("Ondersteunend", MUTED),
+        ("Rand", BORDER),
     ]
     sw = 160
     for i, (name, color) in enumerate(swatches):
@@ -435,7 +431,10 @@ def build(out: Path) -> list[Path]:
     for px in sizes:
         image(f"favicon-{px}.png", favicons[px])
     image(
-        "favicon.ico", favicons[48], format="ICO", sizes=[(px, px) for px in sizes],
+        "favicon.ico",
+        favicons[48],
+        format="ICO",
+        sizes=[(px, px) for px in sizes],
         append_images=[favicons[16], favicons[32]],
     )
 

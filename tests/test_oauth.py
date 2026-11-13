@@ -21,11 +21,7 @@ OWNER: str = auth.OWNER_ID
 
 def pkce() -> tuple[str, str]:
     verifier: str = secrets.token_urlsafe(48)
-    challenge: str = (
-        base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest())
-        .rstrip(b"=")
-        .decode()
-    )
+    challenge: str = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b"=").decode()
     return verifier, challenge
 
 
@@ -54,9 +50,7 @@ async def owner(data_dir: Path) -> str:
 
 
 async def register(name: str = "Claude") -> str:
-    return (
-        await oauth.register_client({"client_name": name, "redirect_uris": [REDIRECT]})
-    )["client_id"]
+    return (await oauth.register_client({"client_name": name, "redirect_uris": [REDIRECT]}))["client_id"]
 
 
 async def code_for(client_id: str, user_id: str = OWNER) -> tuple[str, str]:
@@ -81,9 +75,7 @@ async def tokens_for(client_id: str, user_id: str = OWNER) -> dict[str, Any]:
 
 
 async def test_register_client_stores_a_public_client(owner: str) -> None:
-    data: dict[str, Any] = await oauth.register_client(
-        {"client_name": "  Claude\n Desktop ", "redirect_uris": [REDIRECT]}
-    )
+    data: dict[str, Any] = await oauth.register_client({"client_name": "  Claude\n Desktop ", "redirect_uris": [REDIRECT]})
     assert data["client_id"].startswith("msc_")
     assert data["token_endpoint_auth_method"] == "none"
     assert await oauth.get_client(data["client_id"]) == {
@@ -103,9 +95,7 @@ async def test_register_client_refuses_a_bad_redirect_without_writing(
     assert await scalar("SELECT COUNT(*) FROM oauth_clients") == 1
 
 
-async def test_a_full_registry_drops_unused_clients_but_never_used_ones(
-    owner: str, monkeypatch: pytest.MonkeyPatch
-) -> None:
+async def test_a_full_registry_drops_unused_clients_but_never_used_ones(owner: str, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(oauth, "MAX_CLIENTS", 2)
     used: str = await register()
     await tokens_for(used)
@@ -158,46 +148,32 @@ async def test_check_authorize_request_finds_the_client_and_checks_the_redirect(
         MCP_URL,
     )
     with pytest.raises(oauth.OAuthError):
-        await oauth.check_authorize_request(
-            {**params, "redirect_uri": "https://elders.example/cb"}, MCP_URL
-        )
+        await oauth.check_authorize_request({**params, "redirect_uri": "https://elders.example/cb"}, MCP_URL)
     with pytest.raises(oauth.OAuthError):
-        await oauth.check_authorize_request(
-            {**params, "client_id": "msc_onbekend"}, MCP_URL
-        )
+        await oauth.check_authorize_request({**params, "client_id": "msc_onbekend"}, MCP_URL)
 
 
 async def test_issue_code_and_exchange_it_for_tokens(owner: str) -> None:
     client_id: str = await register()
     code, verifier = await code_for(client_id)
-    assert await scalar("SELECT epoch FROM oauth_codes") == await auth.session_epoch(
-        OWNER
-    )
-    tokens: dict[str, Any] = await oauth.token_request(
-        exchange_form(client_id, code, verifier), MCP_URL
-    )
+    assert await scalar("SELECT epoch FROM oauth_codes") == await auth.session_epoch(OWNER)
+    tokens: dict[str, Any] = await oauth.token_request(exchange_form(client_id, code, verifier), MCP_URL)
     assert (tokens["token_type"], tokens["expires_in"], tokens["scope"]) == (
         "Bearer",
         3600,
         "mealieshopper",
     )
-    assert tokens["access_token"].startswith("msa_") and tokens[
-        "refresh_token"
-    ].startswith("msr_")
+    assert tokens["access_token"].startswith("msa_") and tokens["refresh_token"].startswith("msr_")
     assert await scalar("SELECT used FROM oauth_codes") == 1
 
 
 async def test_a_code_used_twice_revokes_the_tokens_of_the_app(owner: str) -> None:
     client_id: str = await register()
     code, verifier = await code_for(client_id)
-    tokens: dict[str, Any] = await oauth.exchange_code(
-        exchange_form(client_id, code, verifier), MCP_URL
-    )
+    tokens: dict[str, Any] = await oauth.exchange_code(exchange_form(client_id, code, verifier), MCP_URL)
     with pytest.raises(oauth.OAuthError, match="al gebruikt"):
         await oauth.exchange_code(exchange_form(client_id, code, verifier), MCP_URL)
-    assert await scalar("SELECT revoked FROM oauth_tokens") == 1, (
-        "het intrekken blijft staan na de fout"
-    )
+    assert await scalar("SELECT revoked FROM oauth_tokens") == 1, "het intrekken blijft staan na de fout"
     assert await oauth.verify_access_token(tokens["access_token"], MCP_URL) is None
 
 
@@ -206,9 +182,7 @@ async def test_a_refused_exchange_leaves_the_code_unused(owner: str) -> None:
     code, _ = await code_for(client_id)
     with pytest.raises(oauth.OAuthError, match="PKCE"):
         await oauth.exchange_code(exchange_form(client_id, code, "x" * 43), MCP_URL)
-    assert await scalar("SELECT used FROM oauth_codes") == 0, (
-        "een fout draait het markeren terug"
-    )
+    assert await scalar("SELECT used FROM oauth_codes") == 0, "een fout draait het markeren terug"
 
 
 async def test_an_expired_code_is_refused(owner: str) -> None:
@@ -265,9 +239,7 @@ async def test_verify_access_token_gives_the_user_and_records_the_use(
     client_id: str = await register("ChatGPT")
     tokens: dict[str, Any] = await tokens_for(client_id)
     assert await scalar("SELECT last_used_at FROM oauth_tokens") is None
-    identity: dict[str, Any] | None = await oauth.verify_access_token(
-        tokens["access_token"], MCP_URL
-    )
+    identity: dict[str, Any] | None = await oauth.verify_access_token(tokens["access_token"], MCP_URL)
     assert identity == {
         "client_id": client_id,
         "name": "ChatGPT",
@@ -275,12 +247,7 @@ async def test_verify_access_token_gives_the_user_and_records_the_use(
         "username": "admin",
     }
     assert await scalar("SELECT last_used_at FROM oauth_tokens") is not None
-    assert (
-        await oauth.verify_access_token(
-            tokens["access_token"], "https://elders.example/mcp"
-        )
-        is None
-    )
+    assert await oauth.verify_access_token(tokens["access_token"], "https://elders.example/mcp") is None
     assert await oauth.verify_access_token("msa_onbekend", MCP_URL) is None
     assert await oauth.verify_access_token("geen-token", MCP_URL) is None
 
@@ -324,25 +291,16 @@ async def test_forget_user_removes_codes_and_tokens_of_that_user_only(
     await tokens_for(client_id, "u_anna")
     await code_for(client_id, "u_anna")
     await oauth.forget_user("u_anna")
-    assert (
-        await scalar("SELECT COUNT(*) FROM oauth_tokens WHERE user_id = 'u_anna'") == 0
-    )
-    assert (
-        await scalar("SELECT COUNT(*) FROM oauth_codes WHERE user_id = 'u_anna'") == 0
-    )
-    assert (
-        await scalar("SELECT COUNT(*) FROM oauth_tokens WHERE user_id = ?", (OWNER,))
-        == 1
-    )
+    assert await scalar("SELECT COUNT(*) FROM oauth_tokens WHERE user_id = 'u_anna'") == 0
+    assert await scalar("SELECT COUNT(*) FROM oauth_codes WHERE user_id = 'u_anna'") == 0
+    assert await scalar("SELECT COUNT(*) FROM oauth_tokens WHERE user_id = ?", (OWNER,)) == 1
 
 
 async def test_two_concurrent_exchanges_of_one_code_issue_one_token_and_revoke_it(owner: str) -> None:
     client_id: str = await register()
     code, verifier = await code_for(client_id)
     form: dict[str, str] = exchange_form(client_id, code, verifier)
-    results: list[Any] = await asyncio.gather(
-        oauth.exchange_code(form, MCP_URL), oauth.exchange_code(form, MCP_URL), return_exceptions=True
-    )
+    results: list[Any] = await asyncio.gather(oauth.exchange_code(form, MCP_URL), oauth.exchange_code(form, MCP_URL), return_exceptions=True)
     tokens: list[dict[str, Any]] = [result for result in results if isinstance(result, dict)]
     errors: list[BaseException] = [result for result in results if isinstance(result, BaseException)]
     assert len(tokens) == 1, results

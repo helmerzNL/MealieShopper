@@ -41,6 +41,7 @@ const MDI_IMAGE_OUTLINE = "M19,19H5V5H19M19,3H5A2,2 0 0,0 3,5V19A2,2 0 0,0 5,21H
 const MDI_CART_PLUS = "M11,9H13V6H16V4H13V1H11V4H8V6H11M7,18A2,2 0 0,0 5,20A2,2 0 0,0 7,22A2,2 0 0,0 9,20A2,2 0 0,0 7,18M17,18A2,2 0 0,0 15,20A2,2 0 0,0 17,22A2,2 0 0,0 19,20A2,2 0 0,0 17,18M7.17,14.75L7.2,14.63L8.1,13H15.55C16.3,13 16.96,12.59 17.3,11.97L21.16,4.96L19.42,4H19.41L18.31,6L15.55,11H8.53L8.4,10.73L6.16,6L5.21,4L4.27,2H1V4H3L6.6,11.59L5.25,14.04C5.09,14.32 5,14.65 5,15A2,2 0 0,0 7,17H19V15H7.42C7.29,15 7.17,14.89 7.17,14.75Z";
 const MDI_COMPARE_HORIZONTAL = "M9 14H2V16H9V19L13 15L9 11V14M15 13V10H22V8H15V5L11 9L15 13Z";
 const MDI_CHART_LINE = "M16,11.78L20.24,4.45L21.97,5.45L16.74,14.5L10.23,10.75L5.46,19H22V21H2V3H4V17.54L9.5,8L16,11.78Z";
+const MDI_STORE = "M12,18H6V14H12M21,14V12L20,7H4L3,12V14H4V20H14V14H18V20H20V14M20,4H4V6H20V4Z";
 const MDI_FLAG_OUTLINE = "M12.36,6L12.76,8H18V14H14.64L14.24,12H7V6H12.36M14,4H5V21H7V14H12.6L13,16H20V6H14.4";
 const MDI_PENCIL_OUTLINE =
   "M14.06,9L15,9.94L5.92,19H5V18.08L14.06,9M17.66,3C17.41,3 17.15,3.1 16.96,3.29L15.13,5.12L18.88,8.87L20.71,7.04C21.1,6.65 21.1,6 20.71,5.63L18.37,3.29C18.17,3.09 17.92,3 17.66,3M14.06,6.19L3,17.25V21H6.75L17.81,9.94L14.06,6.19Z";
@@ -966,9 +967,12 @@ function renderMealRecipeBody(entry) {
     ${nutritionTable(entry.nutrition, { servings: entry.servings?.planned, headingLevel: 4 })}`;
 }
 
-function openMealRecipe(entry) {
+// Een maaltijd uit het weekmenu. Vanuit het weekmenu begint de reeks om door de maaltijden met een recept te bladeren (recipe_nav.js);
+// met `move` is dit een stap naar de vorige of volgende maaltijd, in hetzelfde venster.
+function openMealRecipe(entry, { move = false } = {}) {
   mealRecipe.entry = entry;
   const dialog = $("#meal-recipe-dialog");
+  if (!move && typeof recipeNavMeal === "function") recipeNavMeal(entry);
   $("#meal-recipe-type").textContent = `${mealLabel(entry.entryType)} · ${formatDate(entry.date)}`;
   $("#meal-recipe-title").textContent = mealName(entry);
   // Het totaal alleen als het iets toevoegt: bij één portie is het gelijk aan de kcal per portie.
@@ -991,6 +995,7 @@ function openMealRecipe(entry) {
   if (!dialog.open) dialog.showModal();
   dialog.scrollTop = 0;
   if (typeof cookWakeUpdate === "function") cookWakeUpdate(); // "Scherm aan laten" (recipe_view.js)
+  if (move && typeof recipeNavArrived === "function") recipeNavArrived(dialog);
 }
 
 function renderMealPlan(entries) {
@@ -1678,13 +1683,13 @@ const JUMBO_SUBTABS = ["ah-items-jumbo-recepten"];
 const CRISP_SUBTABS = ["ah-items-crisp-recepten", "ah-items-crisp-favorieten", "ah-items-crisp-bestellingen"];
 
 // Winkels: per winkel de onderdelen en hun subtab, in de volgorde van de tabs. Het onderdeel is ook het stuk in het adres
-// (/stores/jumbo/lists, /stores/ah/planner); /stores/ah/receipts/<id> is een kassabon onder Bestellingen, /stores/ah/imported/<ref> een ingelezen
+// (/stores/jumbo/lists, /stores/ah/planner, /stores/ah/loose voor Losse aankopen); /stores/ah/receipts/<id> is een kassabon onder Bestellingen, /stores/ah/imported/<ref> een ingelezen
 // oude bestelling (zie price_import.py en router.js). Elk subtab hoort bij één onderdeel, bij welke winkel ook.
 const STORE_SECTIONS = {
-  ah: { recipes: "ah-items-recepten", planner: "ah-items-weekplanner", lists: "ah-items-lijstjes", orders: "ah-items-bestellingen" },
-  jumbo: { recipes: "ah-items-jumbo-recepten", lists: "ah-items-lijstjes", orders: "ah-items-bestellingen" },
-  picnic: { recipes: "ah-items-picnic", favorites: "ah-items-picnic-favorieten", orders: "ah-items-picnic-bestellingen" },
-  crisp: { recipes: "ah-items-crisp-recepten", favorites: "ah-items-crisp-favorieten", orders: "ah-items-crisp-bestellingen" },
+  ah: { recipes: "ah-items-recepten", planner: "ah-items-weekplanner", lists: "ah-items-lijstjes", orders: "ah-items-bestellingen", loose: "ah-items-losse-aankopen" },
+  jumbo: { recipes: "ah-items-jumbo-recepten", lists: "ah-items-lijstjes", orders: "ah-items-bestellingen", loose: "ah-items-losse-aankopen" },
+  picnic: { recipes: "ah-items-picnic", favorites: "ah-items-picnic-favorieten", orders: "ah-items-picnic-bestellingen", loose: "ah-items-losse-aankopen" },
+  crisp: { recipes: "ah-items-crisp-recepten", favorites: "ah-items-crisp-favorieten", orders: "ah-items-crisp-bestellingen", loose: "ah-items-losse-aankopen" },
 };
 
 function itemsOpenSubtab() {
@@ -2002,6 +2007,27 @@ async function saveWeekStart(event) {
   await refreshMealieStatus();
 }
 
+// Tags voor vegetarisch, veganistisch, vlees, vis en gevogelte in Mealie zetten (4.22.0; alleen de beheerder kan opslaan).
+async function saveDietTags(event) {
+  const toggle = event.currentTarget;
+  message("#mealie-diet-tags-message", "");
+  toggle.disabled = true;
+  try {
+    const saved = await jsonFetch("/api/server-settings", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ dietTags: toggle.checked }),
+    });
+    toggle.checked = saved.dietTags !== false;
+    message("#mealie-diet-tags-message", t(toggle.checked ? "mealie.diet_tags.on" : "mealie.diet_tags.off"), "success");
+  } catch (error) {
+    toggle.checked = !toggle.checked;
+    message("#mealie-diet-tags-message", error.message);
+  } finally {
+    toggle.disabled = false;
+  }
+}
+
 // ---- Voedingswaarden van oude AH-recepten aanvullen (Instellingen, Koppelen, Mealie; alleen de beheerder, issue #283). De
 // server werkt de recepten een voor een af (recipe_nutrition.py); zolang dat loopt, vraagt de pagina elke twee seconden de stand.
 let nutritionBackfillTimer = 0;
@@ -2057,6 +2083,9 @@ function renderMealieStatus(data, { verified = false } = {}) {
   const setup = $("#mealie-setup");
   if (setup) setup.hidden = Boolean(data.configured);
   state.linkedStores.mealie = Boolean(data.configured); // Recepten zoeken zoekt dan ook in Mealie
+  if (typeof recipeSearchMealieChanged === "function") recipeSearchMealieChanged(); // en bladert er zonder zoekterm doorheen
+  const dietTags = $("#mealie-diet-tags");
+  if (dietTags && typeof data.dietTags === "boolean") dietTags.checked = data.dietTags; // tags uit de ingrediënten (4.22.0)
   if (typeof renderAhPlannerButton === "function") renderAhPlannerButton(); // Naar weekmenu (ah_planner.js) vraagt Mealie
   // Eerst de eerste dag van de week, zodat het weekmenu meteen de goede week ophaalt.
   const weekChanged = applyWeekStart(data.weekStart);
@@ -2912,6 +2941,7 @@ document.querySelectorAll(".subtab[data-subtab], .subtab-menu__item[data-subtab]
     if (target) target.classList.add("is-active");
     if (panel.id === "offers" && typeof showOffers === "function") showOffers();
     if (subtab.dataset.subtab === "planner") ensureMealPlan();
+    if (subtab.dataset.subtab === "search" && typeof showRecipeSearch === "function") showRecipeSearch();
     if (subtab.dataset.subtab === "settings-link" && typeof loadOffersSyncStatus === "function") loadOffersSyncStatus();
     if (subtab.dataset.subtab === "settings-link" && typeof loadLinkingBox === "function") loadLinkingBox();
     if (subtab.dataset.subtab === "settings-link" && typeof loadAiReviewSettings === "function") loadAiReviewSettings();
@@ -2922,6 +2952,7 @@ document.querySelectorAll(".subtab[data-subtab], .subtab-menu__item[data-subtab]
     if (subtab.dataset.subtab === "settings-system" && typeof loadPriceArchive === "function") loadPriceArchive();
     if (subtab.dataset.subtab === "settings-system" && typeof loadImageCacheStatus === "function") loadImageCacheStatus();
     if (subtab.dataset.subtab === "ah-items-bestellingen" && typeof loadOrders === "function") loadOrders();
+    if (subtab.dataset.subtab === "ah-items-losse-aankopen" && typeof loadLooseNames === "function") loadLooseNames();
     if (subtab.dataset.subtab === "ah-items-weekplanner" && typeof showAhPlanner === "function") showAhPlanner();
     if (subtab.dataset.subtab === "ah-items-picnic" && typeof loadPicnicRecipes === "function" && !picnicRecipes.loaded) loadPicnicRecipes();
     if (subtab.dataset.subtab === "ah-items-picnic-favorieten" && typeof loadPicnicFavorites === "function" && !picnicFavorites.loaded) loadPicnicFavorites({ refresh: false });
@@ -3141,6 +3172,7 @@ $("#check-mealie").addEventListener("click", checkMealieConnection);
 $("#mealie-unlink").addEventListener("click", (event) => unlinkWithConfirm(event.currentTarget, "Mealie", unlinkMealie));
 $("#ah-unlink").addEventListener("click", (event) => unlinkWithConfirm(event.currentTarget, STORES.ah.name, unlinkAh));
 $("#mealie-week-start").addEventListener("change", saveWeekStart);
+$("#mealie-diet-tags").addEventListener("change", saveDietTags);
 $("#mealie-nutrition-start").addEventListener("click", startNutritionBackfill);
 $("#mealie-nutrition-stop").addEventListener("click", stopNutritionBackfill);
 $("#open-mealie-setup").addEventListener("click", () => openLinkBlock("mealie"));

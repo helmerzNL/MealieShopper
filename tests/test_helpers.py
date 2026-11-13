@@ -3,9 +3,8 @@
 import asyncio
 import io
 
-from quart import Quart, Response, make_response, request
-
 from helpers import AppClient, AppTestCase
+from quart import Quart, Response, make_response, request
 
 
 def echo_app() -> Quart:

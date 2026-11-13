@@ -15,6 +15,7 @@ een weigering (403 of 429) stopt de import.
 Fouten staan als code in de voortgang; de browser vertaalt ze. De tekst van de winkel of van Mealie komt alleen in het
 logboek, nooit bij de gebruiker.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -55,6 +56,7 @@ def _now() -> str:
 
 
 # --- de stand -----------------------------------------------------------------------------------------
+
 
 def progress() -> dict[str, Any]:
     """De stand van de lopende (of laatste) import, met de tellingen erbij. Een kopie: de task werkt het origineel bij."""
@@ -116,10 +118,19 @@ def _finish(state: str, error: str = "") -> None:
 
 
 def _new_item(item: dict[str, Any]) -> dict[str, Any]:
-    return {"id": item["id"], "title": item.get("title") or "", "status": "pending", "slug": "", "mealieUrl": "", "error": "", "_source": item["source"]}
+    return {
+        "id": item["id"],
+        "title": item.get("title") or "",
+        "status": "pending",
+        "slug": "",
+        "mealieUrl": "",
+        "error": "",
+        "_source": item["source"],
+    }
 
 
 # --- wat er geïmporteerd wordt ------------------------------------------------------------------------
+
 
 def _title(value: Any) -> str:
     return " ".join(str(value or "").split())[:MAX_TITLE]
@@ -142,13 +153,17 @@ def _ids(raw: Any) -> list[str]:
 async def _ah_plan(ids: list[str], group_id: str, whole: bool) -> dict[str, Any]:
     data = await ah_recipes.load()
     if not data or not data.get("recipes"):
-        raise ValueError(tr(
-            "Haal eerst je bewaarde recepten op bij AH (Winkels > Albert Heijn > Recepten).",
-            "Fetch your saved recipes from AH first (Stores > Albert Heijn > Recipes).",
-        ))
+        raise ValueError(
+            tr(
+                "Haal eerst je bewaarde recepten op bij AH (Winkels > Albert Heijn > Recepten).",
+                "Fetch your saved recipes from AH first (Stores > Albert Heijn > Recipes).",
+            )
+        )
     group = ah_recipes.group_by_id(data.get("groups") or [], group_id) if group_id else None
     if group_id and not group:
-        raise ValueError(tr("Deze receptgroep bestaat niet (meer). Haal je recepten opnieuw op.", "This recipe group no longer exists. Fetch your recipes again."))
+        raise ValueError(
+            tr("Deze receptgroep bestaat niet (meer). Haal je recepten opnieuw op.", "This recipe group no longer exists. Fetch your recipes again.")
+        )
     by_key = {str(recipe["id"]): recipe for recipe in data["recipes"]}
     by_number = {}
     for recipe in data["recipes"]:
@@ -163,7 +178,9 @@ async def _ah_plan(ids: list[str], group_id: str, whole: bool) -> dict[str, Any]
         for key in ids:
             recipe = by_number.get(key) or by_key.get(key)
             if not recipe:
-                raise ValueError(tr("Een gekozen recept staat niet bij je bewaarde AH-recepten.", "A chosen recipe is not among your saved AH recipes."))
+                raise ValueError(
+                    tr("Een gekozen recept staat niet bij je bewaarde AH-recepten.", "A chosen recipe is not among your saved AH recipes.")
+                )
             chosen.append(recipe)
     items, seen = [], set()
     for recipe in chosen:
@@ -182,10 +199,12 @@ async def _ah_plan(ids: list[str], group_id: str, whole: bool) -> dict[str, Any]
 
 async def _jumbo_plan(ids: list[str], titles: Any, group_id: str, whole: bool) -> dict[str, Any]:
     if not await jumbo.configured_refresh_token():
-        raise ValueError(tr(
-            "Jumbo is niet gekoppeld. De beheerder koppelt het bij Instellingen > Koppelen > Jumbo.",
-            "Jumbo is not linked. The admin links it under Settings > Link > Jumbo.",
-        ))
+        raise ValueError(
+            tr(
+                "Jumbo is niet gekoppeld. De beheerder koppelt het bij Instellingen > Koppelen > Jumbo.",
+                "Jumbo is not linked. The admin links it under Settings > Link > Jumbo.",
+            )
+        )
     if group_id and not _LIST_ID.match(group_id):
         raise ValueError(tr("Onbekend lijstje", "Unknown list"))
     if whole and not group_id:
@@ -201,10 +220,12 @@ async def _jumbo_plan(ids: list[str], titles: Any, group_id: str, whole: bool) -
 
 async def _crisp_plan(ids: list[str], titles: Any, group_id: str, whole: bool) -> dict[str, Any]:
     if not await crisp.configured_client_id():
-        raise ValueError(tr(
-            "Crisp is niet gekoppeld. De beheerder koppelt het bij Instellingen > Koppelen > Crisp.",
-            "Crisp is not linked. The admin links it under Settings > Link > Crisp.",
-        ))
+        raise ValueError(
+            tr(
+                "Crisp is niet gekoppeld. De beheerder koppelt het bij Instellingen > Koppelen > Crisp.",
+                "Crisp is not linked. The admin links it under Settings > Link > Crisp.",
+            )
+        )
     if group_id:
         raise ValueError(tr("Crisp heeft geen receptgroepen", "Crisp has no recipe groups"))
     names = titles if isinstance(titles, dict) else {}
@@ -259,10 +280,12 @@ async def start(
         if not chosen:
             raise ValueError(tr("Kies eerst een of meer recepten", "Choose one or more recipes first"))
         if len(chosen) > MAX_SELECTION:
-            raise ValueError(tr(
-                f"Kies hooguit {MAX_SELECTION} recepten tegelijk, of importeer de hele groep.",
-                f"Choose at most {MAX_SELECTION} recipes at a time, or import the whole group.",
-            ))
+            raise ValueError(
+                tr(
+                    f"Kies hooguit {MAX_SELECTION} recepten tegelijk, of importeer de hele groep.",
+                    f"Choose at most {MAX_SELECTION} recipes at a time, or import the whole group.",
+                )
+            )
     if store == "ah":
         plan = await _ah_plan(chosen, group_id, whole)
     elif store == "jumbo":
@@ -271,7 +294,9 @@ async def start(
         plan = await _crisp_plan(chosen, titles, group_id, whole)
     plan.update(store=store, whole=bool(whole))
     if _job.get("state") == "running":
-        raise Busy(tr("Er loopt al een import naar Mealie. Wacht tot die klaar is.", "An import into Mealie is already running. Wait until it is finished."))
+        raise Busy(
+            tr("Er loopt al een import naar Mealie. Wacht tot die klaar is.", "An import into Mealie is already running. Wait until it is finished.")
+        )
     _cancel = asyncio.Event()
     _job.clear()
     _job.update(
@@ -304,12 +329,15 @@ def cancel(user: dict[str, Any] | None = None, owner: bool = False) -> dict[str,
     if _job.get("state") != "running":
         raise ValueError(tr("Er loopt geen import", "No import is running"))
     if not owner and _job.get("startedById") != (user or {}).get("id"):
-        raise PermissionError(tr("Alleen wie de import startte of de beheerder kan hem stoppen.", "Only whoever started the import or the administrator can stop it."))
+        raise PermissionError(
+            tr("Alleen wie de import startte of de beheerder kan hem stoppen.", "Only whoever started the import or the administrator can stop it.")
+        )
     _cancel.set()
     return progress()
 
 
 # --- op de achtergrond --------------------------------------------------------------------------------
+
 
 class _Stop(Exception):
     """Stop de hele import met deze code (de winkel weigert, Mealie weigert, te veel fouten)."""
@@ -400,7 +428,9 @@ async def _collect_jumbo(info: dict[str, Any]) -> None:
             if not recipe_id or recipe_id in seen or len(seen) >= MAX_ITEMS:
                 continue
             seen.add(recipe_id)
-            fresh.append({"id": recipe_id, "title": _title(recipe.get("name")), "source": recipe.get("url") or f"{jumbo.SITE_URL}/recepten/{recipe_id}"})
+            fresh.append(
+                {"id": recipe_id, "title": _title(recipe.get("name")), "source": recipe.get("url") or f"{jumbo.SITE_URL}/recepten/{recipe_id}"}
+            )
         _add_items(fresh)
         total = data.get("total")
         _set(groupSize=max(total if isinstance(total, int) else 0, len(seen)))

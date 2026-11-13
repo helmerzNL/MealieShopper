@@ -14,10 +14,8 @@ from urllib.parse import unquote, urlencode, urlparse
 
 import httpx
 
-from . import auth, deals, http_client, nutrition, tasks
+from . import auth, deals, http_client, nutrition, recipe_diet, tasks
 from .i18n import tr
-
-log = logging.getLogger(__name__)
 from .packs import (  # noqa: F401 - blijft hier bereikbaar voor bestaande aanroepers
     LARGE_PACK_COUNT,
     MAX_CART_QUANTITY,
@@ -26,6 +24,8 @@ from .packs import (  # noqa: F401 - blijft hier bereikbaar voor bestaande aanro
     packs_needed,
     parse_pack_size,
 )
+
+log = logging.getLogger(__name__)
 
 AH_API_BASE = "https://api.ah.nl"
 AH_LOGIN_BASE = "https://login.ah.nl"
@@ -40,10 +40,7 @@ AH_AUTH_HEADERS = {
     "Accept": "application/json",
     "Content-Type": "application/json",
 }
-AH_BROWSER_USER_AGENT = (
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-    "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
-)
+AH_BROWSER_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
 
 # Receptzoeken: de oude REST-route (recipe/search/v2) bestaat niet meer. De zoekinvoer kent
 # searchText, size en start (de offset); `page`, `offset` en `pageSize` bestaan niet.
@@ -77,6 +74,10 @@ RECIPE_SEARCH_QUERY = """
 """
 # AH geeft een fout als start + size boven 2000 uitkomt; zo ver kun je bladeren.
 RECIPE_SEARCH_WINDOW = 2000
+# Met een grens op de tijd boven de 15 minuten van "snel" filteren we zelf: per keer zoveel recepten bekijken, hooguit zoveel keer
+# als er niets door de filter kwam (4.22.0).
+RECIPE_SCAN_SIZE = 48
+RECIPE_SCAN_ROUNDS = 3
 RECIPE_CARD_IMAGE_WIDTH = 440
 
 FAVORITE_LISTS_QUERY = """
@@ -198,7 +199,8 @@ RECIPE_DETAIL_QUERIES = tuple(
       }
     }
   }
-""" % (extra, steps)
+"""
+    % (extra, steps)
     for extra, steps in (
         (_RECIPE_EXTRA + "\n      " + _RECIPE_NUTRITIONS, ""),
         (_RECIPE_EXTRA + "\n      " + _RECIPE_NUTRITIONS, " { text }"),
@@ -265,12 +267,7 @@ def sanitize_login_cookie(cookie: str, path: str = "/api/ah/auth/proxy") -> str:
     for part in parts[1:]:
         attr = part.strip()
         lower = attr.lower()
-        if (
-            lower == "secure"
-            or lower.startswith("samesite")
-            or lower.startswith("domain")
-            or lower.startswith("path")
-        ):
+        if lower == "secure" or lower.startswith("samesite") or lower.startswith("domain") or lower.startswith("path"):
             continue
         result.append(part)
     result.append(f" Path={path}")
@@ -340,6 +337,7 @@ def _valid(cache: TokenCache | None) -> str:
     """Het token uit `cache` als het nog geldig is, anders een lege tekst."""
     return cache.token if cache and time.time() < cache.expires_at else ""
 
+
 # AH geeft een anoniem token dat zeven dagen geldig heet, maar trekt het soms eerder in. Dan antwoordt elke aanroep met een 400
 # `invalid_grant` ("member not active") en bleven de bonus en het zoeken tot een week lang mislukken. Daarom bewaren we het hooguit
 # een uur, en vergeten we een token zodra AH het weigert (zie `TokenRejected` en `_anonymous`).
@@ -371,7 +369,7 @@ def forget_token(token: str | None) -> None:
 
 def _bearer(headers: Any) -> str | None:
     value = str((headers or {}).get("Authorization") or "")
-    return value[len("Bearer "):] if value.startswith("Bearer ") else None
+    return value[len("Bearer ") :] if value.startswith("Bearer ") else None
 
 
 def _body(response: Any) -> str:
@@ -539,9 +537,7 @@ async def link_account(value: str) -> dict[str, Any]:
         if result.get("ok"):
             if result.get("type") == "refresh":
                 return {"connected": True, "type": "refresh"}
-            errors.append(
-                "dit is een access token (verloopt snel); plak de refresh token"
-            )
+            errors.append("dit is een access token (verloopt snel); plak de refresh token")
             return None
         errors.append(f"token: {result.get('error')}")
         return None
@@ -621,15 +617,9 @@ def _explain_exchange_error(error: str) -> str:
     status = error.split(":", 1)[0].strip()
     lowered = error.lower()
     if status == "403" or "access denied" in lowered:
-        return (
-            "AH weigert het verzoek (403). Probeer het later opnieuw; "
-            "blijft dit gebeuren, dan blokkeert AH deze server."
-        )
+        return "AH weigert het verzoek (403). Probeer het later opnieuw; blijft dit gebeuren, dan blokkeert AH deze server."
     if status in {"400", "401"}:
-        return (
-            "AH wijst de code af: hij is verlopen of al gebruikt. Log opnieuw in "
-            "bij AH en plak de nieuwe code direct."
-        )
+        return "AH wijst de code af: hij is verlopen of al gebruikt. Log opnieuw in bij AH en plak de nieuwe code direct."
     return error
 
 
@@ -733,31 +723,47 @@ def _recipe_card(item: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-async def search_recipes(query: str, page: int = 0, size: int = 12) -> dict[str, Any]:
-    """Allerhande-recepten zoeken via GraphQL (anoniem token)."""
-    size = max(1, int(size))
-    start = max(0, int(page)) * size
+async def _recipe_search_page(query: str, start: int, size: int, filters: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], int]:
+    """Eén pagina van de zoekfunctie van AH: de kaarten en het totaal aantal treffers."""
     if start >= RECIPE_SEARCH_WINDOW:
-        raise RuntimeError(
-            f"AH laat niet verder bladeren dan {RECIPE_SEARCH_WINDOW:,} recepten. Verfijn je zoekopdracht.".replace(",", ".")
-        )
+        raise RuntimeError(f"AH laat niet verder bladeren dan {RECIPE_SEARCH_WINDOW:,} recepten. Verfijn je zoekopdracht.".replace(",", "."))
     size = min(size, RECIPE_SEARCH_WINDOW - start)  # de laatste pagina wordt afgekapt in plaats van een fout
-
-    data = await _anonymous(lambda token: _graphql(
-        token,
-        RECIPE_SEARCH_QUERY,
-        {"query": {"searchText": str(query), "size": size, "start": start}},
-        "AH zoeken",
-    ))
+    params: dict[str, Any] = {"searchText": str(query), "size": size, "start": start}
+    if filters:
+        params["filters"] = filters
+    data = await _anonymous(lambda token: _graphql(token, RECIPE_SEARCH_QUERY, {"query": params}, "AH zoeken"))
     found = data.get("recipeSearch") or {}
     recipes = [_recipe_card(item) for item in found.get("result") or [] if item.get("id") is not None]
-    total = int((found.get("page") or {}).get("total") or 0)
-    reachable = min(total, RECIPE_SEARCH_WINDOW)
-    return {
-        "recipes": recipes,
-        "total": total,
-        "hasNextPage": start + len(recipes) < reachable,
-    }
+    return recipes, int((found.get("page") or {}).get("total") or 0)
+
+
+async def search_recipes(query: str, page: int = 0, size: int = 12, wanted: Any = None) -> dict[str, Any]:
+    """Allerhande-recepten zoeken via GraphQL (anoniem token).
+
+    Met `wanted` (recipe_diet.Wanted) filtert AH zelf op menugang, dieet, vlees/vis/gevogelte en "snel" (hooguit 15 minuten). Een
+    ruimere grens op de tijd filteren we zelf: dan is een pagina `RECIPE_SCAN_SIZE` recepten van AH, waarvan alleen de recepten
+    binnen de tijd terugkomen. Het totaal is dan niet bekend (`total` None); `scanned` zegt hoeveel treffers we bekeken, en `page`
+    welke pagina de volgende keer verder gaat."""
+    filters = recipe_diet.ah_filters(wanted) if wanted is not None else []
+    if wanted is None or not recipe_diet.ah_scan_needed(wanted):
+        size = max(1, int(size))
+        start = max(0, int(page)) * size
+        recipes, total = await _recipe_search_page(query, start, size, filters)
+        return {"recipes": recipes, "total": total, "hasNextPage": start + len(recipes) < min(total, RECIPE_SEARCH_WINDOW)}
+    number = max(0, int(page))
+    kept: list[dict[str, Any]] = []
+    more = False
+    scanned = number * RECIPE_SCAN_SIZE
+    for _ in range(RECIPE_SCAN_ROUNDS):
+        start = number * RECIPE_SCAN_SIZE
+        recipes, total = await _recipe_search_page(query, start, RECIPE_SCAN_SIZE, filters)
+        scanned = start + len(recipes)
+        more = scanned < min(total, RECIPE_SEARCH_WINDOW)
+        kept += [card for card in recipes if 0 < int(card.get("totalTime") or 0) <= wanted.max_minutes]
+        if kept or not more:
+            break
+        number += 1
+    return {"recipes": kept, "total": None, "scanned": scanned, "page": number, "hasNextPage": more}
 
 
 def _search_product_dict(item: dict[str, Any], query: str) -> dict[str, Any]:
@@ -859,7 +865,7 @@ def _is_exact(query_words: list[str], item: dict[str, Any]) -> bool:
     title = _words(item.get("title"))
     brand = _words(item.get("brand"))
     own_brand = brand[:1] == ["ah"] and title[: len(brand)] == brand
-    name = title[len(brand):] if own_brand else title
+    name = title[len(brand) :] if own_brand else title
     return bool(query_words) and query_words in (title, name)
 
 
@@ -898,8 +904,7 @@ def rank_search_results(query: str, products: list[Any]) -> list[dict[str, Any]]
     first_single = next((index for index, item in enumerate(items) if not item.get("isVirtualBundle")), len(items))
     ingredient_on_top = any(_names_ingredient(ingredient, item) for item in items[:first_single])
     fresh_first = any(
-        item.get("mainCategory") == FRESH_MEAT and not item.get("isVirtualBundle") and _names_ingredient(ingredient, item)
-        for item in items
+        item.get("mainCategory") == FRESH_MEAT and not item.get("isVirtualBundle") and _names_ingredient(ingredient, item) for item in items
     )
 
     def rank(pair: tuple[int, dict[str, Any]]) -> tuple[bool, bool, bool, bool, int]:
@@ -1090,6 +1095,8 @@ def _promotion_products(promotion: dict[str, Any]) -> list[dict[str, Any]]:
         unit = None
         if mechanic["type"] in _SINGLE_UNIT_MECHANICS and mechanic["minQuantity"] == 1:
             unit = deals.effective_unit_price(mechanic, regular, now)
+        elif mechanic["type"] == deals.PER_MEASURE:
+            unit = deals.pack_price(mechanic, item.get("salesUnitSize"))
         on_offer = unit is not None and regular is not None and unit < regular
         images = item.get("imagePack") or []
         small = images[0].get("small") if images and isinstance(images[0], dict) else None
@@ -1140,9 +1147,36 @@ async def get_bonus_promotions(today: date | None = None) -> list[dict[str, Any]
 
 BONUS_SECTION_PATH = "/mobile-services/bonuspage/v2/section"
 BONUS_FALLBACK_TERMS = (
-    "kip", "gehakt", "vis", "zalm", "worst", "spek", "rundvlees", "varkensvlees", "pasta", "rijst", "aardappel",
-    "groente", "tomaat", "ui", "paprika", "champignon", "salade", "fruit", "kaas", "melk", "yoghurt", "room", "ei",
-    "brood", "saus", "soep", "pizza", "noten", "olie", "bonen",
+    "kip",
+    "gehakt",
+    "vis",
+    "zalm",
+    "worst",
+    "spek",
+    "rundvlees",
+    "varkensvlees",
+    "pasta",
+    "rijst",
+    "aardappel",
+    "groente",
+    "tomaat",
+    "ui",
+    "paprika",
+    "champignon",
+    "salade",
+    "fruit",
+    "kaas",
+    "melk",
+    "yoghurt",
+    "room",
+    "ei",
+    "brood",
+    "saus",
+    "soep",
+    "pizza",
+    "noten",
+    "olie",
+    "bonen",
 )
 BONUS_PAGE_SIZE = 50
 BONUS_SEARCH_WORKERS = 6  # zoveel zoekopdrachten met de bonusvlag tegelijk
@@ -1165,6 +1199,14 @@ def _bonus_product(item: dict[str, Any], group: str = "") -> dict[str, Any] | No
         return None
     now = item.get("currentPrice")
     before = item.get("priceBeforeBonus")
+    label = _bonus_label(item, group)
+    # "per 100 GRAM voor 1.59": AH noemt de prijs per 100 gram als prijs van het pak. Die rekenen we om naar het pak.
+    # Zonder leesbare inhoud blijft de prijs per gewicht staan, zonder de gewone prijs van het pak ernaast: geen korting van 90%.
+    pack: float | None = deals.measure_priced(label, item.get("salesUnitSize"), now)
+    if pack is not None:
+        now = pack
+    elif deals.is_measure_price(label, now):
+        before = None
     images = item.get("images") or []
     return {
         "id": str(product_id),
@@ -1173,7 +1215,7 @@ def _bonus_product(item: dict[str, Any], group: str = "") -> dict[str, Any] | No
         "unitSize": item.get("salesUnitSize") or None,
         "price": now if isinstance(now, (int, float)) else before if isinstance(before, (int, float)) else None,
         "priceBefore": before if isinstance(before, (int, float)) and isinstance(now, (int, float)) and before > now else None,
-        "promoLabel": _bonus_label(item, group),
+        "promoLabel": label,
         "image": (images[0].get("url") if images and isinstance(images[0], dict) else None) or None,
         "url": product_web_url(product_id),
         "validFrom": item.get("bonusStartDate") or None,
@@ -1242,6 +1284,7 @@ async def get_bonus_products() -> list[dict[str, Any]]:
     except Exception as exc:  # noqa: BLE001 - onofficiële route; val terug op zoeken
         errors.append(str(exc)[:200])
     if not found:
+
         async def search(term: str) -> list[dict[str, Any]]:
             try:
                 return await _bonus_from_search(term, token)
@@ -1342,9 +1385,14 @@ def bonus_box_promotions(promotions: Any, start: str, end: str) -> list[dict[str
         promotion = {**promotion, "periodStart": promotion.get("periodStart") or start, "periodEnd": promotion.get("periodEnd") or end}
         products = _promotion_products(promotion)
         if not products and promotion.get("id") and str(promotion.get("title") or "").strip():
-            products = _promotion_products({**promotion, "products": [
-                {"id": f"bonusbox-{promotion['id']}", "title": promotion["title"], "price": promotion.get("price")},
-            ]})
+            products = _promotion_products(
+                {
+                    **promotion,
+                    "products": [
+                        {"id": f"bonusbox-{promotion['id']}", "title": promotion["title"], "price": promotion.get("price")},
+                    ],
+                }
+            )
         activated = _activated(promotion.get("activationStatus"))
         for product in products:
             product["activated"] = activated
@@ -1382,8 +1430,10 @@ async def _bonus_box_week(token: str, start: str, end: str, week: int | None) ->
         graphql_error = exc
     try:
         data = await _request_json(
-            "GET", f"{AH_API_BASE}{BONUS_BOX_PATH}",
-            headers=_auth_headers(token, include_content_type=False), params={"bonusStartDate": start},
+            "GET",
+            f"{AH_API_BASE}{BONUS_BOX_PATH}",
+            headers=_auth_headers(token, include_content_type=False),
+            params={"bonusStartDate": start},
         )
     except TokenRejected:
         raise
@@ -1424,9 +1474,7 @@ async def get_bonus_box(today: date | None = None) -> list[dict[str, Any]]:
         return await fetch(await get_user_token())
 
 
-async def _graphql_partial(
-    token: str, query: str, variables: dict[str, Any], what: str
-) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+async def _graphql_partial(token: str, query: str, variables: dict[str, Any], what: str) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     """Een GraphQL-vraag aan AH: `(data, errors)`. Een gedeeltelijk antwoord (fouten naast data) is geen fout; de aanroeper
     beslist wat ermee moet. Een HTTP-fout wel: `TokenRejected` of `AhHttpError`, zoals bij `_graphql`."""
     response: httpx.Response = await _client().post(
@@ -1597,12 +1645,7 @@ async def _fetch_recipe_details(token: str, recipe_ids: list[int]) -> list[dict[
         if response.status_code < 400:
             data = response.json()
             if isinstance(data, dict):
-                data = (
-                    data.get("recipes")
-                    or data.get("result")
-                    or data.get("items")
-                    or []
-                )
+                data = data.get("recipes") or data.get("result") or data.get("items") or []
             details = [normalized for item in (data or []) if (normalized := _normalize_recipe(item))]
             if details:
                 return details
@@ -1612,9 +1655,7 @@ async def _fetch_recipe_details(token: str, recipe_ids: list[int]) -> list[dict[
     return [normalized for rid in recipe_ids if (normalized := _normalize_recipe(rid))]
 
 
-async def _graphql_variants(
-    token: str, queries: tuple[str, ...], variables: dict[str, Any], what: str
-) -> dict[str, Any]:
+async def _graphql_variants(token: str, queries: tuple[str, ...], variables: dict[str, Any], what: str) -> dict[str, Any]:
     """Probeer query-varianten achter elkaar; de fouten van alle varianten staan in de melding."""
     errors: list[str] = []
     for query in queries:
@@ -1634,7 +1675,7 @@ async def _graphql_variants(
 def _recipe_page(recipes: list[dict[str, Any]], total: int, page: int, size: int) -> dict[str, Any]:
     size = max(1, int(size))
     start = max(0, int(page)) * size
-    return {"recipes": recipes[start:start + size], "total": max(total, len(recipes))}
+    return {"recipes": recipes[start : start + size], "total": max(total, len(recipes))}
 
 
 def _category_recipe_ids(category: dict[str, Any]) -> list[int]:
@@ -1655,9 +1696,7 @@ def _category_recipe_ids(category: dict[str, Any]) -> list[int]:
 
 async def _collection_categories(token: str) -> list[dict[str, Any]]:
     """De receptgroepen van het lid (zoals in de AH-app): `[{id, name, isDefault, recipeIds}]`, in de volgorde van AH."""
-    data = await _graphql_variants(
-        token, RECIPE_COLLECTIONS_QUERIES, {}, "AH receptencollectie ophalen"
-    )
+    data = await _graphql_variants(token, RECIPE_COLLECTIONS_QUERIES, {}, "AH receptencollectie ophalen")
     groups: list[dict[str, Any]] = []
     seen: set[str] = set()
     for category in data.get("recipeCollectionCategories") or []:
@@ -1681,9 +1720,7 @@ async def _collection_categories(token: str) -> list[dict[str, Any]]:
 
 async def _collection_recipe_ids(token: str) -> list[int]:
     """Alle bewaarde recepten: de receptnummers van alle groepen samen, zonder dubbelen."""
-    data = await _graphql_variants(
-        token, RECIPE_COLLECTIONS_QUERIES, {}, "AH receptencollectie ophalen"
-    )
+    data = await _graphql_variants(token, RECIPE_COLLECTIONS_QUERIES, {}, "AH receptencollectie ophalen")
     ids: list[int] = []
     seen: set[int] = set()
     for category in data.get("recipeCollectionCategories") or []:
@@ -1697,9 +1734,7 @@ async def _collection_recipe_ids(token: str) -> list[int]:
 
 
 async def _recipe_summaries(token: str, recipe_ids: list[int]) -> dict[int, dict[str, Any]]:
-    data = await _graphql_variants(
-        token, RECIPE_SUMMARIES_QUERIES, {"ids": recipe_ids}, "AH receptdetails ophalen"
-    )
+    data = await _graphql_variants(token, RECIPE_SUMMARIES_QUERIES, {"ids": recipe_ids}, "AH receptdetails ophalen")
     summaries: dict[int, dict[str, Any]] = {}
     for item in data.get("recipeSummaries") or []:
         try:
@@ -1713,8 +1748,7 @@ async def _recipe_summaries(token: str, recipe_ids: list[int]) -> dict[int, dict
             "id": str(recipe_id),
             "title": item.get("title") or f"Recept {recipe_id}",
             "image": image or "",
-            "url": f"https://www.ah.nl/allerhande/recept/R-R{recipe_id}"
-            + (f"/{slug}" if slug else ""),
+            "url": f"https://www.ah.nl/allerhande/recept/R-R{recipe_id}" + (f"/{slug}" if slug else ""),
         }
     return summaries
 
@@ -1725,7 +1759,7 @@ async def _get_saved_recipes_collections(page: int, size: int) -> dict[str, Any]
     ids = await _collection_recipe_ids(token)
     size = max(1, int(size))
     start = max(0, int(page)) * size
-    page_ids = ids[start:start + size]
+    page_ids = ids[start : start + size]
     if not page_ids:
         return {"recipes": [], "total": len(ids)}
     try:
@@ -1791,10 +1825,8 @@ async def get_saved_recipes(page: int = 0, size: int = 50) -> dict[str, Any]:
     if not await configured_refresh_token():
         raise RuntimeError(
             tr(
-                "AH account niet gekoppeld. De beheerder koppelt het bij Instellingen > Koppelen > Albert Heijn "
-                "om bewaarde recepten op te halen.",
-                "AH account not linked. The admin links it under Settings > Link > Albert Heijn "
-                "to fetch saved recipes.",
+                "AH account niet gekoppeld. De beheerder koppelt het bij Instellingen > Koppelen > Albert Heijn om bewaarde recepten op te halen.",
+                "AH account not linked. The admin links it under Settings > Link > Albert Heijn to fetch saved recipes.",
             )
         )
     return await _get_saved_recipes_api(page, size)
@@ -1805,10 +1837,8 @@ async def get_saved_recipe_groups() -> list[dict[str, Any]]:
     if not await configured_refresh_token():
         raise RuntimeError(
             tr(
-                "AH account niet gekoppeld. De beheerder koppelt het bij Instellingen > Koppelen > Albert Heijn "
-                "om receptgroepen op te halen.",
-                "AH account not linked. The admin links it under Settings > Link > Albert Heijn "
-                "to fetch recipe groups.",
+                "AH account niet gekoppeld. De beheerder koppelt het bij Instellingen > Koppelen > Albert Heijn om receptgroepen op te halen.",
+                "AH account not linked. The admin links it under Settings > Link > Albert Heijn to fetch recipe groups.",
             )
         )
     return await _collection_categories(await get_user_token())
@@ -1926,10 +1956,8 @@ async def get_week_planner() -> dict[str, Any]:
     if not await configured_refresh_token():
         raise LookupError(
             tr(
-                "AH account niet gekoppeld. De beheerder koppelt het bij Instellingen > Koppelen > Albert Heijn "
-                "om de weekplanner op te halen.",
-                "AH account not linked. The admin links it under Settings > Link > Albert Heijn "
-                "to fetch the week planner.",
+                "AH account niet gekoppeld. De beheerder koppelt het bij Instellingen > Koppelen > Albert Heijn om de weekplanner op te halen.",
+                "AH account not linked. The admin links it under Settings > Link > Albert Heijn to fetch the week planner.",
             )
         )
 
@@ -2001,6 +2029,11 @@ async def add_to_shopping_list(items: list[dict[str, Any]]) -> None:
         json=payload,
         timeout=30,
     )
+    _check_shopping_list_write(response)
+
+
+def _check_shopping_list_write(response: httpx.Response) -> None:
+    """Een geweigerde schrijfactie op de boodschappenlijst als fout, met gewone woorden als er een bestelling open staat."""
     if response.status_code == 412 and "order mode" in response.text.lower():
         # Er staat een bestelling open: dan weigert AH de boodschappenlijst. Zeg dat in gewone woorden.
         raise RuntimeError(
@@ -2060,7 +2093,9 @@ def _order_item(entry: dict[str, Any], taxonomy: str = "") -> dict[str, Any]:
         "brand": _text(product.get("brand")),
         "unitSize": _text(product.get("salesUnitSize")),
         "quantity": quantity,
-        "amount": round(quantity * price, 2) if price is not None else (_number(entry.get("amount")) if isinstance(entry.get("amount"), float) else None),
+        "amount": round(quantity * price, 2)
+        if price is not None
+        else (_number(entry.get("amount")) if isinstance(entry.get("amount"), float) else None),
         "price": price,
         "priceBeforeBonus": _number(product.get("priceBeforeBonus")),
         "bonus": bool(product.get("isBonus")),
@@ -2076,7 +2111,12 @@ async def get_shopping_list() -> dict[str, Any]:
     geen product maar een `description`. Afgevinkte regels (`strikedthrough`) laten we weg. De lezing is ruim: ook een kale
     lijst, `product` direct in de regel en de schrijfwijze `strikeThrough` worden begrepen.
     """
-    data = await _get_json("/mobile-services/shoppinglist/v2/items") or {}
+    return _shopping_list_from(await _get_json("/mobile-services/shoppinglist/v2/items"))
+
+
+def _shopping_list_from(data: Any) -> dict[str, Any]:
+    """De boodschappenlijst uit een antwoord van AH: van het lezen en van een PATCH, die de hele lijst teruggeeft."""
+    data = data or {}
     entries = data if isinstance(data, list) else data.get("items") or data.get("products") or []
     items = []
     for entry in entries:
@@ -2089,9 +2129,64 @@ async def get_shopping_list() -> dict[str, Any]:
         if not title:
             continue
         quantity = _int(entry.get("quantity")) or 1
-        item = _order_item({"quantity": quantity, "product": {**product, "webshopId": product.get("webshopId") or entry.get("productId"), "title": title}})
+        item = _order_item(
+            {"quantity": quantity, "product": {**product, "webshopId": product.get("webshopId") or entry.get("productId"), "title": title}}
+        )
         items.append({**item, "quantity": quantity})
-    return {"id": None, "state": "", "shoppingType": "", "total": None, "discount": None, "deliveryDate": "", "slotStart": "", "slotEnd": "", "items": items}
+    return {
+        "id": None,
+        "state": "",
+        "shoppingType": "",
+        "total": None,
+        "discount": None,
+        "deliveryDate": "",
+        "slotStart": "",
+        "slotEnd": "",
+        "items": items,
+    }
+
+
+async def set_shopping_list_quantity(product_id: Any, quantity: Any, title: Any = "") -> dict[str, Any]:
+    """Zet een product in het AH-mandje (de boodschappenlijst) op een exact aantal; 0 haalt het weg. Geeft de lijst daarna.
+
+    Gemeten bij AH op 2026-11-10: het aantal in de PATCH vervangt wat er stond (1, dan 3 geeft 3, niet 4), aantal 0 haalt de
+    regel weg, en het antwoord is de hele lijst. De actieve bestelling van AH kan dit ook, maar alleen als er een bestelling open
+    staat (`Appie-Current-Order-Id`), dus daar schrijft de app niet in.
+    """
+    whole: str = tr("Het aantal moet een heel getal zijn", "The quantity must be a whole number")
+    try:
+        product: int = int(product_id)
+    except (TypeError, ValueError):
+        raise ValueError(tr("Onbekend product", "Unknown product")) from None
+    if isinstance(quantity, bool) or (isinstance(quantity, float) and not quantity.is_integer()):
+        raise ValueError(whole)
+    try:
+        target: int = int(quantity)
+    except (TypeError, ValueError):
+        raise ValueError(whole) from None
+    if not 0 <= target <= MAX_CART_QUANTITY:
+        raise ValueError(tr(f"Het aantal moet tussen 0 en {MAX_CART_QUANTITY} liggen", f"The quantity must be between 0 and {MAX_CART_QUANTITY}"))
+    description: str = _text(title)
+    line: dict[str, Any] = {
+        "description": description,
+        "productId": product,
+        "quantity": target,
+        "type": "SHOPPABLE",
+        "originCode": "PRD",
+        "searchTerm": description,
+        "strikeThrough": False,
+    }
+    response: httpx.Response = await _client().patch(
+        f"{AH_API_BASE}/mobile-services/shoppinglist/v2/items",
+        headers=_auth_headers(await get_user_token()),
+        json={"items": [line]},
+        timeout=30,
+    )
+    _check_shopping_list_write(response)
+    try:
+        return _shopping_list_from(response.json())
+    except ValueError:  # geen JSON terug: dan lezen we de lijst zelf
+        return await get_shopping_list()
 
 
 async def get_active_order() -> dict[str, Any]:
@@ -2282,9 +2377,7 @@ async def get_recipe_jsonld(recipe_id: int) -> dict[str, Any]:
         raise RecipeUnavailable("AH recept niet gevonden")
 
     ingredients = [
-        str(item.get("text")).strip()
-        for item in recipe.get("ingredients") or []
-        if isinstance(item, dict) and str(item.get("text") or "").strip()
+        str(item.get("text")).strip() for item in recipe.get("ingredients") or [] if isinstance(item, dict) and str(item.get("text") or "").strip()
     ]
     steps = []
     for step in (recipe.get("preparation") or {}).get("steps") or []:
@@ -2295,11 +2388,7 @@ async def get_recipe_jsonld(recipe_id: int) -> dict[str, Any]:
         raise RecipeUnavailable("AH recept heeft geen ingredienten of bereiding")
 
     times = [recipe.get(key) or 0 for key in ("cookTime", "ovenTime", "waitTime")]
-    images = [
-        image.get("url")
-        for image in recipe.get("images") or []
-        if isinstance(image, dict) and image.get("url")
-    ]
+    images = [image.get("url") for image in recipe.get("images") or [] if isinstance(image, dict) and image.get("url")]
     servings = (recipe.get("servings") or {}).get("number")
 
     ld: dict[str, Any] = {
@@ -2355,8 +2444,16 @@ PRODUCT_NUTRITION_QUERY = """
 """
 # GS1-codes van een voedingstabel -> veld van nutrition.py ("salt" is zout in gram, dat wordt natrium).
 _NUTRIENT_CODES = {
-    "ener-": "calories", "ener": "calories", "fat": "fatContent", "fasat": "saturatedFatContent", "choavl": "carbohydrateContent",
-    "sugar-": "sugarContent", "sugar": "sugarContent", "pro-": "proteinContent", "fibtg": "fiberContent", "na": "sodiumContent",
+    "ener-": "calories",
+    "ener": "calories",
+    "fat": "fatContent",
+    "fasat": "saturatedFatContent",
+    "choavl": "carbohydrateContent",
+    "sugar-": "sugarContent",
+    "sugar": "sugarContent",
+    "pro-": "proteinContent",
+    "fibtg": "fiberContent",
+    "na": "sodiumContent",
     "salteq": "salt",
 }
 # Namen (kleine letters, zonder accenten) -> veld; de eerste die past wint, dus "onverzadigd" en "verzadigd" vóór "vet".

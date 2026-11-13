@@ -7,6 +7,7 @@ leidt de app de gebruiker langs de beveiliging en de uitleg voor Mealie, Albert 
 De status wordt uit de aanwezige gegevens afgeleid; alleen "bezig" en "klaar" staan als vlag
 in de database. Zo blijft een bestaande installatie (met passkey of wachtwoord) buiten beeld.
 """
+
 from __future__ import annotations
 
 import ipaddress
@@ -32,7 +33,7 @@ def hostname_info(host: str) -> dict[str, Any]:
     """Is dit een echte domeinnaam (waarmee een passkey kan werken)?"""
     host = (host or "").strip().lower().rstrip(".")
     if host.startswith("[") and "]" in host:  # IPv6 in een URL
-        host = host[1:host.index("]")]
+        host = host[1 : host.index("]")]
     try:
         ipaddress.ip_address(host)
         return {"host": host, "isIp": True, "isDomain": False, "reason": tr("een IP-adres", "an IP address")}
@@ -43,7 +44,12 @@ def hostname_info(host: str) -> dict[str, Any]:
     if "." not in host:
         return {"host": host, "isIp": False, "isDomain": False, "reason": tr("een naam zonder domein", "a name without a domain")}
     if host.endswith(PRIVATE_SUFFIXES):
-        return {"host": host, "isIp": False, "isDomain": False, "reason": tr("een naam die alleen in je eigen netwerk bestaat", "a name that only exists on your own network")}
+        return {
+            "host": host,
+            "isIp": False,
+            "isDomain": False,
+            "reason": tr("een naam die alleen in je eigen netwerk bestaat", "a name that only exists on your own network"),
+        }
     return {"host": host, "isIp": False, "isDomain": True, "reason": ""}
 
 

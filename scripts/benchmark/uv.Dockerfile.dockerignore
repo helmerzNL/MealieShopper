@@ -1,0 +1,15 @@
+# Wat een meetimage nooit mag bevatten: gegevens, geheimen en lokale omgevingen. `.github` en de documentatie gaan wel mee,
+# want de tests lezen ze.
+.git
+.claude
+.remember
+.superpowers
+.venv
+.ruff_cache
+.pytest_cache
+data
+__pycache__
+*.py[cod]
+.env
+.env.local
+CLAUDE.local.md

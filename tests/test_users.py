@@ -15,9 +15,10 @@ from cryptography.hazmat.primitives.hashes import SHA256
 
 os.environ["PASSKEY_AUTH_ENABLED"] = "false"
 
+from helpers import AppTestCase, db, run  # noqa: E402
+
 from mealieshopper import auth, auth_password, users  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
-from helpers import AppTestCase, db, run  # noqa: E402
 
 PASSWORD = "koffie-met-melk-42"
 ANNA = "een-heel-ander-wachtwoord"
@@ -42,7 +43,9 @@ class FakeAuthenticator:
     def create(self, challenge, flags=0x45):
         numbers = self.key.public_key().public_numbers()
         cose = cbor2.dumps({1: 2, 3: -7, -1: 1, -2: numbers.x.to_bytes(32, "big"), -3: numbers.y.to_bytes(32, "big")})
-        auth_data = self.rp_hash + bytes([flags]) + struct.pack(">I", 0) + b"\0" * 16 + struct.pack(">H", len(self.credential_id)) + self.credential_id + cose
+        auth_data = (
+            self.rp_hash + bytes([flags]) + struct.pack(">I", 0) + b"\0" * 16 + struct.pack(">H", len(self.credential_id)) + self.credential_id + cose
+        )
         return {
             "id": b64(self.credential_id),
             "rawId": b64(self.credential_id),
@@ -116,7 +119,12 @@ class MigrationTest(UsersTestCase):
 class InviteTest(UsersTestCase):
     async def test_only_the_administrator_manages_users(self):
         client = await self.join()
-        for method, path in (("get", "/api/users"), ("post", "/api/users/invites"), ("post", "/api/users/owner/reset"), ("delete", "/api/users/owner")):
+        for method, path in (
+            ("get", "/api/users"),
+            ("post", "/api/users/invites"),
+            ("post", "/api/users/owner/reset"),
+            ("delete", "/api/users/owner"),
+        ):
             response = await getattr(client, method)(path)
             self.assertEqual(response.status_code, 403, path)
         self.assertEqual((await self.admin.get("/api/users")).status_code, 200)
@@ -136,7 +144,12 @@ class InviteTest(UsersTestCase):
         self.assertTrue(status["passwordConfigured"])
         # En de uitnodiging is gebruikt.
         self.assertEqual((await anonymous.get("/api/invites/info", headers={"X-Invite-Token": created["token"]})).status_code, 404)
-        self.assertEqual((await self.post("/api/invites/password", {"token": created["token"], "username": "bob", "password": ANNA}, self.client_for(self.app))).status_code, 404)
+        self.assertEqual(
+            (
+                await self.post("/api/invites/password", {"token": created["token"], "username": "bob", "password": ANNA}, self.client_for(self.app))
+            ).status_code,
+            404,
+        )
 
     async def test_the_token_is_stored_hashed(self):
         token = (await self.invite())["token"]
@@ -157,8 +170,12 @@ class InviteTest(UsersTestCase):
     async def test_name_and_password_rules_apply(self):
         token = (await self.invite())["token"]
         client = self.client_for(self.app)
-        self.assertEqual((await self.post("/api/invites/password", {"token": token, "username": "Admin", "password": ANNA}, client)).status_code, 400)  # naam bezet
-        self.assertEqual((await self.post("/api/invites/password", {"token": token, "username": "anna", "password": "kort"}, client)).status_code, 400)
+        self.assertEqual(
+            (await self.post("/api/invites/password", {"token": token, "username": "Admin", "password": ANNA}, client)).status_code, 400
+        )  # naam bezet
+        self.assertEqual(
+            (await self.post("/api/invites/password", {"token": token, "username": "anna", "password": "kort"}, client)).status_code, 400
+        )
         self.assertEqual((await self.post("/api/invites/password", {"token": token, "username": "", "password": ANNA}, client)).status_code, 400)
         self.assertEqual(len(await users.list_users()), 1)  # niets half aangemaakt
         self.assertEqual((await self.post("/api/invites/password", {"token": token, "username": "anna", "password": ANNA}, client)).status_code, 200)
@@ -187,13 +204,22 @@ class PermissionsTest(UsersTestCase):
     async def test_a_user_cannot_link_mealie_or_ah_but_can_see_the_status(self):
         client = await self.join()
         for method, path in (
-            ("post", "/api/mealie/auth"), ("post", "/api/mealie/auth/logout"), ("post", "/api/ah/auth"),
-            ("post", "/api/ah/auth/verify"), ("get", "/api/ah/auth/start"), ("get", "/api/ah/auth/callback"),
-            ("get", "/api/ah/auth/proxy"), ("post", "/api/ah/auth/proxy/anything"),
-            ("post", "/api/picnic/auth"), ("post", "/api/picnic/auth/2fa/request"),
-            ("post", "/api/picnic/auth/2fa/verify"), ("post", "/api/picnic/auth/logout"),
+            ("post", "/api/mealie/auth"),
+            ("post", "/api/mealie/auth/logout"),
+            ("post", "/api/ah/auth"),
+            ("post", "/api/ah/auth/verify"),
+            ("get", "/api/ah/auth/start"),
+            ("get", "/api/ah/auth/callback"),
+            ("get", "/api/ah/auth/proxy"),
+            ("post", "/api/ah/auth/proxy/anything"),
+            ("post", "/api/picnic/auth"),
+            ("post", "/api/picnic/auth/2fa/request"),
+            ("post", "/api/picnic/auth/2fa/verify"),
+            ("post", "/api/picnic/auth/logout"),
             ("post", "/api/picnic/explore"),
-            ("post", "/api/jumbo/auth"), ("post", "/api/jumbo/auth/logout"), ("get", "/api/jumbo/auth/start"),
+            ("post", "/api/jumbo/auth"),
+            ("post", "/api/jumbo/auth/logout"),
+            ("get", "/api/jumbo/auth/start"),
             ("post", "/api/jumbo/explore"),
         ):
             response = await getattr(client, method)(path)
@@ -247,7 +273,13 @@ class PermissionsTest(UsersTestCase):
 class LoginTest(UsersTestCase):
     async def test_each_user_logs_in_with_their_own_password(self):
         await self.join("anna", ANNA)
-        for name, password, ok in (("anna", ANNA, True), ("ANNA", ANNA, True), ("anna", PASSWORD, False), ("admin", ANNA, False), ("admin", PASSWORD, True)):
+        for name, password, ok in (
+            ("anna", ANNA, True),
+            ("ANNA", ANNA, True),
+            ("anna", PASSWORD, False),
+            ("admin", ANNA, False),
+            ("admin", PASSWORD, True),
+        ):
             response = await self.post("/api/auth/password/login", {"username": name, "password": password}, self.client_for(self.app))
             self.assertEqual(response.status_code, 200 if ok else 401, (name, password))
 
@@ -269,7 +301,9 @@ class LoginTest(UsersTestCase):
         # De code van Anna werkt met haar eigen kaartje.
         client = self.client_for(self.app)
         ticket = (await self.post("/api/auth/password/login", {"username": "anna", "password": ANNA}, client)).get_json()["ticket"]
-        ok = await self.post("/api/auth/password/mfa", {"ticket": ticket, "code": auth_password.totp_code(secret, at=__import__("time").time() + 30)}, client)
+        ok = await self.post(
+            "/api/auth/password/mfa", {"ticket": ticket, "code": auth_password.totp_code(secret, at=__import__("time").time() + 30)}, client
+        )
         self.assertEqual(ok.status_code, 200, ok.get_json())
         self.assertEqual(ok.get_json()["username"], "anna")
 
@@ -287,7 +321,9 @@ class LoginTest(UsersTestCase):
         anna = await self.join("anna", ANNA)
         renamed = await self.post("/api/auth/password", {"username": "hacker", "password": "nieuw-wachtwoord-123", "currentPassword": ANNA}, anna)
         self.assertEqual(renamed.get_json()["username"], "anna")
-        taken = await self.post("/api/auth/password", {"username": "anna", "password": "nieuw-wachtwoord-123", "currentPassword": PASSWORD}, self.admin)
+        taken = await self.post(
+            "/api/auth/password", {"username": "anna", "password": "nieuw-wachtwoord-123", "currentPassword": PASSWORD}, self.admin
+        )
         self.assertEqual(taken.status_code, 400)  # de beheerder kan niet 'anna' worden
 
     async def test_users_only_see_their_own_passkeys(self):
@@ -312,7 +348,11 @@ class PasskeyInviteTest(UsersTestCase):
         self.assertEqual(options.status_code, 200, options.get_json())
         data = options.get_json()
         self.assertEqual(data["username"], "bob")
-        verified = await self.post("/api/auth/register/verify", {"invite": token, "userId": data["userId"], "credential": phone.create(data["options"]["challenge"])}, anonymous)
+        verified = await self.post(
+            "/api/auth/register/verify",
+            {"invite": token, "userId": data["userId"], "credential": phone.create(data["options"]["challenge"])},
+            anonymous,
+        )
         self.assertEqual(verified.status_code, 200, verified.get_json())
         status = (await anonymous.get("/api/auth/status")).get_json()
         self.assertEqual((status["username"], status["isOwner"], status["credentialCount"]), ("bob", False, 1))
@@ -333,7 +373,9 @@ class PasskeyInviteTest(UsersTestCase):
         anonymous = self.client_for(self.app)
         data = (await self.post("/api/auth/register/options", {"invite": token}, anonymous)).get_json()
         credential = phone.create(challenge or data["options"]["challenge"], flags=flags)
-        return anonymous, await self.post("/api/auth/register/verify", {"invite": token, "userId": data["userId"], "credential": credential}, anonymous)
+        return anonymous, await self.post(
+            "/api/auth/register/verify", {"invite": token, "userId": data["userId"], "credential": credential}, anonymous
+        )
 
     async def test_a_password_manager_passkey_without_user_verification_is_accepted(self):
         # Enpass, Bitwarden and friends report user presence only (flags 0x41 / 0x01).
@@ -352,7 +394,9 @@ class PasskeyInviteTest(UsersTestCase):
         await self.register_with(phone, name="dave")
         other = self.client_for(self.app)
         login = (await self.post("/api/auth/login/options", client=other)).get_json()["options"]
-        self.assertEqual((await self.post("/api/auth/login/verify", {"credential": phone.get(login["challenge"], flags=0x04)}, other)).status_code, 400)
+        self.assertEqual(
+            (await self.post("/api/auth/login/verify", {"credential": phone.get(login["challenge"], flags=0x04)}, other)).status_code, 400
+        )
 
     async def test_a_passkey_from_another_origin_or_for_another_challenge_is_refused(self):
         self.assertEqual((await self.register_with(FakeAuthenticator(origin="https://evil.example")))[1].status_code, 400)
@@ -375,15 +419,26 @@ class ResetAndDeleteTest(UsersTestCase):
         reset = (await self.post(f"/api/users/{anna_id}/reset")).get_json()
         self.assertEqual(reset["kind"], "reset")
         # Zolang de link niet gebruikt is, werkt het oude wachtwoord nog.
-        self.assertEqual((await self.post("/api/auth/password/login", {"username": "anna", "password": ANNA}, self.client_for(self.app))).status_code, 200)
+        self.assertEqual(
+            (await self.post("/api/auth/password/login", {"username": "anna", "password": ANNA}, self.client_for(self.app))).status_code, 200
+        )
         client = self.client_for(self.app)
         info = (await client.get("/api/invites/info", headers={"X-Invite-Token": reset["token"]})).get_json()
         self.assertEqual((info["kind"], info["username"]), ("reset", "anna"))
         # De naam uit het verzoek telt niet bij een reset.
-        done = await self.post("/api/invites/password", {"token": reset["token"], "username": "someoneelse", "password": "nieuw-wachtwoord-123"}, client)
+        done = await self.post(
+            "/api/invites/password", {"token": reset["token"], "username": "someoneelse", "password": "nieuw-wachtwoord-123"}, client
+        )
         self.assertEqual(done.get_json()["username"], "anna")
-        self.assertEqual((await self.post("/api/auth/password/login", {"username": "anna", "password": ANNA}, self.client_for(self.app))).status_code, 401)
-        self.assertEqual((await self.post("/api/auth/password/login", {"username": "anna", "password": "nieuw-wachtwoord-123"}, self.client_for(self.app))).status_code, 200)
+        self.assertEqual(
+            (await self.post("/api/auth/password/login", {"username": "anna", "password": ANNA}, self.client_for(self.app))).status_code, 401
+        )
+        self.assertEqual(
+            (
+                await self.post("/api/auth/password/login", {"username": "anna", "password": "nieuw-wachtwoord-123"}, self.client_for(self.app))
+            ).status_code,
+            200,
+        )
         self.assertFalse((await anna.get("/api/auth/status")).get_json()["authenticated"])  # oude sessie is weg
         self.assertEqual(len(await users.list_users()), 2)
 
@@ -408,7 +463,9 @@ class ResetAndDeleteTest(UsersTestCase):
         anna_id = (await anna.get("/api/auth/status")).get_json()["userId"]
         self.assertEqual((await self.admin.delete(f"/api/users/{anna_id}")).status_code, 200)
         self.assertFalse((await anna.get("/api/auth/status")).get_json()["authenticated"])
-        self.assertEqual((await self.post("/api/auth/password/login", {"username": "anna", "password": ANNA}, self.client_for(self.app))).status_code, 401)
+        self.assertEqual(
+            (await self.post("/api/auth/password/login", {"username": "anna", "password": ANNA}, self.client_for(self.app))).status_code, 401
+        )
         self.assertEqual([u["username"] for u in await users.list_users()], ["admin"])
         with closing(db()) as conn:
             self.assertEqual(conn.execute("SELECT COUNT(*) FROM password_credentials WHERE user_id = ?", (anna_id,)).fetchone()[0], 0)
@@ -417,7 +474,9 @@ class ResetAndDeleteTest(UsersTestCase):
         await self.join("anna", ANNA)
         listed = {u["username"]: u for u in (await self.admin.get("/api/users")).get_json()["users"]}
         self.assertEqual(listed["admin"]["role"], "owner")
-        self.assertEqual((listed["anna"]["role"], listed["anna"]["password"], listed["anna"]["passkeys"], listed["anna"]["mfa"]), ("user", True, 0, False))
+        self.assertEqual(
+            (listed["anna"]["role"], listed["anna"]["password"], listed["anna"]["passkeys"], listed["anna"]["mfa"]), ("user", True, 0, False)
+        )
         self.assertEqual(list(listed)[0], "admin")
 
 

@@ -105,7 +105,9 @@ class RecipeViewJsTest(unittest.TestCase):
         self.assertEqual(found, [""] * len(lines))
 
     def test_a_unit_from_mealie_counts_too(self):
-        found = self.run_js('out([cookSplitAmount("2 pondjes gehakt", ["pondjes"]), cookSplitAmount("1 fl oz rum", ["fl oz"]), cookSplitAmount("2 gehakt", ["g"])]);')
+        found = self.run_js(
+            'out([cookSplitAmount("2 pondjes gehakt", ["pondjes"]), cookSplitAmount("1 fl oz rum", ["fl oz"]), cookSplitAmount("2 gehakt", ["g"])]);'
+        )
         self.assertEqual(found, ["2 pondjes", "1 fl oz", "2"])
 
     def test_the_units_include_those_of_the_shopping_list(self):
@@ -116,15 +118,24 @@ class RecipeViewJsTest(unittest.TestCase):
     # ---- De twee bronnen
     def test_a_recipe_from_the_detail_screen(self):
         data = {
-            "id": 42, "name": "Pasta",
-            "ingredients": [{"line": "200 g pasta", "section": "Pasta"}, {"line": "  "}, {"line": " 1   el olie "}, {"line": "", "section": "Saus"}, {"line": "1 ui"}],
+            "id": 42,
+            "name": "Pasta",
+            "ingredients": [
+                {"line": "200 g pasta", "section": "Pasta"},
+                {"line": "  "},
+                {"line": " 1   el olie "},
+                {"line": "", "section": "Saus"},
+                {"line": "1 ui"},
+            ],
             "steps": ["Kook.", "  ", "Bak.\nRoer."],
             "stepTitles": ["Koken", "Leeg", ""],
         }
         model = self.run_js(f"out(cookRecipeFromStore('jumbo', {json.dumps(data)}));")
         self.assertEqual(model["key"], "jumbo:42")
-        self.assertEqual([(i["text"], i["amount"], i["section"]) for i in model["ingredients"]],
-                         [("200 g pasta", "200 g", "Pasta"), ("1 el olie", "1 el", ""), ("1 ui", "1", "Saus")])
+        self.assertEqual(
+            [(i["text"], i["amount"], i["section"]) for i in model["ingredients"]],
+            [("200 g pasta", "200 g", "Pasta"), ("1 el olie", "1 el", ""), ("1 ui", "1", "Saus")],
+        )
         self.assertEqual([(step["text"], step["title"]) for step in model["steps"]], [("Kook.", "Koken"), ("Bak.\nRoer.", "")])
         self.assertEqual((model["slug"], model["linkable"]), ("", False), "een recept van een winkel kan niet gekoppeld worden")
 
@@ -143,8 +154,10 @@ class RecipeViewJsTest(unittest.TestCase):
         }
         model = self.run_js(f"out(cookRecipeFromMealie({json.dumps(detail)}, 'mealie:pasta', 'Pasta pesto'));")
         self.assertEqual((model["key"], model["title"]), ("mealie:pasta", "Pasta pesto"))
-        self.assertEqual([(i["text"], i["amount"], i["section"]) for i in model["ingredients"]],
-                         [("800 g spaghetti", "800 g", "Pasta"), ("zout naar smaak", "", ""), ("2 pond gehakt", "2 pond", "Saus")])
+        self.assertEqual(
+            [(i["text"], i["amount"], i["section"]) for i in model["ingredients"]],
+            [("800 g spaghetti", "800 g", "Pasta"), ("zout naar smaak", "", ""), ("2 pond gehakt", "2 pond", "Saus")],
+        )
         self.assertEqual([(step["text"], step["title"]) for step in model["steps"]], [("Kook de pasta.", "Koken"), ("Roer.", "")])
 
     # ---- De weergave
@@ -167,7 +180,9 @@ class RecipeViewJsTest(unittest.TestCase):
         self.assertRegex(html, r"data-cook-reset hidden>")
 
     def test_empty_parts_say_so_and_without_steps_there_is_no_cooking_mode(self):
-        html = self.run_js(f"out(renderCookView({json.dumps(recipe(steps=[]))}, {{ headingLevel: 4, noIngredients: 'geen', noSteps: 'Geen <stappen>.', stepsNote: 'Voor 2.' }}));")
+        html = self.run_js(
+            f"out(renderCookView({json.dumps(recipe(steps=[]))}, {{ headingLevel: 4, noIngredients: 'geen', noSteps: 'Geen <stappen>.', stepsNote: 'Voor 2.' }}));"
+        )
         self.assertIn('<p class="muted">Geen &lt;stappen&gt;.</p>', html)
         self.assertIn("Voor 2.", html)
         self.assertNotIn("data-cook-start", html)
@@ -180,8 +195,7 @@ class RecipeViewJsTest(unittest.TestCase):
     def test_the_view_shows_the_stored_progress(self):
         key = json.dumps("ms-cook-progress:" + recipe()["key"])
         html = self.run_js(
-            f"store.set({key}, JSON.stringify({{ at: Date.now() - 1000, n: [3, 3], i: [0], s: [0] }}));"
-            f"out(renderCookView({json.dumps(recipe())}));"
+            f"store.set({key}, JSON.stringify({{ at: Date.now() - 1000, n: [3, 3], i: [0], s: [0] }}));out(renderCookView({json.dumps(recipe())}));"
         )
         self.assertIn('data-cook-tick="0" checked', html)
         self.assertNotIn('data-cook-tick="1" checked', html)
@@ -264,14 +278,17 @@ class RecipeViewJsTest(unittest.TestCase):
             "out([cookModeMove(0, 3, 'next'), cookModeMove(2, 3, 'next'), cookModeMove(2, 3, 'forward'), cookModeMove(1, 3, 'prev'),"
             "cookModeMove(0, 3, 'prev'), cookModeMove(9, 3, 'show')]);"
         )
-        self.assertEqual(found, [
-            {"index": 1, "markDone": True, "close": False},
-            {"index": 2, "markDone": True, "close": True},
-            {"index": 2, "markDone": True, "close": False},
-            {"index": 0, "markDone": False, "close": False},
-            {"index": 0, "markDone": False, "close": False},
-            {"index": 2, "markDone": False, "close": False},
-        ])
+        self.assertEqual(
+            found,
+            [
+                {"index": 1, "markDone": True, "close": False},
+                {"index": 2, "markDone": True, "close": True},
+                {"index": 2, "markDone": True, "close": False},
+                {"index": 0, "markDone": False, "close": False},
+                {"index": 0, "markDone": False, "close": False},
+                {"index": 2, "markDone": False, "close": False},
+            ],
+        )
 
     # ---- Scherm aan laten
     def test_the_screen_lock_follows_the_switch_the_page_and_the_recipe(self):
@@ -327,17 +344,15 @@ cookWakeUpdate().then(() => out([log, cookWake.lock]));
 
     def test_without_cooking_mode_the_ingredients_cannot_be_ticked(self):
         # Kookmodus uit (Instellingen, Weergave): de regels zijn gewone tekst, de balk verbergt styles.css.
-        html = self.run_js(
-            "globalThis.THEME = { appearance: () => ({ cookingMode: false }) };"
-            f"out(renderCookView({json.dumps(recipe())}));"
-        )
+        html = self.run_js(f"globalThis.THEME = {{ appearance: () => ({{ cookingMode: false }}) }};out(renderCookView({json.dumps(recipe())}));")
         ticks = re.findall(r'<input type="checkbox" data-cook-tick="\d+"[^>]*>', html)
         self.assertEqual(len(ticks), 3)
         self.assertTrue(all(" disabled" in tick for tick in ticks), ticks)
         self.assertFalse(self.run_js("globalThis.THEME = { appearance: () => ({ cookingMode: false }) }; out(cookEnabled());"))
         self.assertTrue(self.run_js("out(cookEnabled());"), "zonder theme.js: aan")
-        on = self.run_js("globalThis.THEME = { appearance: () => ({ cookingMode: true }) };" f"out(renderCookView({json.dumps(recipe())}));")
+        on = self.run_js(f"globalThis.THEME = {{ appearance: () => ({{ cookingMode: true }}) }};out(renderCookView({json.dumps(recipe())}));")
         self.assertNotIn(" disabled", on)
+
 
 PASTA = "aaaaaaaa-0000-4000-8000-000000000001"
 OIL = "aaaaaaaa-0000-4000-8000-000000000002"
@@ -358,7 +373,11 @@ class StepIngredientsJsTest(RecipeViewJsTest):
             {"display": "1 bosje basilicum", "referenceId": BASIL, "title": "Pesto"},
         ],
         "recipeInstructions": [
-            {"id": STEP_1, "text": "Kook de pasta.", "ingredientReferences": [{"referenceId": PASTA}, {"referenceId": OIL}, {"referenceId": "kapot"}]},
+            {
+                "id": STEP_1,
+                "text": "Kook de pasta.",
+                "ingredientReferences": [{"referenceId": PASTA}, {"referenceId": OIL}, {"referenceId": "kapot"}],
+            },
             {"id": STEP_2, "text": "Pureer het basilicum met de olie.", "ingredientReferences": []},
             {"text": "Eet smakelijk."},
         ],
@@ -369,17 +388,27 @@ class StepIngredientsJsTest(RecipeViewJsTest):
         self.assertEqual((model["slug"], model["linkable"]), ("pasta-pesto", True))
         self.assertEqual([item["ref"] for item in model["ingredients"]], [PASTA, OIL, BASIL])
         first, second, third = model["steps"]
-        self.assertEqual((first["id"], first["refs"], first["uses"], first["auto"]), (STEP_1, [PASTA, OIL], [0, 1], False),
-                         "gekoppeld in Mealie: ook als de tekst ze niet noemt")
+        self.assertEqual(
+            (first["id"], first["refs"], first["uses"], first["auto"]),
+            (STEP_1, [PASTA, OIL], [0, 1], False),
+            "gekoppeld in Mealie: ook als de tekst ze niet noemt",
+        )
         self.assertEqual((second["uses"], second["auto"]), ([1, 2], True), "niet gekoppeld: gevonden in de tekst (olie in olijfolie)")
         self.assertEqual((third["id"], third["uses"], third["auto"]), ("", [], False))
 
     def test_the_detail_screen_of_mealie_gives_the_same(self):
         data = {
-            "id": "pasta-pesto", "slug": "pasta-pesto", "name": "Pasta",
-            "ingredients": [{"line": "400 g spaghetti", "ref": PASTA}, {"line": "2 el olijfolie", "ref": OIL}, {"line": "1 bosje basilicum", "ref": BASIL}],
+            "id": "pasta-pesto",
+            "slug": "pasta-pesto",
+            "name": "Pasta",
+            "ingredients": [
+                {"line": "400 g spaghetti", "ref": PASTA},
+                {"line": "2 el olijfolie", "ref": OIL},
+                {"line": "1 bosje basilicum", "ref": BASIL},
+            ],
             "steps": ["Kook de pasta.", "Pureer het basilicum met de olie."],
-            "stepIds": [STEP_1, STEP_2], "stepRefs": [[PASTA, OIL], []],
+            "stepIds": [STEP_1, STEP_2],
+            "stepRefs": [[PASTA, OIL], []],
         }
         mealie = self.run_js(f"out(cookRecipeFromStore('mealie', {json.dumps(data)}));")
         self.assertEqual((mealie["slug"], mealie["linkable"]), ("pasta-pesto", True))
@@ -390,9 +419,22 @@ class StepIngredientsJsTest(RecipeViewJsTest):
         self.assertEqual([step["uses"] for step in store["steps"]], [[0, 1], [1, 2]])
 
     def test_finding_the_ingredients_in_the_text(self):
-        lines = ["1 rode ui, gesnipperd", "2 tenen knoflook, fijngehakt", "400 g kipfiletblokjes", "200 ml kookroom", "zout en peper naar smaak",
-                 "2 el olijfolie", "300 g verse spinazie", "2 tomaten", "3 eieren", "1 blik tomatenblokjes (400 g)", "250 g rundergehakt",
-                 "300 g penne", "2 cloves garlic, minced", "1 cup chopped onions"]
+        lines = [
+            "1 rode ui, gesnipperd",
+            "2 tenen knoflook, fijngehakt",
+            "400 g kipfiletblokjes",
+            "200 ml kookroom",
+            "zout en peper naar smaak",
+            "2 el olijfolie",
+            "300 g verse spinazie",
+            "2 tomaten",
+            "3 eieren",
+            "1 blik tomatenblokjes (400 g)",
+            "250 g rundergehakt",
+            "300 g penne",
+            "2 cloves garlic, minced",
+            "1 cup chopped onions",
+        ]
         cases = {
             "Fruit de ui en de knoflook in de olie.": [0, 1, 5],
             "Bak de kipfiletblokjes rondom bruin.": [2],
@@ -417,8 +459,23 @@ class StepIngredientsJsTest(RecipeViewJsTest):
                 self.assertEqual(auto, bool(uses))
 
     def test_stems(self):
-        cases = {"uien": "ui", "ui": "ui", "tomaten": "tomat", "tomaat": "tomat", "eieren": "ei", "kippen": "kip", "boontjes": "bon", "bonen": "bon",
-                 "paprika's": "paprika", "Onions": "onion", "olives": "oliv", "olive": "oliv", "tomatoes": "tomato", "Crème": "crem", "olie": "oli"}
+        cases = {
+            "uien": "ui",
+            "ui": "ui",
+            "tomaten": "tomat",
+            "tomaat": "tomat",
+            "eieren": "ei",
+            "kippen": "kip",
+            "boontjes": "bon",
+            "bonen": "bon",
+            "paprika's": "paprika",
+            "Onions": "onion",
+            "olives": "oliv",
+            "olive": "oliv",
+            "tomatoes": "tomato",
+            "Crème": "crem",
+            "olie": "oli",
+        }
         found = self.run_js(f"out(Object.fromEntries({json.dumps(list(cases))}.map((word) => [word, cookStem(word)])));")
         self.assertEqual(found, cases)
 
@@ -476,23 +533,37 @@ class RecipeViewPageTest(unittest.TestCase):
         for old in ("picnic-recipe__list", "mealRecipeLines"):
             self.assertNotIn(old, SEARCH_JS + APP_JS + CSS, old)
         # Terug naar de lijst en een recept openen kijken of het scherm nog aan moet.
-        back = SEARCH_JS[SEARCH_JS.index("function showRecipeList"):]
-        self.assertIn("cookWakeUpdate()", back[:back.index("\n}")])
+        back = SEARCH_JS[SEARCH_JS.index("function showRecipeList") :]
+        self.assertIn("cookWakeUpdate()", back[: back.index("\n}")])
 
     def test_the_cooking_mode_window(self):
-        dialog = HTML[HTML.index('<dialog id="cook-mode"'):]
-        dialog = dialog[:dialog.index("</dialog>")]
+        dialog = HTML[HTML.index('<dialog id="cook-mode"') :]
+        dialog = dialog[: dialog.index("</dialog>")]
         self.assertIn('class="product-dialog cook-mode" aria-labelledby="cook-mode-title"', dialog)
-        for element in ("cook-mode-title", "cook-mode-close", "cook-mode-ingredients", "cook-mode-meter", "cook-mode-stage", "cook-mode-step",
-                        "cook-mode-counter", "cook-mode-step-title", "cook-mode-text", "cook-mode-done", "cook-mode-panel",
-                        "cook-mode-ingredients-list", "cook-mode-prev", "cook-mode-next", "cook-mode-next-label"):
+        for element in (
+            "cook-mode-title",
+            "cook-mode-close",
+            "cook-mode-ingredients",
+            "cook-mode-meter",
+            "cook-mode-stage",
+            "cook-mode-step",
+            "cook-mode-counter",
+            "cook-mode-step-title",
+            "cook-mode-text",
+            "cook-mode-done",
+            "cook-mode-panel",
+            "cook-mode-ingredients-list",
+            "cook-mode-prev",
+            "cook-mode-next",
+            "cook-mode-next-label",
+        ):
             self.assertIn(f'id="{element}"', dialog, element)
         self.assertIn('aria-live="polite"', dialog)
         self.assertIn('aria-controls="cook-mode-panel"', dialog)
         self.assertIn("data-cook-wake", dialog)
         # Niet in het venster van een maaltijd: dan kan de kookmodus er bovenop openen.
-        meal = HTML[HTML.index('<dialog id="meal-recipe-dialog"'):]
-        self.assertNotIn('id="cook-mode"', meal[:meal.index("</dialog>")])
+        meal = HTML[HTML.index('<dialog id="meal-recipe-dialog"') :]
+        self.assertNotIn('id="cook-mode"', meal[: meal.index("</dialog>")])
 
     def test_storage_and_the_screen_lock_are_guarded(self):
         for function in re.findall(r"^(?:async )?function \w+\(.*?^}$", VIEW_JS, re.S | re.M):
@@ -508,14 +579,16 @@ class RecipeViewPageTest(unittest.TestCase):
         self.assertIn("width: 44px", toggle)
         self.assertIn("height: 44px", toggle)
         self.assertIn("@container cook (min-width: 640px)", CSS)
-        motion = CSS[CSS.index(".cook-mode__nav .button"):]
-        motion = motion[motion.index("@media (prefers-reduced-motion: reduce)"):]
-        self.assertIn(".cook-step,", motion[:motion.index("}\n}")])
+        motion = CSS[CSS.index(".cook-mode__nav .button") :]
+        motion = motion[motion.index("@media (prefers-reduced-motion: reduce)") :]
+        self.assertIn(".cook-step,", motion[: motion.index("}\n}")])
         # Schermvullend zoals de achtergrond: ook over de ruimte die de pagina voor de scrollbalk vrijhoudt.
         self.assertIn("inset: 0", re.search(r"\.cook-mode \{(.*?)\}", CSS, re.S).group(1))
 
     def test_both_languages_have_the_texts(self):
-        keys = sorted(set(re.findall(r'"(cook\.\w+)"', VIEW_JS + HTML)) | set(re.findall(r'data-i18n(?:-attr="[\w-]+:|=")(cook\.\w+)', VIEW_JS + HTML)))
+        keys = sorted(
+            set(re.findall(r'"(cook\.\w+)"', VIEW_JS + HTML)) | set(re.findall(r'data-i18n(?:-attr="[\w-]+:|=")(cook\.\w+)', VIEW_JS + HTML))
+        )
         self.assertIn("cook.start", keys)
         for source in (NL, EN):
             for key in keys:

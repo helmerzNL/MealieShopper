@@ -116,12 +116,13 @@ def salami() -> dict:
 
 @unittest.skipUnless(shutil.which("node"), "Node is not installed")
 class HistoryChartTest(unittest.TestCase):
-    def render(self, product: dict, range_: str | None = None) -> dict:
-        source: str = (
-            (ROOT / "static/offers_history.js")
-            .read_text()
-            .split('$("#offers-history-search").addEventListener')[0]
-        )
+    def render(self, product: dict, range_: str | None = None, offer: dict | None = None) -> dict:
+        shown: dict = offer or {
+            "price": 3.65,
+            "priceBefore": 4.29,
+            "promoLabel": "Bonus Box 15% korting",
+        }
+        source: str = (ROOT / "static/offers_history.js").read_text().split('$("#offers-history-search").addEventListener')[0]
         prelude: str = """
 const escapeHtml = (value) => String(value).replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('"', '&quot;');
 const t = (key, values = {}) => key + ' ' + JSON.stringify(values);
@@ -134,6 +135,7 @@ const $ = () => ({clientWidth: 640});
 const storeImage = (url) => url;
 const offerPerUnitText = () => '';
 const purchasePath = () => '';
+const facetSelection = () => ({shown: [], hidden: []});
 """
         script: str = (
             prelude
@@ -152,28 +154,18 @@ console.log(JSON.stringify({{
     purchases8: offerHistoryPurchasesTable(product, {{ limit: 8 }}),
     purchasesAll: offerHistoryPurchasesTable(product, {{}}),
     blockPopup: offerHistoryChartBlock(product, {{ width: 600, ranges: {{ "ah:514010": "1y" }} }}),
-    headOffer: offerHistoryHead(product, {{ compact: true, offer: {{ price: 3.65, priceBefore: 4.29, promoLabel: "Bonus Box 15% korting" }} }}),
+    headOffer: offerHistoryHead(product, {{ compact: true, offer: {json.dumps(shown)} }}),
 }}));
 """
         )
-        result: subprocess.CompletedProcess = subprocess.run(
-            ["node", "-e", script], capture_output=True, text=True, check=True
-        )
+        result: subprocess.CompletedProcess = subprocess.run(["node", "-e", script], capture_output=True, text=True, check=True)
         return json.loads(result.stdout)
 
     @staticmethod
     def xs(svg: str, kind: str) -> list[float]:
         if kind == "paid":
-            return [
-                float(value)
-                for value in re.findall(
-                    r'class="ohc-paid".*?<circle cx="([\d.]+)"', svg
-                )
-            ]
-        return [
-            float(value)
-            for value in re.findall(rf'class="{kind}[^"]*".*?<rect x="([\d.]+)"', svg)
-        ]
+            return [float(value) for value in re.findall(r'class="ohc-paid".*?<circle cx="([\d.]+)"', svg)]
+        return [float(value) for value in re.findall(rf'class="{kind}[^"]*".*?<rect x="([\d.]+)"', svg)]
 
     def test_2026_11_09_the_chart_shows_the_period_of_the_product_itself(self) -> None:
         chart: str = self.render(salami())["chart"]
@@ -219,6 +211,26 @@ console.log(JSON.stringify({{
         self.assertIn("offers.history.stat.line_lowest", detail)
         self.assertIn("offers.history.table.price_each", detail)
 
+    def test_the_regular_price_stat_names_its_source_and_date(self) -> None:
+        product: dict = {**salami(), "regularSince": "2026-10-03", "regularSource": "import"}
+        stats: str = self.render(product)["stats"]
+        self.assertIn("<dt>offers.history.stat.regular {}</dt>", stats)
+        self.assertIn("offers.history.stat.regular_from", stats)
+        self.assertIn("offers.regular.source.import", stats)
+        self.assertIn("2026", stats.split("regular_from")[1])
+        # Dezelfde prijs uit twee bronnen op twee dagen: de bron is die van de nieuwste dag, en de regel noemt ook die dag.
+        run: dict = {
+            **salami(),
+            "regularSince": "2026-09-01",
+            "regularSource": "receipt",
+            "regular": [{"from": "2026-09-01", "to": "2026-09-20", "price": 4.29}],
+        }
+        line: str = self.render(run)["stats"].split("regular_from")[1]
+        self.assertIn("20", line.split("</small>")[0])
+        self.assertNotIn("1 sep", line.split("</small>")[0])
+        bare: str = self.render({**salami(), "regularSource": None})["stats"]
+        self.assertNotIn("regular_from", bare)
+
     def test_the_detail_is_built_from_head_stats_chart_and_purchases(self) -> None:
         found: dict = self.render(salami())
         for part in ("head", "stats", "block", "purchasesAll"):
@@ -241,7 +253,11 @@ console.log(JSON.stringify({{
         found: dict = self.render(salami())
         self.assertIn('data-range="1y" aria-pressed="true"', found["blockPopup"])
         self.assertIn('data-ranges="popup"', found["blockPopup"])
-        self.assertNotIn('data-ranges="popup"', found["block"], "de pagina zelf leest offerHistory.ranges")
+        self.assertNotIn(
+            'data-ranges="popup"',
+            found["block"],
+            "de pagina zelf leest offerHistory.ranges",
+        )
 
     def test_the_compact_head_shows_the_offer_price_line(self) -> None:
         found: dict = self.render(salami())
@@ -249,6 +265,16 @@ console.log(JSON.stringify({{
         for part in ("€3,65", "<s>€4,29</s>", "Bonus Box 15% korting"):
             self.assertIn(part, found["headOffer"])
         self.assertNotIn("ohc-head__price", found["headCompact"], "zonder aanbieding geen prijsregel")
+
+    def test_the_compact_head_strikes_through_an_old_price_only_when_it_is_fresh(self) -> None:
+        # Eindreview 2026-11-12: de kop van de popup streepte de gewone prijs door, ook een bon van 300 dagen terug. Alleen bij een
+        # verse meting of aankoop (`history`), anders de prijs ervoor van de winkel.
+        offer: dict = {"price": 3.65, "priceBefore": 4.29, "promoLabel": "Bonus Box 15% korting"}
+        dated: dict = self.render(salami(), offer={**offer, "badge": {"source": "dated"}, "verdict": {"lowestRegular": 4.99}})
+        fresh: dict = self.render(salami(), offer={**offer, "badge": {"source": "history"}, "verdict": {"lowestRegular": 3.99}})
+        self.assertIn("<s>€4,29</s>", dated["headOffer"])
+        self.assertNotIn("4,99", dated["headOffer"])
+        self.assertIn("<s>€3,99</s>", fresh["headOffer"])
 
     def test_without_older_data_there_are_no_buttons(self) -> None:
         product: dict = salami()

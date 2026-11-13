@@ -8,13 +8,35 @@ of iets verwijdert.
 Toegang loopt via OAuth (zie oauth.py). De server staat alleen aan als de app zelf inloggen
 vraagt, zodat de MCP-ingang nooit open staat op een installatie zonder beveiliging.
 """
+
 from __future__ import annotations
 
 import datetime
 import json
 from typing import Any, Awaitable, Callable
 
-from . import ah, ah_lists, offers, ah_orders, urls, ah_recipes, auth, crisp, jumbo, jumbo_lists, jumbo_orders, jumbo_recipes, mealie, nutrition, picnic, picnic_orders, picnic_recipes, prices, recipe_nutrition, server_settings
+from . import (
+    ah,
+    ah_lists,
+    ah_orders,
+    ah_recipes,
+    auth,
+    crisp,
+    jumbo,
+    jumbo_lists,
+    jumbo_orders,
+    jumbo_recipes,
+    mealie,
+    nutrition,
+    offers,
+    picnic,
+    picnic_orders,
+    picnic_recipes,
+    prices,
+    recipe_nutrition,
+    server_settings,
+    urls,
+)
 
 LATEST_PROTOCOL = "2025-06-18"
 SUPPORTED_PROTOCOLS = ("2025-06-18", "2025-03-26", "2024-11-05")
@@ -37,6 +59,7 @@ class ToolError(Exception):
 
 # --- tools ---------------------------------------------------------------------------------------
 
+
 def _week_start(day: datetime.date, first: int) -> datetime.date:
     """De eerste dag van de week waar `day` in valt; `first` telt zoals Mealie (0 = zondag, 1 = maandag ... 6 = zaterdag)."""
     return day - datetime.timedelta(days=(day.isoweekday() - first) % 7)
@@ -57,15 +80,23 @@ def _text(value: Any, limit: int = 300) -> str:
 
 # Voedingswaarden voor een AI: per portie of samen, met de eenheid in de naam en zout in gram (uit natrium, zie nutrition.py).
 _NUTRITION_OUT = (
-    ("kcal", "calories", 0), ("proteinG", "proteinContent", 1), ("fatG", "fatContent", 1), ("saturatedFatG", "saturatedFatContent", 1),
-    ("carbsG", "carbohydrateContent", 1), ("sugarG", "sugarContent", 1), ("fiberG", "fiberContent", 1),
+    ("kcal", "calories", 0),
+    ("proteinG", "proteinContent", 1),
+    ("fatG", "fatContent", 1),
+    ("saturatedFatG", "saturatedFatContent", 1),
+    ("carbsG", "carbohydrateContent", 1),
+    ("sugarG", "sugarContent", 1),
+    ("fiberG", "fiberContent", 1),
 )
 
 
 def _found(items: Any) -> dict[str, float]:
     """De waarden uit een lijst `[{key, quantity, unit}]` (zoals een kaart, maaltijd of recept ze geeft)."""
-    return {item["key"]: float(item["quantity"]) for item in items or [] if isinstance(item, dict) and item.get("key") in nutrition.UNITS
-            and isinstance(item.get("quantity"), (int, float))}
+    return {
+        item["key"]: float(item["quantity"])
+        for item in items or []
+        if isinstance(item, dict) and item.get("key") in nutrition.UNITS and isinstance(item.get("quantity"), (int, float))
+    }
 
 
 def _nutrition_out(found: dict[str, float]) -> dict[str, Any] | None:
@@ -130,7 +161,9 @@ async def tool_week_menu(args: dict[str, Any]) -> Any:
             nutrition.add(day["totals"], found)
         else:
             day["without"] += 1
-    days = [{"date": date, "perPerson": _nutrition_out(day["totals"]), "mealsWithoutNutrition": day["without"]} for date, day in sorted(per_day.items())]
+    days = [
+        {"date": date, "perPerson": _nutrition_out(day["totals"]), "mealsWithoutNutrition": day["without"]} for date, day in sorted(per_day.items())
+    ]
     return {"from": start.isoformat(), "to": end.isoformat(), "meals": meals, "days": days}
 
 
@@ -150,9 +183,16 @@ async def tool_search_mealie_recipes(args: dict[str, Any]) -> Any:
     answer: dict[str, Any] = {
         "total": data["total"],
         "recipes": [
-            {"slug": r["slug"], "name": r["name"], "minutes": r["minutes"], "portions": r["portions"],
-             "kcalPerServing": r.get("kcal"), "nutritionPerServing": _nutrition_out(_found(r.get("nutrition"))),
-             "tags": r["tags"], "url": await mealie.recipe_page_url(r["slug"])}
+            {
+                "slug": r["slug"],
+                "name": r["name"],
+                "minutes": r["minutes"],
+                "portions": r["portions"],
+                "kcalPerServing": r.get("kcal"),
+                "nutritionPerServing": _nutrition_out(_found(r.get("nutrition"))),
+                "tags": r["tags"],
+                "url": await mealie.recipe_page_url(r["slug"]),
+            }
             for r in data["recipes"]
         ],
     }
@@ -242,15 +282,15 @@ async def tool_saved_recipes(args: dict[str, Any]) -> Any:
         by_id = {str(recipe["id"]): recipe for recipe in recipes}
         recipes = [by_id[recipe_id] for recipe_id in group["recipeIds"] if recipe_id in by_id]
     words = _text(args.get("query"), 200).casefold().split()
-    recipes = [
-        recipe for recipe in recipes
-        if all(word in str(recipe.get("title") or "").casefold() for word in words)
-    ]
+    recipes = [recipe for recipe in recipes if all(word in str(recipe.get("title") or "").casefold() for word in words)]
     result = {
         "total": len(recipes),
         "syncedAt": data.get("syncedAt"),
         # De voedingswaarden per portie zodra MealieShopper ze bij AH heeft opgehaald (zie ah_recipes.start_fill), anders null.
-        "recipes": [{"title": r["title"], "url": r["url"], "nutritionPerServing": _nutrition_out(_found(r.get("nutrition")))} for r in recipes[:MAX_LIST_ITEMS]],
+        "recipes": [
+            {"title": r["title"], "url": r["url"], "nutritionPerServing": _nutrition_out(_found(r.get("nutrition")))}
+            for r in recipes[:MAX_LIST_ITEMS]
+        ],
     }
     if group is not None:
         result["group"] = group["name"]
@@ -379,7 +419,13 @@ async def tool_search_jumbo_products(args: dict[str, Any]) -> Any:
     limit = max(1, min(10, int(args.get("limit") or 5)))
     return {
         "products": [
-            {"title": item["title"], "size": item.get("unitSize"), "price": item.get("price"), "promotion": item.get("isBonus"), "url": item.get("url")}
+            {
+                "title": item["title"],
+                "size": item.get("unitSize"),
+                "price": item.get("price"),
+                "promotion": item.get("isBonus"),
+                "url": item.get("url"),
+            }
             for item in await prices.recorded("jumbo", jumbo.search_products)(query, limit)
         ]
     }
@@ -408,8 +454,14 @@ async def tool_list_jumbo_lists(args: dict[str, Any]) -> Any:
     overview = await jumbo_lists.merged_lists()
     return {
         "lists": [
-            {"id": item["id"], "name": item["name"], "kind": item["kind"], "items": item["itemCount"],
-             "synced": item["synced"], "syncedAt": item["syncedAt"]}
+            {
+                "id": item["id"],
+                "name": item["name"],
+                "kind": item["kind"],
+                "items": item["itemCount"],
+                "synced": item["synced"],
+                "syncedAt": item["syncedAt"],
+            }
             for item in overview["lists"]
         ],
         "error": overview["storeError"],
@@ -621,15 +673,31 @@ async def tool_get_price_history(args: dict[str, Any]) -> Any:
         "total": data["total"],
         "products": [
             {
-                "store": product["store"], "productId": product["productId"], "title": product.get("title"), "brand": product.get("brand"),
-                "size": product.get("unitSize"), "onOfferNow": product.get("onOfferNow"), "timesOnOffer": product.get("timesOnOffer"),
-                "lowestOfferPrice": product.get("lowestPrice"), "regularPrice": product.get("regularPrice"),
+                "store": product["store"],
+                "productId": product["productId"],
+                "title": product.get("title"),
+                "brand": product.get("brand"),
+                "size": product.get("unitSize"),
+                "onOfferNow": product.get("onOfferNow"),
+                "timesOnOffer": product.get("timesOnOffer"),
+                "lowestOfferPrice": product.get("lowestPrice"),
+                "regularPrice": product.get("regularPrice"),
                 "regularPricePerUnit": product.get("regularPerUnit"),
-                "lowestRegularPrice": product.get("lowestRegular"), "highestRegularPrice": product.get("highestRegular"),
-                "timesBought": product.get("timesBought"), "lastPaid": product.get("lastPaid"), "averagePaid": product.get("averagePaid"),
+                "lowestRegularPrice": product.get("lowestRegular"),
+                "highestRegularPrice": product.get("highestRegular"),
+                "timesBought": product.get("timesBought"),
+                "lastPaid": product.get("lastPaid"),
+                "averagePaid": product.get("averagePaid"),
                 "offers": [
-                    {"from": e.get("start"), "until": e.get("end"), "ongoing": e.get("open"), "price": e.get("price"),
-                     "priceBefore": e.get("priceBefore"), "label": e.get("promoLabel"), "personal": bool(e.get("personal"))}
+                    {
+                        "from": e.get("start"),
+                        "until": e.get("end"),
+                        "ongoing": e.get("open"),
+                        "price": e.get("price"),
+                        "priceBefore": e.get("priceBefore"),
+                        "label": e.get("promoLabel"),
+                        "personal": bool(e.get("personal")),
+                    }
                     for e in product.get("episodes", [])[-keep:]
                 ],
                 "regularPrices": product.get("regular", [])[-keep:],
@@ -663,12 +731,20 @@ async def tool_import_recipe(args: dict[str, Any]) -> Any:
 
 
 def _copy_note(synced: str | None) -> str:
-    return f"Uit de lokale kopie van {synced[:16].replace('T', ' ')} (UTC)." if synced else "Nog niet gesynchroniseerd: de kopie is leeg. De eigenaar synchroniseert onder AH Items > Bestellingen."
+    return (
+        f"Uit de lokale kopie van {synced[:16].replace('T', ' ')} (UTC)."
+        if synced
+        else "Nog niet gesynchroniseerd: de kopie is leeg. De eigenaar synchroniseert onder AH Items > Bestellingen."
+    )
 
 
 async def tool_basket(args: dict[str, Any]) -> Any:
     basket = await ah_orders.get_basket()
-    return {"note": _copy_note(basket["syncedAt"]) + " Dit is het AH-mandje: de producten die via MealieShopper of de AH-app op de boodschappenlijst staan.", **basket}
+    return {
+        "note": _copy_note(basket["syncedAt"])
+        + " Dit is het AH-mandje: de producten die via MealieShopper of de AH-app op de boodschappenlijst staan.",
+        **basket,
+    }
 
 
 async def tool_list_orders(args: dict[str, Any]) -> Any:
@@ -735,12 +811,19 @@ READ_ONLY = {"readOnlyHint": True, "destructiveHint": False, "idempotentHint": T
 
 # De grenzen op voedingswaarden voor search_mealie_recipes: <naam>_min en <naam>_max per waarde uit nutrition.FILTERS.
 _NUTRITION_WORDS = {
-    "kcal": "kcal", "protein": "gram eiwit", "fat": "gram vet", "carbs": "gram koolhydraten", "sugar": "gram suikers",
-    "fiber": "gram vezels", "salt": "gram zout",
+    "kcal": "kcal",
+    "protein": "gram eiwit",
+    "fat": "gram vet",
+    "carbs": "gram koolhydraten",
+    "sugar": "gram suikers",
+    "fiber": "gram vezels",
+    "salt": "gram zout",
 }
 _NUTRITION_BOUNDS: dict[str, Any] = {
     f"{name}_{side}": {
-        "type": "number" if decimals else "integer", "minimum": 0, "maximum": top,
+        "type": "number" if decimals else "integer",
+        "minimum": 0,
+        "maximum": top,
         "description": f"{'Minimaal' if side == 'min' else 'Maximaal'} aantal {_NUTRITION_WORDS[name]} per persoon (per portie).",
     }
     for name, (_field, top, decimals) in nutrition.FILTERS.items()
@@ -752,7 +835,10 @@ TOOLS: dict[str, dict[str, Any]] = {
         "description": "Het weekmenu uit Mealie: per dag en maaltijd het id, het recept (of de notitie), de porties, de calorieën (kcalPerServing per persoon en kcalTotal voor de porties samen, als Mealie ze heeft), alle voedingswaarden (nutritionPerServing en nutritionTotal: kcal, eiwit, vet, verzadigd vet, koolhydraten, suikers en vezels in gram, zout in gram), de link en de ingrediënten (omgerekend naar de porties uit de planner van Mealie). In days staat per dag wat één persoon binnenkrijgt (perPerson, de som per portie van de maaltijden met een recept) en hoeveel maaltijden geen voedingswaarden hebben. Standaard de huidige week, vanaf de eerste dag van de week die in MealieShopper of Mealie is ingesteld (anders maandag). Plannen gaat met plan_meal, weghalen met remove_planned_meal.",
         "inputSchema": _schema(
             {
-                "start_date": {"type": "string", "description": "Eerste dag, JJJJ-MM-DD. Standaard de eerste dag van deze week (zoals ingesteld in MealieShopper of Mealie, anders maandag)."},
+                "start_date": {
+                    "type": "string",
+                    "description": "Eerste dag, JJJJ-MM-DD. Standaard de eerste dag van deze week (zoals ingesteld in MealieShopper of Mealie, anders maandag).",
+                },
                 "days": {"type": "integer", "minimum": 1, "maximum": 14, "description": "Aantal dagen, standaard 7."},
             }
         ),
@@ -763,7 +849,10 @@ TOOLS: dict[str, dict[str, Any]] = {
         "description": "Zoek in de eigen recepten in Mealie, op een zoekterm en/of op voedingswaarden per persoon (per portie): kcal, eiwit, vet, koolhydraten, suikers en vezels in gram, zout in gram (bijvoorbeeld protein_min 30 en salt_max 1.5). Geeft per recept de slug (nodig voor plan_meal), naam, bereidingstijd, personen, kcal per persoon (kcalPerServing), alle voedingswaarden (nutritionPerServing, als Mealie ze heeft), tags en link. Met een grens vallen recepten zonder die voedingswaarde weg (withoutValues telt ze).",
         "inputSchema": _schema(
             {
-                "query": {"type": "string", "description": "Zoekterm, bijvoorbeeld 'curry'. Mag leeg zijn als er een grens op een voedingswaarde is opgegeven."},
+                "query": {
+                    "type": "string",
+                    "description": "Zoekterm, bijvoorbeeld 'curry'. Mag leeg zijn als er een grens op een voedingswaarde is opgegeven.",
+                },
                 **_NUTRITION_BOUNDS,
                 "limit": {"type": "integer", "minimum": 1, "maximum": 50, "description": "Aantal recepten, standaard 20."},
             },
@@ -776,9 +865,17 @@ TOOLS: dict[str, dict[str, Any]] = {
         "inputSchema": _schema(
             {
                 "date": {"type": "string", "description": "De dag, JJJJ-MM-DD."},
-                "meal": {"type": "string", "enum": list(mealie.ENTRY_TYPES + mealie.EXTRA_ENTRY_TYPES), "description": "De maaltijd, standaard dinner. snack, drink en dessert pas vanaf Mealie 3.7."},
+                "meal": {
+                    "type": "string",
+                    "enum": list(mealie.ENTRY_TYPES + mealie.EXTRA_ENTRY_TYPES),
+                    "description": "De maaltijd, standaard dinner. snack, drink en dessert pas vanaf Mealie 3.7.",
+                },
                 "recipe_slug": {"type": "string", "description": "De slug van het recept in Mealie."},
-                "servings": {"type": "number", "exclusiveMinimum": 0, "description": "Aantal porties (personen), bijvoorbeeld 2 voor een recept voor 4. Alleen bij een recept, vanaf Mealie 3.29; standaard de porties van het recept."},
+                "servings": {
+                    "type": "number",
+                    "exclusiveMinimum": 0,
+                    "description": "Aantal porties (personen), bijvoorbeeld 2 voor een recept voor 4. Alleen bij een recept, vanaf Mealie 3.29; standaard de porties van het recept.",
+                },
                 "title": {"type": "string", "description": "Titel van een notitie zonder recept."},
                 "note": {"type": "string", "description": "Optionele toelichting."},
             },
@@ -790,13 +887,22 @@ TOOLS: dict[str, dict[str, Any]] = {
     "remove_planned_meal": {
         "description": "Haal een maaltijd uit het weekmenu van Mealie (het id staat bij get_week_menu). Het recept zelf blijft in Mealie staan.",
         "inputSchema": _schema({"id": {"type": "integer", "minimum": 1, "description": "Het id van de maaltijd uit get_week_menu."}}, ["id"]),
-        "annotations": {"title": "Maaltijd uit het weekmenu halen", "readOnlyHint": False, "destructiveHint": True, "idempotentHint": True, "openWorldHint": True},
+        "annotations": {
+            "title": "Maaltijd uit het weekmenu halen",
+            "readOnlyHint": False,
+            "destructiveHint": True,
+            "idempotentHint": True,
+            "openWorldHint": True,
+        },
         "handler": tool_remove_planned_meal,
     },
     "search_allerhande_recipes": {
         "description": "Zoek recepten bij Allerhande (Albert Heijn). Geeft titel, link, bereidingstijd en aantal personen. Importeren in Mealie gaat met import_recipe_to_mealie.",
         "inputSchema": _schema(
-            {"query": {"type": "string", "description": "Zoekterm, bijvoorbeeld 'pasta pesto'."}, "page": {"type": "integer", "minimum": 0, "description": "Pagina, beginnend bij 0."}},
+            {
+                "query": {"type": "string", "description": "Zoekterm, bijvoorbeeld 'pasta pesto'."},
+                "page": {"type": "integer", "minimum": 0, "description": "Pagina, beginnend bij 0."},
+            },
             ["query"],
         ),
         "annotations": {**READ_ONLY, "title": "Allerhande-recepten zoeken"},
@@ -807,7 +913,10 @@ TOOLS: dict[str, dict[str, Any]] = {
         "inputSchema": _schema(
             {
                 "query": {"type": "string", "description": "Woorden die in de titel moeten staan."},
-                "group": {"type": "string", "description": "Id of (deel van) de naam van een receptgroep, bijvoorbeeld 'Taarten'. Standaard alle bewaarde recepten."},
+                "group": {
+                    "type": "string",
+                    "description": "Id of (deel van) de naam van een receptgroep, bijvoorbeeld 'Taarten'. Standaard alle bewaarde recepten.",
+                },
             }
         ),
         "annotations": {**READ_ONLY, "title": "Bewaarde AH-recepten"},
@@ -840,7 +949,10 @@ TOOLS: dict[str, dict[str, Any]] = {
     "search_ah_products": {
         "description": "Zoek producten in het assortiment van Albert Heijn: naam, merk, inhoud, prijs en bonus.",
         "inputSchema": _schema(
-            {"query": {"type": "string", "description": "Productnaam."}, "limit": {"type": "integer", "minimum": 1, "maximum": 10, "description": "Aantal resultaten, standaard 5."}},
+            {
+                "query": {"type": "string", "description": "Productnaam."},
+                "limit": {"type": "integer", "minimum": 1, "maximum": 10, "description": "Aantal resultaten, standaard 5."},
+            },
             ["query"],
         ),
         "annotations": {**READ_ONLY, "title": "AH-producten zoeken"},
@@ -849,7 +961,10 @@ TOOLS: dict[str, dict[str, Any]] = {
     "search_picnic_products": {
         "description": "Zoek producten in het assortiment van Picnic: naam, inhoud, prijs en of er een aanbieding is. Live opgehaald bij Picnic.",
         "inputSchema": _schema(
-            {"query": {"type": "string", "description": "Productnaam."}, "limit": {"type": "integer", "minimum": 1, "maximum": 10, "description": "Aantal resultaten, standaard 5."}},
+            {
+                "query": {"type": "string", "description": "Productnaam."},
+                "limit": {"type": "integer", "minimum": 1, "maximum": 10, "description": "Aantal resultaten, standaard 5."},
+            },
             ["query"],
         ),
         "annotations": {**READ_ONLY, "title": "Picnic-producten zoeken"},
@@ -869,7 +984,9 @@ TOOLS: dict[str, dict[str, Any]] = {
     },
     "list_picnic_orders": {
         "description": "Afgeleverde Picnic-bestellingen uit de lokale kopie (werkt ook als Picnic niet bereikbaar is), nieuwste eerst, met dag, bezorgvenster, status en totaal (zonder adres). Gebruik het nummer met get_picnic_order.",
-        "inputSchema": _schema({"limit": {"type": "integer", "minimum": 1, "maximum": MAX_LIST_ITEMS, "description": "Aantal bestellingen, standaard 50."}}),
+        "inputSchema": _schema(
+            {"limit": {"type": "integer", "minimum": 1, "maximum": MAX_LIST_ITEMS, "description": "Aantal bestellingen, standaard 50."}}
+        ),
         "annotations": {**READ_ONLY, "openWorldHint": False, "title": "Picnic-bestellingen"},
         "handler": tool_list_picnic_orders,
     },
@@ -901,7 +1018,11 @@ TOOLS: dict[str, dict[str, Any]] = {
         "description": "Recepten van Picnic: je bewaarde recepten (saved), het kookboek (cookbook) of recepten die je eerder bestelde (ordered), met id, naam, kooktijd en labels. Live opgehaald; er wordt niets opgeslagen of aan je mandje toegevoegd.",
         "inputSchema": _schema(
             {
-                "source": {"type": "string", "enum": ["saved", "cookbook", "ordered"], "description": "saved = Koken > Bewaard (standaard), cookbook = het kookboek, ordered = Opnieuw bestellen."},
+                "source": {
+                    "type": "string",
+                    "enum": ["saved", "cookbook", "ordered"],
+                    "description": "saved = Koken > Bewaard (standaard), cookbook = het kookboek, ordered = Opnieuw bestellen.",
+                },
                 "limit": {"type": "integer", "minimum": 1, "maximum": 100, "description": "Aantal recepten, standaard 30."},
             }
         ),
@@ -917,7 +1038,10 @@ TOOLS: dict[str, dict[str, Any]] = {
     "search_jumbo_products": {
         "description": "Zoek producten in het assortiment van Jumbo: naam, inhoud, prijs, of er een aanbieding is en de link. Live opgehaald bij Jumbo.",
         "inputSchema": _schema(
-            {"query": {"type": "string", "description": "Productnaam."}, "limit": {"type": "integer", "minimum": 1, "maximum": 10, "description": "Aantal resultaten, standaard 5."}},
+            {
+                "query": {"type": "string", "description": "Productnaam."},
+                "limit": {"type": "integer", "minimum": 1, "maximum": 10, "description": "Aantal resultaten, standaard 5."},
+            },
             ["query"],
         ),
         "annotations": {**READ_ONLY, "title": "Jumbo-producten zoeken"},
@@ -931,7 +1055,14 @@ TOOLS: dict[str, dict[str, Any]] = {
     },
     "get_jumbo_list": {
         "description": "De producten van een Jumbo-lijstje (naam, merk, pakmaat, prijs, aantal en link). Zonder opgave het boodschappenlijstje (losse regels). Uit de lokale kopie als die er is, anders live. Er wordt niets aan veranderd.",
-        "inputSchema": _schema({"list": {"type": "string", "description": "Id of (deel van) de naam van het lijstje, bijvoorbeeld 'Favorieten'. Standaard het boodschappenlijstje."}}),
+        "inputSchema": _schema(
+            {
+                "list": {
+                    "type": "string",
+                    "description": "Id of (deel van) de naam van het lijstje, bijvoorbeeld 'Favorieten'. Standaard het boodschappenlijstje.",
+                }
+            }
+        ),
         "annotations": {**READ_ONLY, "title": "Jumbo-lijstje"},
         "handler": tool_jumbo_list,
     },
@@ -972,7 +1103,9 @@ TOOLS: dict[str, dict[str, Any]] = {
     },
     "list_jumbo_orders": {
         "description": "Jumbo-bestellingen uit de lokale kopie, nieuwste eerst, met datum, bezorgwijze, status en totaal (zonder adres). Gebruik het nummer met get_jumbo_order.",
-        "inputSchema": _schema({"limit": {"type": "integer", "minimum": 1, "maximum": MAX_LIST_ITEMS, "description": "Aantal bestellingen, standaard 50."}}),
+        "inputSchema": _schema(
+            {"limit": {"type": "integer", "minimum": 1, "maximum": MAX_LIST_ITEMS, "description": "Aantal bestellingen, standaard 50."}}
+        ),
         "annotations": {**READ_ONLY, "openWorldHint": False, "title": "Jumbo-bestellingen"},
         "handler": tool_list_jumbo_orders,
     },
@@ -996,7 +1129,9 @@ TOOLS: dict[str, dict[str, Any]] = {
     },
     "list_ah_orders": {
         "description": "AH-bestellingen uit de lokale kopie, open bestellingen eerst en daarna de afgeleverde, met datum, bezorgvenster en totaal. Gebruik het nummer met get_ah_order.",
-        "inputSchema": _schema({"limit": {"type": "integer", "minimum": 1, "maximum": MAX_LIST_ITEMS, "description": "Aantal bestellingen, standaard 50."}}),
+        "inputSchema": _schema(
+            {"limit": {"type": "integer", "minimum": 1, "maximum": MAX_LIST_ITEMS, "description": "Aantal bestellingen, standaard 50."}}
+        ),
         "annotations": {**READ_ONLY, "openWorldHint": False, "title": "AH-bestellingen"},
         "handler": tool_list_orders,
     },
@@ -1008,7 +1143,9 @@ TOOLS: dict[str, dict[str, Any]] = {
     },
     "list_ah_receipts": {
         "description": "Kassabonnen van aankopen in de winkel, nieuwste eerst, uit de lokale kopie. Gebruik het id met get_ah_receipt.",
-        "inputSchema": _schema({"limit": {"type": "integer", "minimum": 1, "maximum": MAX_LIST_ITEMS, "description": "Aantal bonnen, standaard 50."}}),
+        "inputSchema": _schema(
+            {"limit": {"type": "integer", "minimum": 1, "maximum": MAX_LIST_ITEMS, "description": "Aantal bonnen, standaard 50."}}
+        ),
         "annotations": {**READ_ONLY, "openWorldHint": False, "title": "Kassabonnen"},
         "handler": tool_list_receipts,
     },
@@ -1021,7 +1158,10 @@ TOOLS: dict[str, dict[str, Any]] = {
     "search_ah_purchases": {
         "description": "Waar en wanneer kocht de eigenaar een product? Zoekt in alle bewaarde bestellingen en kassabonnen op woorden in de productnaam, ook in de oude bestellingen die uit bevestigingsmails zijn ingelezen (`imported: true`, met het bestelnummer of `dag:<datum>` als id; die staan niet in get_ah_order). Geeft per product de laatste keer, hoe vaak en hoeveel, en de losse aankopen.",
         "inputSchema": _schema(
-            {"query": {"type": "string", "description": "Bijvoorbeeld 'koffie'."}, "limit": {"type": "integer", "minimum": 1, "maximum": MAX_LIST_ITEMS, "description": "Aantal losse aankopen, standaard 50."}},
+            {
+                "query": {"type": "string", "description": "Bijvoorbeeld 'koffie'."},
+                "limit": {"type": "integer", "minimum": 1, "maximum": MAX_LIST_ITEMS, "description": "Aantal losse aankopen, standaard 50."},
+            },
             ["query"],
         ),
         "annotations": {**READ_ONLY, "openWorldHint": False, "title": "Aankopen doorzoeken"},
@@ -1060,7 +1200,13 @@ TOOLS: dict[str, dict[str, Any]] = {
             },
             ["store", "ingredient", "offer_id"],
         ),
-        "annotations": {"title": "Onjuiste koppeling melden", "readOnlyHint": False, "destructiveHint": False, "idempotentHint": True, "openWorldHint": False},
+        "annotations": {
+            "title": "Onjuiste koppeling melden",
+            "readOnlyHint": False,
+            "destructiveHint": False,
+            "idempotentHint": True,
+            "openWorldHint": False,
+        },
         "handler": tool_report_offer_mismatch,
     },
     "list_offer_mismatches": {
@@ -1078,7 +1224,10 @@ TOOLS: dict[str, dict[str, Any]] = {
         "description": "De prijsgeschiedenis van producten uit de lokale kopie: wanneer ze in de aanbieding waren en voor welke prijs, de normale prijs door de tijd en wat je betaalde (uit bestellingen en kassabonnen). Handig om te zien of een aanbieding echt voordelig is. Van Lidl en Aldi zijn er alleen aanbiedingen (geen webwinkel).",
         "inputSchema": _schema(
             {
-                "query": {"type": "string", "description": "Woorden uit de productnaam en eventueel een maat, bijvoorbeeld 'penne' of 'gehakt 500 gram'. Leeg: de producten met de recentste gegevens."},
+                "query": {
+                    "type": "string",
+                    "description": "Woorden uit de productnaam en eventueel een maat, bijvoorbeeld 'penne' of 'gehakt 500 gram'. Leeg: de producten met de recentste gegevens.",
+                },
                 "store": {"type": "string", "enum": list(offers.STORES), "description": "Alleen deze winkel; standaard alle."},
                 "limit": {"type": "integer", "minimum": 1, "maximum": 50, "description": "Aantal producten, standaard 10."},
                 "bought": {"type": "boolean", "description": "Alleen producten die je minstens één keer kocht (uit bestellingen en kassabonnen)."},
@@ -1090,7 +1239,13 @@ TOOLS: dict[str, dict[str, Any]] = {
     "import_recipe_to_mealie": {
         "description": "Importeer een recept van een webpagina (ook Allerhande) in Mealie. Maakt een nieuw recept aan; er wordt niets overschreven of verwijderd.",
         "inputSchema": _schema({"url": {"type": "string", "description": "De volledige URL van het recept."}}, ["url"]),
-        "annotations": {"title": "Recept importeren in Mealie", "readOnlyHint": False, "destructiveHint": False, "idempotentHint": False, "openWorldHint": True},
+        "annotations": {
+            "title": "Recept importeren in Mealie",
+            "readOnlyHint": False,
+            "destructiveHint": False,
+            "idempotentHint": False,
+            "openWorldHint": True,
+        },
         "handler": tool_import_recipe,
     },
 }
@@ -1134,6 +1289,7 @@ async def call_tool(name: str, arguments: Any) -> dict[str, Any]:
 
 
 # --- JSON-RPC ------------------------------------------------------------------------------------
+
 
 def _error(request_id: Any, code: int, message: str) -> dict[str, Any]:
     return {"jsonrpc": "2.0", "id": request_id, "error": {"code": code, "message": message}}

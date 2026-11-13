@@ -7,8 +7,9 @@ from unittest import mock
 
 os.environ["PASSKEY_AUTH_ENABLED"] = "false"
 
-from mealieshopper.app import create_app  # noqa: E402
 from helpers import AppTestCase  # noqa: E402
+
+from mealieshopper.app import create_app  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 CSS = (ROOT / "static" / "styles.css").read_text(encoding="utf-8")
@@ -90,7 +91,7 @@ class TabbarMarkupTest(AppTestCase):
         self.assertNotIn("tab--avatar", self.html + CSS, "de avatar staat niet meer in de tabbalk")
         more = re.search(r'<button class="tab tab--more" id="tab-more".*?</button>', self.nav, re.S).group(0)
         self.assertIn("hidden", more.split(">")[0], "zonder inlog is er geen menu")
-        self.assertIn('data-user-menu-trigger', more)
+        self.assertIn("data-user-menu-trigger", more)
         self.assertIn('aria-controls="user-menu-list"', more)
         self.assertIn('data-mdi="mdiMenu"', more, "een hamburger-icoon")
         self.assertIn('data-i18n="nav.more">Meer<', more)
@@ -98,18 +99,21 @@ class TabbarMarkupTest(AppTestCase):
         self.assertLess(self.nav.index('data-tab="basket"'), self.nav.index('id="tab-more"'))
         self.assertNotIn('data-tab="about"', self.nav, "Over zit in het menu Meer")
         self.assertRegex(CSS, r"\.tab--more\s*{\s*display: none;")
-        media = CSS[CSS.rindex("@media (max-width: 640px) {\n  .tab--more"):]
-        media = media[:media.index("\n}\n")]
+        media = CSS[CSS.rindex("@media (max-width: 640px) {\n  .tab--more") :]
+        media = media[: media.index("\n}\n")]
         self.assertIn(".tab--more:not([hidden])", media)
         self.assertIn(".user-menu {\n    display: none;", media, "op een klein scherm staat de avatar niet in de kop")
 
     def test_basket_moves_into_the_more_menu_on_small_screens(self):
-        media = CSS[CSS.rindex("@media (max-width: 640px) {\n  .tab--more"):]
-        media = media[:media.index("\n}\n")]
+        media = CSS[CSS.rindex("@media (max-width: 640px) {\n  .tab--more") :]
+        media = media[: media.index("\n}\n")]
         self.assertIn('.tabs .tab[data-tab="basket"] {\n    display: none;', media)
         self.assertIn(".user-menu__item--small:not([hidden]) {\n    display: flex;", media)
-        self.assertRegex(CSS, r"\.user-menu__item\[hidden\],\s*\.user-menu__item--small,\s*\.user-menu__item--standalone\s*{\s*display: none;",
-                         "op een groot scherm staat Mandje niet in het menu")
+        self.assertRegex(
+            CSS,
+            r"\.user-menu__item\[hidden\],\s*\.user-menu__item--small,\s*\.user-menu__item--standalone\s*{\s*display: none;",
+            "op een groot scherm staat Mandje niet in het menu",
+        )
 
     def test_icons_are_material_design_icons_with_the_text_colour(self):
         svgs = re.findall(r'<svg class="tab-icon".*?</svg>', self.nav, re.S)
@@ -139,14 +143,14 @@ class TabbarMarkupTest(AppTestCase):
         self.assertIn("Apache 2.0", licence)
 
     def test_icons_show_in_the_top_menu_too(self):
-        outside = CSS[:CSS.index("/* Onderste menubalk: een zwevende")]
+        outside = CSS[: CSS.index("/* Onderste menubalk: een zwevende")]
         self.assertNotRegex(outside, r"\.tab-icon\s*{\s*display: none;")
         tab = re.search(r"^\.tab\s*{(.*?)}", outside, re.S | re.M).group(1)
         self.assertIn("display: inline-flex", tab)
         self.assertIn("align-items: center", tab)
 
     def test_recipes_tab_holds_the_week_menu_and_recipe_search_as_subtabs(self):
-        section = self.html[self.html.index('<section id="recipes"'):self.html.index('<section id="basket"')]
+        section = self.html[self.html.index('<section id="recipes"') : self.html.index('<section id="basket"')]
         self.assertEqual(re.findall(r'<a class="subtab[^"]*" data-subtab="([\w-]+)"', section), ["planner", "search"])
         self.assertIn('<div id="planner" class="subpanel is-active">', section)
         self.assertIn('<div id="search" class="subpanel">', section)
@@ -165,7 +169,7 @@ class TabbarMarkupTest(AppTestCase):
         # In de browser blijft zoomen werken (toegankelijkheid); alleen de geinstalleerde app gedraagt zich als een native app.
         self.assertIn('<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">', self.html)
         script = re.search(r"<script>(.*?)</script>", self.html, re.S).group(1)
-        branch = script[script.index("if (standalone) {"):]
+        branch = script[script.index("if (standalone) {") :]
         for needle in ('classList.add("is-standalone")', "maximum-scale=1, user-scalable=no, viewport-fit=cover", '"gesturestart"'):
             self.assertIn(needle, branch, needle)
         self.assertEqual(script.count("user-scalable=no"), 1, "nergens anders")
@@ -178,7 +182,7 @@ class TabbarMarkupTest(AppTestCase):
 
     def test_app_js_keeps_aria_current_in_sync_and_scrolls_to_top(self):
         js = (ROOT / "static" / "app.js").read_text(encoding="utf-8")
-        handler = js[js.index('document.querySelectorAll(".tab").forEach'):js.index('document.querySelectorAll(".subtab[data-subtab]')]
+        handler = js[js.index('document.querySelectorAll(".tab").forEach') : js.index('document.querySelectorAll(".subtab[data-subtab]')]
         self.assertIn('removeAttribute("aria-current")', handler)
         self.assertIn('setAttribute("aria-current", "page")', handler)
         self.assertIn("window.scrollTo({ top: 0 })", handler)
@@ -186,21 +190,25 @@ class TabbarMarkupTest(AppTestCase):
 
 class TabbarStyleTest(AppTestCase):
     def setUp(self):
-        self.media = CSS[CSS.index("/* Onderste menubalk: een zwevende"):]
+        self.media = CSS[CSS.index("/* Onderste menubalk: een zwevende") :]
 
     def test_only_on_small_screens_in_the_installed_app(self):
         first_media = re.search(r"^@media[^{]+", self.media, re.M).group(0).strip()
         self.assertEqual(first_media, "@media (max-width: 640px)")
-        self.assertNotIn("has-tabbar", CSS[:CSS.index("/* Onderste menubalk: een zwevende")], "geen balkregels buiten de mediaquery")
-        outside = CSS[:CSS.index("/* Onderste menubalk: een zwevende")]
+        self.assertNotIn("has-tabbar", CSS[: CSS.index("/* Onderste menubalk: een zwevende")], "geen balkregels buiten de mediaquery")
+        outside = CSS[: CSS.index("/* Onderste menubalk: een zwevende")]
         self.assertRegex(outside, r"\.tab-short\s*{\s*display: none;")
 
     def test_floating_glass_bar(self):
         bar = re.search(r"html\.has-tabbar \.tabs\s*{(.*?)\n  }", self.media, re.S).group(1)
-        for declaration in ("position: fixed", "grid-template-columns: repeat(5", "border-radius: 32px",
-                            "bottom: max(12px, env(safe-area-inset-bottom))",
-                            "left: max(12px, env(safe-area-inset-left))",
-                            "right: max(12px, env(safe-area-inset-right))"):
+        for declaration in (
+            "position: fixed",
+            "grid-template-columns: repeat(5",
+            "border-radius: 32px",
+            "bottom: max(12px, env(safe-area-inset-bottom))",
+            "left: max(12px, env(safe-area-inset-left))",
+            "right: max(12px, env(safe-area-inset-right))",
+        ):
             self.assertIn(declaration, bar, declaration)
         # Het glas volgt de schuif, met gewone waarden in rgba() en blur(): Safari laat het glas weg bij een berekening erin.
         self.assertIn("background: rgba(var(--tabbar-rgb), var(--nav-alpha))", self.media)
@@ -230,8 +238,15 @@ class TabbarStyleTest(AppTestCase):
     def test_android_like_bar_is_material(self):
         # Shared/guidelines/navigation-bar.md: over de volle breedte op de rand, geen glas, een pil van 64 x 32.
         bar = re.search(r'html\.has-tabbar\[data-nav="android"\] \.tabs\s*{(.*?)\n  }', self.media, re.S).group(1)
-        for declaration in ("left: 0", "right: 0", "bottom: 0", "border-radius: 0", "backdrop-filter: none",
-                            "background: color-mix(in srgb, var(--surface) 90%, var(--primary))", "env(safe-area-inset-bottom)"):
+        for declaration in (
+            "left: 0",
+            "right: 0",
+            "bottom: 0",
+            "border-radius: 0",
+            "backdrop-filter: none",
+            "background: color-mix(in srgb, var(--surface) 90%, var(--primary))",
+            "env(safe-area-inset-bottom)",
+        ):
             self.assertIn(declaration, bar, declaration)
         icon = re.search(r'html\.has-tabbar\[data-nav="android"\] \.tab-icon\s*{(.*?)\n  }', self.media, re.S).group(1)
         self.assertIn("padding: 4px 20px", icon, "24 + 2 x 20 = 64 breed, 24 + 2 x 4 = 32 hoog")
@@ -248,7 +263,7 @@ class TabbarStyleTest(AppTestCase):
         self.assertIn("const NAV_GLASS = 60;", theme)
         self.assertIn("(10 + g * 0.3).toFixed(1)", theme)
         html = (ROOT / "templates" / "index.html").read_text(encoding="utf-8")
-        head = html[:html.index("</head>")]
+        head = html[: html.index("</head>")]
         self.assertIn("(1 - glass * 0.0085).toFixed(3)", head)
         self.assertIn("(10 + glass * 0.3).toFixed(1)", head)
         self.assertLess(head.index('setAttribute("data-nav"'), head.index("styles.css"), "voor de eerste weergave")
@@ -257,8 +272,8 @@ class TabbarStyleTest(AppTestCase):
         self.assertIn('navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1', head, "een iPad meldt zich als Mac")
 
     def test_reduced_transparency_gives_a_solid_bar(self):
-        reduced = self.media[self.media.index("prefers-reduced-transparency: reduce"):]
-        reduced = reduced[:reduced.index("\n}\n")]
+        reduced = self.media[self.media.index("prefers-reduced-transparency: reduce") :]
+        reduced = reduced[: reduced.index("\n}\n")]
         self.assertIn("background: var(--tabbar-solid)", reduced)
         self.assertIn("backdrop-filter: none", reduced)
 
@@ -270,7 +285,7 @@ class TabbarStyleTest(AppTestCase):
         self.assertRegex(tab, r"font-size: (10|11)(\.5)?px")
 
     def test_motion_respects_the_reduced_motion_setting(self):
-        reduced = self.media[self.media.index("prefers-reduced-motion"):]
+        reduced = self.media[self.media.index("prefers-reduced-motion") :]
         self.assertIn("transition: none", reduced)
         self.assertIn("transform: none", reduced)
 

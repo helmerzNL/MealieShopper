@@ -8,9 +8,10 @@ import httpx
 
 os.environ.setdefault("MEALIESHOPPER_DATA_DIR", tempfile.mkdtemp())
 
+from helpers import AppTestCase, run, served  # noqa: E402
+
 from mealieshopper import auth, mealie, picnic, picnic_recipes  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
-from helpers import AppTestCase, run, served  # noqa: E402
 
 
 def rich(markdown, kind=None):
@@ -29,8 +30,12 @@ def tile(recipe_id, texts, *, name=None, image="recipes/img-1", segment=None):
         data["segment_name"] = segment
     children = [{"type": "IMAGE", "source": {"id": image}}] if image else []
     children += [rich(text) for text in texts]
-    return {"id": f"tile-{recipe_id}", "type": "PML", "analytics": {"contexts": [{"schema": "x/recipe", "data": data}]},
-            "pml": {"component": {"type": "STACK", "children": children}, "images": {}}}
+    return {
+        "id": f"tile-{recipe_id}",
+        "type": "PML",
+        "analytics": {"contexts": [{"schema": "x/recipe", "data": data}]},
+        "pml": {"component": {"type": "STACK", "children": children}, "images": {}},
+    }
 
 
 def list_page(*tiles):
@@ -38,28 +43,69 @@ def list_page(*tiles):
 
 
 def detail_page(recipe_id="r1"):
-    return {"id": "page", "body": {"children": [
-        {"id": "context", "analytics": {"contexts": [{"data": {
-            "recipe_id": recipe_id, "recipe_name": " Pasta pesto ", "portions": 4, "image_type": "x",
-            "selling_units": [
-                {"ingredient_id": "i1", "selling_unit_id": "s1", "quantity": 2, "status": "ACTIVE", "checked": True},
-                {"ingredient_id": "i2", "selling_unit_id": "s2", "quantity": 1},
-                {"ingredient_id": "i3", "quantity": 0},
-            ]}}]}},
-        {"id": "selling-group-details-image", "pml": {"component": {"type": "CONTAINER", "child": {"type": "IMAGE", "source": {"id": "recipes/big"}}}}},
-        {"id": "selling-group-time-and-price-section", "pml": {"component": {"children": [
-            rich("**20 min**"), rich("Totaal"), rich("€ 8,50"), rich("Per portie")]}}},
-        {"type": "PML", "id": "selling-unit-tile-a",
-         "analytics": {"contexts": [{"data": {"selling_units": [{"ingredient_id": "i1"}]}}]},
-         "pml": {"component": {"children": [rich("Rode uien", "SUBTITLE1"), rich("1 kilo"), rich("(150 g nodig)")]}}},
-        {"type": "PML", "id": "selling-unit-tile-b",
-         "pml": {"component": {"onPress": {"expression": "open(picnic://store/page;id=x,ingredient_id=abc-12&is_udr=false)"},
-                               "children": [rich("Pesto", "SUBTITLE1"), rich("190 gram")]}}},
-        {"id": "instructions-portions-section", "pml": {"component": {"children": [rich("Voor 4 personen")]}}},
-        {"id": "instructions-section", "pml": {"component": {"children": [
-            {"children": [rich("Stap 1"), rich("Snijd de #(ff0000)uien#(000000) fijn.")]},
-            {"children": [rich("**Stap 2**"), rich("Bak ze   met de pesto.")]}]}}},
-    ]}}
+    return {
+        "id": "page",
+        "body": {
+            "children": [
+                {
+                    "id": "context",
+                    "analytics": {
+                        "contexts": [
+                            {
+                                "data": {
+                                    "recipe_id": recipe_id,
+                                    "recipe_name": " Pasta pesto ",
+                                    "portions": 4,
+                                    "image_type": "x",
+                                    "selling_units": [
+                                        {"ingredient_id": "i1", "selling_unit_id": "s1", "quantity": 2, "status": "ACTIVE", "checked": True},
+                                        {"ingredient_id": "i2", "selling_unit_id": "s2", "quantity": 1},
+                                        {"ingredient_id": "i3", "quantity": 0},
+                                    ],
+                                }
+                            }
+                        ]
+                    },
+                },
+                {
+                    "id": "selling-group-details-image",
+                    "pml": {"component": {"type": "CONTAINER", "child": {"type": "IMAGE", "source": {"id": "recipes/big"}}}},
+                },
+                {
+                    "id": "selling-group-time-and-price-section",
+                    "pml": {"component": {"children": [rich("**20 min**"), rich("Totaal"), rich("€ 8,50"), rich("Per portie")]}},
+                },
+                {
+                    "type": "PML",
+                    "id": "selling-unit-tile-a",
+                    "analytics": {"contexts": [{"data": {"selling_units": [{"ingredient_id": "i1"}]}}]},
+                    "pml": {"component": {"children": [rich("Rode uien", "SUBTITLE1"), rich("1 kilo"), rich("(150 g nodig)")]}},
+                },
+                {
+                    "type": "PML",
+                    "id": "selling-unit-tile-b",
+                    "pml": {
+                        "component": {
+                            "onPress": {"expression": "open(picnic://store/page;id=x,ingredient_id=abc-12&is_udr=false)"},
+                            "children": [rich("Pesto", "SUBTITLE1"), rich("190 gram")],
+                        }
+                    },
+                },
+                {"id": "instructions-portions-section", "pml": {"component": {"children": [rich("Voor 4 personen")]}}},
+                {
+                    "id": "instructions-section",
+                    "pml": {
+                        "component": {
+                            "children": [
+                                {"children": [rich("Stap 1"), rich("Snijd de #(ff0000)uien#(000000) fijn.")]},
+                                {"children": [rich("**Stap 2**"), rich("Bak ze   met de pesto.")]},
+                            ]
+                        }
+                    },
+                },
+            ]
+        },
+    }
 
 
 def response(data):
@@ -142,8 +188,12 @@ class SourcesTest(TempDataDirTest):
         run(picnic.save_auth_key("key"))
 
     def test_each_source_has_its_page(self):
-        for source, page_id in (("saved", "saved-deep-dive-page-content"), ("cookbook", "cookbook-page-content"),
-                                ("ordered", "meals-purchase-page-root"), (None, "saved-deep-dive-page-content")):
+        for source, page_id in (
+            ("saved", "saved-deep-dive-page-content"),
+            ("cookbook", "cookbook-page-content"),
+            ("ordered", "meals-purchase-page-root"),
+            (None, "saved-deep-dive-page-content"),
+        ):
             with served(return_value=response(list_page(tile("r1", ["Pasta"])))) as call:
                 self.assertEqual(run(picnic_recipes.get_recipes(source))[0]["id"], "r1")
             self.assertTrue(str(call.calls.last.request.url).endswith(f"/pages/{page_id}"), source)
@@ -218,8 +268,10 @@ class DetailsTest(TempDataDirTest):
 
     def test_ingredients_follow_the_recipe_and_take_their_names_from_the_tiles(self):
         first, second, third = picnic_recipes.details(detail_page(), "r1")["ingredients"]
-        self.assertEqual((first["name"], first["needed"], first["unitSize"], first["productId"], first["quantity"]),
-                         ("Rode uien", "(150 g nodig)", "1 kilo", "s1", 2))
+        self.assertEqual(
+            (first["name"], first["needed"], first["unitSize"], first["productId"], first["quantity"]),
+            ("Rode uien", "(150 g nodig)", "1 kilo", "s1", 2),
+        )
         # De tegel zonder analysegegevens wordt aan zijn ingrediënt gekoppeld via de verwijzing in de opmaak.
         self.assertEqual((second["name"], second["unitSize"]), (None, None))
         self.assertEqual((third["name"], third["productId"], third["quantity"]), (None, None, 1))
@@ -248,11 +300,19 @@ class DetailsTest(TempDataDirTest):
 
 
 class MealieTest(AppTestCase):
-    RECIPE = {"id": "r1", "name": "Pasta pesto", "image": "https://x/large.png", "portions": 4, "minutes": 20,
-              "steps": ["Snijd.", "Bak."],
-              "ingredients": [{"name": "Rode uien", "needed": "(150 g nodig)", "unitSize": "1 kilo", "productId": "s1"},
-                              {"name": "Pesto", "needed": None, "unitSize": "190 gram", "productId": "s2"},
-                              {"name": None, "needed": None, "unitSize": None, "productId": "s3"}]}
+    RECIPE = {
+        "id": "r1",
+        "name": "Pasta pesto",
+        "image": "https://x/large.png",
+        "portions": 4,
+        "minutes": 20,
+        "steps": ["Snijd.", "Bak."],
+        "ingredients": [
+            {"name": "Rode uien", "needed": "(150 g nodig)", "unitSize": "1 kilo", "productId": "s1"},
+            {"name": "Pesto", "needed": None, "unitSize": "190 gram", "productId": "s2"},
+            {"name": None, "needed": None, "unitSize": None, "productId": "s3"},
+        ],
+    }
 
     def test_ingredient_lines(self):
         lines = [picnic_recipes.ingredient_line(i) for i in self.RECIPE["ingredients"]]
@@ -286,8 +346,10 @@ class RoutesTest(TempDataDirTest):
 
     async def test_list_and_detail_routes(self):
         listed = [{"id": "r1", "name": "Pasta"}]
-        with mock.patch.object(picnic_recipes, "get_recipes", new_callable=mock.AsyncMock, return_value=listed) as get, \
-                mock.patch.object(picnic_recipes, "get_recipe", new_callable=mock.AsyncMock, return_value={"id": "r1"}) as one:
+        with (
+            mock.patch.object(picnic_recipes, "get_recipes", new_callable=mock.AsyncMock, return_value=listed) as get,
+            mock.patch.object(picnic_recipes, "get_recipe", new_callable=mock.AsyncMock, return_value={"id": "r1"}) as one,
+        ):
             body = (await self.client.get("/api/picnic/recipes?source=ordered")).get_json()
             default = (await self.client.get("/api/picnic/recipes")).get_json()
             detail = (await self.client.get("/api/picnic/recipes/r1")).get_json()
@@ -305,11 +367,13 @@ class RoutesTest(TempDataDirTest):
 
     async def test_import_sends_a_schema_org_recipe_to_mealie(self):
         await picnic.save_auth_key("key")
-        with mock.patch.object(mealie, "ensure_configured", new_callable=mock.AsyncMock), \
-                mock.patch.object(mealie, "mealie_url", new_callable=mock.AsyncMock, return_value="https://mealie.example"), \
-                mock.patch.object(mealie, "group_slug", new_callable=mock.AsyncMock, return_value="home"), \
-                mock.patch.object(picnic_recipes, "get_recipe", new_callable=mock.AsyncMock, return_value=MealieTest.RECIPE), \
-                mock.patch.object(mealie, "import_via_jsonld", new_callable=mock.AsyncMock, return_value="pasta-pesto") as send:
+        with (
+            mock.patch.object(mealie, "ensure_configured", new_callable=mock.AsyncMock),
+            mock.patch.object(mealie, "mealie_url", new_callable=mock.AsyncMock, return_value="https://mealie.example"),
+            mock.patch.object(mealie, "group_slug", new_callable=mock.AsyncMock, return_value="home"),
+            mock.patch.object(picnic_recipes, "get_recipe", new_callable=mock.AsyncMock, return_value=MealieTest.RECIPE),
+            mock.patch.object(mealie, "import_via_jsonld", new_callable=mock.AsyncMock, return_value="pasta-pesto") as send,
+        ):
             body = (await self.client.post("/api/picnic/recipes/r1/import")).get_json()
         self.assertEqual(body, {"slug": "pasta-pesto", "mealieUrl": "https://mealie.example/g/home/r/pasta-pesto"})
         url, data = send.call_args.args
@@ -317,15 +381,21 @@ class RoutesTest(TempDataDirTest):
         self.assertEqual(data["name"], "Pasta pesto")
 
     async def test_import_without_mealie_says_so_and_asks_picnic_nothing(self):
-        with mock.patch.object(mealie, "ensure_configured", new_callable=mock.AsyncMock, side_effect=RuntimeError("Mealie is niet gekoppeld.")), \
-                mock.patch.object(picnic_recipes, "get_recipe", new_callable=mock.AsyncMock, side_effect=AssertionError("niet ophalen")):
+        with (
+            mock.patch.object(mealie, "ensure_configured", new_callable=mock.AsyncMock, side_effect=RuntimeError("Mealie is niet gekoppeld.")),
+            mock.patch.object(picnic_recipes, "get_recipe", new_callable=mock.AsyncMock, side_effect=AssertionError("niet ophalen")),
+        ):
             reply = await self.client.post("/api/picnic/recipes/r1/import")
         self.assertEqual((reply.status_code, reply.get_json()), (400, {"error": "Mealie is niet gekoppeld."}))
 
     async def test_a_failed_import_does_not_leak_the_answer_of_mealie(self):
-        with mock.patch.object(mealie, "ensure_configured", new_callable=mock.AsyncMock), \
-                mock.patch.object(picnic_recipes, "get_recipe", new_callable=mock.AsyncMock, return_value=MealieTest.RECIPE), \
-                mock.patch.object(mealie, "import_via_jsonld", new_callable=mock.AsyncMock, side_effect=RuntimeError("Mealie import mislukt (500): geheim")):
+        with (
+            mock.patch.object(mealie, "ensure_configured", new_callable=mock.AsyncMock),
+            mock.patch.object(picnic_recipes, "get_recipe", new_callable=mock.AsyncMock, return_value=MealieTest.RECIPE),
+            mock.patch.object(
+                mealie, "import_via_jsonld", new_callable=mock.AsyncMock, side_effect=RuntimeError("Mealie import mislukt (500): geheim")
+            ),
+        ):
             reply = await self.client.post("/api/picnic/recipes/r1/import")
         self.assertEqual(reply.status_code, 424)
         self.assertNotIn("geheim", reply.get_data(as_text=True))

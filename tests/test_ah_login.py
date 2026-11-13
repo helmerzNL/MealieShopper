@@ -7,8 +7,9 @@ import httpx
 
 os.environ.setdefault("MEALIESHOPPER_DATA_DIR", tempfile.mkdtemp())
 
-from mealieshopper import ah  # noqa: E402
 from helpers import routes, run, sent_json, sent_params, served  # noqa: E402
+
+from mealieshopper import ah  # noqa: E402
 
 GRAPHQL = f"{ah.AH_API_BASE}/graphql"
 LISTS_REST = f"{ah.AH_API_BASE}/mobile-services/lists/v3/lists"
@@ -55,9 +56,11 @@ class RotatedRefreshTokenTest(unittest.TestCase):
     def test_get_user_token_persists_rotation(self):
         response = {"access_token": "acc", "refresh_token": "rotated", "expires_in": 3600}
         ah.user_token_cache = None
-        with mock.patch.object(ah, "configured_refresh_token", return_value="old"), \
-                mock.patch.object(ah, "_request_json", return_value=response), \
-                mock.patch.object(ah, "save_refresh_token") as save:
+        with (
+            mock.patch.object(ah, "configured_refresh_token", return_value="old"),
+            mock.patch.object(ah, "_request_json", return_value=response),
+            mock.patch.object(ah, "save_refresh_token") as save,
+        ):
             self.assertEqual(run(ah.get_user_token()), "acc")
         save.assert_called_once_with("rotated")
         ah.user_token_cache = None
@@ -76,11 +79,16 @@ class FavoriteListsTest(unittest.TestCase):
         self.assertEqual(ah.product_web_url(None), "")
 
     def test_lists_come_from_graphql_with_empty_ids(self):
-        graphql = httpx.Response(200, json={
-            "data": {"favoriteListV2": [
-                {"id": "L1", "description": "Favorieten", "totalSize": 3, "updatedAt": "2026-10-01"},
-            ]}
-        })
+        graphql = httpx.Response(
+            200,
+            json={
+                "data": {
+                    "favoriteListV2": [
+                        {"id": "L1", "description": "Favorieten", "totalSize": 3, "updatedAt": "2026-10-01"},
+                    ]
+                }
+            },
+        )
         with mock.patch.object(ah, "get_user_token", return_value="tok"), routes() as router:
             post = router.post(GRAPHQL).mock(return_value=graphql)
             get = router.get(LISTS_REST).mock(return_value=httpx.Response(200, json=[]))
@@ -128,19 +136,30 @@ class FavoriteListsTest(unittest.TestCase):
         self.assertIn("401", str(ctx.exception))
 
     def test_items_always_carry_a_product_url(self):
-        graphql = httpx.Response(200, json={
-            "data": {"favoriteListV2": [{
-                "id": "L1", "description": "Favorieten", "totalSize": 2,
-                "items": [
-                    {"id": "i1", "productId": 10, "quantity": 2},
-                    {"id": "i2", "productId": 11, "quantity": 1},
-                ],
-            }]}
-        })
+        graphql = httpx.Response(
+            200,
+            json={
+                "data": {
+                    "favoriteListV2": [
+                        {
+                            "id": "L1",
+                            "description": "Favorieten",
+                            "totalSize": 2,
+                            "items": [
+                                {"id": "i1", "productId": 10, "quantity": 2},
+                                {"id": "i2", "productId": 11, "quantity": 1},
+                            ],
+                        }
+                    ]
+                }
+            },
+        )
         products = [{"id": 10, "url": ah.product_web_url(10), "title": "Melk"}]
-        with mock.patch.object(ah, "get_user_token", return_value="tok"), \
-                served(graphql), \
-                mock.patch.object(ah, "get_products_by_ids", return_value=products):
+        with (
+            mock.patch.object(ah, "get_user_token", return_value="tok"),
+            served(graphql),
+            mock.patch.object(ah, "get_products_by_ids", return_value=products),
+        ):
             result = run(ah.get_favorite_list_items("l1"))
         self.assertEqual(result["items"][0]["url"], "https://www.ah.nl/producten/product/wi10")
         self.assertEqual(result["items"][1]["url"], "https://www.ah.nl/producten/product/wi11")

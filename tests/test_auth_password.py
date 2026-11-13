@@ -13,9 +13,10 @@ import pytest
 
 os.environ["PASSKEY_AUTH_ENABLED"] = "false"
 
+from helpers import AppTestCase, db, run  # noqa: E402
+
 from mealieshopper import auth, auth_password  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
-from helpers import AppTestCase, db, run  # noqa: E402
 
 if TYPE_CHECKING:  # niet bij de import: pytest zou TestClientProtocol voor een testklasse aanzien
     from quart.typing import TestClientProtocol
@@ -193,7 +194,9 @@ class SetupTest(AuthPasswordTestCase):
         self.assertTrue(res.get_json()["replaced"])
         self.assertTrue((await self.client.get("/api/auth/status")).get_json()["authenticated"], "dit apparaat blijft ingelogd")
         self.assertFalse((await other.get("/api/auth/status")).get_json()["authenticated"], "het andere apparaat niet")
-        self.assertEqual((await self.post("/api/auth/password/login", {"username": "admin", "password": PASSWORD}, self.new_client())).status_code, 401)
+        self.assertEqual(
+            (await self.post("/api/auth/password/login", {"username": "admin", "password": PASSWORD}, self.new_client())).status_code, 401
+        )
         self.assertEqual((await self.post("/api/auth/password/login", {"username": "admin", "password": OTHER}, self.new_client())).status_code, 200)
 
     async def test_disabled_via_environment(self):
@@ -352,7 +355,9 @@ class MfaTest(AuthPasswordTestCase):
 
         wrong = await self.post("/api/auth/password/mfa", {"ticket": ticket, "code": "000000"}, guest)
         self.assertEqual(wrong.status_code, 401)
-        good = await self.post("/api/auth/password/mfa", {"ticket": ticket, "code": auth_password.totp_code(secret, at=auth_password.time.time() + 30)}, guest)
+        good = await self.post(
+            "/api/auth/password/mfa", {"ticket": ticket, "code": auth_password.totp_code(secret, at=auth_password.time.time() + 30)}, guest
+        )
         self.assertEqual(good.status_code, 200, good.get_json())
         self.assertTrue((await guest.get("/api/auth/status")).get_json()["authenticated"])
 
@@ -547,7 +552,9 @@ class MasterSecretTest(AppTestCase):
         client = self.client_for(app)
         await client.post("/api/auth/password", json={"username": "admin", "password": PASSWORD})
         guessable = auth.hashlib.sha256(f"{auth.db_path()}:mealieshopper".encode()).hexdigest()  # de vroegere sleutel
-        forged = auth.jwt.encode({"sub": "owner", "usr": "admin", "ep": 0, "exp": auth.utcnow() + auth.timedelta(hours=1)}, guessable, algorithm="HS256")
+        forged = auth.jwt.encode(
+            {"sub": "owner", "usr": "admin", "ep": 0, "exp": auth.utcnow() + auth.timedelta(hours=1)}, guessable, algorithm="HS256"
+        )
         attacker = self.client_for(app)
         attacker.set_cookie(auth.SESSION_COOKIE_NAME, forged)
         self.assertFalse((await attacker.get("/api/auth/status")).get_json()["authenticated"])
@@ -631,9 +638,7 @@ async def owner(data_dir: "object", monkeypatch: pytest.MonkeyPatch, client: "Te
 
 async def test_concurrent_wrong_logins_are_throttled_like_serial_ones(owner: "TestClientProtocol") -> None:
     burst: int = 10
-    replies = await asyncio.gather(
-        *(owner.post("/api/auth/password/login", json={"username": "admin", "password": OTHER}) for _ in range(burst))
-    )
+    replies = await asyncio.gather(*(owner.post("/api/auth/password/login", json={"username": "admin", "password": OTHER}) for _ in range(burst)))
     statuses: list[int] = sorted(reply.status_code for reply in replies)
     limit: int = auth_password.ATTEMPTS_PER_WINDOW
     assert statuses == [401] * limit + [429] * (burst - limit)
@@ -646,7 +651,5 @@ async def test_one_totp_code_works_once_even_at_the_same_moment(owner: "TestClie
     assert confirmed.status_code == 200
     step_one = await (await owner.post("/api/auth/password/login", json={"username": "admin", "password": PASSWORD})).get_json()
     code: str = auth_password.totp_code(secret, at=auth_password.time.time() + auth_password.TOTP_PERIOD)
-    replies = await asyncio.gather(
-        *(owner.post("/api/auth/password/mfa", json={"ticket": step_one["ticket"], "code": code}) for _ in range(2))
-    )
+    replies = await asyncio.gather(*(owner.post("/api/auth/password/mfa", json={"ticket": step_one["ticket"], "code": code}) for _ in range(2)))
     assert sorted(reply.status_code for reply in replies) == [200, 401]

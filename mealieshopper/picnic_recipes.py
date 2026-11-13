@@ -6,6 +6,7 @@ en `pml` (de opmaak, met `RICH_TEXT`-onderdelen voor de tekst en `IMAGE`-onderde
 zoals de community-library `picnic-api` (MRVDH) dat doet; de namen van de onderdelen komen daaruit en uit
 het rapport van de verkenner.
 """
+
 from __future__ import annotations
 
 import json

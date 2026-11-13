@@ -42,6 +42,8 @@ Je weekmenu plannen in [Mealie](https://mealie.io) en in je mandje zetten bij [A
 
 ---
 
+Gedeelde AH-weekprijzen worden automatisch aangevuld vanaf [data.mealieshopper.nl](https://data.mealieshopper.nl), zonder gekoppeld account. Alleen gewijzigde gewone JSON-documenten worden opgehaald, met controle van de index, precieze lengte en SHA-256. Zelf waargenomen prijzen gaan voor. Met `MEALIESHOPPER_SHARED_PRICES=false` zet je dit uit. Zie [de handleiding](docs/handleiding.md#prijsarchief-importeren).
+
 ## Inhoud
 
 - [Waarom MealieShopper?](#waarom-mealieshopper)
@@ -68,7 +70,7 @@ Een weekmenu plannen in Mealie is fijn, maar daarna begint het overtypen: elk in
 - **Het weekmenu plannen**: zet een recept of een notitie op een dag, verplaats of verwijder een maaltijd, of laat Mealie met **Verras me** kiezen. Elke wijziging gaat meteen naar Mealie.
 - **Aanbiedingen en receptvoorstellen**: de aanbiedingen van Albert Heijn (ook je persoonlijke Bonus Box), Picnic, Jumbo en Crisp, en zonder account ook die van Lidl en Aldi, per week en elke dag bijgewerkt, met recepten waarvan ingrediënten in de aanbieding zijn.
 - **Is het echt een aanbieding?**: bij elke aanbieding de prijs per kilo, liter of stuk en een oordeel tegen de gewone prijs van de laatste 30 dagen. De **Prijsgeschiedenis** toont per product de aanbiedingen, de gewone prijs en wat je zelf betaalde, en **Vergelijk verpakkingen** wijst de goedkoopste verpakking aan. Openbare historische prijzen met onbekende actiestatus staan apart als **Waargenomen prijzen**, met hun bronnen. Ze tellen niet als gewone prijzen. Historische folderprijzen, zoals het archief van Albert Heijn en Jumbo sinds 2009, importeert de beheerder onder **Instellingen, Systeem**.
-- **Recepten zoeken en importeren**: zoek tegelijk in Mealie, bij Albert Heijn, Jumbo, Picnic en Crisp en in de menu's van HelloFresh en Marley Spoon, bekijk een recept en plan het met één klik in, of importeer een recept via een link. Je bewaarde AH-recepten, je Jumbo-receptenlijsten en je favoriete Crisp-recepten zet je ook in één keer in Mealie.
+- **Recepten zoeken en importeren**: zoek tegelijk in Mealie, bij Albert Heijn, Jumbo, Picnic en Crisp en in de menu's van HelloFresh en Marley Spoon, filter bij alle bronnen op menugang, vegetarisch en bereidingstijd, blader met tags en categorieën door je recepten in Mealie, bekijk een recept, blader met een pijltje of een veeg door de lijst naar het volgende, plan het met één klik in, of importeer een recept via een link. Je bewaarde AH-recepten, je Jumbo-receptenlijsten en je favoriete Crisp-recepten zet je ook in één keer in Mealie.
 - **Koken met een recept**: een recept staat in een kookweergave met de ingrediënten naast de genummerde stappen; vink af wat klaar is en zie welke stap nu aan de beurt is. **Start met koken** toont schermvullend één stap tegelijk, met de ingrediënten die bij de stap horen en timers met een alarm, dat ook komt als je telefoon vergrendeld is, en met **Scherm aan laten** gaat je scherm intussen niet uit.
 - **Calorieën en voedingswaarden**: de kcal per persoon en een tabel met eiwit, vet, koolhydraten, suikers, vezels en zout bij een recept en een geplande maaltijd, met het totaal voor de porties die je plant en een dagtotaal per persoon in het weekmenu. Kies bij het inplannen het aantal porties (4 wordt 2) en zoek op een minimum en maximum per persoon (bijvoorbeeld minstens 30 g eiwit, hooguit 1,5 g zout), ook via je AI-assistent; ook je bewaarde AH-recepten tonen hun voedingswaarden.
 - **Je winkels op één plek**: je mandje, lijstjes, bewaarde recepten, favorieten, bestellingen en AH-kassabonnen, in een eigen kopie die je doorzoekt ("wanneer kocht ik voor het laatst koffie?"), ook als de winkel even niet meewerkt. Een product op een bon dat de app niet herkent, koppel je zelf aan een product van de winkel; daarna herkent hij het wel.
@@ -334,7 +336,7 @@ Staat de waarde in `.env.unraid`, dan ziet Compose hem niet voor de image-tag; g
 
 ## Meewerken
 
-Bijdragen zijn welkom. Pull requests gaan naar de branch `beta`, nooit naar `main`. De werkafspraken voor mensen en AI-hulpen staan in [`CLAUDE.md`](CLAUDE.md). Voor fouten en ideeën open je een [issue](https://github.com/helmerzNL/MealieShopper/issues/new/choose).
+Bijdragen zijn welkom. Pull requests gaan naar de branch `beta`, nooit naar `main`. De werkafspraken voor mensen en AI-hulpen staan in [`CLAUDE.md`](CLAUDE.md). Een koppeling van een oude productnaam die je zelf maakte, kun je als pull request aanbieden: zie [Winkels: losse aankopen](docs/handleiding.md#winkels-losse-aankopen) in de handleiding. Voor fouten en ideeën open je een [issue](https://github.com/helmerzNL/MealieShopper/issues/new/choose).
 
 ```bash
 python -m venv .venv

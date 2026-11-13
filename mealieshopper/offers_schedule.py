@@ -5,6 +5,7 @@ Een achtergrondtask kijkt elk kwartier of het tijd is: een keer per dag, op `MEA
 start. Meerdere workers zijn geen probleem: wie het eerst de run van dit tijdstip in SQLite vastlegt, voert hem uit.
 `MEALIESHOPPER_OFFERS_SCHEDULE=false` zet de taak uit; de knop onder Instellingen > Koppelen blijft werken.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -18,7 +19,7 @@ from typing import Any, Awaitable, Callable
 
 import aiosqlite
 
-from . import ah_orders, auth, image_cache, offers, prices, purchase_sync, tasks
+from . import ah_orders, auth, image_cache, loose_names, offers, price_archive_sync, prices, purchase_sync, recipe_nutrition, tasks
 
 log = logging.getLogger(__name__)
 
@@ -108,6 +109,9 @@ async def run_all(trigger: str, now: datetime | None = None, *, wait_for_images:
         purchases = await purchase_sync.sync_nightly()
         if purchases is not None:
             result = {**result, "purchases": purchases}
+    shared: dict[str, Any] | None = await price_archive_sync.run_if_due()
+    if shared is not None:
+        result = {**result, "priceArchive": shared}
     await prices.warm_catalogues()  # de catalogus is na de synchronisatie anders: nu opbouwen, niet bij de eerste aanvraag
     # Het koppelen en de foto's van de bonnen krijgen hetzelfde tijdstip mee: zo staan ze samen in een laatste ronde
     # (ah_orders.SETTING_LAST_ROUND), net als bij een ronde op afroep.
@@ -122,6 +126,8 @@ async def run_all(trigger: str, now: datetime | None = None, *, wait_for_images:
         if outcome is not None:
             result = {**result, key: outcome}
     if wait_for_images:
+        _start_loose_names()
+        await _start_recipe_index()
         images = await image_cache.prefetch_nightly()
         if images is not None:
             result = {**result, "images": images}
@@ -136,6 +142,23 @@ async def run_all(trigger: str, now: datetime | None = None, *, wait_for_images:
         else:
             tasks.spawn("warm-offers", _warm())
     return result
+
+
+def _start_loose_names() -> None:
+    """Start de nachtelijke ronde voor losse aankoopnamen in een eigen task: de run wacht er niet op."""
+    try:
+        loose_names.start(None, "nightly")
+    except Exception:  # noqa: BLE001 - een extraatje: een fout bij het starten mag de nachtelijke run niet vertragen of laten falen
+        log.warning("Ronde voor losse namen starten mislukt", exc_info=True)
+
+
+async def _start_recipe_index() -> None:
+    """Werk de receptencache van Recepten zoeken bij (tijden, tags en voedingswaarden, issue #322), in een eigen task: de run
+    wacht er niet op."""
+    try:
+        await recipe_nutrition.refresh_nightly()
+    except Exception:  # noqa: BLE001 - een extraatje: een fout bij het starten mag de nachtelijke run niet laten falen
+        log.warning("Receptencache bijwerken starten mislukt", exc_info=True)
 
 
 async def _warm() -> None:
@@ -173,7 +196,9 @@ async def _claim(now: datetime) -> bool:
     """Leg vast dat deze worker de run van het laatste tijdstip uitvoert. Alleen de eerste die dat doet krijgt True."""
     slot = _utc_iso(latest_slot(now))
     async with _connect() as conn:
-        await conn.execute("INSERT INTO offers_schedule (id, last_run, trigger, summary) VALUES (1, '', 'scheduled', '{}') ON CONFLICT(id) DO NOTHING")
+        await conn.execute(
+            "INSERT INTO offers_schedule (id, last_run, trigger, summary) VALUES (1, '', 'scheduled', '{}') ON CONFLICT(id) DO NOTHING"
+        )
         claimed = await conn.execute(
             "UPDATE offers_schedule SET last_run = ?, trigger = 'scheduled' WHERE id = 1 AND last_run < ?",
             (_utc_iso(now), slot),
@@ -184,9 +209,10 @@ async def _claim(now: datetime) -> bool:
 
 async def run_if_due(now: datetime | None = None) -> bool:
     """Voer de dagelijkse run uit als het tijd is en niemand anders hem al deed. Geeft terug of hij liep."""
+    now = now or _local_now()
+    await price_archive_sync.run_if_due(now.timestamp())
     if not enabled():
         return False
-    now = now or _local_now()
     if not await _claim(now):
         return False
     await run_all("scheduled", now)
@@ -208,6 +234,6 @@ async def _loop() -> None:
 def start() -> None:
     """Start de achtergrondtask (een keer per proces). Moet binnen een lopende event loop worden aangeroepen."""
     global _task
-    if (_task is not None and not _task.done()) or not enabled():
+    if (_task is not None and not _task.done()) or not (enabled() or price_archive_sync.enabled()):
         return
     _task = tasks.spawn("offers-schedule", _loop())

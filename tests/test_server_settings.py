@@ -5,9 +5,10 @@ from unittest import mock
 
 os.environ["PASSKEY_AUTH_ENABLED"] = "false"
 
+from helpers import AppTestCase  # noqa: E402
+
 from mealieshopper import auth_password, mealie, server_settings  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
-from helpers import AppTestCase  # noqa: E402
 
 PASSWORD = "koffie-met-melk-42"
 ANNA = "een-heel-ander-wachtwoord"
@@ -68,15 +69,23 @@ class PublicBaseUrlTest(ServerSettingsTestCase):
         self.assertEqual((data["publicBaseUrl"], data["publicBaseUrlSource"]), ("http://localhost", "auto"))
 
     async def test_proxy_headers_are_used_when_detecting(self):
-        data = (await self.admin.get("/api/server-settings", headers={"X-Forwarded-Proto": "https", "X-Forwarded-Host": "shop.example.com"})).get_json()
+        data = (
+            await self.admin.get("/api/server-settings", headers={"X-Forwarded-Proto": "https", "X-Forwarded-Host": "shop.example.com"})
+        ).get_json()
         self.assertEqual((data["publicBaseUrl"], data["detectedBaseUrl"]), ("https://shop.example.com", "https://shop.example.com"))
 
     async def test_environment_beats_detection_and_the_setting_beats_both(self):
         with mock.patch.dict(os.environ, {"MEALIESHOPPER_PUBLIC_BASE_URL": "https://env.example.com/"}):
             data = await self.get()
-            self.assertEqual((data["publicBaseUrl"], data["publicBaseUrlSource"], data["envBaseUrl"]), ("https://env.example.com", "env", "https://env.example.com"))
+            self.assertEqual(
+                (data["publicBaseUrl"], data["publicBaseUrlSource"], data["envBaseUrl"]),
+                ("https://env.example.com", "env", "https://env.example.com"),
+            )
             saved = (await self.put({"publicBaseUrl": "https://Mine.Example.com:8443/"})).get_json()
-            self.assertEqual((saved["publicBaseUrl"], saved["publicBaseUrlSource"], saved["publicBaseUrlOverride"]), ("https://mine.example.com:8443", "setting", "https://mine.example.com:8443"))
+            self.assertEqual(
+                (saved["publicBaseUrl"], saved["publicBaseUrlSource"], saved["publicBaseUrlOverride"]),
+                ("https://mine.example.com:8443", "setting", "https://mine.example.com:8443"),
+            )
             back = (await self.put({"publicBaseUrl": ""})).get_json()
             self.assertEqual((back["publicBaseUrl"], back["publicBaseUrlSource"]), ("https://env.example.com", "env"))
 
@@ -87,8 +96,19 @@ class PublicBaseUrlTest(ServerSettingsTestCase):
             self.assertEqual((await self.put({"publicBaseUrl": empty})).get_json()["publicBaseUrlSource"], "auto", repr(empty))
 
     async def test_invalid_addresses_are_refused(self):
-        for bad in ("mealieshopper.example.com", "ftp://x.example.com", "javascript:alert(1)", "https://", "https://x.example.com/pad", "https://x.example.com/?q=1",
-                    "https://user:pw@x.example.com", "https://x.example.com#frag", "http://x.example.com:99999", "//x.example.com", 12):
+        for bad in (
+            "mealieshopper.example.com",
+            "ftp://x.example.com",
+            "javascript:alert(1)",
+            "https://",
+            "https://x.example.com/pad",
+            "https://x.example.com/?q=1",
+            "https://user:pw@x.example.com",
+            "https://x.example.com#frag",
+            "http://x.example.com:99999",
+            "//x.example.com",
+            12,
+        ):
             response = await self.put({"publicBaseUrl": bad})
             self.assertEqual(response.status_code, 400, bad)
             self.assertIn("error", response.get_json())
@@ -156,7 +176,12 @@ class McpToolSwitchTest(ServerSettingsTestCase):
         self.assertEqual(sorted(name for name, on in (await self.names()).items() if not on), ["get_week_menu", "list_ah_lists"])
 
     async def test_bad_input(self):
-        for body in ({"mcpTools": {"get_week_menu": "nee"}}, {"mcpTools": {"get_week_menu": 0}}, {"mcpTools": []}, {"mcpTools": {"bestaat_niet": False}}):
+        for body in (
+            {"mcpTools": {"get_week_menu": "nee"}},
+            {"mcpTools": {"get_week_menu": 0}},
+            {"mcpTools": []},
+            {"mcpTools": {"bestaat_niet": False}},
+        ):
             self.assertEqual((await self.put(body)).status_code, 400, body)
         self.assertTrue(all((await self.names()).values()))
 

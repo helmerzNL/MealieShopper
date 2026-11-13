@@ -74,7 +74,14 @@ class ForwardedHeadersTest(unittest.TestCase):
 
     def test_only_the_value_the_proxy_appended_counts_for_proto_and_host(self) -> None:
         commas = ask({"X-Forwarded-Proto": "http, https", "X-Forwarded-Host": "evil.example, shopper.example"})
-        lines = ask([("X-Forwarded-Proto", "http"), ("X-Forwarded-Proto", "https"), ("X-Forwarded-Host", "evil.example"), ("X-Forwarded-Host", "shopper.example")])
+        lines = ask(
+            [
+                ("X-Forwarded-Proto", "http"),
+                ("X-Forwarded-Proto", "https"),
+                ("X-Forwarded-Host", "evil.example"),
+                ("X-Forwarded-Host", "shopper.example"),
+            ]
+        )
         for seen in (commas, lines):
             self.assertEqual((seen["scheme"], seen["host"]), ("https", "shopper.example"))
 
@@ -95,7 +102,13 @@ class ForwardedHeadersTest(unittest.TestCase):
         self.assertNotIn("scheme", scope)
 
     def test_the_scope_of_the_server_is_not_altered(self) -> None:
-        scope: dict[str, Any] = {"type": "http", "scheme": "http", "server": ("a", 80), "client": ("1.1.1.1", 5), "headers": [(b"host", b"a"), (b"x-forwarded-proto", b"https")]}
+        scope: dict[str, Any] = {
+            "type": "http",
+            "scheme": "http",
+            "server": ("a", 80),
+            "client": ("1.1.1.1", 5),
+            "headers": [(b"host", b"a"), (b"x-forwarded-proto", b"https")],
+        }
         seen: list[dict[str, Any]] = []
 
         async def inner(sc: dict[str, Any], receive: Any, send: Any) -> None:

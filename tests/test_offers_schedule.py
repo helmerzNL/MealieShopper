@@ -4,7 +4,7 @@ import os
 import unittest
 from unittest import mock
 
-from mealieshopper import ah_orders, image_cache, offers, offers_schedule, prices, tasks  # noqa: E402
+from mealieshopper import ah_orders, image_cache, loose_names, offers, offers_schedule, prices, recipe_nutrition, tasks  # noqa: E402
 
 
 class StartTest(unittest.IsolatedAsyncioTestCase):
@@ -50,9 +50,11 @@ class StartTest(unittest.IsolatedAsyncioTestCase):
                 raise asyncio.CancelledError
 
         due = mock.AsyncMock(side_effect=[True, RuntimeError("stuk"), False])
-        with mock.patch.object(offers_schedule, "run_if_due", due), \
-             mock.patch.object(offers_schedule.asyncio, "sleep", fake_sleep), \
-             self.assertLogs(offers_schedule.log, logging.INFO) as logs:
+        with (
+            mock.patch.object(offers_schedule, "run_if_due", due),
+            mock.patch.object(offers_schedule.asyncio, "sleep", fake_sleep),
+            self.assertLogs(offers_schedule.log, logging.INFO) as logs,
+        ):
             with self.assertRaises(asyncio.CancelledError):
                 await offers_schedule._loop()
         self.assertEqual(waits, [offers_schedule.FIRST_CHECK_SECONDS] + [offers_schedule.CHECK_SECONDS] * 3)
@@ -69,22 +71,56 @@ class WarmerTest(unittest.IsolatedAsyncioTestCase):
     def setUp(self) -> None:
         self.order: list[str] = []
         self.addCleanup(offers_schedule.set_warmer, None)
+        self.loose_start: mock.MagicMock = mock.MagicMock(return_value=True)
 
     def step(self, name: str, value=None):
         async def run(*args, **kwargs):
             self.order.append(name)
             return value
+
         return run
 
-    async def run_all(self, wait_for_images: bool = False) -> None:
-        with mock.patch.object(offers, "sync_all", self.step("sync", {})), \
-             mock.patch.object(prices, "warm_catalogues", self.step("catalogues")), \
-             mock.patch.object(ah_orders, "resolve_receipt_products_nightly", self.step("receipts")), \
-             mock.patch.object(ah_orders, "backfill_receipt_images_nightly", self.step("images")), \
-             mock.patch.object(prices, "fill_regular_prices_nightly", self.step("regular")), \
-             mock.patch.object(image_cache, "prefetch_async", self.step("prefetch")), \
-             mock.patch.object(offers_schedule, "_record", self.step("record")):
+    async def run_all(self, wait_for_images: bool = False, real_start: bool = False) -> None:
+        with (
+            mock.patch.object(loose_names, "start", loose_names.start if real_start else self.loose_start),
+            mock.patch.object(offers, "sync_all", self.step("sync", {})),
+            mock.patch.object(prices, "warm_catalogues", self.step("catalogues")),
+            mock.patch.object(ah_orders, "resolve_receipt_products_nightly", self.step("receipts")),
+            mock.patch.object(ah_orders, "backfill_receipt_images_nightly", self.step("images")),
+            mock.patch.object(prices, "fill_regular_prices_nightly", self.step("regular")),
+            mock.patch.object(image_cache, "prefetch_async", self.step("prefetch")),
+            mock.patch.object(recipe_nutrition, "refresh_nightly", self.step("recipes", True)),
+            mock.patch.object(offers_schedule, "_record", self.step("record")),
+        ):
             await offers_schedule.run_all("manual", wait_for_images=wait_for_images)
+
+    async def test_the_nightly_run_refreshes_the_recipe_cache_and_the_button_does_not(self) -> None:
+        # Issue #322: de tijden, tags en voedingswaarden van de recepten zijn elke dag bij, ook als niemand overdag zoekt.
+        with mock.patch.object(image_cache, "prefetch_nightly", self.step("nightly")):
+            await self.run_all(wait_for_images=True)
+        self.assertEqual(self.order.count("recipes"), 1)
+        self.order.clear()
+        await self.run_all()
+        self.assertNotIn("recipes", self.order, "de knop Alles ophalen gaat over de aanbiedingen")
+
+    async def test_a_failing_recipe_round_does_not_fail_the_nightly_run(self) -> None:
+        async def broken() -> bool:
+            raise RuntimeError("kapot")
+
+        with (
+            mock.patch.object(image_cache, "prefetch_nightly", self.step("nightly")),
+            mock.patch.object(loose_names, "start", self.loose_start),
+            mock.patch.object(offers, "sync_all", self.step("sync", {})),
+            mock.patch.object(prices, "warm_catalogues", self.step("catalogues")),
+            mock.patch.object(ah_orders, "resolve_receipt_products_nightly", self.step("receipts")),
+            mock.patch.object(ah_orders, "backfill_receipt_images_nightly", self.step("images")),
+            mock.patch.object(prices, "fill_regular_prices_nightly", self.step("regular")),
+            mock.patch.object(recipe_nutrition, "refresh_nightly", broken),
+            mock.patch.object(offers_schedule, "_record", self.step("record")),
+            self.assertLogs(offers_schedule.log, level="WARNING"),
+        ):
+            await offers_schedule.run_all("nightly", wait_for_images=True)
+        self.assertEqual(self.order[-1], "record")
 
     async def test_run_all_calls_the_registered_warmer_last(self) -> None:
         offers_schedule.set_warmer(self.step("warmer"))
@@ -121,7 +157,46 @@ class WarmerTest(unittest.IsolatedAsyncioTestCase):
     async def test_a_failing_warmer_does_not_fail_the_run(self) -> None:
         async def broken() -> None:
             raise RuntimeError("kapot")
+
         offers_schedule.set_warmer(broken)
         with self.assertLogs(offers_schedule.log, level="WARNING"), mock.patch.object(image_cache, "prefetch_nightly", self.step("nightly")):
             await self.run_all(wait_for_images=True)
         self.assertEqual(self.order[-1], "record")
+
+    async def test_nightly_run_starts_the_round_without_waiting_for_it(self) -> None:
+        release = asyncio.Event()
+        seen: list[tuple[str | None, str]] = []
+
+        async def slow_round(trigger: str, now=None, only=None) -> dict:
+            seen.append((only, trigger))
+            await release.wait()
+            return {}
+
+        self.addAsyncCleanup(tasks.cancel_all)
+        with mock.patch.object(loose_names, "run_all_stores", slow_round), mock.patch.object(image_cache, "prefetch_nightly", self.step("nightly")):
+            await asyncio.wait_for(self.run_all(wait_for_images=True, real_start=True), timeout=2)
+            self.assertTrue(loose_names.running(), "de ronde loopt nog, de nachtelijke run is al klaar")
+            self.assertEqual(self.order[-1], "record")
+            await asyncio.sleep(0)
+            self.assertEqual(seen, [(None, "nightly")])
+            release.set()
+            await asyncio.gather(*tasks.running().values())
+
+    async def test_nightly_run_starts_the_round_after_the_extras(self) -> None:
+        self.loose_start.side_effect = lambda *args: self.order.append("loose") or True
+        with mock.patch.object(image_cache, "prefetch_nightly", self.step("nightly")):
+            await self.run_all(wait_for_images=True)
+        self.loose_start.assert_called_once_with(None, "nightly")
+        self.assertGreater(self.order.index("loose"), self.order.index("regular"))
+
+    async def test_button_sync_does_not_start_the_round(self) -> None:
+        await self.run_all(wait_for_images=False)
+        self.loose_start.assert_not_called()
+
+    async def test_a_failing_start_does_not_fail_the_nightly_run(self) -> None:
+        self.loose_start.side_effect = RuntimeError("kapot")
+        with self.assertLogs(offers_schedule.log, level="WARNING") as logs, mock.patch.object(image_cache, "prefetch_nightly", self.step("nightly")):
+            await self.run_all(wait_for_images=True)
+        self.assertEqual(self.order[-1], "record")
+        self.assertIn("nightly", self.order, "de foto's na de start gingen door")
+        self.assertTrue(any("losse namen" in record.getMessage() for record in logs.records))

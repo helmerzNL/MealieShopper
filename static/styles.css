@@ -3640,6 +3640,98 @@ select.input {
   background: var(--surface);
 }
 
+/* ---- Bladeren door recepten (recipe_nav.js): chevrons in de kop van het recept met de plek erachter ("3 van 24"), onder het recept
+   Vorige en Volgende, en een veeg naar links of rechts. Het hele recept is het vlak voor die veeg: zijwaarts is van ons, omhoog en
+   omlaag blijft scrollen, en knijpen blijft zoomen. */
+[data-recipe-surface] {
+  touch-action: pan-y pinch-zoom;
+}
+
+.recipe-nav {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+}
+
+.recipe-nav__count {
+  min-width: 4.5em;
+  color: var(--muted);
+  text-align: center;
+  font-size: var(--text-sm);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.recipe-nav--bottom {
+  justify-content: space-between;
+  margin-top: 24px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+
+.recipe-nav .mdi,
+.recipe-nav svg {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  fill: currentColor;
+}
+
+/* Op een smal scherm krijgt de balk in de kop een eigen regel onder de titel, met een chevron aan elke kant. */
+@media (max-width: 640px) {
+  .list-header .recipe-nav {
+    flex: 1 1 100%;
+    justify-content: space-between;
+  }
+}
+
+/* In het venster van een maaltijd staat de balk rechts op de regel van de maaltijdsoort en is hij compact. */
+.meal-recipe__top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.meal-recipe__top .meal-recipe__type {
+  margin: 0;
+}
+
+.meal-recipe__top .recipe-nav {
+  margin-left: auto;
+}
+
+.meal-recipe__top .icon-button {
+  min-height: 36px;
+  padding: 0 10px;
+}
+
+/* Het nieuwe recept schuift in vanaf de kant waar je naartoe veegt; met minder beweging gewoon meteen. */
+@media (prefers-reduced-motion: no-preference) {
+  .recipe-slide-next {
+    animation: recipe-slide-next 0.22s var(--ease) backwards;
+  }
+
+  .recipe-slide-prev {
+    animation: recipe-slide-prev 0.22s var(--ease) backwards;
+  }
+}
+
+@keyframes recipe-slide-next {
+  from {
+    opacity: 0;
+    transform: translateX(24px);
+  }
+}
+
+@keyframes recipe-slide-prev {
+  from {
+    opacity: 0;
+    transform: translateX(-24px);
+  }
+}
+
 /* ---- De kookmodus (#cook-mode, recipe_view.js): schermvullend, één stap in grote letters, met Vorige en Volgende onderaan
    binnen bereik van je duim. De ingrediënten liggen op een smal scherm als paneel over de onderkant, vanaf 860 px ernaast. */
 .cook-mode {
@@ -7584,6 +7676,12 @@ html.is-standalone .user-menu__item--standalone:not([hidden]) {
     max-width: 1360px;
   }
 
+  /* Het overzicht van de aanbiedingen gebruikt het hele scherm: meer kaarten naast elkaar naast de filterzijbalk. */
+  body:has(.panel.is-active #offers-items.is-active) .topbar__inner,
+  body:has(.panel.is-active #offers-items.is-active) .shell {
+    max-width: none;
+  }
+
   .shell {
     display: grid;
     grid-template-columns: auto minmax(0, 1fr);
@@ -7962,6 +8060,14 @@ html.is-standalone .user-menu__item--standalone:not([hidden]) {
 .ohc-stat dd {
   margin: 0;
   font-weight: 600;
+}
+
+/* Onder de gewone prijs: uit welke bron hij komt en sinds wanneer. */
+.ohc-stat__from {
+  display: block;
+  color: var(--muted);
+  font-size: var(--text-xs);
+  font-weight: 400;
 }
 
 .ohc-chart {
@@ -8390,27 +8496,6 @@ html.is-standalone .user-menu__item--standalone:not([hidden]) {
   opacity: 0.8;
 }
 
-/* Op een telefoon is de rij categorieën één regel die opzij scrolt: eerst stonden er tien regels chips voor het eerste product. */
-@media (max-width: 640px) {
-  .offer-cats--scroll {
-    flex-wrap: nowrap;
-    margin-inline: -16px;
-    padding: 2px 16px 6px;
-    overflow-x: auto;
-    overscroll-behavior-x: contain;
-    scrollbar-width: none;
-  }
-
-  .offer-cats--scroll::-webkit-scrollbar {
-    display: none;
-  }
-
-  .offer-cats--scroll > .offer-chip {
-    flex: none;
-    white-space: nowrap;
-  }
-}
-
 .offer-chip__dot {
   flex: none;
   width: 8px;
@@ -8664,7 +8749,7 @@ html.is-standalone .user-menu__item--standalone:not([hidden]) {
   margin-top: 24px;
 }
 
-/* Aanbiedingen: de titel is de link naar de winkel, zodat de kaart ook een knop kan hebben (Vergelijk verpakkingen). */
+/* Aanbiedingen: de titel is de link naar de prijsgeschiedenis, zodat de kaart ook knoppen kan hebben (Vergelijk verpakkingen, de winkel). */
 .offer-card .offer-card__link {
   color: inherit;
   text-decoration: none;
@@ -8869,6 +8954,13 @@ html.is-standalone .user-menu__item--standalone:not([hidden]) {
 
 .offer-popup[hidden] {
   display: none;
+}
+
+/* Met de muis is de popup alleen om naar te kijken: de muis gaat er doorheen, zodat de kaart eronder reageert en de popup naar
+   die kaart verspringt in plaats van de weg ernaartoe te versperren. Er staat dan ook niets in om op te klikken (offerPopupHtml
+   met `preview`). */
+.offer-popup {
+  pointer-events: none;
 }
 
 .offer-popup__inner .ohc-stats {
@@ -9096,6 +9188,36 @@ html.is-standalone .user-menu__item--standalone:not([hidden]) {
   padding-top: 2px;
 }
 
+/* Het mandje bij een aanbieding (offers_cart.js): links onderaan de kaart, of voor de iconen van de compacte rij. Zit het product
+   nog niet in het mandje, dan staat er alleen de plus. */
+.offer-cart {
+  gap: 2px;
+  margin: 0 auto 0 6px;
+}
+
+.offer-cart[hidden] {
+  display: none;
+}
+
+.offer-cart .qty__step {
+  width: 32px;
+  height: 32px;
+}
+
+.offer-cart .qty__input {
+  width: 40px;
+  height: 32px;
+}
+
+.offer-cart--empty .qty__input,
+.offer-cart--empty [data-cart-step="-1"] {
+  display: none;
+}
+
+.offer-row__links .offer-cart {
+  margin: 0 6px 0 0;
+}
+
 .offer-card__foot .icon-button {
   border-color: transparent;
   background: none;
@@ -9106,6 +9228,23 @@ html.is-standalone .user-menu__item--standalone:not([hidden]) {
 @media (hover: hover) {
   .offer-card__foot .icon-button:hover {
     color: var(--primary-strong);
+  }
+}
+
+/* Telefoon, twee kaarten naast elkaar (~135 px): het mandje op een eigen regel boven de iconen, die samen de breedte delen. */
+@media (max-width: 640px) {
+  .offer-card__foot {
+    flex-wrap: wrap;
+  }
+
+  .offer-card__foot .offer-cart {
+    flex: 0 0 100%;
+    margin: 0 0 0 6px;
+  }
+
+  .offer-card__foot .icon-button {
+    flex: 1 1 0;
+    min-width: 0;
   }
 }
 
@@ -9140,7 +9279,7 @@ html.is-standalone .user-menu__item--standalone:not([hidden]) {
    uitschuifpaneel achter de knop Filters. */
 .offers-layout {
   display: grid;
-  grid-template-columns: 240px minmax(0, 1fr);
+  grid-template-columns: 280px minmax(0, 1fr);
   gap: 24px;
   align-items: start;
 }
@@ -9149,9 +9288,15 @@ html.is-standalone .user-menu__item--standalone:not([hidden]) {
   min-width: 0;
 }
 
+/* De zijbalk loopt mee met de lijst, die vanzelf doorloopt: onder de bovenbalk, hooguit zo hoog als het scherm, met een eigen
+   schuifbalk als de filters er niet in passen. */
 .offers-filters {
   position: sticky;
-  top: 16px;
+  top: 88px;
+  max-height: calc(100vh - 104px);
+  max-height: calc(100dvh - 104px); /* iOS: de zichtbare hoogte, zonder de werkbalk van Safari */
+  overflow-y: auto;
+  overscroll-behavior: contain;
   display: flex;
   flex-direction: column;
   gap: 16px;
@@ -9190,6 +9335,205 @@ html.is-standalone .user-menu__item--standalone:not([hidden]) {
 
 .offers-filters .ohc-filter {
   margin: 0;
+}
+
+/* Een keuzelijst in de zijbalk (offers_facets.js): per regel een plus (alleen deze), een min (verbergen), de naam en het aantal. */
+.offer-facet {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* Het uitklapvak met keuzelijsten op een pagina zonder zijbalk (een bestelling, de aankopenlijst, de prijsgeschiedenis, de
+   recepten bij de aanbiedingen): de lijsten naast elkaar, elk met een eigen schuifbalk. */
+.facet-panel {
+  margin: 10px 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+}
+
+.facet-panel[hidden] {
+  display: none;
+}
+
+.facet-panel > summary {
+  padding: 8px 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.facet-panel__body {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 12px 28px;
+  padding: 2px 14px 12px;
+}
+
+.facet-panel__list {
+  display: flex;
+  flex: 1 1 240px;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  max-width: 340px;
+}
+
+.facet-panel__list--wide {
+  max-width: 560px;
+}
+
+.facet-panel__list h4 {
+  margin: 0;
+  color: var(--muted);
+  font-weight: 600;
+  font-size: var(--text-xs);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.facet-panel .offer-facet--scroll {
+  max-height: 230px;
+}
+
+.facet-panel__clear {
+  flex-basis: 100%;
+  text-align: left;
+}
+
+/* De filters van Recepten zoeken (issue #322): bovenaan de bereidingstijd en de volgorde, daaronder de tags en categorieën. */
+.recipe-filters__row {
+  display: flex;
+  flex-basis: 100%;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+}
+
+.recipe-filters__field {
+  display: flex;
+  flex: 1 1 180px;
+  flex-direction: column;
+  gap: 4px;
+  max-width: 260px;
+  color: var(--muted);
+  font-size: var(--text-sm);
+}
+
+.recipe-filters__note,
+#search-facets-message {
+  flex-basis: 100%;
+  margin: 0;
+}
+
+#search-facets-message:empty {
+  display: none;
+}
+
+/* De merken: een winkel heeft er honderden, dus een eigen schuifbalk onder het zoekveld. */
+.offer-facet--scroll {
+  max-height: 300px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.offer-facet__search {
+  min-height: 36px;
+  padding: 0 10px;
+}
+
+.offer-facet__row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 30px;
+  padding: 1px 4px 1px 1px;
+  border-radius: var(--radius-sm);
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+
+@media (hover: hover) {
+  .offer-facet__row:hover {
+    background: var(--surface-muted);
+  }
+}
+
+.offer-facet__step {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.offer-facet__step svg {
+  width: 16px;
+  height: 16px;
+  fill: currentColor;
+}
+
+@media (hover: hover) {
+  .offer-facet__step:hover {
+    border-color: var(--primary);
+    color: var(--primary-strong);
+  }
+}
+
+.offer-facet__step--in[aria-pressed="true"] {
+  border-color: var(--primary);
+  background: var(--primary);
+  color: var(--on-primary);
+}
+
+.offer-facet__step--out[aria-pressed="true"] {
+  border-color: var(--danger);
+  background: var(--danger);
+  color: var(--surface);
+}
+
+.offer-facet__name .offer-chip__dot {
+  display: inline-block;
+  margin-right: 6px;
+}
+
+.offer-facet__name {
+  flex: 1;
+  min-width: 0;
+  margin-left: 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.offer-facet__row.is-in .offer-facet__name {
+  font-weight: 700;
+}
+
+.offer-facet__row.is-out .offer-facet__name {
+  color: var(--muted);
+  text-decoration: line-through;
+}
+
+.offer-facet__count,
+.offer-facet__empty {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.offer-facet__empty {
+  padding: 4px;
+  font-size: var(--text-sm);
 }
 
 .offers-filters .offer-cats {
@@ -9272,6 +9616,7 @@ html.is-standalone .user-menu__item--standalone:not([hidden]) {
     inset: 0 auto 0 0;
     z-index: 60;
     width: min(320px, 86vw);
+    max-height: none;
     overflow: auto;
     border-radius: 0 var(--radius-card) var(--radius-card) 0;
     transform: translateX(-100%);
@@ -9366,7 +9711,7 @@ html.is-standalone .user-menu__item--standalone:not([hidden]) {
 
 .offer-row {
   display: grid;
-  grid-template-columns: 48px 60px minmax(0, 1fr) 110px 100px 150px 106px;
+  grid-template-columns: 48px 60px minmax(0, 1fr) 110px 100px 150px 216px;
   align-items: center;
   gap: 10px;
   min-height: 56px;
@@ -9492,7 +9837,7 @@ html.is-standalone .user-menu__item--standalone:not([hidden]) {
    alleen (bij 1280 px met beide open is de lijst ~690 px breed). */
 @container (max-width: 799px) {
   .offer-row {
-    grid-template-columns: 48px 60px minmax(0, 1fr) 100px 90px 106px;
+    grid-template-columns: 48px 60px minmax(0, 1fr) 100px 90px minmax(142px, max-content); /* alleen de plus, tot er iets in het mandje zit */
     row-gap: 2px;
   }
 
@@ -9637,6 +9982,18 @@ html.is-standalone .user-menu__item--standalone:not([hidden]) {
 
 .product-card .verdict--year-above {
   white-space: normal;
+}
+
+/* De regel over een gewone prijs die te oud is voor een oordeel: gewone kleine tekst, geen pil (hij loopt over drie regels). */
+.product-card .verdict--regular-old {
+  width: auto;
+  border-radius: 0;
+  padding: 0;
+  background: none;
+  box-shadow: none;
+  text-align: left;
+  white-space: normal;
+  font-weight: 400;
 }
 
 /* De rij met inzichten onder de prijs op een kaart: het prijslabel (niet meer op het plaatje) en de chips, naast elkaar. */
@@ -10643,4 +11000,310 @@ html.is-standalone .user-menu__item--standalone:not([hidden]) {
   margin-top: 2px;
   color: var(--muted);
   font-size: var(--text-sm);
+}
+
+/* Losse aankopen (loose_names.js): een kaart per oude naam, de kandidaten als keuzerondjes. Geen eigen breekpunt: de kandidaten
+   vullen het vak met auto-fill en staan op een telefoon onder elkaar. */
+.loose-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 14px 0;
+}
+
+.loose-header__info {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.loose-slot {
+  display: contents;
+}
+
+.loose-header__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.loose-cards {
+  display: grid;
+  gap: 14px;
+  margin-top: 10px;
+}
+
+.loose-card {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  padding: 16px;
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
+}
+
+.loose-card__head h3 {
+  margin: 0;
+  font-size: var(--text-lg);
+  overflow-wrap: anywhere;
+}
+
+.loose-card__head p {
+  margin: 2px 0 0;
+}
+
+.loose-card__candidates {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 280px), 1fr));
+  gap: 8px;
+}
+
+.loose-candidate {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  min-height: 44px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  padding: 6px 8px;
+  background: var(--surface);
+  cursor: pointer;
+}
+
+.loose-candidate:has(input:checked) {
+  border-color: var(--primary);
+  background: var(--selection);
+}
+
+.loose-candidate:has(input:focus-visible) {
+  outline: 3px solid var(--primary);
+  outline-offset: 2px;
+}
+
+@media (hover: hover) {
+  .loose-candidate:hover {
+    border-color: var(--primary);
+  }
+}
+
+.loose-candidate input {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  margin: 0;
+  accent-color: var(--primary);
+}
+
+.loose-candidate img,
+.loose-candidate .link-item__photo {
+  width: 48px;
+  height: 48px;
+  flex: none;
+  border-radius: var(--radius-control);
+  object-fit: contain;
+}
+
+.loose-candidate .link-item__photo {
+  display: grid;
+  place-items: center;
+  border: 1px dashed var(--border);
+  color: var(--muted);
+}
+
+.loose-candidate .link-item__photo svg {
+  width: 24px;
+  height: 24px;
+  fill: currentColor;
+}
+
+.loose-candidate__body {
+  display: grid;
+  flex: 1;
+  gap: 2px;
+  min-width: 0;
+}
+
+.loose-candidate__body strong {
+  overflow-wrap: break-word;
+}
+
+.loose-candidate__body small {
+  color: var(--muted);
+}
+
+.loose-candidate__price {
+  flex: none;
+  font-family: var(--font-heading);
+  font-weight: 700;
+}
+
+.loose-card__ai {
+  margin: 0;
+  font-size: var(--text-md);
+  overflow-wrap: anywhere;
+}
+
+.loose-card__unsure {
+  display: inline-block;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-pill);
+  padding: 0 8px;
+  color: var(--muted);
+  font-size: var(--text-xs);
+}
+
+.loose-card__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.loose-fold {
+  margin-top: 16px;
+  border-top: 1px solid var(--border);
+  padding-top: 10px;
+}
+
+.loose-fold > summary {
+  min-height: 44px;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.loose-fold__count {
+  color: var(--muted);
+  font-weight: 400;
+}
+
+.loose-list {
+  display: grid;
+  gap: 6px;
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.loose-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.loose-row__name {
+  display: grid;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* Op een telefoon is de kolom van de titel smal tussen foto en prijs: kleinere foto, en de prijs onder de titel. */
+@media (max-width: 640px) {
+  .loose-candidate {
+    display: grid;
+    grid-template-columns: 20px 40px minmax(0, 1fr);
+    align-items: start;
+  }
+
+  .loose-candidate img,
+  .loose-candidate .link-item__photo {
+    width: 40px;
+    height: 40px;
+  }
+
+  /* Elk kind heeft zijn eigen cel: valt de foto weg (data-hide-on-error), dan blijft zijn cel leeg en houdt de titel zijn kolom. */
+  .loose-candidate input {
+    grid-area: 1 / 1;
+  }
+
+  .loose-candidate img,
+  .loose-candidate .link-item__photo {
+    grid-area: 1 / 2;
+  }
+
+  .loose-candidate__body {
+    grid-area: 1 / 3;
+  }
+
+  .loose-candidate__price {
+    grid-area: 2 / 3;
+  }
+}
+
+/* De export voor GitHub (shared_links_export.js): een lijst met een vinkje per koppeling. Geen eigen breekpunt: elk kind heeft zijn
+   eigen kolom (het vinkje en de tekst), lange namen breken op woordgrenzen. */
+.export-dialog {
+  width: min(560px, calc(100vw - 32px));
+}
+
+.export-dialog h4 {
+  margin: 0 0 6px;
+  overflow-wrap: break-word;
+}
+
+.export-section {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  margin-top: 14px;
+}
+
+.export-section p,
+.export-steps {
+  margin: 0;
+  overflow-wrap: break-word;
+}
+
+.export-steps {
+  padding-left: 20px;
+}
+
+.export-list {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.export-list li {
+  min-width: 0;
+}
+
+.export-row {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  padding: 8px;
+  cursor: pointer;
+}
+
+.export-row input {
+  grid-area: 1 / 1;
+  margin: 2px 0 0;
+}
+
+.export-row__body {
+  display: grid;
+  grid-area: 1 / 2;
+  gap: 2px;
+  min-width: 0;
+  overflow-wrap: break-word;
+}
+
+.export-row__body small {
+  color: var(--muted);
+  font-size: var(--text-sm);
+}
+
+.export-note {
+  overflow-wrap: break-word;
 }
