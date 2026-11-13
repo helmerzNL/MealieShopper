@@ -149,19 +149,31 @@ class LoopGuard:
         except Exception:
             logger.exception("on_stall van de event-loopbewaker faalde")
 
+    def _settle(self, pending_since: float, stack: tuple[Frame, ...] | None) -> None:
+        """Verwerkt een beantwoorde tik: meld de stilstand als de loop te lang wegbleef."""
+        seconds: float = self._answered_at - pending_since
+        if stack is not None or seconds >= self._threshold:
+            self._report(seconds, stack or ())
+
     def _run(self) -> None:
+        """Eén keer per `interval`: een beantwoorde tik afhandelen en meteen de volgende sturen, zodat er geen blinde tik tussen zit.
+
+        De meting loopt van het sturen van een tik tot het antwoord, dus een stilstand die vlak na een antwoord begint, wordt
+        hooguit één `interval` te kort gemeten. Bij het stoppen volgt een laatste controle, zodat een al beantwoorde maar nog
+        niet gemelde stilstand niet verloren gaat.
+        """
         pending_since: float | None = None
         stack: tuple[Frame, ...] | None = None
         while not self._stop.wait(self._interval):
             now: float = time.perf_counter()
+            if pending_since is not None and self._answered.is_set():
+                self._settle(pending_since, stack)
+                pending_since, stack = None, None
             if pending_since is None:
                 if not self._send_tick():
                     return
                 pending_since = now
-            elif self._answered.is_set():
-                seconds: float = self._answered_at - pending_since
-                if stack is not None or seconds >= self._threshold:
-                    self._report(seconds, stack or ())
-                pending_since, stack = None, None
             elif stack is None and now - pending_since >= self._threshold:
                 stack = self._capture()
+        if pending_since is not None and self._answered.is_set():
+            self._settle(pending_since, stack)

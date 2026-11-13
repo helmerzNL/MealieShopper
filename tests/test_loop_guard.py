@@ -135,3 +135,32 @@ async def test_stop_after_the_loop_closed_does_not_raise() -> None:
     time.sleep(0.05)  # noqa: ASYNC251
     guard.stop()
     loop_guard.LoopGuard(loop, 0.05, lambda stall: None).stop()
+
+
+async def test_a_block_of_threshold_plus_one_and_a_half_intervals_is_always_reported() -> (
+    None
+):
+    """Een tik per twee wakes liet een blinde plek van twee intervallen: 70 ms bij een drempel van 40 ms viel erdoorheen."""
+    stalls: list[loop_guard.Stall] = []
+    guard: loop_guard.LoopGuard = loop_guard.LoopGuard(
+        asyncio.get_running_loop(), 0.04, stalls.append, interval=0.02
+    )
+    guard.start()
+    for step in range(8):
+        await asyncio.sleep(0.06 + step * 0.0037)  # elke keer een andere fase
+        time.sleep(0.07)  # noqa: ASYNC251
+    await asyncio.sleep(0.1)
+    guard.stop()
+    assert len(stalls) == 8
+
+
+async def test_stop_right_after_the_block_still_reports_it() -> None:
+    stalls: list[loop_guard.Stall] = []
+    guard: loop_guard.LoopGuard = loop_guard.LoopGuard(
+        asyncio.get_running_loop(), 0.05, stalls.append
+    )
+    guard.start()
+    time.sleep(0.2)  # noqa: ASYNC251
+    await asyncio.sleep(0)  # de loop beantwoordt de tik, de thread heeft het nog niet gezien
+    guard.stop()
+    assert len(stalls) == 1
