@@ -218,7 +218,7 @@ async def resolve_list(wanted: Any) -> dict[str, Any]:
     )
 
 
-SCAN_PAGES = 3  # met filters (4.21.0): zoveel pagina's per keer bekijken als er te weinig recepten door de filter komen
+SCAN_PAGES = 3  # met filters (4.22.0): zoveel pagina's per keer bekijken als er te weinig recepten door de filter komen
 SCAN_ENOUGH = 12  # zoveel recepten na de filter is genoeg voor één keer
 
 

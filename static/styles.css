@@ -3640,6 +3640,98 @@ select.input {
   background: var(--surface);
 }
 
+/* ---- Bladeren door recepten (recipe_nav.js): chevrons in de kop van het recept met de plek erachter ("3 van 24"), onder het recept
+   Vorige en Volgende, en een veeg naar links of rechts. Het hele recept is het vlak voor die veeg: zijwaarts is van ons, omhoog en
+   omlaag blijft scrollen, en knijpen blijft zoomen. */
+[data-recipe-surface] {
+  touch-action: pan-y pinch-zoom;
+}
+
+.recipe-nav {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+}
+
+.recipe-nav__count {
+  min-width: 4.5em;
+  color: var(--muted);
+  text-align: center;
+  font-size: var(--text-sm);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.recipe-nav--bottom {
+  justify-content: space-between;
+  margin-top: 24px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+
+.recipe-nav .mdi,
+.recipe-nav svg {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  fill: currentColor;
+}
+
+/* Op een smal scherm krijgt de balk in de kop een eigen regel onder de titel, met een chevron aan elke kant. */
+@media (max-width: 640px) {
+  .list-header .recipe-nav {
+    flex: 1 1 100%;
+    justify-content: space-between;
+  }
+}
+
+/* In het venster van een maaltijd staat de balk rechts op de regel van de maaltijdsoort en is hij compact. */
+.meal-recipe__top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.meal-recipe__top .meal-recipe__type {
+  margin: 0;
+}
+
+.meal-recipe__top .recipe-nav {
+  margin-left: auto;
+}
+
+.meal-recipe__top .icon-button {
+  min-height: 36px;
+  padding: 0 10px;
+}
+
+/* Het nieuwe recept schuift in vanaf de kant waar je naartoe veegt; met minder beweging gewoon meteen. */
+@media (prefers-reduced-motion: no-preference) {
+  .recipe-slide-next {
+    animation: recipe-slide-next 0.22s var(--ease) backwards;
+  }
+
+  .recipe-slide-prev {
+    animation: recipe-slide-prev 0.22s var(--ease) backwards;
+  }
+}
+
+@keyframes recipe-slide-next {
+  from {
+    opacity: 0;
+    transform: translateX(24px);
+  }
+}
+
+@keyframes recipe-slide-prev {
+  from {
+    opacity: 0;
+    transform: translateX(-24px);
+  }
+}
+
 /* ---- De kookmodus (#cook-mode, recipe_view.js): schermvullend, één stap in grote letters, met Vorige en Volgende onderaan
    binnen bereik van je duim. De ingrediënten liggen op een smal scherm als paneel over de onderkant, vanaf 860 px ernaast. */
 .cook-mode {

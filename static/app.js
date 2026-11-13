@@ -967,9 +967,12 @@ function renderMealRecipeBody(entry) {
     ${nutritionTable(entry.nutrition, { servings: entry.servings?.planned, headingLevel: 4 })}`;
 }
 
-function openMealRecipe(entry) {
+// Een maaltijd uit het weekmenu. Vanuit het weekmenu begint de reeks om door de maaltijden met een recept te bladeren (recipe_nav.js);
+// met `move` is dit een stap naar de vorige of volgende maaltijd, in hetzelfde venster.
+function openMealRecipe(entry, { move = false } = {}) {
   mealRecipe.entry = entry;
   const dialog = $("#meal-recipe-dialog");
+  if (!move && typeof recipeNavMeal === "function") recipeNavMeal(entry);
   $("#meal-recipe-type").textContent = `${mealLabel(entry.entryType)} · ${formatDate(entry.date)}`;
   $("#meal-recipe-title").textContent = mealName(entry);
   // Het totaal alleen als het iets toevoegt: bij één portie is het gelijk aan de kcal per portie.
@@ -992,6 +995,7 @@ function openMealRecipe(entry) {
   if (!dialog.open) dialog.showModal();
   dialog.scrollTop = 0;
   if (typeof cookWakeUpdate === "function") cookWakeUpdate(); // "Scherm aan laten" (recipe_view.js)
+  if (move && typeof recipeNavArrived === "function") recipeNavArrived(dialog);
 }
 
 function renderMealPlan(entries) {
@@ -2003,7 +2007,7 @@ async function saveWeekStart(event) {
   await refreshMealieStatus();
 }
 
-// Tags voor vegetarisch, veganistisch, vlees, vis en gevogelte in Mealie zetten (4.21.0; alleen de beheerder kan opslaan).
+// Tags voor vegetarisch, veganistisch, vlees, vis en gevogelte in Mealie zetten (4.22.0; alleen de beheerder kan opslaan).
 async function saveDietTags(event) {
   const toggle = event.currentTarget;
   message("#mealie-diet-tags-message", "");
@@ -2081,7 +2085,7 @@ function renderMealieStatus(data, { verified = false } = {}) {
   state.linkedStores.mealie = Boolean(data.configured); // Recepten zoeken zoekt dan ook in Mealie
   if (typeof recipeSearchMealieChanged === "function") recipeSearchMealieChanged(); // en bladert er zonder zoekterm doorheen
   const dietTags = $("#mealie-diet-tags");
-  if (dietTags && typeof data.dietTags === "boolean") dietTags.checked = data.dietTags; // tags uit de ingrediënten (4.21.0)
+  if (dietTags && typeof data.dietTags === "boolean") dietTags.checked = data.dietTags; // tags uit de ingrediënten (4.22.0)
   if (typeof renderAhPlannerButton === "function") renderAhPlannerButton(); // Naar weekmenu (ah_planner.js) vraagt Mealie
   // Eerst de eerste dag van de week, zodat het weekmenu meteen de goede week ophaalt.
   const weekChanged = applyWeekStart(data.weekStart);

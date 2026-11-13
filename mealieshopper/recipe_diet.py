@@ -1,4 +1,4 @@
-"""Wat er in een recept zit en welk soort gerecht het is, voor de filters van Recepten zoeken (4.21.0, vervolg op issue #322).
+"""Wat er in een recept zit en welk soort gerecht het is, voor de filters van Recepten zoeken (4.22.0, vervolg op issue #322).
 
 Eén set filters voor alle bronnen: de menugang (de vaste lijst van offer_courses.py), vegetarisch of veganistisch, vlees, vis
 of gevogelte, en de bereidingstijd. Elke bron levert wat hij kan:

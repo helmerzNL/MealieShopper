@@ -456,7 +456,7 @@ def create_app() -> Quart:
         if not query:
             return jsonify({"error": tr("Zoekterm ontbreekt", "Search term is missing")}), 400
         try:
-            wanted = recipe_diet.wanted_from(request.args)  # menugang, dieet, vlees/vis/gevogelte en tijd (4.21.0)
+            wanted = recipe_diet.wanted_from(request.args)  # menugang, dieet, vlees/vis/gevogelte en tijd (4.22.0)
         except ValueError as exc:
             return jsonify({"error": str(exc)}), 400
 
@@ -1243,7 +1243,7 @@ def create_app() -> Quart:
     @app.get("/api/mealie/status")
     async def mealie_status():
         verify = (request.args.get("verify") or "").strip().lower() in {"1", "true", "yes"}
-        # `dietTags`: of MealieShopper tags voor vegetarisch, vlees, vis en gevogelte in Mealie zet (4.21.0).
+        # `dietTags`: of MealieShopper tags voor vegetarisch, vlees, vis en gevogelte in Mealie zet (4.22.0).
         return jsonify({**await mealie.status(verify=verify), "dietTags": await recipe_nutrition.diet_tags_enabled()})
 
     @app.post("/api/mealie/auth")

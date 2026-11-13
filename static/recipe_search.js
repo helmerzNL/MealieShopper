@@ -16,7 +16,7 @@ const recipeSearch = {
   query: "",
   kcal: "", // de grenzen op de calorieën (kcalMin=..&kcalMax=..), of leeg; met grenzen zoekt alleen Mealie (issue #283)
   filters: "", // tags, categorieën, tijd en volgorde (tags=..&maxMinutes=..&sort=..), of leeg (issue #322)
-  storeFilters: "", // menugang, dieet, vlees/vis/gevogelte en tijd voor de winkels (course=..&maxMinutes=..), of leeg (4.21.0)
+  storeFilters: "", // menugang, dieet, vlees/vis/gevogelte en tijd voor de winkels (course=..&maxMinutes=..), of leeg (4.22.0)
   skipped: new Set(), // de bronnen die een gekozen filter niet kennen en daarom niet meedoen
   mealieOnly: false, // zonder zoekterm (bladeren), of met een filter dat alleen Mealie kent: dan zoeken de winkels niet mee
   browsing: false, // zonder zoekterm: je recepten in Mealie, met doorlopend scrollen
@@ -282,8 +282,27 @@ async function importStoreRecipe(store, id, button, target) {
 // Het detailscherm hoort bij een "gastheer": de lijst waar het recept vandaan kwam en het blok dat het detail toont.
 // De elementen heten `#<voorvoegsel>-title`, `-body`, `-message`, `-import` en `-import-result`. `known` geeft de recepten
 // van de lijst, zodat de titel er al staat terwijl het recept laadt.
-const SEARCH_HOST = { prefix: "search-detail", list: "#search-main", detail: "#search-detail", known: (store) => recipeSearch[store].recipes };
-const FAVORITES_HOST = { prefix: "jumbo-recipe", list: "#jumbo-favorites-view", detail: "#jumbo-recipe-view", known: () => jumboFavorites.recipes };
+// Bladeren (recipe_nav.js) volgt de volgorde van de kaarten in `list`. Staat er na het laatste recept nog een pagina, dan laadt `loadMore`
+// die (`more` zegt of het kan, `total` het aantal van de hele lijst voor "3 van 187"). Bij Recepten zoeken kan dat zonder zoekterm
+// of met een filter dat alleen Mealie kent, want dan staat er alleen Mealie op het scherm en komt de volgende pagina onderaan.
+const SEARCH_HOST = {
+  prefix: "search-detail",
+  list: "#search-main",
+  detail: "#search-detail",
+  known: (store) => recipeSearch[store].recipes,
+  more: () => recipeSearch.mealieOnly && recipeSearch.mealie.more,
+  loadMore: loadMoreMealieForNav,
+  total: () => (recipeSearch.mealieOnly ? recipeSearch.mealie.total : 0),
+};
+const FAVORITES_HOST = {
+  prefix: "jumbo-recipe",
+  list: "#jumbo-favorites-view",
+  detail: "#jumbo-recipe-view",
+  known: () => jumboFavorites.recipes,
+  more: () => jumboFavorites.hasNext,
+  loadMore: () => loadJumboFavorites(true),
+  total: () => jumboFavorites.total,
+};
 const PICNIC_HOST = { prefix: "picnic-recipe", list: "#picnic-recipes-view", detail: "#picnic-recipe-view", known: () => picnicRecipes.recipes };
 const CRISP_HOST = { prefix: "crisp-recipe", list: "#crisp-recipes-view", detail: "#crisp-recipe-view", known: () => crispRecipes.recipes };
 const AH_SAVED_HOST = { prefix: "ah-recipe", list: "#ah-recipes-view", detail: "#ah-recipe-view", known: () => state.ahRecipes };
@@ -295,25 +314,34 @@ const RECIPE_SOURCE_NAMES = { ah: "Albert Heijn", jumbo: "Jumbo", picnic: "Picni
 function showRecipeList(host) {
   $(host.detail).hidden = true;
   $(host.list).hidden = false;
+  recipeNavEnd(host); // geen recept meer open: er wordt niet meer in bladerd (recipe_nav.js)
   cookWakeUpdate(); // het recept is uit beeld: "Scherm aan laten" hoeft niet meer (recipe_view.js)
 }
 
-async function openStoreRecipe(store, id, host = SEARCH_HOST) {
+// Een recept uit de lijst van `host`. Vanuit de lijst begint de reeks om doorheen te bladeren (recipe_nav.js); met `move` is dit een
+// stap naar het vorige of volgende recept, binnen dezelfde reeks. Bij een snelle reeks stappen telt alleen het laatste antwoord.
+async function openStoreRecipe(store, id, host = SEARCH_HOST, { move = false } = {}) {
+  const token = (host.seq = (host.seq || 0) + 1);
+  if (!move) recipeNavBegin(host, store, id);
   $(host.list).hidden = true;
   $(host.detail).hidden = false;
   const known = host.known(store).find((recipe) => String(recipe.id ?? recipe.key) === String(id));
   $(`#${host.prefix}-title`).textContent = known?.name || known?.title || "";
   $(`#${host.prefix}-body`).innerHTML = loadingHtml();
   message(`#${host.prefix}-message`, "");
-  $(`#${host.prefix}-title`).focus();
+  if (!move) $(`#${host.prefix}-title`).focus(); // bij een stap blijft de focus op de chevron
   try {
-    renderStoreRecipeDetail(store, await jsonFetch(`/api/${store}/recipes/${encodeURIComponent(id)}`), host);
+    const recipe = await jsonFetch(`/api/${store}/recipes/${encodeURIComponent(id)}`);
+    if (token !== host.seq) return;
+    renderStoreRecipeDetail(store, recipe, host);
   } catch (error) {
+    if (token !== host.seq) return;
     $(`#${host.prefix}-body`).innerHTML = "";
     message(`#${host.prefix}-message`, error.message);
   } finally {
     cookWakeUpdate();
   }
+  if (move) recipeNavArrived($(host.detail));
 }
 
 function renderStoreRecipeDetail(store, recipe, host) {
@@ -460,7 +488,7 @@ function recipeFilterQuery() {
 }
 
 // Een filter dat alleen Mealie kent (tags, categorieën): dan zoeken de winkels niet mee. Menugang, dieet en tijd gaan sinds
-// 4.21.0 per bron (zie RECIPE_FILTER_SUPPORT), een volgorde laat iedereen meedoen.
+// 4.22.0 per bron (zie RECIPE_FILTER_SUPPORT), een volgorde laat iedereen meedoen.
 function recipeFiltersNarrow() {
   return RECIPE_FACETS.some((name) => facetActive(recipeFacets[name]));
 }
@@ -555,7 +583,20 @@ async function loadMoreMealie(button) {
     setBusy(button, false);
     recipeSearch.loadingMore = false;
   }
-  if (recipeSearch.browsing && !button.hidden && button.getBoundingClientRect().top < window.innerHeight + 400) loadMoreMealie(button);
+  // Een recept dat intussen open ging verbergt de lijst; een verborgen knop meet 0 en zou anders pagina na pagina laden.
+  if (recipeSearch.browsing && !button.hidden && button.getClientRects().length && button.getBoundingClientRect().top < window.innerHeight + 400) loadMoreMealie(button);
+}
+
+// Bladeren in een recept (recipe_nav.js) was bij het laatste recept van wat er geladen is: de volgende pagina erbij. De knop Meer
+// recepten en het doorlopend scrollen laden niet tegelijk (loadingMore); dan is die pagina er zo, en bladert het door.
+async function loadMoreMealieForNav() {
+  if (recipeSearch.loadingMore) return;
+  recipeSearch.loadingMore = true;
+  try {
+    await fetchSearchStore("mealie", true);
+  } finally {
+    recipeSearch.loadingMore = false;
+  }
 }
 
 if (typeof IntersectionObserver === "function") {

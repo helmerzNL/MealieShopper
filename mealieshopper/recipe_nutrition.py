@@ -14,7 +14,7 @@ tags en categorieën). Op de bereidingstijd kan Mealie zelf niet filteren. Die g
 ronde werkt ze voor alle recepten bij, zonder elk recept op te halen. De dagelijkse run (`offers_schedule.run_all`) start
 een ronde met `refresh_nightly`.
 
-Sinds 4.21.0 leidt MealieShopper uit de ingrediënten af of een recept vegetarisch of veganistisch is, of vlees, vis of
+Sinds 4.22.0 leidt MealieShopper uit de ingrediënten af of een recept vegetarisch of veganistisch is, of vlees, vis of
 gevogelte bevat (recipe_diet.py, kolom `derived`), en filtert Recepten zoeken op menugang, dieet en vlees/vis/gevogelte. Na
 elke ronde zet `start_tags` die tags ook in Mealie (de instelling `SETTING_DIET_TAGS`, standaard aan). Een tag die je zelf
 zette blijft altijd staan. Een tag die MealieShopper zette en die niet meer klopt, haalt hij weg; haal jij er een weg, dan zet
@@ -89,7 +89,7 @@ COLUMN_MIGRATIONS: tuple[tuple[str, str, str], ...] = (
     ("mealie_recipe_nutrition", "minutes", "INTEGER"),
     ("mealie_recipe_nutrition", "created_at", "TEXT"),
     ("mealie_recipe_nutrition", "rating", "REAL"),
-    # 4.21.0: wat de ingrediënten zeggen (recipe_diet.classify, JSON; "null" zonder ingrediënten, NULL = nog niet bekeken) en
+    # 4.22.0: wat de ingrediënten zeggen (recipe_diet.classify, JSON; "null" zonder ingrediënten, NULL = nog niet bekeken) en
     # welke tags MealieShopper zelf in Mealie zette (`{"added": [...], "declined": [...]}`).
     ("mealie_recipe_nutrition", "derived", "TEXT"),
     ("mealie_recipe_nutrition", "auto_tags", "TEXT"),
@@ -287,7 +287,7 @@ async def refresh_nightly() -> bool:
     return True
 
 
-# --- tags voor vegetarisch, veganistisch, vlees, vis en gevogelte in Mealie (4.21.0) ---------------------------------------
+# --- tags voor vegetarisch, veganistisch, vlees, vis en gevogelte in Mealie (4.22.0) ---------------------------------------
 
 
 async def diet_tags_enabled() -> bool:
@@ -401,7 +401,7 @@ async def _run_refresh() -> None:
 
         def stale(summary: dict[str, Any]) -> bool:
             row = known.get(str(summary.get("id") or ""))
-            if row is None or row[2] is None or row[3] is None:  # nieuw, van vóór 4.7.0 (alleen de kcal) of van vóór 4.21.0
+            if row is None or row[2] is None or row[3] is None:  # nieuw, van vóór 4.7.0 (alleen de kcal) of van vóór 4.22.0
                 return True
             stamp = _stamp(summary)
             return stamp != row[0] if stamp else now - row[1] > STALE_WITHOUT_STAMP
@@ -459,7 +459,7 @@ async def _fresh(wait: float) -> dict[str, int] | None:
     base = await mealie.mealie_url()
     async with _connect() as conn:
         meta = await auth.fetchone(conn, "SELECT base, synced_at FROM mealie_recipe_nutrition_meta WHERE id = 1")
-        # Een rij zonder tags (vóór 4.20.0) of zonder `derived` (vóór 4.21.0): de eerste ronde daarna vult ze, ook als de cache
+        # Een rij zonder tags (vóór 4.20.0) of zonder `derived` (vóór 4.22.0): de eerste ronde daarna vult ze, ook als de cache
         # verder bij is.
         unfilled = await auth.fetchone(conn, "SELECT 1 FROM mealie_recipe_nutrition WHERE tags IS NULL OR derived IS NULL LIMIT 1")
     fresh = meta is not None and meta["base"] == (base or "") and time.time() - meta["synced_at"] < INDEX_TTL and unfilled is None
@@ -529,7 +529,7 @@ def card_with(card: dict[str, Any], found: dict[str, float]) -> dict[str, Any]:
 class Filters:
     """De filters van Recepten zoeken naast de voedingswaarden (issue #322). Tags en categorieën zijn slugs: een recept moet
     alles uit `tags` en `categories` hebben en niets uit `tags_out` en `categories_out`. `max_minutes` laat alleen recepten
-    met een bekende bereidingstijd tot en met die grens door. `sort` is een van `SORTS`. Sinds 4.21.0 ook de menugang
+    met een bekende bereidingstijd tot en met die grens door. `sort` is een van `SORTS`. Sinds 4.22.0 ook de menugang
     (`course`, recipe_diet.COURSES), het dieet (`diet`: vegetarisch of veganistisch) en `protein` (vlees, vis of gevogelte)."""
 
     tags: tuple[str, ...] = ()

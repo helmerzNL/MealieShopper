@@ -363,11 +363,14 @@
         </div>
       </div>
     </dialog>
-    <dialog id="meal-recipe-dialog" class="product-dialog meal-recipe" aria-labelledby="meal-recipe-title">
+    <dialog id="meal-recipe-dialog" class="product-dialog meal-recipe" aria-labelledby="meal-recipe-title" data-recipe-surface>
       <div class="product-dialog__inner">
         <img id="meal-recipe-image" class="meal-recipe__image" alt="" hidden>
         <div>
-          <p class="meal-recipe__type" id="meal-recipe-type"></p>
+          <div class="meal-recipe__top">
+            <p class="meal-recipe__type" id="meal-recipe-type"></p>
+            <div class="recipe-nav recipe-nav--top" data-recipe-nav="top" hidden></div>
+          </div>
           <h3 id="meal-recipe-title" tabindex="-1" autofocus></h3>
           <p class="muted" id="meal-recipe-facts"></p>
         </div>
@@ -2531,6 +2534,7 @@
     <script src="{{ url_for('static', filename='app.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='shopping.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='recipe_view.js', v=config.ASSET_VERSION) }}"></script>
+    <script src="{{ url_for('static', filename='recipe_nav.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='cook_timers.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='categories.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='facets.js', v=config.ASSET_VERSION) }}"></script>

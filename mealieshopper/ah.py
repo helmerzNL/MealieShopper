@@ -75,7 +75,7 @@ RECIPE_SEARCH_QUERY = """
 # AH geeft een fout als start + size boven 2000 uitkomt; zo ver kun je bladeren.
 RECIPE_SEARCH_WINDOW = 2000
 # Met een grens op de tijd boven de 15 minuten van "snel" filteren we zelf: per keer zoveel recepten bekijken, hooguit zoveel keer
-# als er niets door de filter kwam (4.21.0).
+# als er niets door de filter kwam (4.22.0).
 RECIPE_SCAN_SIZE = 48
 RECIPE_SCAN_ROUNDS = 3
 RECIPE_CARD_IMAGE_WIDTH = 440

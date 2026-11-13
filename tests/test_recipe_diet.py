@@ -1,4 +1,4 @@
-"""Menugang, vegetarisch, vlees, vis en gevogelte voor alle bronnen van Recepten zoeken (4.21.0, vervolg op issue #322):
+"""Menugang, vegetarisch, vlees, vis en gevogelte voor alle bronnen van Recepten zoeken (4.22.0, vervolg op issue #322):
 het afleiden uit de ingrediënten, de labels, de filters per bron, de zoekfunctie van AH en Jumbo, en de tags in Mealie."""
 
 import json

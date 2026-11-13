@@ -124,7 +124,7 @@ async def settings_payload() -> dict[str, Any]:
         "mcpSource": mcp_source,
         "mcpTools": await tools_payload(),
         "weekStart": await mealie.week_start_setting(),  # "" = zoals in Mealie, "0".."6" = vaste dag (0 = zondag)
-        "dietTags": await recipe_nutrition.diet_tags_enabled(),  # tags uit de ingrediënten in Mealie zetten (4.21.0)
+        "dietTags": await recipe_nutrition.diet_tags_enabled(),  # tags uit de ingrediënten in Mealie zetten (4.22.0)
         "loginOn": await auth.auth_required() and await auth.credentials_exist(),
     }
 

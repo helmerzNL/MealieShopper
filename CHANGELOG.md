@@ -2,11 +2,11 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub; een stabiele release krijgt de teksten van alle versies sinds de vorige stabiele release.
 
-## v4.21.0
+## v4.22.0
 
 *English summary: Find recipes filters every source on course, vegetarian or vegan and cooking time, and Mealie and Albert Heijn also on meat, fish or poultry (follow-up to issue #322). **Per source**: Albert Heijn filters itself (course, dish type, special wishes, recipes with, and its quick filter for up to 15 minutes); a longer time at AH and the course and time at Jumbo are filtered by MealieShopper over a few pages at a time, with "12 recipes in the first 96 hits" instead of a total; Picnic, Crisp, HelloFresh and Marley Spoon are filtered on their labels and times. A source that does not know a chosen filter is left out, and the results say which. **Mealie**: the course comes from your categories and tags (no course counts as a main course), and MealieShopper works out from the ingredients whether a recipe is vegetarian or vegan, or has meat, fish or poultry; a vegetarian or vegan tag of your own comes first. **Tags in Mealie**: after every round MealieShopper adds the tags Vegetarisch, Veganistisch, Vlees, Vis and Gevogelte to your recipes; your own tags always stay, a tag of MealieShopper that no longer fits is removed, and one you removed is not added again. It can be turned off under Settings, Link, Mealie.*
 
-### Nieuw in 4.21.0
+### Nieuw in 4.22.0
 
 Pull request: [#325](https://github.com/helmerzNL/MealieShopper/pull/325). Vervolg op issue [#322](https://github.com/helmerzNL/MealieShopper/issues/322).
 
@@ -19,6 +19,22 @@ Pull request: [#325](https://github.com/helmerzNL/MealieShopper/pull/325). Vervo
 - **Tags in Mealie.** Na elke ronde door je recepten zet MealieShopper de tags *Vegetarisch*, *Veganistisch*, *Vlees*, *Vis* en *Gevogelte* bij je recepten in Mealie, hooguit 300 recepten per keer. Een tag die je zelf zette, blijft altijd staan. Klopt een tag van MealieShopper niet meer omdat het recept veranderde, dan haalt hij hem weg; haal jij er een weg, dan zet hij hem bij dat recept niet opnieuw. Uitzetten kan onder *Instellingen, Koppelen, Mealie*; dan blijven de tags die er staan.
 - De eerste ronde na de update haalt elk recept in Mealie één keer opnieuw op, om de ingrediënten te lezen.
 - **API**: `GET /api/mealie/recipes` neemt ook `course`, `diet` en `protein`; de zoekroutes van de winkels en maaltijdboxen nemen `course`, `diet`, `protein` en `maxMinutes`, en geven bij een filter over meer pagina's `total: null` met `scanned` en `page` of `nextOffset`. De instelling is `dietTags` in `/api/server-settings`; `/api/mealie/status` geeft hem ook.
+## v4.21.0
+
+*English summary: With a recipe open you can browse to the previous or next recipe of the list you opened it from, with the chevrons, the arrow keys or a swipe. **Where**: the detail of Find recipes, under Stores (your saved AH recipes, the AH week planner, Jumbo, Picnic, Crisp), under Meal kits and the window of a meal in the week menu. **The list is the screen**: the sequence is the cards on the screen when you opened the recipe, in the same order, so a search term, a filter, a chosen week or list is what you browse through; in the week menu it is the meals that have a recipe (a note has none and is skipped). **Controls**: two chevrons with your place next to them (*3 of 24*) above the recipe (next to the meal type in the week menu window), Previous and Next below the recipe, the left and right arrow keys, and on a touch screen a swipe to the left (next) or right (previous); up and down still scroll. **At the end of a page**: without a search term Find recipes, and the Jumbo favourites, load the next page when you go on from the last loaded recipe. **Fixed**: a recipe opened while a page of your Mealie recipes was loading no longer made the hidden list load page after page.*
+
+### Nieuw in 4.21.0
+
+Pull request: [#324](https://github.com/helmerzNL/MealieShopper/pull/324).
+
+- **Bladeren van recept naar recept.** Staat een recept open, dan ga je naar het vorige of volgende recept van de lijst waar je het uit opende, zonder eerst terug te gaan. Dat werkt bij het detail van Recepten zoeken, onder Winkels (je bewaarde AH-recepten, de weekplanner van de AH-app, Jumbo, Picnic en Crisp), bij Maaltijdboxen en in het venster van een maaltijd in het weekmenu.
+- **De lijst is wat er op het scherm staat.** De reeks is de kaarten die op het scherm stonden toen je het recept opende, in dezelfde volgorde. Met een zoekterm, een filter, een gekozen week, een receptgroep of een lijst bladert het dus precies daardoorheen. In het weekmenu zijn het de maaltijden met een recept, in de volgorde van het scherm; een notitie als *Uit eten* heeft geen recept en wordt overgeslagen.
+- **Pijltjes, toetsen en vegen.** Bovenaan het recept staan twee pijltjes met je plek erachter (*3 van 24*; in het venster van een maaltijd naast de maaltijdsoort), en onder het recept **Vorige** en **Volgende**, zodat je na een lang recept niet naar boven hoeft. Met een toetsenbord gebruik je de pijltjestoetsen links en rechts, behalve in een invulveld of terwijl de kookmodus openstaat. Op een telefoon of tablet veeg je naar links (volgende) of rechts (vorige); omhoog en omlaag blijft scrollen, en een veeg op een brede tabel scrolt de tabel. Het nieuwe recept schuift in vanaf de kant waar je naartoe gaat (niet als je beweging beperkt hebt in je apparaat), de pagina springt naar boven, en bij het eerste of laatste recept valt het pijltje uit.
+- **Aan het eind van een pagina.** Zonder zoekterm staan je recepten bij Recepten zoeken niet allemaal op het scherm, en de favorieten van Jumbo ook niet. Ga je door vanaf het laatste geladen recept, dan laadt **Volgende** de volgende pagina en gaat het gewoon door. De plek toont dan het totaal van de hele lijst (*30 van 187*). Met een zoekterm staan de winkels erna op het scherm, dus daar is de lijst wat er staat.
+
+### Opgelost in 4.21.0
+
+- Opende je een recept terwijl een pagina van je Mealie-recepten nog laadde, dan bleef de verborgen lijst pagina na pagina laden. Een verborgen knop *Meer recepten* telt nu niet meer als in beeld.
 
 ## v4.20.0
 

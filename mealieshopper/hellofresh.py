@@ -327,7 +327,7 @@ async def search(query: Any, load: int = 0, wanted: Any = None) -> dict[str, Any
             text = _fold(" ".join((recipe.get("name", ""), recipe.get("headline", ""), recipe.get("cuisine", ""), recipe.get("label", ""))))
             if recipe.get("key") not in found and all(word in text for word in words):
                 found[recipe["key"]] = {**recipe, "week": row["week"]}
-    # Met filters (recipe_diet.Wanted: menugang, dieet, tijd) vóór het afkappen, zodat het totaal klopt (4.21.0).
+    # Met filters (recipe_diet.Wanted: menugang, dieet, tijd) vóór het afkappen, zodat het totaal klopt (4.22.0).
     results = recipe_diet.filter_cards("hellofresh", list(found.values()), wanted) if wanted is not None else list(found.values())
     return {"weeks": len(rows), "total": len(results), "recipes": results[:MAX_RESULTS]}
 
