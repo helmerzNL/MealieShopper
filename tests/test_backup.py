@@ -279,6 +279,9 @@ class ClassificationTest(BackupCase):
     async def test_every_table_is_either_in_the_backup_or_left_out_on_purpose(self) -> None:
         # Een nieuwe tabel met gegevens hoort in de back-up (DATA_TABLES) en in de round-trip-test: dit is de herinnering.
         await backup.ensure_schemas()
+        from mealieshopper import price_archive_sync
+
+        await price_archive_sync.ensure_schema()
         with closing(db(audit)):
             pass
         async with image_cache._connect():

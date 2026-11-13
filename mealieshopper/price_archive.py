@@ -136,7 +136,7 @@ STORES = offers.STORES
 # Een schapprijs uit een archief (`search`: wat een MealieShopper bij het zoeken zag) wordt `archive_search`: een gewone prijs,
 # die **Vervangen** herkent als archiefregel en die niet meetelt als product van jou bij het koppelen (price_archive_tidy.py).
 ARCHIVE_SEARCH = "archive_search"
-PRICE_SOURCES = ("public_press_release", prices.PUBLIC_OBSERVED_UNKNOWN, "search", ARCHIVE_SEARCH)
+PRICE_SOURCES = ("public_press_release", prices.PUBLIC_OBSERVED_UNKNOWN, "search", ARCHIVE_SEARCH, prices.PRICE_INDEX)
 OFFER_COLUMNS = (
     "store",
     "product_id",
@@ -481,7 +481,7 @@ def normalise_price(row: dict[str, Any], bounds: Today) -> tuple[Any, ...]:
     source = row.get("source")
     if source is None or source == "":
         raise RowError("missing", "source")
-    if source not in PRICE_SOURCES:
+    if source not in PRICE_SOURCES or (source == prices.PRICE_INDEX and store != "ah"):
         raise RowError("source", "source", source)
     title = _text(row, "title", 1000, required=True, clean=True)
     brand = _text(row, "brand", 300, clean=True)
@@ -489,7 +489,9 @@ def normalise_price(row: dict[str, Any], bounds: Today) -> tuple[Any, ...]:
     url = _url(row, "url")
     price = _price(row, "price", required=True, positive=True)
     seen_at = _stamp(row, "seen_at", bounds.later) or f"{day}T00:00:00+00:00"
-    if datetime.fromisoformat(seen_at).date().isoformat() != day:
+    captured_day: str = datetime.fromisoformat(seen_at).date().isoformat()
+    # De prijsindex geeft historische weken met het tijdstip waarop ze later zijn verzameld.
+    if captured_day < day or (source != prices.PRICE_INDEX and captured_day != day):
         raise RowError("seen_at", "seen_at")
     stored = ARCHIVE_SEARCH if source in ("search", ARCHIVE_SEARCH) else str(source)
     return (store, product_id, day, stored, title, brand, unit_size, "", url, price, seen_at)
@@ -1640,6 +1642,9 @@ def apply(path: Path, replace: bool = False, on_commit: Callable[[sqlite3.Connec
         conn.execute("BEGIN IMMEDIATE")
         removed = {"offers": 0, "prices": 0}
         if replace:
+            from . import price_archive_sync
+
+            price_archive_sync.reset(conn)
             removed["offers"] = conn.execute(f"DELETE FROM offer_history WHERE {ARCHIVE_OFFERS_SQL}").rowcount
             removed["prices"] = conn.execute(f"DELETE FROM price_observations WHERE {ARCHIVE_PRICES_SQL}").rowcount
         plan = Plan(conn)

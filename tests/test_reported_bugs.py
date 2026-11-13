@@ -6,19 +6,24 @@ nieuwe versie die het gedrag terugdraait hier rood wordt. Een nieuwe melding kri
 """
 
 import inspect
+import io
 import json
 import os
 import re
 import shutil
+import sqlite3
 import subprocess
 import tempfile
 import unittest
+import zipfile
 from contextlib import closing
 from datetime import date, timedelta
 from pathlib import Path
+from typing import Any
 from unittest import mock
 
 import httpx
+import jsonschema
 import jwt
 import test_ah_orders  # als module: de opzet van het AH-mandje
 import test_history_chart_js  # als module, voor de Node-opbouw van offers_history.js
@@ -27,6 +32,7 @@ import test_loose_names  # idem: de opzet van de losse aankoopnamen
 import test_offers  # idem: de opzet van de receptvoorstellen
 import test_offers_scan_js  # idem: de Node-opbouw van offers.js
 import test_order_views  # idem: de Node-opbouw van order_views.js en de gedeelde keuzelijst
+import test_price_archive
 import test_price_import  # idem
 import test_shared_links  # idem: de gedeelde lijst en zijn opzet
 from helpers import AppTestCase, db, run, sent_json, served  # helpers zet ook het pad naar de app
@@ -46,6 +52,7 @@ from mealieshopper import (
     offer_ranking,
     offers,
     offers_schedule,
+    price_archive,
     price_archive_tidy,
     price_import,
     prices,
@@ -1897,3 +1904,99 @@ class SameDealAFewCentsApartTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class WeeklyPriceArchiveTest(test_price_archive.ArchiveCase):
+    """Weekprijzen behouden hun bron en het latere verzameltijdstip."""
+
+    async def test_2026_11_13_weekly_prices_survive_both_exports_and_import(self) -> None:
+        # "Weekprijzen verdwijnen uit prijsarchief export": historische weken zijn later verzameld.
+        suffix: str
+        document: str
+        for suffix, document in (
+            ("", "prices/ah/2022-07.jsonl"),
+            ("?format=site", "data/ah/prices/2022-001.json"),
+        ):
+            with self.subTest(format=suffix or "archive"):
+                conn: sqlite3.Connection
+                with closing(self.connect()) as conn, conn:
+                    conn.execute("DELETE FROM price_observations")
+                    conn.execute(
+                        "INSERT INTO price_observations "
+                        "(store, product_id, day, source, title, brand, unit_size, price, seen_at) "
+                        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                        ("ah", "8001", "2022-07-04", "ahprijsindex", "AH Halfvolle melk", "AH", "1 l", 1.39, "2026-11-13T10:00:00+00:00"),
+                    )
+                response: Any = await self.admin.post("/api/price-archive/export" + suffix)
+                self.assertEqual(response.status_code, 200)
+                payload: bytes = response.get_data()
+                archive: zipfile.ZipFile
+                with zipfile.ZipFile(io.BytesIO(payload)) as archive:
+                    self.assertIn(document, archive.namelist())
+                    records: list[dict[str, Any]] = (
+                        json.loads(archive.read(document)) if suffix else [json.loads(line) for line in archive.read(document).splitlines()]
+                    )
+                    self.assertEqual(len(records), 1)
+                    self.assertEqual(
+                        (records[0]["day"], records[0]["source"], records[0]["seen_at"], records[0]["price"]),
+                        ("2022-07-04", "ahprijsindex", "2026-11-13T10:00:00+00:00", 1.39),
+                    )
+                    if suffix:
+                        jsonschema.Draft202012Validator(json.loads(archive.read("schemas/ah.schema.json"))).validate(records)
+                with closing(self.connect()) as conn, conn:
+                    conn.execute("DELETE FROM price_observations")
+                await self.run_import(payload)
+                restored: list[dict[str, Any]] = self.rows("price_observations")
+                self.assertEqual(
+                    [(row["store"], row["day"], row["source"], row["seen_at"], row["price"]) for row in restored],
+                    [("ah", "2022-07-04", "ahprijsindex", "2026-11-13T10:00:00+00:00", 1.39)],
+                )
+
+
+async def test_2026_11_13_shared_weekly_prices_default_without_accounts(data_dir: Path, monkeypatch: Any) -> None:
+    """2026-11-13: shared historical AH prices were never fetched automatically."""
+    from datetime import datetime, timezone
+
+    from mealieshopper import price_archive_sync
+
+    monkeypatch.delenv("MEALIESHOPPER_SHARED_PRICES", raising=False)
+    assert price_archive_sync.enabled()
+    with (
+        mock.patch.object(price_archive_sync, "run_if_due", mock.AsyncMock(return_value={"documents": 1})) as shared,
+        mock.patch.object(offers_schedule, "_claim", mock.AsyncMock(return_value=False)),
+    ):
+        await offers_schedule.run_if_due(datetime(2026, 11, 13, 6, tzinfo=timezone.utc))
+    shared.assert_awaited_once()
+
+
+class WeeklyCaptureBoundsTest(unittest.TestCase):
+    def test_2026_11_13_weekly_capture_dates_keep_their_validation_bounds(self) -> None:
+        # "Weekprijzen verdwijnen uit prijsarchief export": alleen de prijsindex mag later verzameld zijn.
+        bounds: price_archive.Today = price_archive.Today()
+        bounds.today = date(2026, 11, 13)
+        bounds.later = date(2027, 11, 14)
+        row: dict[str, Any] = {
+            "store": "ah",
+            "product_id": "8001",
+            "day": "2022-07-04",
+            "source": "ahprijsindex",
+            "title": "AH Halfvolle melk",
+            "price": 1.39,
+            "seen_at": "2026-11-13T10:00:00+00:00",
+        }
+        self.assertEqual(price_archive.normalise_price(row, bounds)[3], "ahprijsindex")
+        changes: dict[str, str]
+        reason: str
+        for changes, reason in (
+            ({"seen_at": "2022-07-03T23:59:59+00:00"}, "seen_at"),
+            ({"seen_at": "2027-11-15T00:00:00+00:00"}, "date_range"),
+            ({"source": "search"}, "seen_at"),
+            ({"source": "archive_search"}, "seen_at"),
+            ({"source": "public_press_release"}, "seen_at"),
+            ({"source": "public_observed_unknown"}, "seen_at"),
+            ({"store": "jumbo", "seen_at": "2022-07-04T00:00:00+00:00"}, "source"),
+        ):
+            with self.subTest(changes=changes):
+                with self.assertRaises(price_archive.RowError) as error:
+                    price_archive.normalise_price({**row, **changes}, bounds)
+                self.assertEqual(error.exception.reason, reason)
