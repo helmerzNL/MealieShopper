@@ -8,6 +8,8 @@ Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar
 
 ### Nieuw in 4.24.0
 
+Pull request: [#328](https://github.com/helmerzNL/MealieShopper/pull/328).
+
 - **De boodschappenlijst staat achter de knop Boodschappen.** Onder het weekmenu stond de boodschappenlijst altijd open, en daaronder de controlelijst: een lange pagina met een tweede pagina erachter. Nu staat de lijst standaard verborgen en opent de knop **Boodschappen (n)** naast de week hem op de plek van het weekmenu. Voor de titel van de lijst staat een pijltje **<**: dat brengt je terug naar het weekmenu, bovenaan, met de focus op de knop Boodschappen.
   - **Eén weergave.** De lijst met de dagen en de vinkjes, de controlelijst voor het mandje en het resultaat na het vullen van het mandje (met **Bekijk mandje**) horen bij die weergave. Ga je terug naar het weekmenu en open je haar weer, dan staat alles er nog zoals je het liet. Een controlelijst die je herlaadt of die bij een week hoort waar je terugbladert, staat ook achter de knop, niet meer onder het weekmenu.
   - **Wanneer de lijst dichtgaat.** Met het pijltje, met **Weekmenu** in het menu (in het zijmenu of in de balk boven de inhoud), en zodra het weekmenu opnieuw laadt: een andere week kiezen (ook bij Aanbiedingen) of een andere Mealie-koppeling. Is er geen maaltijd met ingrediënten meer, dan is er geen lijst en staat het weekmenu er weer.
