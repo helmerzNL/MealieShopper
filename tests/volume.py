@@ -7,10 +7,11 @@ folderproduct (`folder:...`, de helft zonder van-prijs), AH heeft 73% van de rij
 woordenlijsten hieronder (verzonnen merken, gewone productsoorten en verpakkingen), zodat de categorieregels
 (`offer_categories`) en de folderregels (`line_offers`) echt werk hebben. Er staat geen enkele waarde uit productie in.
 
-`products` telt de verschillende producten van AH (zo komt de 72.000 van productie tot stand), `purchases` de regels in de
-tabellen van `prices._PURCHASES`. Daarnaast staan er kassabonnen en ingelezen aankopen in (`EXTRA`, in de verhouding van
-productie): dat zijn de regels die `prices._receipt_rows` op naam koppelt, en zonder die regels doet dat deel van de
-catalogus geen werk.
+`products` telt de verschillende producten van AH (zo komt de 72.000 van productie tot stand). De 8.000 aankopen van
+productie staan vooral in de ingelezen aankopen en de kassabonnen, niet in de bestellingen, dus `SIZES` heeft een sleutel
+per tabel: `order_items` (de regels in de tabellen van `prices._PURCHASES`, alle winkels samen), `imported_purchases`,
+`ah_receipts`, `ah_receipt_items` en `ah_receipt_products`. Dat zijn de regels die `prices._receipt_rows` op naam koppelt,
+en zonder die regels doet dat deel van de catalogus geen werk.
 
 Het schema komt van de app zelf (de `_connect` van elke module), het vullen gaat met `sqlite3` en `executemany`. Een vast
 zaad (`SEED`) en een vaste dag (`TODAY`, met `freeze_clock` ook voor de app) maken de database en de antwoorden bij elke
@@ -50,17 +51,16 @@ SIZES: dict[str, int] = {
     "products": 72_000,
     "offer_history": 146_000,
     "price_observations": 310_000,
-    "purchases": 8_000,
+    "order_items": 350,
+    "imported_purchases": 8_200,
+    "ah_receipts": 260,
+    "ah_receipt_items": 2_600,
+    "ah_receipt_products": 6_500,
     "offers_ah": 2_800,
     "offers_jumbo": 400,
     "offers_picnic": 900,
     "offers_lidl": 40,
     "offers_aldi": 130,
-}
-EXTRA: dict[str, int] = {
-    "imports": 8_200,
-    "receipt_items": 2_600,
-    "receipt_products": 6_500,
 }
 DB_NAME: str = "auth.sqlite3"
 NOW: datetime = datetime(
@@ -93,11 +93,13 @@ OFFER_MIX: dict[str, dict[str, float]] = {
     "lidl": {"week": 1.0},
     "aldi": {"week": 0.892, "next": 0.108},
 }
+# Per winkel: (bestellingen, regels per bestelling). Samen SIZES["order_items"], bijna alles bij AH zoals in productie, en
+# elke winkel een paar, zodat elke tabel van `prices._PURCHASES` gevuld is.
 ORDERS: dict[str, tuple[int, int]] = {
-    "ah": (240, 25),
-    "jumbo": (48, 25),
-    "picnic": (25, 24),
-    "crisp": (10, 20),
+    "ah": (15, 20),
+    "jumbo": (2, 15),
+    "picnic": (1, 12),
+    "crisp": (1, 8),
 }
 INDEX_WEEKS: int = 225  # zoveel weekprijzen van de prijsindex per gekocht AH-product
 INDEX_PRODUCTS: int = 1_300
@@ -763,11 +765,11 @@ def receipt_rows(
         product.product_id: 2_000_000 + index for index, product in enumerate(chosen)
     }
     found: list[tuple[Any, ...]] = receipt_products(
-        rng, chosen, normal, articles, scaled(EXTRA["receipt_products"], scale)
+        rng, chosen, normal, articles, scaled(SIZES["ah_receipt_products"], scale)
     )
     lines: list[tuple[Any, ...]] = []
     receipts: list[tuple[Any, ...]] = []
-    count: int = max(1, scaled(EXTRA["receipt_items"], scale) // 10)
+    count: int = max(1, scaled(SIZES["ah_receipts"], scale))
     for number in range(count):
         day: date = date(2024, 1, 6) + timedelta(days=(number * 1040) // count)
         receipt_id: str = f"bon-{number:05d}"
@@ -814,7 +816,7 @@ def import_rows(
 ) -> list[tuple[Any, ...]]:
     """Aankopen uit bevestigingsmails (`price_import.py`), twintig per bestelling, uit 2019 tot en met 2023: van voor de
     bestellingen in het account, dus niets telt dubbel."""
-    count: int = scaled(EXTRA["imports"], scale)
+    count: int = scaled(SIZES["imported_purchases"], scale)
     found: list[tuple[Any, ...]] = []
     for number in range(count):
         order: int = number // 20
@@ -995,8 +997,9 @@ COUNT_SQL: dict[str, str] = {
     "SELECT product_id FROM price_observations WHERE store = 'ah' UNION SELECT product_id FROM offers WHERE store = 'ah')",
     "offer_history": "SELECT COUNT(*) FROM offer_history",
     "price_observations": "SELECT COUNT(*) FROM price_observations",
-    "purchases": "SELECT (SELECT COUNT(*) FROM ah_order_items) + (SELECT COUNT(*) FROM jumbo_order_items) + "
+    "order_items": "SELECT (SELECT COUNT(*) FROM ah_order_items) + (SELECT COUNT(*) FROM jumbo_order_items) + "
     "(SELECT COUNT(*) FROM picnic_order_items) + (SELECT COUNT(*) FROM crisp_order_items)",
+    **{table: f"SELECT COUNT(*) FROM {table}" for table in ("imported_purchases", "ah_receipts", "ah_receipt_items", "ah_receipt_products")},
     **{f"offers_{store}": f"SELECT COUNT(*) FROM offers WHERE store = '{store}'" for store in ("ah", "jumbo", "picnic", "lidl", "aldi")},
 }  # fmt: skip
 
