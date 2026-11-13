@@ -4,5 +4,8 @@ asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 python_files = "test_*.py"
 pythonpath = ["."]
-markers = ["may_block(reason): de test blokkeert de event loop met opzet, de bewaker slaat hem over (de reden is verplicht)"]
+markers = [
+  "may_block(reason): de test blokkeert de event loop met opzet, de bewaker slaat hem over (de reden is verplicht)",
+  "volume: de test draait op de volumedatabase van tests/volume.py (de schaal van productie)",
+]
 filterwarnings = ["error::pytest.PytestUnraisableExceptionWarning"]

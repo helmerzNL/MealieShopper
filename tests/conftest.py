@@ -2,6 +2,7 @@
 
 import ipaddress
 import os
+import shutil
 import socket
 import threading
 from collections.abc import AsyncIterator, Callable, Iterator
@@ -21,8 +22,9 @@ os.environ.setdefault("MEALIESHOPPER_TESTING", "1")
 os.environ.setdefault("MEALIESHOPPER_PRICE_INDEX", "false")
 
 import loop_watch
+import volume
 
-from mealieshopper import auth
+from mealieshopper import ah_orders, auth, prices
 from mealieshopper.app import create_app
 
 loop_watch.install()  # elke event loop in de tests draait onder de bewaker van de event loop
@@ -173,6 +175,44 @@ def app(data_dir: Path) -> Quart:
 @pytest.fixture
 async def client(app: Quart) -> AsyncIterator[TestClientProtocol]:
     """Async testclient van de app: `before_serving` en `after_serving` lopen een keer per test."""
+    async with app.test_app() as test_app:
+        yield test_app.test_client()
+
+
+@pytest.fixture(scope="session")
+def volume_template(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """De volumedatabase (`tests/volume.py`), een keer per run gebouwd. Een test werkt op een kopie: `volume_dir`."""
+    folder: Path = tmp_path_factory.mktemp("volume")
+    volume.build(folder)
+    return folder
+
+
+@pytest.fixture
+def volume_dir(
+    volume_template: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> Iterator[Path]:
+    """Een kopie van de volumedatabase als datamap, met de klok op `volume.TODAY`, zonder inloggen en zonder AH.
+
+    `prices._CATALOGUES` gaat ervoor en erna leeg: de catalogus van AH is op deze schaal groot, en de sleutel is het pad van
+    de database, dus elke kopie zou er anders een laten staan.
+    """
+    shutil.copyfile(volume_template / volume.DB_NAME, tmp_path / volume.DB_NAME)
+    monkeypatch.setenv("MEALIESHOPPER_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("MEALIESHOPPER_TESTING", "1")
+    monkeypatch.setenv(
+        "PASSKEY_AUTH_ENABLED", "false"
+    )  # zoals de tests van de aanbiedingen
+    volume.freeze_clock(monkeypatch)
+    monkeypatch.setattr(ah_orders, "resolve_receipt_names", volume.no_receipt_lookup)
+    prices._CATALOGUES.clear()
+    yield tmp_path
+    prices._CATALOGUES.clear()
+
+
+@pytest.fixture
+async def volume_client(volume_dir: Path) -> AsyncIterator[TestClientProtocol]:
+    """Async testclient van een app op de volumedatabase."""
+    app: Quart = create_app()
     async with app.test_app() as test_app:
         yield test_app.test_client()
 
