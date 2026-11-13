@@ -15,6 +15,7 @@ from mealieshopper import (
     line_offers,
     name_keys,
     offer_categories,
+    offers,
     prices,
 )
 
@@ -89,6 +90,28 @@ def test_keywords_give_the_same_key_as_positions() -> None:
     assert offer_categories.categorize.__doc__
     with pytest.raises(TypeError):
         offer_categories.categorize("Kipfilet", nope="x")
+    offer_categories.categorize.cache_clear()
+    for call in (
+        lambda: offer_categories.categorize("Kipfilet"),
+        lambda: offer_categories.categorize(title="Kipfilet"),
+        lambda: offer_categories.categorize("Kipfilet", ""),
+        lambda: offer_categories.categorize(title="Kipfilet", hint=None),
+    ):
+        call()
+    info = offer_categories.categorize.cache_info()
+    assert (info.misses, info.hits, info.currsize) == (1, 3, 1)
+
+
+def test_a_function_with_keyword_only_parameters_is_refused() -> None:
+    def keyword_only(name: str, *, extra: str = "") -> str:
+        return name + extra
+
+    def variadic(*names: str) -> str:
+        return "".join(names)
+
+    for function in (keyword_only, variadic):
+        with pytest.raises(TypeError, match="TextMemo"):
+            name_keys.TextMemo(function)
 
 
 def test_none_and_numbers_are_accepted() -> None:
@@ -132,3 +155,31 @@ async def test_a_second_catalogue_build_hits_the_memo(volume_dir: Path) -> None:
     await build()
     assert offer_categories.offer_category.cache_info().misses == first
     assert offer_categories.offer_category.cache_info().hits > 0
+
+
+#: Elke cache moet groter zijn dan wat een opbouw van alle catalogi erin zet, anders verdringt de opbouw zijn eigen namen en daalt het
+#: aantal treffers naar bijna nul. `_significant` onthoudt alleen wat vlak achter elkaar terugkomt (`_parts` vraagt dezelfde tekst
+#: drie keer) en doet niet mee.
+ROOM: float = 1.25
+
+
+@pytest.mark.volume
+async def test_every_cache_has_room_for_a_full_catalogue_build(volume_dir: Path) -> None:
+    caches: list[Any] = [
+        name_keys.fold,
+        name_keys.near,
+        offer_categories.categorize,
+        offer_categories.offer_category,
+        line_offers._parts,
+        line_offers._stem,
+        prices._size_of,
+    ]
+    for cache in caches:
+        cache.cache_clear()
+    async with auth.connect() as conn:
+        for store in offers.STORES:
+            await prices._catalogue(conn, store, volume.TODAY)
+    for cache in caches:
+        info: Any = cache.cache_info()
+        assert info.currsize > 0, cache.__name__
+        assert info.maxsize >= ROOM * info.currsize, (cache.__name__, info.maxsize, info.currsize)

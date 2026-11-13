@@ -15,16 +15,20 @@ from typing import Any, Generic, TypeVar
 
 from . import ah_lists
 
-MEMO_SIZE: int = 262_144  # het maximum per functie met `TextMemo`: een catalogus van AH heeft er zo'n 70.000 namen
-# De grootte per functie: net boven het aantal namen van een catalogus op de schaal van productie (`tests/volume.py`: AH 74.000, Jumbo
-# 26.000), want een kleinere cache raakt bij een tweede opbouw niet (de namen komen in dezelfde volgorde terug en worden steeds
-# verdrongen). Een volle cache kost per naam van 27 tekens: fold 235 byte, categorize 227, offer_category 387, _size_of 306, near 712,
-# _parts 1360. Gemeten (catalogus van elke winkel gebouwd en daarna elke cache vol): piek 477 MiB, onder de 600 MiB van het ontwerp.
-FOLD_SIZE: int = MEMO_SIZE
-CATEGORY_SIZE: int = 81_920
-NEAR_SIZE: int = 73_728
-PARTS_SIZE: int = 65_536
-SIZE_OF_SIZE: int = 98_304
+MEMO_SIZE: int = 524_288  # het maximum per functie met `TextMemo`
+# De grootte per functie: 1,3 tot 1,5 keer het aantal namen dat een opbouw van de catalogus van elke winkel op de volumedatabase
+# (`tests/volume.py`, de schaal van productie) in die cache zet. Is een cache kleiner dan die opbouw, dan verdringt de opbouw zijn
+# eigen namen voor ze terugkomen en daalt het aantal treffers meteen naar bijna nul. Een opbouw zet erin: fold 341.326, near 68.249,
+# categorize 65.870, offer_category 70.692, _parts 59.979, _size_of 96.208. `tests/test_name_memo.py` bewaakt de ruimte (1,25 keer).
+# Alles op 1,5 keer past niet: fold (1,3) en _parts (1,4) zijn kleiner gehouden, want met elke cache vol piekt de app dan op 600 MiB,
+# de ontwerpgrens. Nu 559 MiB.
+# Een volle cache kost per naam van 27 tekens: fold 235 byte, categorize 227, offer_category 387, _size_of 306, near 712, _parts 1360.
+FOLD_SIZE: int = 450_560
+CATEGORY_SIZE: int = 98_304
+OFFER_CATEGORY_SIZE: int = 98_304
+NEAR_SIZE: int = 102_400
+PARTS_SIZE: int = 81_920
+SIZE_OF_SIZE: int = 147_456
 STEM_SIZE: int = 32_768  # de woorden van alle namen: een paar duizend verschillende, elk kort
 LOCAL_SIZE: int = 8_192  # voor wat alleen binnen een aanroep van een andere onthouden functie terugkomt (`_significant`)
 _Result = TypeVar("_Result")
@@ -44,14 +48,31 @@ class TextMemo(Generic[_Result]):
     def __init__(self, function: Callable[..., _Result], size: int = MEMO_SIZE) -> None:
         update_wrapper(self, function)
         self._signature: inspect.Signature = inspect.signature(function)
+        self._defaults: tuple[Any, ...] = self._positional_defaults(self._signature)
         self.size: int = size
         self._cached: Callable[..., _Result] = lru_cache(maxsize=size)(function)
 
+    @staticmethod
+    def _positional_defaults(signature: inspect.Signature) -> tuple[Any, ...]:
+        """De standaardwaarde per plek (`inspect.Parameter.empty` zonder). Een functie met `*args`, `**kwargs` of een parameter die
+        alleen met een keyword kan, past niet: de sleutel is de rij argumenten op volgorde."""
+        for parameter in signature.parameters.values():
+            if parameter.kind not in (parameter.POSITIONAL_ONLY, parameter.POSITIONAL_OR_KEYWORD):
+                raise TypeError(f"TextMemo kan geen {parameter.kind.description} parameter aan: {parameter.name}")
+        return tuple(parameter.default for parameter in signature.parameters.values())
+
     def __call__(self, *args: Any, **kwargs: Any) -> _Result:
-        if kwargs:  # `categorize(title, hint=x)` en `categorize(title, x)` zijn dezelfde sleutel
+        if kwargs:
             bound: inspect.BoundArguments = self._signature.bind(*args, **kwargs)
-            bound.apply_defaults()
+            bound.apply_defaults()  # anders houdt `args` op bij de eerste weggelaten parameter
             args = bound.args
+        if len(args) < len(self._defaults):  # `categorize(title)`, `categorize(title, "")` en `categorize(title=title)`: een sleutel
+            missing: list[Any] = []
+            for default in self._defaults[len(args):]:
+                if default is inspect.Parameter.empty:
+                    break  # een verplichte parameter ontbreekt: de functie zelf geeft de fout
+                missing.append(default)
+            args = (*args, *missing)
         return self._cached(*(arg if isinstance(arg, str) else str(arg or "") for arg in args))
 
     def cache_info(self) -> Any:

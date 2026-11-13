@@ -10,7 +10,7 @@ import re
 import unicodedata
 from typing import Any
 
-from .name_keys import CATEGORY_SIZE, TextMemo, memo
+from .name_keys import CATEGORY_SIZE, OFFER_CATEGORY_SIZE, TextMemo, memo
 
 # De volgorde van deze lijst is de volgorde waarin categorieën met hetzelfde aantal aanbiedingen worden getoond.
 CATEGORIES = (
@@ -122,7 +122,7 @@ def offer_category(store: str, title: Any, hint: Any = "") -> str:
 
 # De winkel, de titel en de hint geven samen een categorie. Een hint die geen tekst is (nooit: de winkels geven tekst) wordt hier tekst
 # voordat `_taxonomy_category` hem ziet, en dat zoekt dan een taxonomienaam als "5" zonder treffer.
-offer_category = TextMemo(offer_category, CATEGORY_SIZE)
+offer_category = TextMemo(offer_category, OFFER_CATEGORY_SIZE)
 
 
 def purchase_category(store: str, taxonomy: Any, title: Any, hint: Any = "") -> str:
