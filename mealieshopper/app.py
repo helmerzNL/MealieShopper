@@ -715,6 +715,18 @@ def create_app() -> Quart:
     # --- aanbiedingen en receptvoorstellen: lezen uit de lokale kopie, vernieuwen op verzoek ----------------
 
     offers_cache = ResponseCache()
+    app.extensions["mealieshopper_offers_cache"] = offers_cache
+    offers_cache_release: list[Callable[[], None]] = []
+
+    @app.before_serving
+    async def _remember_offers_cache() -> None:
+        # Na het terugzetten van een back-up of een fabrieksreset staat er geen lijst van de oude database meer in het geheugen.
+        offers_cache_release.append(auth.remember_cache(offers_cache.clear))
+
+    @app.after_serving
+    async def _release_offers_cache() -> None:
+        while offers_cache_release:
+            offers_cache_release.pop()()
 
     async def offers_action(action: Callable[[], Any], error_text: str) -> Response | tuple[Response, int]:
         try:
@@ -733,8 +745,11 @@ def create_app() -> Quart:
         return request.args.get("week") or date.today().isoformat()
 
     async def offers_etag(store: str, week: str) -> str:
-        """De ETag van de lijst: de synchronisatie, de dag, de week, de build en de catalogus van de prijsgeschiedenis."""
-        return hashlib.sha1(f"{await offers.signature(store, week)}|{await prices.signature(store)}".encode("utf-8")).hexdigest()
+        """De ETag van de lijst: de synchronisatie, de dag, de week, de build, de catalogus van de prijsgeschiedenis van de winkel en
+        de prijzen van de producten in de aanbiedingen (`prices.offer_ids`). Een prijs van een ander product laat hem staan."""
+        listed: str = await offers.signature(store, week)
+        ids: list[str] = await prices.offer_ids(store)
+        return hashlib.sha1(f"{listed}|{await prices.signature(store, ids)}".encode("utf-8")).hexdigest()
 
     def offers_cache_key(store: str, week: str) -> tuple[str, str]:
         """De sleutel van de cache: de maandag van de week, want de browser vraagt ?week=<maandag> en de opwarmer rekent met vandaag."""

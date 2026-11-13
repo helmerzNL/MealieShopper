@@ -27,7 +27,7 @@ import pytest
 import volume
 from quart import Quart
 
-from mealieshopper import loop_guard, prices
+from mealieshopper import ah_price_index, loop_guard, prices
 from mealieshopper.app import create_app
 
 if (
@@ -197,7 +197,7 @@ def cold(data_dir: Path) -> Callable[[], Awaitable[None]]:
         await asyncio.to_thread(
             _execute,
             data_dir / volume.DB_NAME,
-            "UPDATE catalogue_changes SET version = version + 1 WHERE id = 1",
+            "UPDATE catalogue_versions SET products = products + 1",
         )
 
     return prepare
@@ -311,3 +311,48 @@ async def test_startup_warming_does_not_stall(volume_dir: Path) -> None:
             await app.extensions["mealieshopper_warm_offers"]()
 
         await quiet(warm_at_start, prepare=cold(volume_dir))
+
+
+def _bought_outside_the_list(path: Path, count: int) -> list[ah_price_index.Series]:
+    """`count` producten van AH uit de prijsindex (dus gekocht) die niet in `offers` staan, elk met een prijs voor vandaag. Zoals
+    de ronde meestal schrijft: de naam, het merk, de verpakking en de prijs van de laatste week die al in `price_observations`
+    staat, op een nieuwe dag. Een nieuwe prijswaarde kan een bonregel naar een ander product met dezelfde naam verschuiven, en
+    dan bouwt de prijsgeschiedenis de catalogus terecht opnieuw op (`prices._catch_up`)."""
+    with contextlib.closing(sqlite3.connect(path)) as conn:
+        rows: list[tuple[Any, ...]] = conn.execute(
+            "SELECT o.product_id, o.title, o.brand, o.unit_size, o.image, o.price FROM price_observations o "
+            "WHERE o.store = 'ah' AND o.source = ? AND o.product_id NOT IN (SELECT product_id FROM offers WHERE store = 'ah') "
+            "AND o.day = (SELECT MAX(day) FROM price_observations p WHERE p.store = 'ah' AND p.product_id = o.product_id) "
+            "ORDER BY o.product_id LIMIT ?",
+            (prices.PRICE_INDEX, count),
+        ).fetchall()
+    return [
+        ah_price_index.Series(product_id, title, brand, unit_size, image, ((volume.TODAY, price),))
+        for product_id, title, brand, unit_size, image, price in rows
+    ]
+
+
+@pytest.mark.volume
+async def test_offers_stay_warm_during_a_price_index_round(
+    volume_client: TestClientProtocol, volume_dir: Path
+) -> None:
+    """De ronde langs de prijsindex bewaart een prijs per tien seconden. Een prijs van een product buiten de lijst laat de
+    ETag van /api/offers staan, en een prijs van een bekend product bouwt de catalogus niet opnieuw op."""
+    path: str = "/api/offers?store=ah&week=2026-11-09"
+    first = await volume_client.get(path)  # de catalogus en de lijst opbouwen, buiten de meting
+    assert first.status_code == 200
+    etag: str = first.headers["ETag"]
+    key: tuple[str, str] = (str(volume_dir / volume.DB_NAME), "ah")
+    # Na de merge met taak 7 telt deze test de aanroepen van `_build_catalogue`: tot dan hetzelfde object in de cache.
+    catalogue: Any = prices._CATALOGUES[key][2]
+    series: list[ah_price_index.Series] = _bought_outside_the_list(volume_dir / volume.DB_NAME, 50)
+    assert len(series) == 50
+    stamp: str = volume.NOW.isoformat(timespec="seconds")
+    for found in series:
+        await ah_price_index._mark(found.product_id, "ok", stamp, found)
+        again = await quiet(lambda: volume_client.get(path, headers={"If-None-Match": etag}))
+        assert again.status_code == 304, found.product_id
+    assert prices._CATALOGUES[key][2] is catalogue
+    history = await _get(volume_client, "/api/prices/history?store=ah&bought=1")
+    assert history["products"]
+    assert prices._CATALOGUES[key][2] is catalogue, "de prijsgeschiedenis werkt de catalogus bij, zonder hem opnieuw op te bouwen"

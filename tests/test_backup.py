@@ -341,6 +341,27 @@ class RoundTripTest(BackupCase):
         self.assertFalse(await loose_names.reject("jumbo", "~kersen"), "de afwijzing was er al")
         self.assertTrue(await loose_names.restore("jumbo", "~kersen"))
 
+    async def test_restoring_a_backup_drops_the_cached_catalogue_and_list(self) -> None:
+        # Review Focus 4 van taak 9: na het terugzetten staat er niets van de oude database meer in het geheugen.
+        self.assertIn("catalogue_versions", backup.EXCLUDED_TABLES)
+        listed = await self.admin.get("/api/offers?store=ah")
+        self.assertEqual(listed.status_code, 200)
+        await prices.warm_catalogues(["ah"])
+        cache = self.app.extensions["mealieshopper_offers_cache"]
+        self.assertTrue(prices._CATALOGUES)
+        self.assertTrue(cache._entries)
+        with closing(self.connect()) as conn:
+            token: str = conn.execute("SELECT token FROM catalogue_versions WHERE store = 'ah'").fetchone()[0]
+        response, data = await self.make()
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual((await self.restore(data))["status"], "done")
+        self.assertEqual(prices._CATALOGUES, {})
+        self.assertEqual(dict(cache._entries), {})
+        again = await self.admin.get("/api/offers?store=ah", headers={"If-None-Match": listed.headers["ETag"]})
+        self.assertEqual(again.status_code, 200, "een nieuwe ETag na het terugzetten")
+        with closing(self.connect()) as conn:
+            self.assertNotEqual(conn.execute("SELECT token FROM catalogue_versions WHERE store = 'ah'").fetchone()[0], token)
+
     async def test_everything_comes_back_with_its_links(self) -> None:
         self.seed()
         for key, value in SECRETS.items():

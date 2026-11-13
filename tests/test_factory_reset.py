@@ -99,6 +99,20 @@ class PasswordResetTest(FactoryResetCase):
         with closing(db(loose_names)) as conn:
             self.assertEqual(conn.execute("SELECT COUNT(*) FROM loose_names").fetchone()[0], 0)
 
+    async def test_a_factory_reset_drops_the_cached_catalogue_and_list(self):
+        # Review Focus 4 van taak 9: na het wissen staat er niets van de oude database meer in het geheugen.
+        from mealieshopper import prices
+
+        self.assertEqual((await self.admin.get("/api/offers?store=ah")).status_code, 200)
+        await prices.warm_catalogues(["ah"])
+        cache = self.app.extensions["mealieshopper_offers_cache"]
+        self.assertTrue(prices._CATALOGUES)
+        self.assertTrue(cache._entries)
+        response = await self.reset({"password": PASSWORD})
+        self.assertEqual(response.status_code, 200, response.get_json())
+        self.assertEqual(prices._CATALOGUES, {})
+        self.assertEqual(dict(cache._entries), {})
+
     async def test_the_image_cache_folder_goes_too(self):
         cached = self.data / "images" / "ab" / "abcd.webp"
         cached.parent.mkdir(parents=True)

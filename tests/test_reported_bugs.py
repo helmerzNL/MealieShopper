@@ -1862,6 +1862,44 @@ class SlowOffersPagesTest(AppTestCase):
         self.assertNotEqual(await prices.signature("ah"), before, "een nieuwe prijs ververst het oordeel bij de aanbiedingen")
         self.assertNotIn("FROM price_observations", inspect.getsource(prices.signature), "de handtekening leest de prijzen zelf niet")
 
+    async def penne_on_offer(self) -> None:
+        """AH Penne in de aanbieding (0,89, van 1,19), en een gewone prijs van tien dagen terug."""
+        items: list[dict] = [offer("1", "AH Penne", 0.89, 1.19, "25% korting", unitSize="500 g")]
+        with mock.patch.dict(offers.FETCHERS, {"ah": lambda: returned(items)}):
+            await offers.sync("ah")
+        await self.price("1", "AH Penne", 1.19, days_ago=10)
+        await self.price("7", "AH Fusilli", 1.29, days_ago=10)  # gekocht, maar niet in de lijst
+
+    async def price(self, product_id: str, title: str, price: float, days_ago: int) -> None:
+        day: str = (date.today() - timedelta(days=days_ago)).isoformat()
+        await prices.record("ah", [{"id": product_id, "title": title, "price": price, "unitSize": "500 g", "brand": "AH"}], now=f"{day}T08:00:00+00:00")
+
+    async def test_2026_11_13_a_price_outside_the_list_keeps_the_offers_warm(self) -> None:
+        """Melding (2026-11-13): "kijk wat er mis is met de performance van https://shopper.ytm.nl/offers". De ronde langs de
+        prijsindex bewaart elke tien seconden een prijs, en elke prijs maakte de catalogus van elke winkel en de lijst koud."""
+        await self.penne_on_offer()
+        client = self.client_for(create_app())
+        first = await client.get("/api/offers?store=ah")
+        self.assertEqual(first.status_code, 200)
+        await self.price("7", "AH Fusilli", 1.19, days_ago=3)  # een prijs voor een bekend product buiten de lijst
+        with mock.patch.object(prices, "annotate", wraps=prices.annotate) as judged:
+            again = await client.get("/api/offers?store=ah", headers={"If-None-Match": first.headers["ETag"]})
+            self.assertEqual(again.status_code, 304, "de lijst is niet veranderd")
+            self.assertEqual((await client.get("/api/offers?store=ah")).status_code, 200)
+            self.assertEqual(judged.call_count, 0, "de lijst uit de cache, zonder het oordeel opnieuw uit te rekenen")
+
+    async def test_2026_11_13_a_price_inside_the_list_gives_a_new_verdict(self) -> None:
+        """Melding (2026-11-13), zie hierboven: een prijs van een product in de lijst moet het oordeel wel verversen."""
+        await self.penne_on_offer()
+        client = self.client_for(create_app())
+        first = await client.get("/api/offers?store=ah")
+        self.assertEqual(first.get_json()["offers"][0]["verdict"]["regular"]["price"], 1.19)
+        await self.price("1", "AH Penne", 0.95, days_ago=1)  # een lagere gewone prijs, dezelfde naam: alleen `prices` gaat omhoog
+        again = await client.get("/api/offers?store=ah", headers={"If-None-Match": first.headers["ETag"]})
+        self.assertEqual(again.status_code, 200)
+        verdict: dict = again.get_json()["offers"][0]["verdict"]
+        self.assertEqual((verdict["regular"]["price"], verdict["kind"]), (0.95, "small"))
+
     async def test_2026_11_13_prices_of_a_few_products_are_looked_up_by_product(self) -> None:
         with closing(db(prices)) as conn:
             sql: str = f"EXPLAIN QUERY PLAN {prices.OBSERVATIONS_SQL.format(marks='?,?')}"
