@@ -20,7 +20,7 @@ from typing import Any
 
 import aiosqlite
 
-from . import ah, auth, name_keys
+from . import ah, auth
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS ah_lists (
@@ -261,7 +261,6 @@ async def get_snapshot(list_id: str) -> dict[str, Any] | None:
     }
 
 
-@name_keys.TextMemo
 def _fold(value: Any) -> str:
     text = str(value or "").casefold()
     # Zonder accenten of andere tekens buiten ASCII verandert de normalisatie niets. Dat is verreweg de meeste namen, en het

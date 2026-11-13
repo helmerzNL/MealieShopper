@@ -11,7 +11,6 @@ import pytest
 import volume
 
 from mealieshopper import (
-    ah_lists,
     auth,
     line_offers,
     name_keys,
@@ -22,14 +21,10 @@ from mealieshopper import (
 MEMOISED: list[Callable[..., Any]] = [
     name_keys.fold,
     name_keys.near,
-    offer_categories._fold,
     offer_categories.categorize,
     line_offers._stem,
-    line_offers._tokens,
     line_offers._significant,
     line_offers._parts,
-    prices._fold_name,
-    ah_lists._fold,
 ]
 
 
@@ -79,7 +74,21 @@ def test_offer_category_gives_the_same_answer() -> None:
 def test_every_function_has_cache_info_and_clear(function: Callable[..., Any]) -> None:
     function.cache_clear()
     assert function.cache_info().currsize == 0
-    assert function.cache_info().maxsize == name_keys.MEMO_SIZE
+    assert function.cache_info().maxsize == function.size
+    assert 0 < function.size <= name_keys.MEMO_SIZE
+
+
+def test_keywords_give_the_same_key_as_positions() -> None:
+    offer_categories.categorize.cache_clear()
+    assert offer_categories.categorize("Kipfilet", hint="Vlees") == offer_categories.categorize("Kipfilet", "Vlees")
+    assert offer_categories.categorize(title="Kipfilet", hint="Vlees") == "vlees"
+    assert offer_categories.offer_category("ah", title="Kipfilet") == offer_categories.offer_category("ah", "Kipfilet", "")
+    info = offer_categories.categorize.cache_info()
+    assert (info.misses, info.hits) == (2, 2)  # (Kipfilet, Vlees) een keer, (Kipfilet, "") via offer_category
+    assert offer_categories.categorize.__name__ == "categorize"
+    assert offer_categories.categorize.__doc__
+    with pytest.raises(TypeError):
+        offer_categories.categorize("Kipfilet", nope="x")
 
 
 def test_none_and_numbers_are_accepted() -> None:

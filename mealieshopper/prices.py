@@ -307,7 +307,6 @@ def _purchase_sources(tables: set[str], store: str) -> list[str]:
     return [sql for needed, sql in _PURCHASES.get(store, ()) if set(needed) <= tables]
 
 
-@name_keys.TextMemo
 def _fold_name(value: Any) -> str:
     """Een naam om op te vergelijken (`product_links.fold`): ook je eigen koppelingen op naam gebruiken deze vouw."""
     return product_links.fold(value)
@@ -867,7 +866,7 @@ def _same_size(one: tuple[float, str], other: tuple[float, str]) -> bool:
     return one[1] == other[1] and abs(one[0] - other[0]) <= 0.005 * max(one[0], other[0])
 
 
-@name_keys.TextMemo
+@name_keys.memo(name_keys.SIZE_OF_SIZE)
 def _size_of(unit_size: Any, title: Any) -> tuple[float, str] | None:
     """De verpakking van een product: uit de pakmaat, anders uit een maat in de naam ("AH RUNDERGEHAKT 500G")."""
     size = packs.parse_pack_size(unit_size)

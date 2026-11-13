@@ -9,13 +9,30 @@ het woord "online" weg, en `key` is beide achter elkaar. Het gedeelde bestand pe
 from __future__ import annotations
 
 from collections.abc import Callable
-from functools import lru_cache
+import inspect
+from functools import lru_cache, update_wrapper
 from typing import Any, Generic, TypeVar
 
 from . import ah_lists
 
-MEMO_SIZE: int = 262_144  # zoveel namen onthoudt elke functie met `TextMemo`: een catalogus van AH heeft er zo'n 70.000
+MEMO_SIZE: int = 262_144  # het maximum per functie met `TextMemo`: een catalogus van AH heeft er zo'n 70.000 namen
+# De grootte per functie: net boven het aantal namen van een catalogus op de schaal van productie (`tests/volume.py`: AH 74.000, Jumbo
+# 26.000), want een kleinere cache raakt bij een tweede opbouw niet (de namen komen in dezelfde volgorde terug en worden steeds
+# verdrongen). Een volle cache kost per naam van 27 tekens: fold 235 byte, categorize 227, offer_category 387, _size_of 306, near 712,
+# _parts 1360. Gemeten (catalogus van elke winkel gebouwd en daarna elke cache vol): piek 477 MiB, onder de 600 MiB van het ontwerp.
+FOLD_SIZE: int = MEMO_SIZE
+CATEGORY_SIZE: int = 81_920
+NEAR_SIZE: int = 73_728
+PARTS_SIZE: int = 65_536
+SIZE_OF_SIZE: int = 98_304
+STEM_SIZE: int = 32_768  # de woorden van alle namen: een paar duizend verschillende, elk kort
+LOCAL_SIZE: int = 8_192  # voor wat alleen binnen een aanroep van een andere onthouden functie terugkomt (`_significant`)
 _Result = TypeVar("_Result")
+
+
+def memo(size: int) -> Callable[[Callable[..., _Result]], "TextMemo[_Result]"]:
+    """`@memo(size)`: `TextMemo` met een eigen grootte."""
+    return lambda function: TextMemo(function, size)
 
 
 class TextMemo(Generic[_Result]):
@@ -24,13 +41,17 @@ class TextMemo(Generic[_Result]):
     onveranderlijke waarde (str, tuple of frozenset): een aanroeper kan het gedeelde antwoord niet aanpassen. De functie zelf blijft
     in `__wrapped__`, voor een vergelijking zonder geheugen."""
 
-    def __init__(self, function: Callable[..., _Result]) -> None:
-        self.__wrapped__: Callable[..., _Result] = function
-        self.__doc__ = function.__doc__
-        self.__name__: str = function.__name__
-        self._cached: Callable[..., _Result] = lru_cache(maxsize=MEMO_SIZE)(function)
+    def __init__(self, function: Callable[..., _Result], size: int = MEMO_SIZE) -> None:
+        update_wrapper(self, function)
+        self._signature: inspect.Signature = inspect.signature(function)
+        self.size: int = size
+        self._cached: Callable[..., _Result] = lru_cache(maxsize=size)(function)
 
-    def __call__(self, *args: Any) -> _Result:
+    def __call__(self, *args: Any, **kwargs: Any) -> _Result:
+        if kwargs:  # `categorize(title, hint=x)` en `categorize(title, x)` zijn dezelfde sleutel
+            bound: inspect.BoundArguments = self._signature.bind(*args, **kwargs)
+            bound.apply_defaults()
+            args = bound.args
         return self._cached(*(arg if isinstance(arg, str) else str(arg or "") for arg in args))
 
     def cache_info(self) -> Any:
@@ -46,7 +67,7 @@ NEAR_NOISE: frozenset[str] = frozenset(
 )  # "AH Les pain triomphe heel online" in een oude bevestigingsmail
 
 
-@TextMemo
+@memo(FOLD_SIZE)
 def fold(value: Any) -> str:
     """Een naam om op te vergelijken: kleine letters, zonder accenten en met enkele spaties. "AH Ah zachte spinazie" in een
     bevestigingsmail heeft het merk twee keer, en dat telt als een keer."""
@@ -56,7 +77,7 @@ def fold(value: Any) -> str:
     return " ".join(words)
 
 
-@TextMemo
+@memo(NEAR_SIZE)
 def near(name: str) -> str:
     """Een naam om bijna-gelijke namen te herkennen: de woorden in enkelvoud, op volgorde van het alfabet. AH noemde het brood
     in de mails van 2022 "AH Les pain triomphe heel" en nu "AH Les pains triomphe heel": hetzelfde product."""
