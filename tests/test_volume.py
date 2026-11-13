@@ -18,6 +18,7 @@ import hashlib
 import json
 import os
 import sqlite3
+import threading
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, TypeVar
@@ -237,8 +238,8 @@ def stalls_until(task: str) -> pytest.MarkDecorator:
 
 
 COLD_STALLS: dict[str, Any] = {
-    "ah": stalls_until("taak 7 en 8"),
-    "jumbo": stalls_until("taak 7 en 8"),
+    "ah": stalls_until("taak 7"),  # het oordeel staat niet meer stil (taak 8), het bouwen van de catalogus nog wel
+    "jumbo": stalls_until("taak 7"),
 }
 COLD_STORES: list[Any] = [
     pytest.param(store, marks=COLD_STALLS.get(store, ()))
@@ -385,9 +386,19 @@ SMALL_BODY_LENGTH: int = 3893
 SMALL_CONTENT_TYPE: str = "application/json"
 
 
-async def test_the_offers_response_is_the_same_json_as_jsonify(
-    client: TestClientProtocol, monkeypatch: pytest.MonkeyPatch
-) -> None:
+SMALL_HEADERS: dict[
+    str, str
+] = {  # zonder de ETag, die per run verschilt (het token van de catalogus)
+    "content-type": "application/json",
+    "content-length": "3893",
+    "cache-control": "private, no-cache",
+    "vary": "Accept-Encoding",
+}
+SMALL_PATH: str = "/api/offers?store=ah&week=2026-11-09"
+
+
+async def small_list(monkeypatch: pytest.MonkeyPatch) -> None:
+    """De kleine lijst (`SMALL_OFFERS`) in de datamap, met de klok op `volume.TODAY` en zonder inloggen."""
     monkeypatch.setenv("PASSKEY_AUTH_ENABLED", "false")
     volume.freeze_clock(monkeypatch)
     await prices.record("ah", SMALL_OBSERVED, now="2026-11-01T08:00:00+00:00")
@@ -395,10 +406,22 @@ async def test_the_offers_response_is_the_same_json_as_jsonify(
         offers.FETCHERS, {"ah": lambda: helpers.returned(SMALL_OFFERS)}
     ):
         await offers.sync("ah")
-    response = await client.get("/api/offers?store=ah&week=2026-11-09")
+
+
+async def test_the_offers_response_is_the_same_json_as_jsonify(
+    client: TestClientProtocol, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    await small_list(monkeypatch)
+    response = await client.get(SMALL_PATH)
     body: bytes = await response.get_data()
     assert response.status_code == 200
     assert response.headers["Content-Type"] == SMALL_CONTENT_TYPE
+    assert response.headers["Content-Length"] == str(SMALL_BODY_LENGTH)
+    assert {
+        name.lower(): value
+        for name, value in response.headers.items()
+        if name.lower() != "etag"
+    } == SMALL_HEADERS
     # wat de digest vastlegt: ensure_ascii, gesorteerde sleutels zonder spaties, een regeleinde, en een lijst met oordeel
     assert b"Cr\\u00e8me fra\\u00eeche" in body and b'"verdict":{' in body
     assert body.startswith(b'{"categories":') and body.endswith(b"}\n")
@@ -406,6 +429,53 @@ async def test_the_offers_response_is_the_same_json_as_jsonify(
         SMALL_BODY_SHA256,
         SMALL_BODY_LENGTH,
     )
+
+
+async def test_an_error_in_the_json_reaches_the_request_and_is_not_kept(
+    client: TestClientProtocol, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Review Focus 1: de aanvraag krijgt de fout, de cache bewaart hem niet en de volgende aanvraag rekent opnieuw
+    await small_list(monkeypatch)
+    with mock.patch.object(app_module, "json_bytes", side_effect=TypeError("stuk")):
+        failed = await client.get(SMALL_PATH)
+    assert failed.status_code == 424
+    assert (await failed.get_json())["error"] == "stuk"
+    with mock.patch.object(app_module, "json_bytes", wraps=app_module.json_bytes) as spy:
+        again = await client.get(SMALL_PATH)
+    assert again.status_code == 200
+    assert spy.call_count == 1
+    assert hashlib.sha256(await again.get_data()).hexdigest() == SMALL_BODY_SHA256
+
+
+async def test_a_request_that_goes_away_leaves_the_whole_list(
+    client: TestClientProtocol, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Review Focus 2: de eerste aanvraag gaat weg terwijl de JSON wordt gemaakt, de tweede krijgt de hele lijst, en de cache
+    # heeft daarna de hele lijst (de derde rekent niets meer)
+    await small_list(monkeypatch)
+    started: threading.Event = threading.Event()
+    release: threading.Event = threading.Event()
+    real: Callable[[Any], bytes] = app_module.json_bytes
+
+    def slow(data: Any) -> bytes:
+        started.set()
+        release.wait(5)
+        return real(data)
+
+    with mock.patch.object(app_module, "json_bytes", side_effect=slow) as spy:
+        first: asyncio.Task[Any] = asyncio.ensure_future(client.get(SMALL_PATH))
+        assert await asyncio.to_thread(started.wait, 5)
+        second: asyncio.Task[Any] = asyncio.ensure_future(client.get(SMALL_PATH))
+        await asyncio.sleep(0.05)
+        first.cancel()
+        release.set()
+        answer = await second
+        third = await client.get(SMALL_PATH)
+    assert first.cancelled()
+    assert answer.status_code == third.status_code == 200
+    assert spy.call_count == 1
+    for response in (answer, third):
+        assert hashlib.sha256(await response.get_data()).hexdigest() == SMALL_BODY_SHA256
 
 
 @pytest.mark.volume  # geen xfail: sinds 4.21.1 leest de pagina alleen de rijen van zijn producten, en staat hij niet stil
@@ -425,7 +495,7 @@ PRICE_QUERIES: tuple[str, ...] = (
 
 
 @pytest.mark.volume
-@stalls_until("taak 7 en 8")  # koud: de catalogus en de lijnacties van de pagina
+@stalls_until("taak 7")  # koud: de catalogus (de lijnacties van de pagina staan niet meer stil, taak 8)
 @pytest.mark.parametrize("query", PRICE_QUERIES)
 async def test_price_history_does_not_stall(
     volume_client: TestClientProtocol, volume_dir: Path, query: str
@@ -438,7 +508,7 @@ async def test_price_history_does_not_stall(
 
 
 @pytest.mark.volume
-@stalls_until("taak 7 en 8")  # de catalogi en daarna het oordeel van warm_offers
+@stalls_until("taak 7")  # de catalogi (het oordeel van warm_offers staat niet meer stil, taak 8)
 async def test_startup_warming_does_not_stall(volume_dir: Path) -> None:
     app: Quart = create_app()
     async with app.test_app():
