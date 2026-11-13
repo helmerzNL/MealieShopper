@@ -1887,9 +1887,11 @@ def _family_ids(store: str, listed_titles: list[str], observed: list[tuple[str, 
     return frozenset(product_id for product_id, title in observed if _family_base(store, title) in wanted)
 
 
-def _namesakes(shared: dict[str, dict[str, tuple[float, ...]]], near: set[str]) -> set[str]:
-    """De producten van elke groep met dezelfde naam (`_Names.shared`) waar een product uit `near` in zit."""
-    return {product_id for group in shared.values() if not near.isdisjoint(group) for product_id in group}
+def _namesakes(shared: dict[str, dict[str, tuple[float, ...]]]) -> set[str]:
+    """De producten van elke groep met dezelfde naam (`_Names.shared`). Allemaal, ook een groep zonder product uit de lijst: een
+    bonregel die binnen zo'n groep verschuift, verandert de namen van de catalogus (`_known_pack_titles`) en via de tweelingen
+    (`_twins`) `bought` van een product dat zelf niet in de groep zit."""
+    return {product_id for group in shared.values() for product_id in group}
 
 
 async def _shared_groups(conn: aiosqlite.Connection, store: str, version: str, today: str) -> dict[str, dict[str, tuple[float, ...]]] | None:
@@ -1906,9 +1908,10 @@ async def _shared_groups(conn: aiosqlite.Connection, store: str, version: str, t
 async def _answer_ids(conn: aiosqlite.Connection, store: str, version: str, today: str) -> tuple[str, ...]:
     """De producten waarvan een prijs het antwoord van /api/offers van een winkel kan veranderen (`_annotate`): die van de
     aanbiedingen (elke week), de andere verpakkingen van hun familie (`_family_ids`: `latest`, de families en `cheaperPack`) en de
-    naamgenoten van al die producten (`_namesakes`: een prijs kan een bonregel op naam naar een ander product verplaatsen, zie
-    `_nearest_priced`, en dat verandert `bought`, `priceLabel` en `yearLow`). Bewaard per `version`, want dat verandert alleen met
-    `products` of het token. Het werk met de namen loopt in `compute.run`."""
+    producten van elke groep met dezelfde naam (`_namesakes`: een prijs kan een bonregel op naam naar een ander product
+    verplaatsen, zie `_nearest_priced`, en dat verandert `bought`, `priceLabel`, `yearLow` en `unknownPacks`). Bewaard per
+    `version`, want dat verandert alleen met `products` of het token. Het werk met de namen loopt in `compute.run`. Zonder
+    catalogus van deze versie LookupError: dan oordeelt `_annotate` zonder bonnen, en dat antwoord hoort geen gewone ETag te krijgen."""
     key: tuple[str, str] = (str(auth.db_path()), store)
     found: tuple[str, tuple[str, ...]] | None = _ANSWER_IDS.get(key)
     if found is not None and found[0] == version:
@@ -1920,9 +1923,10 @@ async def _answer_ids(conn: aiosqlite.Connection, store: str, version: str, toda
     titles: list[str] = [str(row["title"] or "") for row in listed]
     near: set[str] = {str(row["product_id"]) for row in listed} | await compute.run(_family_ids, store, titles, observed)
     shared: dict[str, dict[str, tuple[float, ...]]] | None = await _shared_groups(conn, store, version, today)
-    ids: tuple[str, ...] = tuple(sorted(near | _namesakes(shared or {}, near)))
-    if shared is not None:
-        _ANSWER_IDS[key] = (version, ids)
+    if shared is None:
+        raise LookupError(f"geen catalogus van {store} bij versie {version}")
+    ids: tuple[str, ...] = tuple(sorted(near | _namesakes(shared)))
+    _ANSWER_IDS[key] = (version, ids)
     return ids
 
 

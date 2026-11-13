@@ -1956,3 +1956,33 @@ class SlowOffersPagesTest(AppTestCase):
             await auth.init_db()
         with closing(db()) as conn:
             self.assertEqual(conn.execute("PRAGMA journal_mode").fetchone()[0], "delete")
+
+    async def test_2026_11_13_a_receipt_that_moves_between_namesakes_reaches_a_twin_on_offer(self) -> None:
+        """Melding (2026-11-13): "kijk wat er mis is met de performance van https://shopper.ytm.nl/offers en de links daaronder. het
+        duurt regelmatig heel lang (e.g. 10s ofzo?) voor die pagina geladen is." Een bonregel kan ook verschuiven tussen twee
+        naamgenoten die allebei buiten de lijst en buiten de familie van een aanbieding vallen. Is een van die twee de tweeling van een
+        aanbieding (`prices._twins`: zelfde naam, merk en verpakking), dan verandert `bought` van die aanbieding toch (re-review van taak 9)."""
+        items: list[dict] = [offer("20", "AH Paprika rood", 1.99, 2.80, "25% korting", unitSize="2 stuks", brand="AH")]
+        with mock.patch.dict(offers.FETCHERS, {"ah": lambda: returned(items)}):
+            await offers.sync("ah")
+        # 21 is de tweeling van 20 (in een oude aanbieding met dezelfde naam), maar zijn bewaarde prijs heet "AH Puntpaprika", net als 22.
+        with closing(db(offers)) as conn, conn:
+            conn.execute(
+                "INSERT INTO offer_history (store, product_id, title, brand, unit_size, price, first_seen, last_seen, ended_at) "
+                "VALUES ('ah', '21', 'AH Paprika rood', 'AH', '2 stuks', 1.89, '2026-01-05T00:00:00+00:00', '2026-01-11T23:59:59+00:00', '2026-01-11T23:59:59+00:00')"
+            )
+        await self.price("21", "AH Puntpaprika", 2.80, days_ago=30, size="2 stuks")
+        await self.price("22", "AH Puntpaprika", 2.00, days_ago=30, size="500 g")
+        when: str = (date.today() - timedelta(days=20)).isoformat()
+        with closing(db(ah_orders)) as conn, conn:
+            conn.execute("INSERT INTO ah_receipts (receipt_id, date_time, total, details_synced, first_seen) VALUES ('R2', ?, 3.40, 1, ?)", (when, when))
+            conn.execute(
+                "INSERT INTO ah_receipt_items (receipt_id, position, product_id, name, quantity, price, amount) VALUES ('R2', 0, NULL, 'AH Puntpaprika', 1, 3.40, 3.40)"
+            )
+        client: AppClient = self.client_for(create_app())
+        first: ReadResponse = await client.get("/api/offers?store=ah")
+        self.assertTrue(first.get_json()["offers"][0]["bought"], "de bon van 3,40 hoort bij 21, de tweeling van 20")
+        await self.price("22", "AH Puntpaprika", 3.40, days_ago=5, size="500 g")  # alleen `prices` gaat omhoog
+        again: ReadResponse = await client.get("/api/offers?store=ah", headers={"If-None-Match": first.headers["ETag"]})
+        self.assertEqual(again.status_code, 200)
+        self.assertFalse(again.get_json()["offers"][0]["bought"], "de bon hoort nu bij 22, dus 20 en 21 zijn niet meer gekocht")

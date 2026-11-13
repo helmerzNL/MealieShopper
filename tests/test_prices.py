@@ -1663,6 +1663,17 @@ class CatalogueTest(PricesCase):
         rows: list[dict] = (await in_db(prices._connect, lambda conn: prices._receipt_rows(conn, "jumbo", TODAY)))[0]
         self.assertEqual([(row["product_id"], row["brand"], row["unit_size"]) for row in rows], [("4183", None, None)])
 
+    async def test_without_a_catalogue_the_offers_get_no_regular_etag(self) -> None:
+        # Kan de catalogus niet worden opgebouwd, dan oordeelt `_annotate` zonder bonnen: dat antwoord krijgt geen ETag die een 304 geeft.
+        await self.observe("2026-05-01", "1", "AH Pindakaas", 2.99)
+        prices.forget_catalogues()
+        with mock.patch.object(prices, "_known_products", side_effect=RuntimeError("stuk")), self.assertLogs(prices.log, "WARNING"):
+            first: str = await prices.offers_signature("ah")
+            second: str = await prices.offers_signature("ah")
+        self.assertTrue(first.startswith("fout:"), first)
+        self.assertNotEqual(first, second)
+        self.assertFalse((await prices.offers_signature("ah")).startswith("fout:"), "met een catalogus weer een gewone ETag")
+
     async def version(self, store: str) -> str:
         return (await in_db(prices._connect, lambda conn: prices._catalogue_version(conn, store)))[0]
 
