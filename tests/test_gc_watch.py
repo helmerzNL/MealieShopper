@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import gc
+import weakref
 
 from mealieshopper import gc_watch
 
@@ -41,3 +42,21 @@ def test_stop_removes_the_callback() -> None:
     watch.stop()
     watch.stop()
     assert watch._callback not in gc.callbacks
+
+
+class Node:
+    """Een object dat de GC volgt en dat naar zichzelf kan wijzen (een kring)."""
+
+    me: Node | None = None
+
+
+def test_set_aside_freezes_what_lives_and_clears_young_cycles_first() -> None:
+    before: int = gc.get_freeze_count()
+    kept: list[Node] = [Node() for _ in range(1000)]
+    cycle: Node = Node()
+    cycle.me = cycle
+    gone: weakref.ref[Node] = weakref.ref(cycle)
+    del cycle  # nu afval, maar alleen de GC ruimt een kring op
+    gc_watch.set_aside()
+    assert gone() is None  # opgeruimd voor het bevriezen, dus niet voor altijd bewaard
+    assert gc.get_freeze_count() >= before + len(kept)

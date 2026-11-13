@@ -551,3 +551,11 @@ async def test_building_the_catalogue_does_not_stall(volume_dir: Path) -> None:
         lambda: prices.warm_catalogues(["ah"], today=volume.TODAY),
         prepare=cold(volume_dir),
     )
+
+
+@pytest.mark.volume
+async def test_building_the_catalogue_sets_the_heap_aside(volume_dir: Path) -> None:
+    # Zonder liep elke volle ronde van de GC tijdens een koude bouw langs alle catalogi, 100 tot 210 ms met de GIL vast (taak 9b)
+    with mock.patch.object(gc_watch, "set_aside", wraps=gc_watch.set_aside) as spy:
+        await prices.warm_catalogues(["jumbo"], today=volume.TODAY)
+    assert spy.call_count == 2  # voor de bouw (de app en de andere catalogi) en erna (de nieuwe catalogus)

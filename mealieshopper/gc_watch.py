@@ -1,9 +1,15 @@
-"""Meet elke ronde van de garbage collector van Python, met de generatie, de duur en de thread waarin hij liep.
+"""Meet elke ronde van de garbage collector van Python, met de generatie, de duur en de thread waarin hij liep, en houdt de
+catalogi buiten die rondes (`set_aside`).
 
 Een ronde van de GC loopt in de thread die toevallig een object aanmaakt als de teller over de drempel gaat, en houdt de GIL
-vast tot hij klaar is. Een volle ronde (generatie 2) loopt langs elk object dat de GC volgt, en dat zijn er bij een catalogus
-van AH miljoenen: zo'n ronde in een rekenthread houdt de event loop net zo goed tegen als een lange aanroep in C. Op de stack
+vast tot hij klaar is. Een volle ronde (generatie 2) loopt langs elk object dat de GC volgt, en dat zijn er met de catalogi van
+de volumedatabase zo'n 650.000 (`gc.collect()` duurt dan 175 ms): zo'n ronde in een rekenthread houdt de event loop net zo goed tegen als een lange aanroep in C. Op de stack
 is hij niet te zien (de GC heeft geen eigen regel), dus deze module meet hem zelf, met `gc.callbacks`.
+
+Gemeten op de volumedatabase (Python 3.12, met drie processen die elk een kern bezet hielden): een koude bouw van de catalogus
+van AH gaf zes tot acht volle rondes van 100 tot 210 ms, die niets opruimden (de rijen en de catalogus leven nog). Python 3.15
+heeft dezelfde drie generaties, dus productie ook. `set_aside` haalt wat er al leeft uit die rondes (`gc.freeze`): een volle
+ronde loopt dan alleen nog langs wat er sinds de laatste keer bij kwam.
 
 `GcWatch.start()` hangt de meting aan, `stop()` haalt hem weg. Rondes van `keep` seconden of langer worden bewaard en aan
 `on_collection` gegeven (in de thread van de GC, dus kort houden). De telemetrie gebruikt dit als `MEALIESHOPPER_TELEMETRY_GC`
@@ -43,6 +49,19 @@ class Collection:
             "thread": self.thread,
             "collected": self.collected,
         }
+
+
+def set_aside() -> None:
+    """Haalt wat nu leeft uit de volgende rondes van de GC (`gc.freeze`). De aanroeper is de bouw van een catalogus, ervoor en
+    erna: ervoor gaan de app en de andere catalogi opzij, erna de nieuwe catalogus.
+
+    Een bevroren object wordt nog steeds opgeruimd zodra niemand het meer gebruikt (de referentietelling), alleen een kring van
+    objecten die naar elkaar wijzen niet meer. Daarom eerst een ronde over de twee jongste generaties (`gc.collect(1)`, een paar
+    milliseconden): wat daar al afval is, gaat weg en wordt niet bevroren. Gemeten met dertig koude bouwen achter elkaar: het
+    aantal bevroren objecten bleef gelijk, en `gc.unfreeze()` met een volle ronde ruimde daarna niets op.
+    """
+    gc.collect(1)
+    gc.freeze()
 
 
 class GcWatch:
