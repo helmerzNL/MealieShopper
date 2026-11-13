@@ -377,8 +377,8 @@ async def signature(store: Any, week: Any = None) -> str:
     return "|".join((store, meta["synced_at"] if meta else "", date.today().isoformat(), monday, personal, about.version(), await about.build_commit()))
 
 
-def _for_week(offers: list[dict[str, Any]], week: Any) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-    """De aanbiedingen die in de week van `week` gelden, en wat daarbuiten valt.
+def _for_week(offers: list[dict[str, Any]], bounds: tuple[date, date]) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """De aanbiedingen die in de week van `bounds` (maandag en zondag, `week_bounds`) gelden, en wat daarbuiten valt.
 
     Een aanbieding hoort bij de week als haar looptijd er een of meer dagen in valt; een ontbrekende datum is open aan die kant (een
     doorlopende aanbieding loopt dus door in elke week). Een aanbieding zonder enige datum (Picnic) is alleen vandaag gezien: die staat bij
@@ -386,7 +386,7 @@ def _for_week(offers: list[dict[str, Any]], week: Any) -> tuple[list[dict[str, A
     bonus van volgende week die AH in het weekend al doorgeeft. Aanbiedingen met een einddatum (de bonus van de week) staan voor de
     doorlopende (zoals AH's volumevoordelen, die elke week gelden), zodat de bonus van de week niet onder honderden vaste kortingen verdwijnt.
     """
-    monday, sunday = week_bounds(week)
+    monday, sunday = bounds
     current = monday <= date.today() <= sunday
     chosen: list[dict[str, Any]] = []
     later: set[str] = set()
@@ -441,6 +441,9 @@ async def load(store: Any, week: Any = None) -> dict[str, Any]:
     koppelingen die er bekend zijn).
     """
     store = _valid_store(store)
+    # Op de loop: de melding van een ongeldige week volgt de taal van de aanvraag (`tr` leest de cookie uit een ContextVar), en die
+    # is er in de thread van `compute.run` niet.
+    bounds: tuple[date, date] | None = week_bounds(week) if week is not None else None
     async with _connect() as conn:
         meta = await auth.fetchone(conn, "SELECT synced_at, personal_error FROM offers_meta WHERE store = ?", (store,))
         rows = await conn.execute_fetchall(
@@ -451,7 +454,7 @@ async def load(store: Any, week: Any = None) -> dict[str, Any]:
             """,
             (store,),
         )
-    data: dict[str, Any] = await compute.run(_offers_of_rows, store, list(rows), week)
+    data: dict[str, Any] = await compute.run(_offers_of_rows, store, list(rows), bounds)
     return {
         **data,
         "syncedAt": meta["synced_at"] if meta else None,
@@ -460,10 +463,10 @@ async def load(store: Any, week: Any = None) -> dict[str, Any]:
     }
 
 
-def _offers_of_rows(store: str, rows: list[Any], week: Any) -> dict[str, Any]:
-    """De aanbiedingen van `load` uit de rijen van `offers`, met de keuze van de week, de categorieen en de periode. Puur, zodat
-    het via `compute.run` buiten de event loop loopt: bij AH staan er duizenden aanbiedingen, elk met een categorie en een
-    beschrijving van de actie. Een ongeldige `week` geeft een ValueError (`week_bounds`)."""
+def _offers_of_rows(store: str, rows: list[Any], bounds: tuple[date, date] | None) -> dict[str, Any]:
+    """De aanbiedingen van `load` uit de rijen van `offers`, met de keuze van de week (`bounds`, of None voor alle weken), de
+    categorieen en de periode. Puur, zodat het via `compute.run` buiten de event loop loopt: bij AH staan er duizenden
+    aanbiedingen, elk met een categorie en een beschrijving van de actie. Geen `tr`, geen request: die zijn er in de thread niet."""
     all_offers = [
         {
             "id": row["product_id"],
@@ -494,8 +497,8 @@ def _offers_of_rows(store: str, rows: list[Any], week: Any) -> dict[str, Any]:
     offers = [offer for offer in all_offers if offer["validity"] != deals.EXPIRED]
     expired = len(all_offers) - len(offers)
     selection: dict[str, Any] = {"week": None, "later": 0, "undated": 0}
-    if week is not None:
-        offers, selection = _for_week(offers, week)
+    if bounds is not None:
+        offers, selection = _for_week(offers, bounds)
     else:
         offers = _one_per_product(offers, prefer_current=True)
     return {
