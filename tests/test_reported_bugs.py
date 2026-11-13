@@ -1829,6 +1829,49 @@ class CookingIngredientsFitOnAPhoneTest(unittest.TestCase):
         self.assertIn("margin-top: auto", self.rule(".cook-mode__stage > :first-child"))
 
 
+@unittest.skipUnless(shutil.which("node"), "Node is not installed")
+class PriceHistoryChartHasRoomTest(unittest.TestCase):
+    """2026-11-13: "Het aanbiedingenscherm met de grafiek en de historie is te klein om de grafiek mooi weer te geven. Zorg dat het
+    vlak waar ook de grafiek zichtbaar is wat meer ruimte krijgt." Op een breed scherm kreeg het product met de grafiek alleen de
+    hoogte tot de onderkant van de pagina; boven de lijst staan de zoekbalk, de schakelaar, de filters en de telling, dus bleef er
+    op een scherm van 1080 px zo'n 360 px over en stond de grafiek half buiten beeld."""
+
+    APP: str = (ROOT / "static" / "app.js").read_text(encoding="utf-8")
+    HISTORY: str = (ROOT / "static" / "offers_history.js").read_text(encoding="utf-8")
+
+    def fitted(self, *, viewport: int, wide: bool = True) -> str:
+        """De maximale hoogte die offerHistoryFitList aan de lijst geeft, met de echte pageFitHeight en een nagebootst venster: de
+        kolommen beginnen op 900 px, zijn 500 px hoog en de pagina loopt 50 px verder (de marge onder het vak)."""
+        fit_start: int = self.APP.index("function pageFitHeight(")
+        fit: str = self.APP[fit_start : self.APP.index("\n}\n", fit_start) + 3]
+        part_start: int = self.HISTORY.index("const OFFER_HISTORY_MIN_HEIGHT")
+        part: str = self.HISTORY[part_start : self.HISTORY.index("async function loadOfferHistory")]
+        script: str = f"""
+const detail = {{ style: {{}} }};
+const $ = () => detail;
+const window = {{ innerHeight: {viewport}, scrollY: 0, matchMedia: () => ({{ matches: {json.dumps(wide)} }}) }};
+const document = {{ querySelector: () => ({{ getBoundingClientRect: () => ({{ bottom: 1450 }}) }}) }};
+{fit}
+{part}
+const list = {{ style: {{}}, parentElement: {{ offsetParent: {{}}, getBoundingClientRect: () => ({{ top: 900, bottom: 1400 }}) }} }};
+offerHistoryFitList(list);
+console.log(JSON.stringify([list.style.maxHeight, detail.style.maxHeight]));
+"""
+        result: subprocess.CompletedProcess = subprocess.run(["node", "-e", script], capture_output=True, text=True, check=True)
+        lists: list[str] = json.loads(result.stdout)
+        self.assertEqual(lists[0], lists[1], "de lijst en het product krijgen dezelfde hoogte")
+        return lists[0]
+
+    def test_a_low_screen_still_gives_the_chart_its_room(self) -> None:
+        self.assertEqual(self.fitted(viewport=1080), "640px", "eerst bleef hier 240 px of minder van over")
+
+    def test_a_tall_screen_still_fits_exactly(self) -> None:
+        self.assertEqual(self.fitted(viewport=2000), "1050px", "op een hoog scherm blijft het vak tot de onderkant van de pagina lopen")
+
+    def test_a_narrow_screen_keeps_the_page_scroll(self) -> None:
+        self.assertEqual(self.fitted(viewport=1080, wide=False), "", "op een smal scherm geldt het maximum uit styles.css")
+
+
 class LooseNamesSharedListTest(test_shared_links.SharedListCase):
     async def test_2026_11_10_a_loose_name_in_the_shared_list_counts_for_its_product(self):
         """Rick, 2026-11-10: "hoe lossen we dit probleem fatsoenlijk op voor de rest van de aankoopregels? kijk of er een patroon
