@@ -7,8 +7,10 @@ laatste lijst met zijn ETag. Is de ETag gelijk, dan is de lijst dezelfde die de 
 nooit verser of ouder dan wat de browser al deed. Vragen meer aanvragen tegelijk om dezelfde sleutel en ETag, dan rekent er een,
 en wachten de andere op die uitkomst.
 
-Een fout wordt niet bewaard: de volgende aanvraag probeert het opnieuw. Er staan hooguit `size` sleutels in, de oudste gaat er
-eerst uit. De cache hoort bij een app (`create_app`), zodat tests elkaar niets meegeven.
+De cache bewaart wat `load()` teruggeeft, ongewijzigd: voor /api/offers de bytes van de JSON (`app.json_bytes`), zodat een
+tweede aanvraag de lijst niet opnieuw naar JSON omzet. Een fout wordt niet bewaard: de volgende aanvraag probeert het opnieuw.
+Er staan hooguit `size` sleutels in, de oudste gaat er eerst uit.
+De cache hoort bij een app (`create_app`), zodat tests elkaar niets meegeven.
 """
 
 from __future__ import annotations

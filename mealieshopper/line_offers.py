@@ -228,7 +228,11 @@ class LineIndex:
         return sum(len(lines) for lines in self._by_word.values())
 
     def _ending(self, kind: str) -> list[Line]:
-        """De regels met een woord dat op een categoriewoord eindigt ("bakkersbrood" op "brood"), een keer uitgezocht per woord."""
+        """De regels met een woord dat op een categoriewoord eindigt ("bakkersbrood" op "brood"), een keer uitgezocht per woord.
+
+        Dit schrijft in de index, ook vanuit een thread van `compute.run` (`prices._lines_wanted`). Dat is veilig onder de GIL:
+        het kijkt of het woord er al is en zet anders een lijst die al helemaal gebouwd is, en twee threads tegelijk bouwen
+        dezelfde lijst. Elke winkel heeft zijn eigen index in zijn eigen catalogus."""
         if kind not in self._by_ending:
             self._by_ending[kind] = [line for lines in self._by_word.values() for line in lines if any(word.endswith(kind) for word in line.words)]
         return self._by_ending[kind]

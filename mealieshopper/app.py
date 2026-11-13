@@ -1,5 +1,6 @@
 import hashlib
 import inspect
+import json
 import mimetypes
 from collections.abc import Awaitable, Callable, Iterable
 from datetime import date, timedelta
@@ -11,6 +12,7 @@ import sqlite3
 
 import httpx
 from quart import Quart, Response, jsonify, redirect, render_template, request, send_file, send_from_directory
+from quart.json.provider import DefaultJSONProvider
 
 from . import about, ah, ah_explore, ah_lists, ah_orders, ah_planner, ah_recipes, ai_match, ai_review, audit, auth_password, backup, cart_memory, crisp, crisp_orders, factory_reset, hellofresh, image_cache, jumbo, jumbo_explore, jumbo_lists, jumbo_orders, jumbo_recipes, loose_names, loose_names_ai, marleyspoon, mcp_http, mealie, mealie_images, offers, offers_schedule, onboarding, picnic, picnic_explore, picnic_orders, picnic_recipes, price_archive, price_import, prices, product_images, product_links, profile, push, recipe_bulk, recipe_nutrition, request_body, server_settings, shared_links, shared_links_export, updates, users
 from . import auth, deals, http_client, tasks, urls
@@ -73,6 +75,19 @@ AH_PROXY_BLOCKED_RESPONSE_HEADERS: frozenset[str] = frozenset(
         "server",
     }
 )
+
+
+def json_bytes(data: Any) -> bytes:
+    """`data` als JSON-bytes, precies zoals `jsonify` ze buiten de debugmodus verstuurt: met de instellingen van de standaard
+    JSON-provider (ASCII, gesorteerde sleutels en de extra typen van Quart), zonder spaties en met een regeleinde erachter. In de
+    debugmodus springt `jsonify` in, dit niet.
+
+    De winst zit in de cache: /api/offers maakt de bytes een keer per ETag en `ResponseCache` bewaart ze, zodat elke volgende
+    aanvraag ze alleen verstuurt. Dat het in een thread van `compute.run` loopt, scheelt minder dan het lijkt: de encoder van
+    `json` is in C geschreven en houdt de GIL vast zolang hij een lijst omzet."""
+    provider: type[DefaultJSONProvider] = DefaultJSONProvider
+    text: str = json.dumps(data, default=provider.default, ensure_ascii=provider.ensure_ascii, sort_keys=provider.sort_keys, separators=(",", ":"))
+    return f"{text}\n".encode()
 
 
 def _ah_proxy_cookie(headers: Iterable[str]) -> str | None:
@@ -721,7 +736,7 @@ def create_app() -> Quart:
             result: Any = action()
             if inspect.isawaitable(result):
                 result = await result
-            return jsonify(result)
+            return result if isinstance(result, Response) else jsonify(result)
         except ValueError as exc:
             return jsonify({"error": str(exc)}), 400
         except Exception as exc:  # noqa: BLE001 - winkels zijn onofficieel; toon de fout, de bewaarde kopie blijft staan
@@ -746,6 +761,15 @@ def create_app() -> Quart:
         data["packMargin"] = prices.PACK_MARGIN  # de client vergelijkt verpakkingen per eenheid met dezelfde marge
         return data
 
+    async def offers_body(store: str, week: str) -> bytes:
+        """De lijst met oordeel als de bytes die /api/offers verstuurt: een keer naar JSON per ETag, buiten de event loop."""
+        return await compute.run(json_bytes, await offers_with_verdicts(store, week))
+
+    async def offers_response(store: str, week: str, etag: str) -> Response:
+        """De lijst uit de cache van /api/offers (response_cache.py), of uitgerekend als die er voor deze ETag nog niet is."""
+        body: bytes = await offers_cache.get(offers_cache_key(store, week), etag, lambda: offers_body(store, week))
+        return Response(body, mimetype="application/json")
+
     async def warm_offers(stores: tuple[str, ...] | None = None) -> None:
         """Rekent de lijst met oordeel van elke winkel (of van `stores`) alvast uit voor deze week en de volgende, in de cache van
         /api/offers. Na een synchronisatie (offers_schedule, of de knop per winkel) en bij de start, zodat de eerste bezoeker er
@@ -755,7 +779,7 @@ def create_app() -> Quart:
             for week in (today.isoformat(), (today + timedelta(days=7)).isoformat()):
                 try:
                     etag = await offers_etag(store, week)
-                    await offers_cache.get(offers_cache_key(store, week), etag, lambda: offers_with_verdicts(store, week))
+                    await offers_cache.get(offers_cache_key(store, week), etag, lambda: offers_body(store, week))
                 except Exception:  # noqa: BLE001 - opwarmen is een extraatje
                     app.logger.warning("Aanbiedingen van %s opwarmen mislukt", store, exc_info=True)
 
@@ -792,9 +816,7 @@ def create_app() -> Quart:
 
         # Dezelfde ETag is dezelfde lijst: een tweede browser of apparaat, en aanvragen die tegelijk binnenkomen, krijgen de lijst die
         # er al ligt of op komst is, in plaats van het prijsoordeel opnieuw uit te rekenen (response_cache.py).
-        response = await offers_action(
-            lambda: offers_cache.get(offers_cache_key(store, week), etag, lambda: offers_with_verdicts(store, week)), tr("Aanbiedingen laden mislukt", "Loading the offers failed")
-        )
+        response = await offers_action(lambda: offers_response(store, week, etag), tr("Aanbiedingen laden mislukt", "Loading the offers failed"))
         if isinstance(response, Response) and response.status_code == 200:
             response.headers.update(headers)
         return response

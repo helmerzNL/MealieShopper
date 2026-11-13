@@ -25,7 +25,7 @@ from typing import Any, Callable, Iterable, TypeVar
 
 import aiosqlite
 
-from . import about, ah, ah_lists, aldi, deals, lidl, offer_categories, offer_courses, offer_translate, ah_recipes, auth, crisp, jumbo, jumbo_recipes, mealie, mealie_images, picnic, picnic_recipes
+from . import about, ah, ah_lists, aldi, compute, deals, lidl, offer_categories, offer_courses, offer_translate, ah_recipes, auth, crisp, jumbo, jumbo_recipes, mealie, mealie_images, picnic, picnic_recipes
 from .i18n import tr
 
 # Winkels waarvan we aanbiedingen kunnen ophalen, met de functie die dat doet.
@@ -377,8 +377,8 @@ async def signature(store: Any, week: Any = None) -> str:
     return "|".join((store, meta["synced_at"] if meta else "", date.today().isoformat(), monday, personal, about.version(), await about.build_commit()))
 
 
-def _for_week(offers: list[dict[str, Any]], week: Any) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-    """De aanbiedingen die in de week van `week` gelden, en wat daarbuiten valt.
+def _for_week(offers: list[dict[str, Any]], bounds: tuple[date, date]) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """De aanbiedingen die in de week van `bounds` (maandag en zondag, `week_bounds`) gelden, en wat daarbuiten valt.
 
     Een aanbieding hoort bij de week als haar looptijd er een of meer dagen in valt; een ontbrekende datum is open aan die kant (een
     doorlopende aanbieding loopt dus door in elke week). Een aanbieding zonder enige datum (Picnic) is alleen vandaag gezien: die staat bij
@@ -386,7 +386,7 @@ def _for_week(offers: list[dict[str, Any]], week: Any) -> tuple[list[dict[str, A
     bonus van volgende week die AH in het weekend al doorgeeft. Aanbiedingen met een einddatum (de bonus van de week) staan voor de
     doorlopende (zoals AH's volumevoordelen, die elke week gelden), zodat de bonus van de week niet onder honderden vaste kortingen verdwijnt.
     """
-    monday, sunday = week_bounds(week)
+    monday, sunday = bounds
     current = monday <= date.today() <= sunday
     chosen: list[dict[str, Any]] = []
     later: set[str] = set()
@@ -441,6 +441,9 @@ async def load(store: Any, week: Any = None) -> dict[str, Any]:
     koppelingen die er bekend zijn).
     """
     store = _valid_store(store)
+    # Op de loop: de melding van een ongeldige week volgt de taal van de aanvraag (`tr` leest de cookie uit een ContextVar), en die
+    # is er in de thread van `compute.run` niet.
+    bounds: tuple[date, date] | None = week_bounds(week) if week is not None else None
     async with _connect() as conn:
         meta = await auth.fetchone(conn, "SELECT synced_at, personal_error FROM offers_meta WHERE store = ?", (store,))
         rows = await conn.execute_fetchall(
@@ -451,6 +454,19 @@ async def load(store: Any, week: Any = None) -> dict[str, Any]:
             """,
             (store,),
         )
+    data: dict[str, Any] = await compute.run(_offers_of_rows, store, list(rows), bounds)
+    return {
+        **data,
+        "syncedAt": meta["synced_at"] if meta else None,
+        "supported": store in FETCHERS,
+        "personal": await _personal_summary(store, data["offers"], meta["personal_error"] if meta else None),
+    }
+
+
+def _offers_of_rows(store: str, rows: list[Any], bounds: tuple[date, date] | None) -> dict[str, Any]:
+    """De aanbiedingen van `load` uit de rijen van `offers`, met de keuze van de week (`bounds`, of None voor alle weken), de
+    categorieen en de periode. Puur, zodat het via `compute.run` buiten de event loop loopt: bij AH staan er duizenden
+    aanbiedingen, elk met een categorie en een beschrijving van de actie. Geen `tr`, geen request: die zijn er in de thread niet."""
     all_offers = [
         {
             "id": row["product_id"],
@@ -481,8 +497,8 @@ async def load(store: Any, week: Any = None) -> dict[str, Any]:
     offers = [offer for offer in all_offers if offer["validity"] != deals.EXPIRED]
     expired = len(all_offers) - len(offers)
     selection: dict[str, Any] = {"week": None, "later": 0, "undated": 0}
-    if week is not None:
-        offers, selection = _for_week(offers, week)
+    if bounds is not None:
+        offers, selection = _for_week(offers, bounds)
     else:
         offers = _one_per_product(offers, prefer_current=True)
     return {
@@ -493,9 +509,6 @@ async def load(store: Any, week: Any = None) -> dict[str, Any]:
         "categories": offer_categories.summarize([offer["category"] for offer in offers]),
         "period": deals.common_period(offers),
         **selection,
-        "syncedAt": meta["synced_at"] if meta else None,
-        "supported": store in FETCHERS,
-        "personal": await _personal_summary(store, offers, meta["personal_error"] if meta else None),
     }
 
 
@@ -749,7 +762,7 @@ async def history(store: Any = None, query: Any = "", limit: Any = 50) -> dict[s
             wanted.setdefault(row["store"], []).append(row["product_id"])
         for name, ids in wanted.items():
             rows += await conn.execute_fetchall(HISTORY_ROWS_SQL.format(marks=",".join("?" * len(ids))), (name, *ids, pattern))
-    products = _history_products(rows)
+    products: dict[tuple[str, str], dict[str, Any]] = await compute.run(_history_products, rows)
     return {"products": [products[(row["store"], row["product_id"])] for row in page], "total": page[0]["total"] if page else 0}
 
 
@@ -776,6 +789,12 @@ async def history_of(store: Any, product_ids: Iterable[Any]) -> dict[str, dict[s
                     (SELECT product_id FROM offer_history WHERE store = ? AND ended_at IS NULL) ORDER BY personal""",
                 (store, *chunk, store),
             ))
+    return await compute.run(_history_by_id, rows)
+
+
+def _history_by_id(rows: list[Any]) -> dict[str, dict[str, Any]]:
+    """De rijen van `history_of` (uit `offer_history` en `_not_yet_recorded`) op product en begin, samengevoegd per product-id.
+    Puur: `history_of` laat dit via `compute.run` buiten de event loop lopen, want een prijsarchief geeft hier duizenden rijen."""
     rows.sort(key=lambda row: (row["product_id"], row["first_seen"]))
     return {product["productId"]: product for product in _history_products(rows).values()}
 
