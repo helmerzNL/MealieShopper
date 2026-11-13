@@ -16,6 +16,8 @@ const recipeSearch = {
   query: "",
   kcal: "", // de grenzen op de calorieën (kcalMin=..&kcalMax=..), of leeg; met grenzen zoekt alleen Mealie (issue #283)
   filters: "", // tags, categorieën, tijd en volgorde (tags=..&maxMinutes=..&sort=..), of leeg (issue #322)
+  storeFilters: "", // menugang, dieet, vlees/vis/gevogelte en tijd voor de winkels (course=..&maxMinutes=..), of leeg (4.22.0)
+  skipped: new Set(), // de bronnen die een gekozen filter niet kennen en daarom niet meedoen
   mealieOnly: false, // zonder zoekterm (bladeren), of met een filter dat alleen Mealie kent: dan zoeken de winkels niet mee
   browsing: false, // zonder zoekterm: je recepten in Mealie, met doorlopend scrollen
   loadingMore: false,
@@ -79,10 +81,14 @@ function renderStoreRecipeCard(store, recipe) {
 function renderSearchStore(store) {
   const data = recipeSearch[store];
   const parts = searchParts(store);
-  parts.section.hidden = !searchStoreActive(store) || !recipeSearch.searched || (recipeSearch.mealieOnly && store !== "mealie");
+  parts.section.hidden =
+    !searchStoreActive(store) || !recipeSearch.searched || (recipeSearch.mealieOnly && store !== "mealie") || recipeSearch.skipped.has(store);
   if (store === "mealie") $("#search-mealie-title").textContent = recipeSearch.browsing ? t("rsearch.mealie_all") : "Mealie";
   parts.results.innerHTML = data.recipes.map((recipe) => (store === "ah" ? renderRecipeCard(recipe) : renderStoreRecipeCard(store, recipe))).join("");
-  if (store === "ah") {
+  if (data.total === null) {
+    // Met een filter dat de winkel zelf niet kent (een tijd bij AH of Jumbo) is het totaal niet bekend: wel hoeveel we bekeken.
+    parts.count.textContent = data.recipes.length ? t("rsearch.count_scanned", { shown: I18N.formatNumber(data.recipes.length), scanned: I18N.formatNumber(data.scanned) }) : "";
+  } else if (store === "ah") {
     parts.count.textContent = data.recipes.length ? tn("search.count", data.total, { limit: data.total > 2000 ? t("search.limit") : "" }) : "";
   } else {
     parts.count.textContent = data.recipes.length ? (data.more ? t("rsearch.count", { shown: I18N.formatNumber(data.recipes.length), total: I18N.formatNumber(data.total) }) : tn("search.count", data.total, { limit: "" })) : "";
@@ -96,7 +102,7 @@ function renderSearchStore(store) {
 // De melding bij een lege uitkomst: met filters, zonder zoekterm (een leeg Mealie) of bij een zoekterm.
 function searchNoneText(store) {
   if (recipeSearch.kcal) return t("kcal.none");
-  if (store === "mealie" && recipeSearch.filters && recipeFiltersNarrow()) return t("rsearch.none_filtered");
+  if ((store === "mealie" && recipeSearch.filters && recipeFiltersNarrow()) || recipeSearch.storeFilters) return t("rsearch.none_filtered");
   if (recipeSearch.browsing) return t("rsearch.none_mealie");
   return t("rsearch.none", { query: recipeSearch.query });
 }
@@ -119,7 +125,10 @@ async function fetchSearchStore(store, append) {
   const query = recipeSearch.query;
   const kcal = recipeSearch.kcal;
   const filters = recipeSearch.filters;
-  const stale = () => query !== recipeSearch.query || kcal !== recipeSearch.kcal || filters !== recipeSearch.filters; // intussen opnieuw gezocht
+  const storeFilters = recipeSearch.storeFilters;
+  const extra = storeFilters ? `&${storeFilters}` : "";
+  // Intussen opnieuw gezocht: dan telt dit antwoord niet meer.
+  const stale = () => query !== recipeSearch.query || kcal !== recipeSearch.kcal || filters !== recipeSearch.filters || storeFilters !== recipeSearch.storeFilters;
   const q = encodeURIComponent(query);
   const parts = searchParts(store);
   message(`#${parts.message.id}`, "");
@@ -143,19 +152,26 @@ async function fetchSearchStore(store, append) {
       }
     } else if (store === "ah") {
       const page = append ? data.page + 1 : 0;
-      const answer = await jsonFetch(`/api/ah/search?q=${q}&page=${page}`);
-      found = { recipes: answer.recipes || [], total: Number(answer.total) || 0, page, more: Boolean(answer.hasNextPage ?? Number(answer.total) > (page + 1) * 12) };
+      const answer = await jsonFetch(`/api/ah/search?q=${q}&page=${page}${extra}`);
+      // Met een tijd boven 15 minuten bekijkt de server meer recepten per keer: `page` zegt waar hij bleef, `total` is dan null.
+      found = {
+        recipes: answer.recipes || [],
+        total: answer.total === null ? null : Number(answer.total) || 0,
+        scanned: answer.scanned,
+        page: answer.page ?? page,
+        more: Boolean(answer.hasNextPage ?? Number(answer.total) > (page + 1) * 12),
+      };
     } else if (store === "jumbo") {
-      const answer = await jsonFetch(`/api/jumbo/recipes?q=${q}&offset=${append ? data.recipes.length : 0}`);
-      found = { recipes: answer.recipes || [], total: answer.total ?? (answer.recipes || []).length, more: false };
+      const answer = await jsonFetch(`/api/jumbo/recipes?q=${q}&offset=${append ? data.nextOffset ?? data.recipes.length : 0}${extra}`);
+      found = { recipes: answer.recipes || [], total: answer.total === null ? null : answer.total ?? (answer.recipes || []).length, scanned: answer.scanned, nextOffset: answer.nextOffset, more: Boolean(answer.more) };
     } else if (MEALKIT_SEARCH.has(store)) {
-      const answer = await jsonFetch(`/api/${store}/search?q=${q}&load=${MEALKIT_SEARCH_WEEKS}`);
+      const answer = await jsonFetch(`/api/${store}/search?q=${q}&load=${MEALKIT_SEARCH_WEEKS}${extra}`);
       // Er komen er hooguit 60 terug: bij meer treffers staat er "60 van 101 recepten" (verfijn dan het zoekwoord); er is geen "Meer recepten".
       const recipes = (answer.recipes || []).map(mealKitSearchCard);
       found = { recipes, total: answer.total ?? recipes.length, more: Number(answer.total) > recipes.length };
     } else {
       // Picnic en Crisp: één pagina met de treffers.
-      const answer = await jsonFetch(`/api/${store}/recipes?q=${q}`);
+      const answer = await jsonFetch(`/api/${store}/recipes?q=${q}${extra}`);
       found = { recipes: answer.recipes || [], total: answer.total ?? (answer.recipes || []).length, more: false };
     }
     if (stale()) return;
@@ -164,10 +180,14 @@ async function fetchSearchStore(store, append) {
     const fresh = found.recipes.filter((recipe) => !known.has(String(recipe.id)));
     data.recipes = append ? [...data.recipes, ...fresh] : fresh;
     data.total = found.total;
+    data.scanned = found.scanned;
+    data.nextOffset = found.nextOffset;
     data.page = found.page ?? 0;
     // Bij Mealie en AH geldt "Meer recepten" alleen als de volgende pagina ook echt iets nieuws bracht.
     // Jumbo geeft per pagina 24 recepten; een pagina zonder nieuwe recepten of het totaal bereikt: geen "Meer recepten".
-    data.more = store === "jumbo" ? Boolean(fresh.length) && data.recipes.length < data.total : found.more && (!["ah", "mealie"].includes(store) || Boolean(fresh.length));
+    // Met een filter dat de server zelf toepast (total null) zegt de server of er meer is.
+    if (found.total === null) data.more = found.more;
+    else data.more = store === "jumbo" ? Boolean(fresh.length) && data.recipes.length < data.total : found.more && (!["ah", "mealie"].includes(store) || Boolean(fresh.length));
   } catch (error) {
     if (stale()) return;
     if (!append) data.recipes = [];
@@ -204,6 +224,7 @@ async function runRecipeSearch(event) {
   // tags, categorieën of tijd zoekt alleen Mealie: de winkels kennen die niet in hun zoekresultaten.
   const kcal = nutritionQuery("search");
   const filters = recipeFilterQuery();
+  const kinds = recipeFilterKinds();
   const mealieOnly = !query || Boolean(kcal) || recipeFiltersNarrow();
   if (!query && !kcal && !searchStoreActive("mealie")) {
     recipeSearch.searched = false;
@@ -214,15 +235,20 @@ async function runRecipeSearch(event) {
   recipeSearch.query = query;
   recipeSearch.kcal = kcal;
   recipeSearch.filters = filters;
+  recipeSearch.storeFilters = storeFilterQuery();
   recipeSearch.mealieOnly = mealieOnly;
   recipeSearch.browsing = !query;
   recipeSearch.searched = true;
   clearTimeout(recipeSearch.retry);
   message("#search-message", "");
   renderBrowseHint();
-  const active = SEARCH_STORES.filter((store) => searchStoreActive(store) && (!mealieOnly || store === "mealie"));
+  // Een bron die een gekozen filter (menugang, dieet, vlees/vis/gevogelte, tijd) niet kent, doet niet mee; dat staat erbij.
+  const candidates = SEARCH_STORES.filter((store) => searchStoreActive(store) && (!mealieOnly || store === "mealie"));
+  recipeSearch.skipped = new Set(candidates.filter((store) => !storeSupports(store, kinds)));
+  const active = candidates.filter((store) => !recipeSearch.skipped.has(store));
   if (kcal && !active.length) message("#search-message", t("kcal.needs_mealie"));
   else if (query && active.length && recipeFiltersNarrow()) message("#search-message", t("rsearch.filters_mealie_only"), "info");
+  else if (recipeSearch.skipped.size) message("#search-message", t("rsearch.filters_skipped", { stores: storeNames([...recipeSearch.skipped]) }), "info");
   SEARCH_STORES.forEach((store) => {
     Object.assign(recipeSearch[store], { recipes: [], total: 0, page: store === "mealie" ? 1 : 0, more: false });
     const parts = searchParts(store);
@@ -395,6 +421,52 @@ const RECIPE_FACETS_EMPTY = { tags: "rsearch.no_tags", categories: "rsearch.no_c
 const RECIPE_FACETS_TTL = 10 * 60 * 1000; // zo lang gelden de lijsten; daarna haalt het openen van het scherm ze opnieuw op
 const recipeFacets = { tags: facetSelection(), categories: facetSelection(), data: null, loadedAt: 0, loading: false, retry: 0 };
 
+// Welke filters elke bron kan toepassen (zoals recipe_diet.SUPPORT op de server). Tags en categorieën kent alleen Mealie.
+const RECIPE_FILTER_SUPPORT = {
+  mealie: ["tags", "course", "diet", "protein", "time"],
+  ah: ["course", "diet", "protein", "time"],
+  jumbo: ["course", "time"],
+  picnic: ["course", "diet", "time"],
+  crisp: ["course", "time"],
+  hellofresh: ["course", "diet", "time"],
+  marleyspoon: ["course", "diet", "time"],
+};
+const RECIPE_FILTER_SELECTS = [["course", "#search-course"], ["diet", "#search-diet"], ["protein", "#search-protein"]];
+
+// De soorten filters die nu gekozen zijn: tags (ook categorieën), course, diet, protein en time.
+function recipeFilterKinds() {
+  const kinds = new Set();
+  if (RECIPE_FACETS.some((name) => facetActive(recipeFacets[name]))) kinds.add("tags");
+  RECIPE_FILTER_SELECTS.forEach(([kind, selector]) => {
+    if ($(selector).value) kinds.add(kind);
+  });
+  if ($("#search-max-minutes").value) kinds.add("time");
+  return kinds;
+}
+
+function storeSupports(store, kinds) {
+  const known = RECIPE_FILTER_SUPPORT[store] || [];
+  return [...kinds].every((kind) => known.includes(kind));
+}
+
+// "Jumbo en Crisp": de namen van de bronnen voor een melding.
+function storeNames(stores) {
+  const names = stores.map((store) => (store === "mealie" ? "Mealie" : RECIPE_SOURCE_NAMES[store] || store));
+  return names.length > 1 ? `${names.slice(0, -1).join(", ")} ${t("rsearch.and")} ${names[names.length - 1]}` : names.join("");
+}
+
+// De filters voor de winkels en maaltijdboxen: `course=..&diet=..&protein=..&maxMinutes=..`, of "" zonder filter.
+function storeFilterQuery() {
+  const params = [];
+  RECIPE_FILTER_SELECTS.forEach(([kind, selector]) => {
+    const value = $(selector).value;
+    if (value) params.push(`${kind}=${encodeURIComponent(value)}`);
+  });
+  const minutes = $("#search-max-minutes").value;
+  if (minutes) params.push(`maxMinutes=${encodeURIComponent(minutes)}`);
+  return params.join("&");
+}
+
 // De filters voor de zoekroute: `tags=a,b&tagsOut=c&categories=..&maxMinutes=30&sort=newest`, of "" zonder filter.
 function recipeFilterQuery() {
   const params = [];
@@ -408,16 +480,22 @@ function recipeFilterQuery() {
   if (minutes) params.push(`maxMinutes=${encodeURIComponent(minutes)}`);
   const sort = $("#search-sort").value;
   if (sort) params.push(`sort=${encodeURIComponent(sort)}`);
+  RECIPE_FILTER_SELECTS.forEach(([kind, selector]) => {
+    const value = $(selector).value;
+    if (value) params.push(`${kind}=${encodeURIComponent(value)}`);
+  });
   return params.join("&");
 }
 
-// Een filter dat alleen Mealie kent (tags, categorieën, tijd): dan zoeken de winkels niet mee. Alleen een volgorde mag wel.
+// Een filter dat alleen Mealie kent (tags, categorieën): dan zoeken de winkels niet mee. Menugang, dieet en tijd gaan sinds
+// 4.22.0 per bron (zie RECIPE_FILTER_SUPPORT), een volgorde laat iedereen meedoen.
 function recipeFiltersNarrow() {
-  return RECIPE_FACETS.some((name) => facetActive(recipeFacets[name])) || Boolean($("#search-max-minutes").value);
+  return RECIPE_FACETS.some((name) => facetActive(recipeFacets[name]));
 }
 
 function recipeFilterCount() {
-  return RECIPE_FACETS.reduce((sum, name) => sum + facetActive(recipeFacets[name]), 0) + ($("#search-max-minutes").value ? 1 : 0);
+  const selects = RECIPE_FILTER_SELECTS.filter(([, selector]) => $(selector).value).length;
+  return RECIPE_FACETS.reduce((sum, name) => sum + facetActive(recipeFacets[name]), 0) + selects + ($("#search-max-minutes").value ? 1 : 0);
 }
 
 // Zonder zoekterm de uitleg dat zoeken ook bij de winkels zoekt; met een zoekterm de gewone uitleg.
@@ -534,9 +612,11 @@ RECIPE_FACETS.forEach((name) => {
   $(`#search-${name}`).addEventListener("click", recipeFacetClick);
   $(`#search-${name}-search`).addEventListener("input", () => renderRecipeFacets());
 });
-$("#search-max-minutes").addEventListener("change", () => {
-  renderRecipeFacets();
-  rerunRecipeSearch();
+["#search-max-minutes", ...RECIPE_FILTER_SELECTS.map(([, selector]) => selector)].forEach((selector) => {
+  $(selector).addEventListener("change", () => {
+    renderRecipeFacets();
+    rerunRecipeSearch();
+  });
 });
 $("#search-sort").addEventListener("change", rerunRecipeSearch);
 $("#search-facets [data-facet-clear]").addEventListener("click", () => {
@@ -544,6 +624,9 @@ $("#search-facets [data-facet-clear]").addEventListener("click", () => {
     recipeFacets[name] = facetSelection();
   });
   $("#search-max-minutes").value = "";
+  RECIPE_FILTER_SELECTS.forEach(([, selector]) => {
+    $(selector).value = "";
+  });
   renderRecipeFacets();
   rerunRecipeSearch();
 });

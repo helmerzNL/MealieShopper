@@ -196,7 +196,7 @@ class SearchRouteTest(AppTestCase):
         with mock.patch.object(ah, "search_recipes", return_value=found) as search:
             response = await self.client.get("/api/ah/search?q=pasta&page=2")
         self.assertEqual(response.get_json(), found)
-        search.assert_called_once_with("pasta", 2)
+        search.assert_called_once_with("pasta", 2, wanted=None)  # zonder filters (4.21.0) zoals voorheen
 
     async def test_requires_a_search_term(self):
         self.assertEqual((await self.client.get("/api/ah/search")).status_code, 400)

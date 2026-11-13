@@ -37,18 +37,26 @@ class FilterQueryTest(unittest.TestCase):
     def run_js(self, setup, call):
         script = "\n".join(
             [
-                # Een document met alleen de twee keuzelijsten: {selector: waarde}.
-                "const fields = {'#search-max-minutes': '', '#search-sort': ''};",
+                # Een document met alleen de keuzelijsten: {selector: waarde}.
+                "const fields = {'#search-max-minutes': '', '#search-sort': '', '#search-course': '', '#search-diet': '', '#search-protein': ''};",
                 "const $ = (selector) => ({ value: fields[selector] ?? '' });",
+                "const t = (key) => key;",
                 function_source("facetSelection", FACETS_JS),
                 function_source("facetActive", FACETS_JS),
                 function_source("facetMode", FACETS_JS),
                 function_source("facetToggled", FACETS_JS),
                 constant("RECIPE_FACETS", SEARCH_JS),
+                constant("RECIPE_FILTER_SUPPORT", SEARCH_JS),
+                constant("RECIPE_FILTER_SELECTS", SEARCH_JS),
+                constant("RECIPE_SOURCE_NAMES", SEARCH_JS),
                 "const recipeFacets = { tags: facetSelection(), categories: facetSelection() };",
                 function_source("recipeFilterQuery", SEARCH_JS),
                 function_source("recipeFiltersNarrow", SEARCH_JS),
                 function_source("recipeFilterCount", SEARCH_JS),
+                function_source("recipeFilterKinds", SEARCH_JS),
+                function_source("storeSupports", SEARCH_JS),
+                function_source("storeFilterQuery", SEARCH_JS),
+                function_source("storeNames", SEARCH_JS),
                 setup,
                 f"process.stdout.write(JSON.stringify({call}));",
             ]
@@ -57,7 +65,10 @@ class FilterQueryTest(unittest.TestCase):
         return json.loads(result.stdout)
 
     def test_without_a_choice_there_is_no_filter(self):
-        self.assertEqual(self.run_js("", "[recipeFilterQuery(), recipeFiltersNarrow(), recipeFilterCount()]"), ["", False, 0])
+        self.assertEqual(
+            self.run_js("", "[recipeFilterQuery(), storeFilterQuery(), recipeFiltersNarrow(), recipeFilterCount(), [...recipeFilterKinds()]]"),
+            ["", "", False, 0, []],
+        )
 
     def test_tags_categories_time_and_order_travel_to_the_route(self):
         setup = """
@@ -70,12 +81,39 @@ class FilterQueryTest(unittest.TestCase):
         """
         query, narrow, count = self.run_js(setup, "[recipeFilterQuery(), recipeFiltersNarrow(), recipeFilterCount()]")
         self.assertEqual(query, "tags=pasta,vega&tagsOut=vis%20%26%20schaal&categories=diner&maxMinutes=30&sort=newest")
-        self.assertTrue(narrow)
+        self.assertTrue(narrow, "tags en categorieën kent alleen Mealie")
         self.assertEqual(count, 5, "drie tags, een categorie en de tijd; de volgorde is geen filter")
 
+    def test_course_diet_and_protein_go_to_mealie_and_to_the_stores(self):
+        setup = "fields['#search-course'] = 'hoofdgerecht'; fields['#search-diet'] = 'vegetarisch'; fields['#search-max-minutes'] = '45';"
+        mealie, stores, narrow, count = self.run_js(setup, "[recipeFilterQuery(), storeFilterQuery(), recipeFiltersNarrow(), recipeFilterCount()]")
+        self.assertEqual(mealie, "maxMinutes=45&course=hoofdgerecht&diet=vegetarisch")
+        self.assertEqual(stores, "course=hoofdgerecht&diet=vegetarisch&maxMinutes=45")
+        self.assertFalse(narrow, "de winkels die het kennen doen mee")
+        self.assertEqual(count, 3)
+
+    def test_which_source_knows_which_filter(self):
+        result = self.run_js(
+            "fields['#search-diet'] = 'veganistisch';",
+            "['mealie', 'ah', 'jumbo', 'picnic', 'crisp', 'hellofresh', 'marleyspoon'].filter((store) => storeSupports(store, recipeFilterKinds()))",
+        )
+        self.assertEqual(result, ["mealie", "ah", "picnic", "hellofresh", "marleyspoon"], "Jumbo en Crisp geven geen dieet")
+        result = self.run_js(
+            "fields['#search-protein'] = 'vis';",
+            "['mealie', 'ah', 'jumbo', 'picnic', 'crisp', 'hellofresh', 'marleyspoon'].filter((store) => storeSupports(store, recipeFilterKinds()))",
+        )
+        self.assertEqual(result, ["mealie", "ah"], "vlees, vis en gevogelte kennen alleen Mealie en AH")
+        self.assertEqual(self.run_js("fields['#search-max-minutes'] = '15';", "storeSupports('crisp', recipeFilterKinds())"), True)
+        self.assertEqual(
+            self.run_js("", "[storeNames(['jumbo']), storeNames(['jumbo', 'crisp']), storeNames(['jumbo', 'crisp', 'picnic'])]"),
+            ["Jumbo", "Jumbo rsearch.and Crisp", "Jumbo, Crisp rsearch.and Picnic"],
+        )
+
     def test_only_an_order_keeps_the_stores_in_the_search(self):
-        self.assertEqual(self.run_js("fields['#search-sort'] = 'rating';", "[recipeFilterQuery(), recipeFiltersNarrow()]"), ["sort=rating", False])
-        self.assertTrue(self.run_js("fields['#search-max-minutes'] = '15';", "recipeFiltersNarrow()"), "een grens op de tijd kent alleen Mealie")
+        self.assertEqual(
+            self.run_js("fields['#search-sort'] = 'rating';", "[recipeFilterQuery(), storeFilterQuery(), recipeFiltersNarrow()]"),
+            ["sort=rating", "", False],
+        )
 
 
 @unittest.skipUnless(shutil.which("node"), "Node is niet geïnstalleerd")
@@ -134,6 +172,26 @@ class WiringTest(unittest.TestCase):
         self.assertIn('${filters ? `&${filters}` : ""}', fetch)
         self.assertIn("filters !== recipeSearch.filters", fetch)
         self.assertIn('tn("rsearch.without_time", answer.withoutTime)', fetch)
+
+    def test_the_stores_get_the_filters_and_a_source_that_does_not_know_one_is_left_out(self):
+        fetch = function_source("fetchSearchStore", SEARCH_JS)
+        for url in (
+            "/api/ah/search?q=${q}&page=${page}${extra}",
+            "/api/jumbo/recipes?q=${q}&offset=",
+            "&load=${MEALKIT_SEARCH_WEEKS}${extra}",
+            "/api/${store}/recipes?q=${q}${extra}",
+        ):
+            self.assertIn(url, fetch)
+        self.assertIn("data.nextOffset ?? data.recipes.length", fetch, "Jumbo gaat verder waar de server bleef")
+        self.assertIn("answer.page ?? page", fetch, "AH ook")
+        search = function_source("runRecipeSearch", SEARCH_JS)
+        self.assertIn("!storeSupports(store, kinds)", search)
+        self.assertIn('t("rsearch.filters_skipped"', search)
+        self.assertIn("recipeSearch.skipped.has(store)", function_source("renderSearchStore", SEARCH_JS))
+        self.assertIn('t("rsearch.count_scanned"', function_source("renderSearchStore", SEARCH_JS))
+        for element in ('id="search-course"', 'id="search-diet"', 'id="search-protein"', 'id="mealie-diet-tags"'):
+            self.assertIn(element, HTML)
+        self.assertIn('$("#mealie-diet-tags").addEventListener("change", saveDietTags);', APP_JS)
 
     def test_scrolling_down_loads_the_next_page(self):
         self.assertIn("new IntersectionObserver(", SEARCH_JS)

@@ -61,6 +61,7 @@ from . import (
     profile,
     push,
     recipe_bulk,
+    recipe_diet,
     recipe_nutrition,
     request_body,
     server_settings,
@@ -434,15 +435,33 @@ def create_app() -> Quart:
 
         return await bulk_action(cancel)
 
+    def search_filters() -> recipe_diet.Wanted | None:
+        """De filters van Recepten zoeken voor een winkel of maaltijdbox (menugang, dieet, vlees/vis/gevogelte, tijd), of None
+        zonder filter. Een tijd die geen getal is, geeft een ValueError: de routes maken daar een 400 of een winkelfout van."""
+        wanted = recipe_diet.wanted_from(request.args)
+        return wanted if wanted.active() else None
+
+    def filtered(source: str, found: dict[str, Any]) -> dict[str, Any]:
+        """Een zoekuitkomst met alles op één pagina (Picnic, Crisp): alleen de kaarten die door de filters komen."""
+        wanted = search_filters()
+        if wanted is None:
+            return found
+        recipes = recipe_diet.filter_cards(source, list(found.get("recipes") or []), wanted)
+        return {**found, "recipes": recipes, "total": len(recipes)}
+
     @app.get("/api/ah/search")
     async def ah_search():
         query = (request.args.get("q") or "").strip()
         page = int(request.args.get("page") or 0)
         if not query:
             return jsonify({"error": tr("Zoekterm ontbreekt", "Search term is missing")}), 400
+        try:
+            wanted = recipe_diet.wanted_from(request.args)  # menugang, dieet, vlees/vis/gevogelte en tijd (4.22.0)
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
 
         try:
-            return jsonify(await ah.search_recipes(query, page))
+            return jsonify(await ah.search_recipes(query, page, wanted=wanted if wanted.active() else None))
         except Exception as exc:
             app.logger.exception("AH search error")
             return jsonify({"error": str(exc) or tr("Zoeken mislukt", "Search failed")}), 424
@@ -1224,7 +1243,8 @@ def create_app() -> Quart:
     @app.get("/api/mealie/status")
     async def mealie_status():
         verify = (request.args.get("verify") or "").strip().lower() in {"1", "true", "yes"}
-        return jsonify(await mealie.status(verify=verify))
+        # `dietTags`: of MealieShopper tags voor vegetarisch, vlees, vis en gevogelte in Mealie zet (4.22.0).
+        return jsonify({**await mealie.status(verify=verify), "dietTags": await recipe_nutrition.diet_tags_enabled()})
 
     @app.post("/api/mealie/auth")
     async def mealie_auth():
@@ -1720,7 +1740,7 @@ def create_app() -> Quart:
         query = (request.args.get("q") or "").strip()
         try:
             if query:  # zoeken in je bewaarde recepten en het kookboek, voor Recepten zoeken
-                return jsonify({"source": "search", **await picnic_recipes.search(query)})
+                return jsonify({"source": "search", **filtered("picnic", await picnic_recipes.search(query))})
             return jsonify({"source": source, "recipes": await picnic_recipes.get_recipes(source)})
         except Exception as exc:  # noqa: BLE001
             return picnic_error(exc)
@@ -1893,7 +1913,7 @@ def create_app() -> Quart:
         source = (request.args.get("source") or "saved").strip().lower()
         try:
             if query is not None:
-                return jsonify(await crisp.search_recipes(query))
+                return jsonify(filtered("crisp", await crisp.search_recipes(query)))
             if source != "saved":
                 raise ValueError(tr("Onbekende bron voor recepten (kies saved)", "Unknown recipe source (choose saved)"))
             return jsonify({"source": "saved", **await crisp.get_saved_recipes()})
@@ -1968,7 +1988,7 @@ def create_app() -> Quart:
     @app.get("/api/hellofresh/search")
     async def hellofresh_search():
         try:
-            return jsonify(await hellofresh.search(request.args.get("q"), load=load_weeks()))
+            return jsonify(await hellofresh.search(request.args.get("q"), load=load_weeks(), wanted=search_filters()))
         except Exception as exc:  # noqa: BLE001
             return hellofresh_error(exc)
 
@@ -2014,7 +2034,7 @@ def create_app() -> Quart:
     @app.get("/api/marleyspoon/search")
     async def marleyspoon_search():
         try:
-            return jsonify(await marleyspoon.search(request.args.get("q"), load=load_weeks()))
+            return jsonify(await marleyspoon.search(request.args.get("q"), load=load_weeks(), wanted=search_filters()))
         except Exception as exc:  # noqa: BLE001
             return marleyspoon_error(exc)
 
@@ -2207,7 +2227,8 @@ def create_app() -> Quart:
     async def jumbo_recipe_list():
         # Alleen lezen: zoeken in alle recepten van Jumbo (`offset` voor de volgende pagina).
         try:
-            return jsonify({**await jumbo_recipes.search(request.args.get("q"), request.args.get("offset")), "pageSize": jumbo_recipes.RECIPE_PAGE})
+            found = await jumbo_recipes.search(request.args.get("q"), request.args.get("offset"), wanted=search_filters())
+            return jsonify({**found, "pageSize": jumbo_recipes.RECIPE_PAGE})
         except Exception as exc:  # noqa: BLE001
             return jumbo_error(exc)
 

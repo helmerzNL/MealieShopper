@@ -14,7 +14,7 @@ from urllib.parse import unquote, urlencode, urlparse
 
 import httpx
 
-from . import auth, deals, http_client, nutrition, tasks
+from . import auth, deals, http_client, nutrition, recipe_diet, tasks
 from .i18n import tr
 from .packs import (  # noqa: F401 - blijft hier bereikbaar voor bestaande aanroepers
     LARGE_PACK_COUNT,
@@ -74,6 +74,10 @@ RECIPE_SEARCH_QUERY = """
 """
 # AH geeft een fout als start + size boven 2000 uitkomt; zo ver kun je bladeren.
 RECIPE_SEARCH_WINDOW = 2000
+# Met een grens op de tijd boven de 15 minuten van "snel" filteren we zelf: per keer zoveel recepten bekijken, hooguit zoveel keer
+# als er niets door de filter kwam (4.22.0).
+RECIPE_SCAN_SIZE = 48
+RECIPE_SCAN_ROUNDS = 3
 RECIPE_CARD_IMAGE_WIDTH = 440
 
 FAVORITE_LISTS_QUERY = """
@@ -719,31 +723,47 @@ def _recipe_card(item: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-async def search_recipes(query: str, page: int = 0, size: int = 12) -> dict[str, Any]:
-    """Allerhande-recepten zoeken via GraphQL (anoniem token)."""
-    size = max(1, int(size))
-    start = max(0, int(page)) * size
+async def _recipe_search_page(query: str, start: int, size: int, filters: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], int]:
+    """Eén pagina van de zoekfunctie van AH: de kaarten en het totaal aantal treffers."""
     if start >= RECIPE_SEARCH_WINDOW:
         raise RuntimeError(f"AH laat niet verder bladeren dan {RECIPE_SEARCH_WINDOW:,} recepten. Verfijn je zoekopdracht.".replace(",", "."))
     size = min(size, RECIPE_SEARCH_WINDOW - start)  # de laatste pagina wordt afgekapt in plaats van een fout
-
-    data = await _anonymous(
-        lambda token: _graphql(
-            token,
-            RECIPE_SEARCH_QUERY,
-            {"query": {"searchText": str(query), "size": size, "start": start}},
-            "AH zoeken",
-        )
-    )
+    params: dict[str, Any] = {"searchText": str(query), "size": size, "start": start}
+    if filters:
+        params["filters"] = filters
+    data = await _anonymous(lambda token: _graphql(token, RECIPE_SEARCH_QUERY, {"query": params}, "AH zoeken"))
     found = data.get("recipeSearch") or {}
     recipes = [_recipe_card(item) for item in found.get("result") or [] if item.get("id") is not None]
-    total = int((found.get("page") or {}).get("total") or 0)
-    reachable = min(total, RECIPE_SEARCH_WINDOW)
-    return {
-        "recipes": recipes,
-        "total": total,
-        "hasNextPage": start + len(recipes) < reachable,
-    }
+    return recipes, int((found.get("page") or {}).get("total") or 0)
+
+
+async def search_recipes(query: str, page: int = 0, size: int = 12, wanted: Any = None) -> dict[str, Any]:
+    """Allerhande-recepten zoeken via GraphQL (anoniem token).
+
+    Met `wanted` (recipe_diet.Wanted) filtert AH zelf op menugang, dieet, vlees/vis/gevogelte en "snel" (hooguit 15 minuten). Een
+    ruimere grens op de tijd filteren we zelf: dan is een pagina `RECIPE_SCAN_SIZE` recepten van AH, waarvan alleen de recepten
+    binnen de tijd terugkomen. Het totaal is dan niet bekend (`total` None); `scanned` zegt hoeveel treffers we bekeken, en `page`
+    welke pagina de volgende keer verder gaat."""
+    filters = recipe_diet.ah_filters(wanted) if wanted is not None else []
+    if wanted is None or not recipe_diet.ah_scan_needed(wanted):
+        size = max(1, int(size))
+        start = max(0, int(page)) * size
+        recipes, total = await _recipe_search_page(query, start, size, filters)
+        return {"recipes": recipes, "total": total, "hasNextPage": start + len(recipes) < min(total, RECIPE_SEARCH_WINDOW)}
+    number = max(0, int(page))
+    kept: list[dict[str, Any]] = []
+    more = False
+    scanned = number * RECIPE_SCAN_SIZE
+    for _ in range(RECIPE_SCAN_ROUNDS):
+        start = number * RECIPE_SCAN_SIZE
+        recipes, total = await _recipe_search_page(query, start, RECIPE_SCAN_SIZE, filters)
+        scanned = start + len(recipes)
+        more = scanned < min(total, RECIPE_SEARCH_WINDOW)
+        kept += [card for card in recipes if 0 < int(card.get("totalTime") or 0) <= wanted.max_minutes]
+        if kept or not more:
+            break
+        number += 1
+    return {"recipes": kept, "total": None, "scanned": scanned, "page": number, "hasNextPage": more}
 
 
 def _search_product_dict(item: dict[str, Any], query: str) -> dict[str, Any]:
