@@ -65,17 +65,6 @@ def drain() -> list[loop_guard.Stall]:
     return found
 
 
-class ThreadGuard(loop_guard.LoopGuard):
-    """Een bewaker die start op de thread die de loop gaat draaien, nog voor `run_forever` de loop als lopend aanmeldt.
-
-    De eerste taak van een test blokkeert vaak al in de eerste ronde van de loop, dus de bewaker moet de thread kennen
-    voordat de eerste tik is beantwoord: anders is de stack van die stilstand leeg.
-    """
-
-    def _own_thread_if_running(self) -> int | None:
-        return threading.get_ident()
-
-
 def install() -> None:
     """Verpakt `run_forever`: bewaker aan, het origineel, bewaker uit. Een tweede aanroep doet niets."""
     original: Callable[[asyncio.BaseEventLoop], None] = (
@@ -88,9 +77,9 @@ def install() -> None:
     def run_forever(self: asyncio.BaseEventLoop) -> None:
         if getattr(self, GUARD_ATTRIBUTE, None) is not None:  # een geneste aanroep
             return original(self)
-        guard: loop_guard.LoopGuard = ThreadGuard(self, LIMIT, _collect)
+        guard: loop_guard.LoopGuard = loop_guard.LoopGuard(self, LIMIT, _collect)
         setattr(self, GUARD_ATTRIBUTE, guard)
-        guard.start()
+        guard.start(loop_thread=threading.get_ident())  # run_forever draait op de thread van de loop
         try:
             return original(self)
         finally:
@@ -130,6 +119,22 @@ def exemption_reason(marker: Any) -> str | None:
     if not isinstance(reason, str) or not reason.strip():
         raise ValueError("may_block eist een reden: @pytest.mark.may_block('waarom de test de loop blokkeert')")
     return reason
+
+
+def check(nodeid: str, marker: Any, mode: str, stalls: list[loop_guard.Stall]) -> str | None:
+    """Het oordeel over een test na afloop: de foutmelding, of `None` als de test door mag.
+
+    `marker` is de `may_block`-markering van de test (of `None`) en `stalls` alles wat `drain()` gaf. In `report` worden de
+    stilstanden onthouden voor het overzicht, in `enforce` geeft dit de foutmelding, in `off` gebeurt niets.
+    Een `may_block` zonder reden geeft een `ValueError`.
+    """
+    reason: str | None = exemption_reason(marker)
+    if mode == "off":
+        return None
+    relevant: list[loop_guard.Stall] = counted(stalls, reason is not None)
+    if mode == "report":
+        record(nodeid, relevant)
+    return failure_message(mode, relevant)
 
 
 def summary_lines(reported: list[Reported] | None = None) -> list[str]:

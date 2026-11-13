@@ -22,8 +22,8 @@ os.environ.setdefault("MEALIESHOPPER_PRICE_INDEX", "false")
 
 import loop_watch
 
-from mealieshopper import auth, loop_guard  # noqa: E402
-from mealieshopper.app import create_app  # noqa: E402
+from mealieshopper import auth
+from mealieshopper.app import create_app
 
 loop_watch.install()  # elke event loop in de tests draait onder de bewaker van de event loop
 
@@ -56,7 +56,11 @@ def _refuse(host: Any) -> None:
 
 
 def _guarded_address(sock: socket.socket, address: Any) -> None:
-    if sock.family in (socket.AF_INET, socket.AF_INET6) and isinstance(address, tuple) and not _is_loopback(address[0]):
+    if (
+        sock.family in (socket.AF_INET, socket.AF_INET6)
+        and isinstance(address, tuple)
+        and not _is_loopback(address[0])
+    ):
         _refuse(address[0])
 
 
@@ -81,7 +85,9 @@ def network_guard() -> Iterator[None]:
         result: int = connect_ex(sock, address)
         return result
 
-    def guarded_create_connection(address: tuple[Any, ...], *args: Any, **kwargs: Any) -> socket.socket:
+    def guarded_create_connection(
+        address: tuple[Any, ...], *args: Any, **kwargs: Any
+    ) -> socket.socket:
         if not _is_loopback(address[0]):
             _refuse(address[0])
         made: socket.socket = create_connection(address, *args, **kwargs)
@@ -128,7 +134,9 @@ def no_network_attempts(network_guard: None) -> Iterator[None]:
         tried: list[str] = list(_network_attempts)
         _network_attempts.clear()
     if tried:
-        pytest.fail(f"Test probeert het netwerk te bereiken: {', '.join(sorted(set(tried)))}")
+        pytest.fail(
+            f"Test probeert het netwerk te bereiken: {', '.join(sorted(set(tried)))}"
+        )
 
 
 @pytest.fixture(autouse=True)
@@ -176,16 +184,18 @@ def loop_watch_check(request: pytest.FixtureRequest) -> Iterator[None]:
     Een stilstand zonder regel van de app (een `time.sleep` in de test zelf) telt niet, en `@pytest.mark.may_block("reden")`
     stelt een test vrij.
     """
+    marker: Any = request.node.get_closest_marker("may_block")
     try:
-        reason: str | None = loop_watch.exemption_reason(request.node.get_closest_marker("may_block"))
+        loop_watch.exemption_reason(
+            marker
+        )  # een markering zonder reden faalt voor de test, niet erna
     except ValueError as error:
         pytest.fail(str(error), pytrace=False)
     loop_watch.drain()  # wat een vorige loop nog meldde, hoort niet bij deze test
     yield
-    stalls: list[loop_guard.Stall] = loop_watch.counted(loop_watch.drain(), reason is not None)
-    if loop_watch.MODE == "report":
-        loop_watch.record(request.node.nodeid, stalls)
-    message: str | None = loop_watch.failure_message(loop_watch.MODE, stalls)
+    message: str | None = loop_watch.check(
+        request.node.nodeid, marker, loop_watch.MODE, loop_watch.drain()
+    )
     if message:
         pytest.fail(message, pytrace=False)
 
@@ -194,6 +204,8 @@ def pytest_terminal_summary(terminalreporter: Any) -> None:
     lines: list[str] = loop_watch.summary_lines()
     if not lines:
         return
-    terminalreporter.section(f"stilstanden van de event loop (> {round(loop_watch.LIMIT * 1000)} ms, binnenste regel van de app)")
+    terminalreporter.section(
+        f"stilstanden van de event loop (> {round(loop_watch.LIMIT * 1000)} ms, binnenste regel van de app)"
+    )
     for line in lines:
         terminalreporter.write_line(line)

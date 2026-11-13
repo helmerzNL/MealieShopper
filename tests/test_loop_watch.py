@@ -70,6 +70,45 @@ def test_report_mode_lists_stalls_without_failing() -> None:
     )
 
 
+def check(mode: str, stalls: list[loop_guard.Stall], *marks: str) -> str | None:
+    marker: Any = pytest.mark.may_block(*marks).mark if marks else None
+    return loop_watch.check("tests/test_x.py::test_y", marker, mode, stalls)
+
+
+def test_check_enforce_fails_a_stall_in_the_app() -> None:
+    message: str | None = check("enforce", [app_stall()])
+    assert message is not None
+    assert app_stall().describe() in message
+
+
+def test_check_enforce_ignores_a_stall_without_an_app_frame() -> None:
+    outside: loop_guard.Stall = loop_guard.Stall(
+        0.5, (loop_guard.Frame("/x/test_a.py", 3, "test_a"),)
+    )
+    assert check("enforce", [outside]) is None
+
+
+def test_check_enforce_honours_may_block_with_a_reason() -> None:
+    assert check("enforce", [app_stall()], "met opzet") is None
+
+
+def test_check_may_block_without_a_reason_is_an_error() -> None:
+    with pytest.raises(ValueError, match="eist een reden"):
+        check("enforce", [app_stall()], "")
+    with pytest.raises(ValueError, match="eist een reden"):
+        loop_watch.check("t", pytest.mark.may_block.mark, "enforce", [])
+
+
+def test_check_report_records_without_failing_and_off_does_nothing() -> None:
+    loop_watch._reported.clear()
+    assert check("report", [app_stall()]) is None
+    assert [entry.test for entry in loop_watch._reported] == ["tests/test_x.py::test_y"]
+    loop_watch._reported.clear()
+    assert check("off", [app_stall()]) is None
+    assert check("report", [app_stall()], "met opzet") is None
+    assert loop_watch._reported == []  # uit en vrijgesteld: niet in het overzicht
+
+
 def sleep_synchronously(seconds: float) -> None:
     time.sleep(seconds)  # de test blokkeert met opzet
 
@@ -129,3 +168,15 @@ def test_install_is_idempotent_and_run_forever_is_reentrant() -> None:
         assert loop.run_until_complete(asyncio.sleep(0, "b")) == "b"
     finally:
         loop.close()
+
+
+def test_a_block_in_the_very_first_iteration_is_reported_with_its_app_frame() -> None:
+    loop_watch.drain()
+
+    async def block_at_once() -> None:
+        blocking_in_the_app()
+
+    asyncio.run(block_at_once())
+    stalls: list[loop_guard.Stall] = counted_after(loop_watch.drain())
+    assert stalls
+    assert stalls[0].app_frames[-1].path == APP_FILE

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import threading
 import time
 
 from mealieshopper import loop_guard
@@ -92,7 +93,11 @@ def test_in_app_needs_a_frame_of_the_app() -> None:
         0.3, (loop_guard.Frame("/usr/lib/python3/asyncio/base_events.py", 10, "run"),)
     )
     inside: loop_guard.Stall = loop_guard.Stall(
-        0.3, (loop_guard.Frame("/usr/lib/x.py", 1, "run"), loop_guard.Frame(APP_PATH, 5, "_catalogue"))
+        0.3,
+        (
+            loop_guard.Frame("/usr/lib/x.py", 1, "run"),
+            loop_guard.Frame(APP_PATH, 5, "_catalogue"),
+        ),
     )
     assert not outside.in_app
     assert outside.app_frames == ()
@@ -161,6 +166,31 @@ async def test_stop_right_after_the_block_still_reports_it() -> None:
     )
     guard.start()
     time.sleep(0.2)  # noqa: ASYNC251
-    await asyncio.sleep(0)  # de loop beantwoordt de tik, de thread heeft het nog niet gezien
+    await asyncio.sleep(
+        0
+    )  # de loop beantwoordt de tik, de thread heeft het nog niet gezien
     guard.stop()
     assert len(stalls) == 1
+
+
+def test_a_stall_in_the_first_iteration_has_a_stack_when_the_loop_thread_is_given() -> (
+    None
+):
+    stalls: list[loop_guard.Stall] = []
+    loop: asyncio.AbstractEventLoop = asyncio.new_event_loop()
+    guard: loop_guard.LoopGuard = loop_guard.LoopGuard(loop, 0.05, stalls.append)
+
+    async def block_at_once() -> None:
+        time.sleep(0.2)  # noqa: ASYNC251
+        await asyncio.sleep(0.05)
+
+    try:
+        guard.start(
+            loop_thread=threading.get_ident()
+        )  # de loop draait nog niet: zonder dit is de stack leeg
+        loop.run_until_complete(block_at_once())
+    finally:
+        guard.stop()
+        loop.close()
+    assert len(stalls) == 1
+    assert any(frame.function == "block_at_once" for frame in stalls[0].stack)

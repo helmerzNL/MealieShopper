@@ -96,11 +96,17 @@ class LoopGuard:
         self._loop_thread: int | None = None
         self._thread: threading.Thread | None = None
 
-    def start(self) -> None:
-        """Start de thread. Nog eens aanroepen doet niets."""
+    def start(self, loop_thread: int | None = None) -> None:
+        """Start de thread. Nog eens aanroepen doet niets.
+
+        `loop_thread` is het id van de thread die de loop draait (`threading.get_ident()` daar). Geef het mee als `start()`
+        wordt aangeroepen voordat de loop draait, op de thread die hem gaat draaien: dan heeft ook een stilstand in de allereerste
+        ronde van de loop een stack. Zonder wordt de thread van de aanroeper genomen als die de loop al draait, anders leert de
+        bewaker hem bij het eerste antwoord van de loop.
+        """
         if self._thread is not None:
             return
-        self._loop_thread = self._own_thread_if_running()
+        self._loop_thread = loop_thread if loop_thread is not None else self._own_thread_if_running()
         self._thread = threading.Thread(target=self._run, name=THREAD_NAME, daemon=True)
         self._thread.start()
 
