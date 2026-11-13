@@ -712,9 +712,40 @@
               </div>
             </details>
           <details class="facet-panel recipe-filters" id="search-facets" data-facet-panel="recipes" data-facet-closed hidden>
-            <summary><span data-i18n="rsearch.filters_title">Tags, categorieën en tijd</span><span class="facet-panel__count"></span></summary>
+            <summary><span data-i18n="rsearch.filters_title">Soort gerecht, tijd en tags</span><span class="facet-panel__count"></span></summary>
             <div class="facet-panel__body">
               <div class="recipe-filters__row">
+                <label class="recipe-filters__field">
+                  <span data-i18n="rsearch.course">Menugang</span>
+                  <select class="input" id="search-course">
+                    <option value="" data-i18n="rsearch.course_any">Elke menugang</option>
+                    <option value="ontbijt" data-i18n="offers.course.ontbijt">Ontbijt</option>
+                    <option value="lunch" data-i18n="offers.course.lunch">Lunch</option>
+                    <option value="voorgerecht" data-i18n="offers.course.voorgerecht">Voorgerecht</option>
+                    <option value="soep" data-i18n="offers.course.soep">Soep</option>
+                    <option value="hoofdgerecht" data-i18n="offers.course.hoofdgerecht">Hoofdgerecht</option>
+                    <option value="bijgerecht" data-i18n="offers.course.bijgerecht">Bijgerecht</option>
+                    <option value="dessert" data-i18n="offers.course.dessert">Dessert</option>
+                    <option value="snack" data-i18n="offers.course.snack">Snack</option>
+                  </select>
+                </label>
+                <label class="recipe-filters__field">
+                  <span data-i18n="rsearch.diet">Dieet</span>
+                  <select class="input" id="search-diet">
+                    <option value="" data-i18n="rsearch.diet_any">Alles</option>
+                    <option value="vegetarisch" data-i18n="rsearch.diet_vegetarian">Vegetarisch</option>
+                    <option value="veganistisch" data-i18n="rsearch.diet_vegan">Veganistisch</option>
+                  </select>
+                </label>
+                <label class="recipe-filters__field">
+                  <span data-i18n="rsearch.protein">Vlees, vis of gevogelte</span>
+                  <select class="input" id="search-protein">
+                    <option value="" data-i18n="rsearch.protein_any">Alles</option>
+                    <option value="vlees" data-i18n="rsearch.protein_meat">Met vlees</option>
+                    <option value="vis" data-i18n="rsearch.protein_fish">Met vis</option>
+                    <option value="gevogelte" data-i18n="rsearch.protein_poultry">Met gevogelte</option>
+                  </select>
+                </label>
                 <label class="recipe-filters__field">
                   <span data-i18n="rsearch.time">Bereidingstijd</span>
                   <select class="input" id="search-max-minutes">
@@ -746,7 +777,7 @@
                 <ul class="offer-facet offer-facet--scroll" id="search-categories"></ul>
               </section>
               <div id="search-facets-message"></div>
-              <p class="muted recipe-filters__note" id="search-facets-note" data-i18n="rsearch.filters_note">Tags, categorieën en de bereidingstijd komen uit je recepten in Mealie. Met een van deze filters zoekt alleen Mealie mee.</p>
+              <p class="muted recipe-filters__note" id="search-facets-note" data-i18n="rsearch.filters_note">Menugang, dieet en tijd werken ook bij de winkels en maaltijdboxen die ze in hun zoekresultaten geven; een bron die een filter niet kent, doet dan niet mee. Tags en categorieën komen uit je recepten in Mealie: daarmee zoekt alleen Mealie.</p>
               <button class="link-button facet-panel__clear" type="button" data-facet-clear data-i18n="offers.filters.clear" hidden>Alles wissen</button>
             </div>
           </details>
@@ -754,7 +785,7 @@
           <p class="muted" id="search-browse-hint" data-i18n="rsearch.browse_hint" hidden>Hieronder staan je recepten in Mealie. Typ een zoekterm om ook bij je winkels en in de weekmenu's van HelloFresh en Marley Spoon te zoeken.</p>
           <details class="help">
             <summary data-i18n="common.help">Hoe werkt dit?</summary>
-            <p class="muted" data-i18n="search.intro_more">Albert Heijn doet altijd mee, Jumbo, Picnic en Crisp zodra ze gekoppeld zijn; voor de menu's van HelloFresh en Marley Spoon (deze week en de komende weken) is geen koppeling nodig. Laat je het zoekveld leeg, dan zie je je recepten in Mealie; onder Tags, categorieën en tijd kies je tags, categorieën, een bereidingstijd en de volgorde. Bekijk een recept voor de ingrediënten en de bereiding, of plan het in je weekmenu; een recept van een winkel komt dan ook in Mealie. Plak je een link naar een recept op een andere site (https://...) in het zoekveld, dan importeert Zoeken dat recept in Mealie.</p>
+            <p class="muted" data-i18n="search.intro_more">Albert Heijn doet altijd mee, Jumbo, Picnic en Crisp zodra ze gekoppeld zijn; voor de menu's van HelloFresh en Marley Spoon (deze week en de komende weken) is geen koppeling nodig. Laat je het zoekveld leeg, dan zie je je recepten in Mealie; onder Soort gerecht, tijd en tags kies je de menugang, vegetarisch of veganistisch, vlees, vis of gevogelte, een bereidingstijd, tags en de volgorde. Bekijk een recept voor de ingrediënten en de bereiding, of plan het in je weekmenu; een recept van een winkel komt dan ook in Mealie. Plak je een link naar een recept op een andere site (https://...) in het zoekveld, dan importeert Zoeken dat recept in Mealie.</p>
           </details>
           <div id="search-message"></div>
           <div id="search-sections">
@@ -1729,6 +1760,18 @@
             </details>
             <div id="mealie-week-start-message"></div>
             </div>
+            <div class="appearance-setting fold__section">
+              <div class="appearance-setting__text">
+                <h3 id="mealie-diet-tags-label" data-i18n="mealie.diet_tags.title">Tags voor vegetarisch, vlees, vis en gevogelte</h3>
+                <p class="muted" id="mealie-diet-tags-help" data-i18n="mealie.diet_tags.help">MealieShopper leidt uit de ingrediënten af of een recept vegetarisch of veganistisch is, of vlees, vis of gevogelte bevat, en zet die tags bij het recept in Mealie.</p>
+              </div>
+              <input type="checkbox" role="switch" class="switch" id="mealie-diet-tags" checked aria-labelledby="mealie-diet-tags-label" aria-describedby="mealie-diet-tags-help">
+            </div>
+            <details class="help">
+              <summary data-i18n="common.help">Hoe werkt dit?</summary>
+              <p class="muted" data-i18n="mealie.diet_tags.help_more">Een tag die je zelf zette, blijft altijd staan. Klopt een tag van MealieShopper niet meer omdat het recept veranderde, dan haalt hij hem weg; haal jij er een weg, dan zet hij hem bij dat recept niet opnieuw. Uitzetten haalt geen tags weg. Recepten zoeken filtert ook zonder deze tags op vegetarisch, vlees, vis en gevogelte.</p>
+            </details>
+            <div id="mealie-diet-tags-message"></div>
             <section class="fold__section mealie-nutrition" aria-labelledby="mealie-nutrition-title">
               <h3 id="mealie-nutrition-title" data-i18n="mealie.nutrition.title">Voedingswaarden van AH-recepten aanvullen</h3>
               <p class="muted" data-i18n="mealie.nutrition.help">Vult de voedingswaarden aan van Allerhande-recepten die je vóór versie 4.4.1 importeerde.</p>

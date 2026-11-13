@@ -2003,6 +2003,27 @@ async function saveWeekStart(event) {
   await refreshMealieStatus();
 }
 
+// Tags voor vegetarisch, veganistisch, vlees, vis en gevogelte in Mealie zetten (4.21.0; alleen de beheerder kan opslaan).
+async function saveDietTags(event) {
+  const toggle = event.currentTarget;
+  message("#mealie-diet-tags-message", "");
+  toggle.disabled = true;
+  try {
+    const saved = await jsonFetch("/api/server-settings", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ dietTags: toggle.checked }),
+    });
+    toggle.checked = saved.dietTags !== false;
+    message("#mealie-diet-tags-message", t(toggle.checked ? "mealie.diet_tags.on" : "mealie.diet_tags.off"), "success");
+  } catch (error) {
+    toggle.checked = !toggle.checked;
+    message("#mealie-diet-tags-message", error.message);
+  } finally {
+    toggle.disabled = false;
+  }
+}
+
 // ---- Voedingswaarden van oude AH-recepten aanvullen (Instellingen, Koppelen, Mealie; alleen de beheerder, issue #283). De
 // server werkt de recepten een voor een af (recipe_nutrition.py); zolang dat loopt, vraagt de pagina elke twee seconden de stand.
 let nutritionBackfillTimer = 0;
@@ -2059,6 +2080,8 @@ function renderMealieStatus(data, { verified = false } = {}) {
   if (setup) setup.hidden = Boolean(data.configured);
   state.linkedStores.mealie = Boolean(data.configured); // Recepten zoeken zoekt dan ook in Mealie
   if (typeof recipeSearchMealieChanged === "function") recipeSearchMealieChanged(); // en bladert er zonder zoekterm doorheen
+  const dietTags = $("#mealie-diet-tags");
+  if (dietTags && typeof data.dietTags === "boolean") dietTags.checked = data.dietTags; // tags uit de ingrediënten (4.21.0)
   if (typeof renderAhPlannerButton === "function") renderAhPlannerButton(); // Naar weekmenu (ah_planner.js) vraagt Mealie
   // Eerst de eerste dag van de week, zodat het weekmenu meteen de goede week ophaalt.
   const weekChanged = applyWeekStart(data.weekStart);
@@ -3145,6 +3168,7 @@ $("#check-mealie").addEventListener("click", checkMealieConnection);
 $("#mealie-unlink").addEventListener("click", (event) => unlinkWithConfirm(event.currentTarget, "Mealie", unlinkMealie));
 $("#ah-unlink").addEventListener("click", (event) => unlinkWithConfirm(event.currentTarget, STORES.ah.name, unlinkAh));
 $("#mealie-week-start").addEventListener("change", saveWeekStart);
+$("#mealie-diet-tags").addEventListener("change", saveDietTags);
 $("#mealie-nutrition-start").addEventListener("click", startNutritionBackfill);
 $("#mealie-nutrition-stop").addEventListener("click", stopNutritionBackfill);
 $("#open-mealie-setup").addEventListener("click", () => openLinkBlock("mealie"));

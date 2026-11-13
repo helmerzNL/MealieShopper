@@ -12,7 +12,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from . import jumbo, nutrition
+from . import jumbo, nutrition, recipe_diet
 from .ah_lists import _fold
 from .i18n import tr
 
@@ -218,11 +218,35 @@ async def resolve_list(wanted: Any) -> dict[str, Any]:
     )
 
 
-async def search(query: Any, offset: Any = 0) -> dict[str, Any]:
+SCAN_PAGES = 3  # met filters (4.21.0): zoveel pagina's per keer bekijken als er te weinig recepten door de filter komen
+SCAN_ENOUGH = 12  # zoveel recepten na de filter is genoeg voor één keer
+
+
+async def search(query: Any, offset: Any = 0, wanted: Any = None) -> dict[str, Any]:
     """Zoek in alle recepten van Jumbo; per pagina `RECIPE_PAGE` stuks, vanaf `offset`.
 
     `{recipes, total}`: `total` is het aantal recepten dat bij de zoekterm past (de website toont "820 recepten").
+
+    Met `wanted` (recipe_diet.Wanted: menugang en tijd) filteren we de kaarten zelf, tot `SCAN_PAGES` pagina's per keer. Dan is het
+    totaal na de filter niet bekend (`total` None): `scanned` zegt hoeveel treffers we bekeken en `nextOffset` waar de volgende
+    keer verder gaat.
     """
+    if wanted is not None and wanted.active():
+        try:
+            start = max(0, int(offset or 0))
+        except (TypeError, ValueError):
+            start = 0
+        kept: list[dict[str, Any]] = []
+        total = 0
+        for _ in range(SCAN_PAGES):
+            page = await search(query, start)
+            total = page["total"]
+            start += RECIPE_PAGE
+            kept += recipe_diet.filter_cards("jumbo", page["recipes"], wanted)
+            if len(kept) >= SCAN_ENOUGH or not page["recipes"] or start >= total:
+                break
+        scanned = min(start, total)
+        return {"recipes": kept, "total": None, "scanned": scanned, "nextOffset": start, "more": start < total}
     query = " ".join(str(query or "").split())[:100]
     if not query:
         raise ValueError(tr("Zoekterm ontbreekt", "Search term missing"))
