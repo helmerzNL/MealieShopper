@@ -174,10 +174,8 @@ class UsageTest(AppTestCase):
             "offers.cat.",
             "offers.course.",
             "offers.regular.source.",
-            "backup.count.",
             "backup.link.",
             "backup.part.",
-            "backup.restore_part.",
         }
         for key in NL:
             base = re.sub(r"\.(one|other)$", "", key)
