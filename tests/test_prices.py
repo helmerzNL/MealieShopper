@@ -1635,18 +1635,33 @@ class CatalogueTest(PricesCase):
                          {"offer_history", "offers", "price_observations", "imported_purchases", "ah_receipts", "ah_receipt_items", "ah_receipt_products",
                           "product_links", "shared_link_rejections", "ah_orders", "ah_order_items"})
 
-    async def test_a_new_database_does_not_reuse_a_version_from_the_cache(self):
+    async def test_a_new_database_does_not_reuse_a_version_from_the_cache(self) -> None:
         await self.observe("2026-05-01", "1", "AH Pindakaas", 2.99)
         self.assertEqual(await self.found("pindakaas"), ["1"])
         with closing(db(price_import)) as conn, conn:
+            token: str
+            products: int
             token, products = conn.execute("SELECT token, products FROM catalogue_versions WHERE store = 'ah'").fetchone()
-            # Een teruggezette of nieuwe database met dezelfde versie: het token verschilt, dus geen oude catalogus.
-            conn.execute("DROP TRIGGER catalogue_price_observations_delete")
-            conn.execute("DELETE FROM price_observations")
-            conn.execute("DELETE FROM catalogue_versions")
-            conn.execute("INSERT INTO catalogue_versions (store, token, products, prices) VALUES ('ah', 'anders', ?, 0)", (products,))
+            # Een teruggezette of nieuwe database met dezelfde versie: alleen het token verschilt, dus geen oude catalogus.
+            conn.execute("DELETE FROM price_observations")  # met de trigger: `products` gaat omhoog
+            conn.execute("UPDATE catalogue_versions SET token = 'anders', products = ? WHERE store = 'ah'", (products,))
         self.assertEqual(await self.found("pindakaas"), [])
         self.assertEqual(len(token), 16)
+
+    async def test_an_ah_article_link_does_not_reach_a_jumbo_row(self) -> None:
+        # De koppeling van een artikelnummer op een bon van AH (`ah_receipt_products`) hoort bij AH: een product van Jumbo met
+        # hetzelfde nummer krijgt er geen merk en inhoud van. Haar trigger hoogt alleen de versie van AH op.
+        self.ah_article(111, 4183, "AH Bloemkool")
+        with closing(db(ah_orders)) as conn, conn:
+            conn.execute("UPDATE ah_receipt_products SET brand = 'AH', unit_size = '1 stuk' WHERE receipt_product_id = 111")
+        await prices.record("jumbo", [{"id": "4183", "title": "Jumbo Bloemkool", "price": 1.49}], now="2026-05-01T08:00:00+00:00")
+        with closing(db(price_import)) as conn, conn:
+            conn.execute(
+                "INSERT INTO imported_purchases (store, order_ref, position, day, title, quantity, paid, regular, order_total, imported_at) "
+                "VALUES ('jumbo', 'J1', 0, '2026-07-15', 'Jumbo Bloemkool', 1, 1.49, NULL, 1.49, 'x')"
+            )
+        rows: list[dict] = (await in_db(prices._connect, lambda conn: prices._receipt_rows(conn, "jumbo", TODAY)))[0]
+        self.assertEqual([(row["product_id"], row["brand"], row["unit_size"]) for row in rows], [("4183", None, None)])
 
     async def version(self, store: str) -> str:
         return (await in_db(prices._connect, lambda conn: prices._catalogue_version(conn, store)))[0]
@@ -1654,10 +1669,10 @@ class CatalogueTest(PricesCase):
     def counters(self, store: str) -> tuple[int, int]:
         """(products, prices) van een winkel in `catalogue_versions`."""
         with closing(db(prices)) as conn:
-            row = conn.execute("SELECT products, prices FROM catalogue_versions WHERE store = ?", (store,)).fetchone()
+            row: tuple[int, int] | None = conn.execute("SELECT products, prices FROM catalogue_versions WHERE store = ?", (store,)).fetchone()
         return (row[0], row[1]) if row else (0, 0)
 
-    async def test_every_catalogue_table_has_a_store(self):
+    async def test_every_catalogue_table_has_a_store(self) -> None:
         self.assertEqual(set(prices._TABLE_STORE), set(prices.CATALOGUE_TABLES))
         for table, store in prices._TABLE_STORE.items():
             with self.subTest(table=table):
@@ -1666,10 +1681,11 @@ class CatalogueTest(PricesCase):
         self.assertEqual(prices._TABLE_STORE["jumbo_order_items"], "'jumbo'")
         self.assertEqual(prices._TABLE_STORE["price_observations"], "NEW.store")
 
-    async def test_a_price_at_picnic_leaves_the_catalogue_of_ah(self):
+    async def test_a_price_at_picnic_leaves_the_catalogue_of_ah(self) -> None:
         await self.observe("2026-05-01", "1", "AH Pindakaas", 2.99)
         self.assertEqual(await self.found("pindakaas"), ["1"])
-        ah_before, picnic_before = await self.version("ah"), await self.version("picnic")
+        ah_before: str = await self.version("ah")
+        picnic_before: str = await self.version("picnic")
         with mock.patch.object(prices, "_known_products", wraps=prices._known_products) as built:
             await prices.record("picnic", [{"id": "s100", "title": "Pindakaas", "price": 3.49}], now="2026-06-01T08:00:00+00:00")
             self.assertEqual(await self.found("pindakaas"), ["1"])
@@ -1677,11 +1693,13 @@ class CatalogueTest(PricesCase):
         self.assertEqual(await self.version("ah"), ah_before)
         self.assertNotEqual(await self.version("picnic"), picnic_before)
 
-    async def test_a_price_of_a_known_product_does_not_rebuild_the_catalogue(self):
+    async def test_a_price_of_a_known_product_does_not_rebuild_the_catalogue(self) -> None:
         # De merge met taak 7 telt hier `_build_catalogue`. Tot dan telt `_known_products`, dat elke opbouw een keer aanroept.
         await self.observe("2026-05-01", "1", "AH Pindakaas", 2.99)
         await self.observe("2026-04-01", "2", "AH Hagelslag", 1.99)
         self.assertEqual(await self.found("ah"), ["1", "2"])
+        products: int
+        counted: int
         products, counted = self.counters("ah")
         with mock.patch.object(prices, "_known_products", wraps=prices._known_products) as built:
             await self.observe("2026-06-01", "2", "AH Hagelslag", 1.89)  # een nieuwe dag: een INSERT
@@ -1690,10 +1708,10 @@ class CatalogueTest(PricesCase):
             self.assertEqual(await self.found("ah"), ["2", "1"])
             self.assertEqual(built.call_count, 0, "alleen een prijs erbij: dezelfde catalogus")
         self.assertEqual(self.counters("ah"), (products, counted + 2))
-        product = await self.product("2", query="hagelslag")
+        product: dict = await self.product("2", query="hagelslag")
         self.assertEqual([segment["price"] for segment in product["regular"]], [1.99, 1.79])
 
-    async def test_a_price_of_a_new_product_rebuilds_the_catalogue(self):
+    async def test_a_price_of_a_new_product_rebuilds_the_catalogue(self) -> None:
         await self.observe("2026-05-01", "1", "AH Pindakaas", 2.99)
         self.assertEqual(await self.found("pindakaas"), ["1"])
         with mock.patch.object(prices, "_known_products", wraps=prices._known_products) as built:
@@ -1701,7 +1719,7 @@ class CatalogueTest(PricesCase):
             self.assertEqual(await self.found("pindakaas"), ["2", "1"])
             self.assertEqual(built.call_count, 1)
 
-    async def test_a_renamed_product_rebuilds_the_catalogue(self):
+    async def test_a_renamed_product_rebuilds_the_catalogue(self) -> None:
         await self.observe("2026-05-01", "1", "AH Pindakaas", 2.99)
         self.assertEqual(await self.found("pindakaas"), ["1"])
         with mock.patch.object(prices, "_known_products", wraps=prices._known_products) as built:
@@ -1717,7 +1735,7 @@ class CatalogueTest(PricesCase):
 
     async def answers(self) -> dict:
         """Wat de prijsgeschiedenis en het oordeel bij twee aanbiedingen nu zeggen."""
-        items = [offer("2", "AH Hagelslag", 1.49, 1.99, "25% korting", unitSize="400 g"), offer("10", "AH Sweet Palermo", 1.29, 1.69, "1,29")]
+        items: list[dict] = [offer("2", "AH Hagelslag", 1.49, 1.99, "25% korting", unitSize="400 g"), offer("10", "AH Sweet Palermo", 1.29, 1.69, "1,29")]
         return {
             "history": await self.history(),
             "palermo": await self.history(query="palermo"),
@@ -1727,7 +1745,7 @@ class CatalogueTest(PricesCase):
     async def palermo(self, product_id: str, price: float, size: str, day: str) -> None:
         await prices.record("ah", [{"id": product_id, "title": "AH Sweet Palermo", "price": price, "unitSize": size, "brand": "AH"}], now=f"{day}T08:00:00+00:00")
 
-    async def test_after_a_price_only_write_the_answers_equal_a_full_rebuild(self):
+    async def test_after_a_price_only_write_the_answers_equal_a_full_rebuild(self) -> None:
         await self.observe("2026-05-01", "1", "AH Pindakaas", 2.99)
         await self.observe("2026-03-01", "2", "AH Hagelslag", 1.99)
         await self.observe("2026-04-01", "3", "AH Muisjes", 1.79)
@@ -1735,20 +1753,20 @@ class CatalogueTest(PricesCase):
         await self.palermo("10", 1.69, "2 stuks", "2026-04-01")
         await self.palermo("11", 2.49, "500 g", "2026-04-01")
         self.ah_receipt("R1", "2026-06-10T10:00:00", (None, "AH Sweet Palermo", 1, 3.40, 3.40))
-        before = await self.answers()
+        before: dict = await self.answers()
         self.assertEqual({p["productId"]: len(p["purchases"]) for p in before["palermo"]["products"]}, {"10": 0, "11": 1})
         # Prijzen voor bekende producten, met dezelfde naam, merk en verpakking: een nieuwe dag en een gewijzigde prijs.
         await self.observe("2026-10-01", "2", "AH Hagelslag", 1.89)
         await self.observe("2026-05-01", "1", "AH Pindakaas", 2.69)
         await self.palermo("10", 3.39, "2 stuks", "2026-05-01")
-        warm = await self.answers()
+        warm: dict = await self.answers()
         prices._CATALOGUES.clear()
         self.assertEqual(warm, await self.answers())
         self.assertNotEqual(warm["history"], before["history"], "de nieuwe prijzen staan erin")
         self.assertEqual([p["productId"] for p in warm["history"]["products"]][0], "2", "de nieuwste prijs zet hagelslag bovenaan")
         self.assertEqual({p["productId"]: len(p["purchases"]) for p in warm["palermo"]["products"]}, {"10": 1, "11": 0}, "de bon hoort nu bij de prijs in de buurt")
 
-    async def test_an_old_database_with_catalogue_changes_is_migrated(self):
+    async def test_an_old_database_with_catalogue_changes_is_migrated(self) -> None:
         await self.observe("2026-05-01", "1", "AH Pindakaas", 2.99)
         with closing(db(prices)) as conn, conn:  # zoals tot 4.21: een versie voor alle winkels, en triggers die hem ophogen
             conn.execute("DROP TABLE catalogue_versions")
@@ -1766,13 +1784,15 @@ class CatalogueTest(PricesCase):
             await self.observe(day, "1", "AH Pindakaas", 2.89)
             self.assertEqual(await self.found("pindakaas"), ["1"])
         with closing(db()) as conn:
-            tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
-            old = [row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type = 'trigger' AND sql LIKE '%catalogue_changes%'")]
-            new = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type = 'trigger' AND sql LIKE '%catalogue_versions%'")}
+            tables: set[str] = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
+            old: list[str] = [row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type = 'trigger' AND sql LIKE '%catalogue_changes%'")]
+            new: set[str] = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type = 'trigger' AND sql LIKE '%catalogue_versions%'")}
         self.assertNotIn("catalogue_changes", tables)
         self.assertIn("catalogue_versions", tables)
         self.assertEqual(old, [])
         self.assertLessEqual({f"catalogue_price_observations_{op}" for op in ("insert", "update", "delete")}, new)
+        products: int
+        counted: int
         products, counted = self.counters("ah")
         await self.observe("2026-07-01", "1", "AH Pindakaas", 2.79)
         self.assertEqual(self.counters("ah"), (products, counted + 1), "de nieuwe triggers tellen")

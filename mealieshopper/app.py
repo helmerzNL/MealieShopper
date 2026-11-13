@@ -746,10 +746,9 @@ def create_app() -> Quart:
 
     async def offers_etag(store: str, week: str) -> str:
         """De ETag van de lijst: de synchronisatie, de dag, de week, de build, de catalogus van de prijsgeschiedenis van de winkel en
-        de prijzen van de producten in de aanbiedingen (`prices.offer_ids`). Een prijs van een ander product laat hem staan."""
+        de prijzen die het oordeel raken (`prices.offers_signature`). Een prijs van een ander product laat hem staan."""
         listed: str = await offers.signature(store, week)
-        ids: list[str] = await prices.offer_ids(store)
-        return hashlib.sha1(f"{listed}|{await prices.signature(store, ids)}".encode("utf-8")).hexdigest()
+        return hashlib.sha1(f"{listed}|{await prices.offers_signature(store)}".encode("utf-8")).hexdigest()
 
     def offers_cache_key(store: str, week: str) -> tuple[str, str]:
         """De sleutel van de cache: de maandag van de week, want de browser vraagt ?week=<maandag> en de opwarmer rekent met vandaag."""

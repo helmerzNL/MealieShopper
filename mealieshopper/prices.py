@@ -23,10 +23,12 @@ bij de winkel naar hetzelfde product in andere maten). Ideeën en testgevallen v
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import math
 import re
+import secrets
 import weakref
 from collections import Counter
 from collections.abc import AsyncIterator, Awaitable, Sequence
@@ -36,7 +38,7 @@ from typing import Any, Callable, Iterable, NamedTuple
 
 import aiosqlite
 
-from . import ah, ah_lists, ah_orders, auth, deals, line_offers, name_keys, offer_categories, offer_ranking, offers, packs, price_import, product_links, shared_links
+from . import ah, ah_lists, ah_orders, auth, compute, deals, line_offers, name_keys, offer_categories, offer_ranking, offers, packs, price_import, product_links, shared_links
 from .i18n import tr
 from .regular_price import Chosen, RegularPoint, choose
 
@@ -1045,8 +1047,11 @@ _CATALOGUES: dict[tuple[str, str], tuple[str, str, _Catalogue, _PriceState]] = {
 
 
 def forget_catalogues() -> None:
-    """Vergeet elke catalogus in het geheugen: na het terugzetten van een back-up en na een fabrieksreset (`auth.forget_cached_data`)."""
+    """Vergeet elke catalogus in het geheugen, met wat de ETag van /api/offers ervan afleidde (`_ANSWER_IDS`, `_SIGNATURES`): na
+    het terugzetten van een back-up en na een fabrieksreset (`auth.forget_cached_data`)."""
     _CATALOGUES.clear()
+    _ANSWER_IDS.clear()
+    _SIGNATURES.clear()
 
 
 auth.remember_cache(forget_catalogues)
@@ -1143,7 +1148,10 @@ async def _catch_up(conn: aiosqlite.Connection, store: str, key: tuple[str, str]
     geen naam of verpakking toe, maar kan twee dingen veranderen: de laatste dag van een product (`_Known.last`, de volgorde van de
     prijsgeschiedenis), hier op de event loop bijgewerkt uit de laatste dag per product, en welk product met dezelfde naam een
     bonregel krijgt (`_nearest_priced`). Verschuift dat laatste, dan False: dan moet de catalogus opnieuw worden opgebouwd."""
-    version, today, catalogue, state = found
+    version: str = found[0]
+    today: str = found[1]
+    catalogue: _Catalogue = found[2]
+    state: _PriceState = found[3]
     if state.prices == counted:
         return True
     if state.shared and await _shared_prices(conn, store, state.shared) != state.shared:
@@ -1164,6 +1172,8 @@ async def _catalogue(conn: aiosqlite.Connection, store: str, today: str) -> _Cat
     found = _CATALOGUES.get(key)
     if found is not None and found[0] == version and found[1] == today and await _catch_up(conn, store, key, found, row["prices"]):
         return found[2]
+    receipts: list[dict[str, Any]]
+    names: _Names | None
     receipts, names = await _linked_receipts(conn, store, today)
     products = await _known_products(conn, store, today, receipts)
     catalogue = _Catalogue(receipts, products, await _line_index(conn, store), _twins(products))
@@ -1788,33 +1798,148 @@ async def _price_version(conn: aiosqlite.Connection, store: str, ids: Sequence[s
     return f"{row['n']}:{row['seen']}:{row['paid']!r}:{row['sources']!r}"
 
 
+# De pakken die het oordeel naast een aanbieding legt (`_annotate`, `latest`): de nieuwste prijs per product van de winkel in de
+# laatste PACK_DAYS dagen. Parameters: winkel, begin, vandaag, bron, en voor de subquery nog eens begin, vandaag en bron.
+_WINDOW_SHAPE_SQL = """
+SELECT DISTINCT o.title AS title, o.brand AS brand, o.unit_size AS unit_size, o.price > 0 AS priced FROM price_observations o
+WHERE o.store = ? AND o.day >= ? AND o.day <= ? AND o.source != ?
+  AND o.day = (SELECT MAX(p.day) FROM price_observations p
+               WHERE p.store = o.store AND p.product_id = o.product_id AND p.day >= ? AND p.day <= ? AND p.source != ?)
+"""
+
+
+def _shape_digest(rows: list[tuple[str, str, str, int]]) -> str:
+    """Puur, voor `compute.run`: een korte SHA-1 van de verzameling (naam, merk, verpakking, met prijs)."""
+    return hashlib.sha1(json.dumps(sorted(set(rows))).encode("utf-8")).hexdigest()[:16]
+
+
+async def _window_shape(conn: aiosqlite.Connection, store: str, today: str) -> str:
+    """Verandert als de namen, merken of verpakkingen veranderen van de nieuwste prijs per product in het venster van `_annotate`.
+    Ook buiten `_answer_ids` beslissen die mee: elk merk in het venster haalt `_known_pack_titles` van een naam af, en elke naam
+    met een prijs per eenheid is een familie in `bases`. De prijs zelf telt alleen bij een product uit `_answer_ids`."""
+    window: tuple[str, str, str] = (_days_ago(today, PACK_DAYS), today, PUBLIC_OBSERVED_UNKNOWN)
+    rows: list[tuple[str, str, str, int]] = [
+        (row["title"] or "", row["brand"] or "", row["unit_size"] or "", int(row["priced"] or 0))
+        for row in await conn.execute_fetchall(_WINDOW_SHAPE_SQL, (store, *window, *window))
+    ]
+    return await compute.run(_shape_digest, rows)
+
+
+# Per (database, winkel, soort) de laatste uitkomst van `_signature` met de stand waarvoor hij gold. Exact: elke INSERT en UPDATE op
+# `price_observations` hoogt `prices` op en elke DELETE `products`, dus zolang token, `products`, `prices`, de ids en de dag gelijk
+# zijn, is ook de uitkomst gelijk. Hij wordt hooguit een keer per bewaarde prijs opnieuw uitgerekend.
+_SIGNATURES: dict[tuple[str, str, str], tuple[tuple[Any, ...], str]] = {}
+
+
+async def _signature(conn: aiosqlite.Connection, store: str, ids: tuple[str, ...], today: str | None) -> str:
+    """`<token>:<products>|<_price_version van ids>`, en met `today` ook `_window_shape` van die dag (de ETag van /api/offers)."""
+    row: aiosqlite.Row = await _catalogue_row(conn, store)
+    state: tuple[Any, ...] = (row["token"], row["products"], row["prices"], today, ids)
+    key: tuple[str, str, str] = (str(auth.db_path()), store, "ids" if today is None else "offers")
+    found: tuple[tuple[Any, ...], str] | None = _SIGNATURES.get(key)
+    if found is not None and found[0] == state:
+        return found[1]
+    value: str = f"{row['token']}:{row['products']}|{await _price_version(conn, store, ids)}"
+    if today is not None:
+        value += f"|{await _window_shape(conn, store, today)}"
+    _SIGNATURES[key] = (state, value)
+    return value
+
+
 async def signature(store: Any, ids: Sequence[str] = ()) -> str:
     """Verandert als er bij een winkel een aankoop, een aanbieding of een nieuw product is bewaard, of een prijs van een van de
-    producten `ids` (die van de lijst van /api/offers): zo ververst het oordeel bij de aanbiedingen (ETag).
+    producten `ids`: zo ververst een oordeel bij aanbiedingen (ETag). /api/offers neemt `offers_signature`, met de ids die zijn
+    antwoord raken.
 
     De versie van de catalogus van de winkel (`_catalogue_version`) plus `_price_version` van `ids`. Een prijs van een bekend product
-    buiten de lijst, zoals de ronde langs de prijsindex er elke tien seconden een bewaart, laat hem staan. De rijen van de winkel
+    buiten `ids`, zoals de ronde langs de prijsindex er elke tien seconden een bewaart, laat hem staan. De rijen van de winkel
     tellen (zoals tot 4.21.0) las bij elke aanvraag van de aanbiedingen alle prijzen van die winkel, ook voor een 304: bij AH 1,6
     seconde voor 309.000 prijzen.
     """
     try:
         key: str = offers._valid_store(store)
         async with _connect() as conn:
-            return f"{await _catalogue_version(conn, key)}|{await _price_version(conn, key, ids)}"
+            return await _signature(conn, key, tuple(sorted({str(product_id) for product_id in ids})), None)
     except Exception:  # noqa: BLE001 - de cache mag nooit de aanbiedingen tegenhouden
         log.warning("Handtekening van de prijzen mislukt", exc_info=True)
         return ""
 
 
-_OFFER_IDS_SQL = "SELECT DISTINCT product_id FROM offers WHERE store = ? ORDER BY product_id"
+# De producten van de aanbiedingen van een winkel in de lokale kopie (elke week), en elk product met een bewaarde prijs, met hun namen.
+_LISTED_SQL = "SELECT DISTINCT product_id, title FROM offers WHERE store = ?"
+_OBSERVED_TITLES_SQL = "SELECT DISTINCT product_id, title FROM price_observations WHERE store = ?"
+
+# (database, winkel) -> (`_catalogue_version`, `_answer_ids`): die ids veranderen alleen met `products` of het token.
+_ANSWER_IDS: dict[tuple[str, str], tuple[str, tuple[str, ...]]] = {}
 
 
-async def offer_ids(store: Any) -> list[str]:
-    """De producten in de lokale kopie van de aanbiedingen van een winkel, van elke week: de lijst van /api/offers is daar een deel
-    van. Een lichte query zonder `offers.load`, voor de ETag (`signature`). Een onbekende winkel geeft ValueError."""
-    key: str = offers._valid_store(store)
-    async with _connect() as conn:
-        return [str(row["product_id"]) for row in await conn.execute_fetchall(_OFFER_IDS_SQL, (key,))]
+def _family_base(store: str, title: Any) -> str:
+    """De naam van een familie van verpakkingen zoals `offer_ranking.family_key` hem maakt: zonder maten, verpakkingswoorden en
+    huismerk. Twee namen met dezelfde `base_title` hebben ook dezelfde familienaam."""
+    base: str = base_title(title)
+    return _without_house_brand(store, base) or base
+
+
+def _family_ids(store: str, listed_titles: list[str], observed: list[tuple[str, str]]) -> frozenset[str]:
+    """Puur, voor `compute.run`: de producten met een bewaarde prijs (`observed`: product, naam) waarvan een naam dezelfde
+    familienaam (`_family_base`) heeft als een aanbieding. Hun nieuwste prijs is een pak in de familie en kan `cheaperPack` zijn."""
+    wanted: set[str] = {base for title in listed_titles if (base := _family_base(store, title))}
+    return frozenset(product_id for product_id, title in observed if _family_base(store, title) in wanted)
+
+
+def _namesakes(shared: dict[str, dict[str, tuple[float, ...]]], near: set[str]) -> set[str]:
+    """De producten van elke groep met dezelfde naam (`_Names.shared`) waar een product uit `near` in zit."""
+    return {product_id for group in shared.values() if not near.isdisjoint(group) for product_id in group}
+
+
+async def _shared_groups(conn: aiosqlite.Connection, store: str, version: str, today: str) -> dict[str, dict[str, tuple[float, ...]]] | None:
+    """`_Names.shared` van de catalogus van deze versie, uit `_CATALOGUES`. Ontbreekt die, dan bouwt `_catalogue_or_none` hem, zoals
+    het oordeel bij de lijst ook doet. None als er geen catalogus van deze versie is (een fout, of de versie veranderde intussen)."""
+    key: tuple[str, str] = (str(auth.db_path()), store)
+    found: tuple[str, str, _Catalogue, _PriceState] | None = _CATALOGUES.get(key)
+    if found is None or found[0] != version:
+        await _catalogue_or_none(conn, store, today)
+        found = _CATALOGUES.get(key)
+    return found[3].shared if found is not None and found[0] == version else None
+
+
+async def _answer_ids(conn: aiosqlite.Connection, store: str, version: str, today: str) -> tuple[str, ...]:
+    """De producten waarvan een prijs het antwoord van /api/offers van een winkel kan veranderen (`_annotate`): die van de
+    aanbiedingen (elke week), de andere verpakkingen van hun familie (`_family_ids`: `latest`, de families en `cheaperPack`) en de
+    naamgenoten van al die producten (`_namesakes`: een prijs kan een bonregel op naam naar een ander product verplaatsen, zie
+    `_nearest_priced`, en dat verandert `bought`, `priceLabel` en `yearLow`). Bewaard per `version`, want dat verandert alleen met
+    `products` of het token. Het werk met de namen loopt in `compute.run`."""
+    key: tuple[str, str] = (str(auth.db_path()), store)
+    found: tuple[str, tuple[str, ...]] | None = _ANSWER_IDS.get(key)
+    if found is not None and found[0] == version:
+        return found[1]
+    listed: list[Any] = list(await conn.execute_fetchall(_LISTED_SQL, (store,)))
+    observed: list[tuple[str, str]] = [
+        (str(row["product_id"]), str(row["title"] or "")) for row in await conn.execute_fetchall(_OBSERVED_TITLES_SQL, (store,))
+    ]
+    titles: list[str] = [str(row["title"] or "") for row in listed]
+    near: set[str] = {str(row["product_id"]) for row in listed} | await compute.run(_family_ids, store, titles, observed)
+    shared: dict[str, dict[str, tuple[float, ...]]] | None = await _shared_groups(conn, store, version, today)
+    ids: tuple[str, ...] = tuple(sorted(near | _namesakes(shared or {}, near)))
+    if shared is not None:
+        _ANSWER_IDS[key] = (version, ids)
+    return ids
+
+
+async def offers_signature(store: Any) -> str:
+    """Het deel van de prijzen in de ETag van /api/offers: `_signature` over `_answer_ids`, met de pakken van het venster
+    (`_window_shape`). Een prijs van een product dat het antwoord niet raakt, zoals de ronde langs de prijsindex er elke tien
+    seconden een bewaart, laat hem staan. Een fout geeft elke keer een andere waarde: dan geen 304 en geen lijst uit de cache, liever
+    opnieuw rekenen dan een oud antwoord. Een onbekende winkel hoort bij die fouten (de aanroeper controleert de winkel al)."""
+    try:
+        key: str = offers._valid_store(store)
+        today: str = _now()[:10]
+        async with _connect() as conn:
+            ids: tuple[str, ...] = await _answer_ids(conn, key, await _catalogue_version(conn, key), today)
+            return await _signature(conn, key, ids, today)
+    except Exception:  # noqa: BLE001 - de cache mag nooit de aanbiedingen tegenhouden
+        log.warning("Handtekening van de prijzen bij de aanbiedingen mislukt", exc_info=True)
+        return f"fout:{secrets.token_hex(8)}"
 
 
 async def annotate(store: str, items: list[dict[str, Any]], today: str | None = None) -> list[dict[str, Any]]:

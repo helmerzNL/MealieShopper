@@ -22,7 +22,7 @@ from unittest import mock
 
 import jwt
 
-from helpers import AppTestCase, db, returned, run, sent_json, served  # helpers zet ook het pad naar de app
+from helpers import AppClient, AppTestCase, ReadResponse, db, returned, run, sent_json, served  # helpers zet ook het pad naar de app
 import httpx
 
 import test_ah_orders  # als module: de opzet van het AH-mandje
@@ -1870,20 +1870,20 @@ class SlowOffersPagesTest(AppTestCase):
         await self.price("1", "AH Penne", 1.19, days_ago=10)
         await self.price("7", "AH Fusilli", 1.29, days_ago=10)  # gekocht, maar niet in de lijst
 
-    async def price(self, product_id: str, title: str, price: float, days_ago: int) -> None:
+    async def price(self, product_id: str, title: str, price: float, days_ago: int, size: str = "500 g") -> None:
         day: str = (date.today() - timedelta(days=days_ago)).isoformat()
-        await prices.record("ah", [{"id": product_id, "title": title, "price": price, "unitSize": "500 g", "brand": "AH"}], now=f"{day}T08:00:00+00:00")
+        await prices.record("ah", [{"id": product_id, "title": title, "price": price, "unitSize": size, "brand": "AH"}], now=f"{day}T08:00:00+00:00")
 
     async def test_2026_11_13_a_price_outside_the_list_keeps_the_offers_warm(self) -> None:
         """Melding (2026-11-13): "kijk wat er mis is met de performance van https://shopper.ytm.nl/offers". De ronde langs de
         prijsindex bewaart elke tien seconden een prijs, en elke prijs maakte de catalogus van elke winkel en de lijst koud."""
         await self.penne_on_offer()
-        client = self.client_for(create_app())
-        first = await client.get("/api/offers?store=ah")
+        client: AppClient = self.client_for(create_app())
+        first: ReadResponse = await client.get("/api/offers?store=ah")
         self.assertEqual(first.status_code, 200)
         await self.price("7", "AH Fusilli", 1.19, days_ago=3)  # een prijs voor een bekend product buiten de lijst
         with mock.patch.object(prices, "annotate", wraps=prices.annotate) as judged:
-            again = await client.get("/api/offers?store=ah", headers={"If-None-Match": first.headers["ETag"]})
+            again: ReadResponse = await client.get("/api/offers?store=ah", headers={"If-None-Match": first.headers["ETag"]})
             self.assertEqual(again.status_code, 304, "de lijst is niet veranderd")
             self.assertEqual((await client.get("/api/offers?store=ah")).status_code, 200)
             self.assertEqual(judged.call_count, 0, "de lijst uit de cache, zonder het oordeel opnieuw uit te rekenen")
@@ -1891,14 +1891,54 @@ class SlowOffersPagesTest(AppTestCase):
     async def test_2026_11_13_a_price_inside_the_list_gives_a_new_verdict(self) -> None:
         """Melding (2026-11-13), zie hierboven: een prijs van een product in de lijst moet het oordeel wel verversen."""
         await self.penne_on_offer()
-        client = self.client_for(create_app())
-        first = await client.get("/api/offers?store=ah")
+        client: AppClient = self.client_for(create_app())
+        first: ReadResponse = await client.get("/api/offers?store=ah")
         self.assertEqual(first.get_json()["offers"][0]["verdict"]["regular"]["price"], 1.19)
         await self.price("1", "AH Penne", 0.95, days_ago=1)  # een lagere gewone prijs, dezelfde naam: alleen `prices` gaat omhoog
-        again = await client.get("/api/offers?store=ah", headers={"If-None-Match": first.headers["ETag"]})
+        again: ReadResponse = await client.get("/api/offers?store=ah", headers={"If-None-Match": first.headers["ETag"]})
         self.assertEqual(again.status_code, 200)
         verdict: dict = again.get_json()["offers"][0]["verdict"]
         self.assertEqual((verdict["regular"]["price"], verdict["kind"]), (0.95, "small"))
+
+    async def test_2026_11_13_a_price_of_another_pack_gives_a_new_cheaper_pack(self) -> None:
+        """Melding (2026-11-13): "kijk wat er mis is met de performance van https://shopper.ytm.nl/offers en de links daaronder. het
+        duurt regelmatig heel lang (e.g. 10s ofzo?) voor die pagina geladen is." Sinds de fix telt de ETag alleen de prijzen die het
+        antwoord raken. Een andere verpakking van een aanbieding hoort daarbij, ook buiten de lijst: haar prijs beslist over
+        `cheaperPack` (review van taak 9)."""
+        await self.penne_on_offer()  # 500 g voor 0,89: 1,78 per kilo
+        await self.price("8", "AH Penne", 2.50, days_ago=10, size="1000 g")
+        client: AppClient = self.client_for(create_app())
+        first: ReadResponse = await client.get("/api/offers?store=ah")
+        self.assertIsNone(first.get_json()["offers"][0]["verdict"]["cheaperPack"])
+        await self.price("8", "AH Penne", 1.40, days_ago=2, size="1000 g")  # dezelfde naam en verpakking: alleen `prices` gaat omhoog
+        again: ReadResponse = await client.get("/api/offers?store=ah", headers={"If-None-Match": first.headers["ETag"]})
+        self.assertEqual(again.status_code, 200)
+        cheaper: dict = again.get_json()["offers"][0]["verdict"]["cheaperPack"]
+        self.assertEqual((cheaper["productId"], cheaper["price"]), ("8", 1.40))
+
+    async def test_2026_11_13_a_price_of_a_namesake_moves_the_receipt_and_the_bought_flag(self) -> None:
+        """Melding (2026-11-13): "kijk wat er mis is met de performance van https://shopper.ytm.nl/offers en de links daaronder. het
+        duurt regelmatig heel lang (e.g. 10s ofzo?) voor die pagina geladen is." Een bonregel op naam hoort bij het product met die
+        naam waarvan een prijs het dichtst bij de betaalde prijs ligt (`prices._nearest_priced`). Een prijs van een naamgenoot buiten
+        de lijst kan de bon dus naar dat product verplaatsen, en dan is de aanbieding niet meer eerder gekocht (review van taak 9)."""
+        items: list[dict] = [offer("10", "AH Sweet Palermo", 1.99, 2.80, "25% korting", unitSize="2 stuks")]
+        with mock.patch.dict(offers.FETCHERS, {"ah": lambda: returned(items)}):
+            await offers.sync("ah")
+        await self.price("10", "AH Sweet Palermo", 2.80, days_ago=30, size="2 stuks")
+        await self.price("11", "AH Sweet Palermo", 2.00, days_ago=30, size="500 g")
+        when: str = (date.today() - timedelta(days=20)).isoformat()
+        with closing(db(ah_orders)) as conn, conn:
+            conn.execute("INSERT INTO ah_receipts (receipt_id, date_time, total, details_synced, first_seen) VALUES ('R1', ?, 3.40, 1, ?)", (when, when))
+            conn.execute(
+                "INSERT INTO ah_receipt_items (receipt_id, position, product_id, name, quantity, price, amount) VALUES ('R1', 0, NULL, 'AH Sweet Palermo', 1, 3.40, 3.40)"
+            )
+        client: AppClient = self.client_for(create_app())
+        first: ReadResponse = await client.get("/api/offers?store=ah")
+        self.assertTrue(first.get_json()["offers"][0]["bought"], "de bon van 3,40 hoort bij de 2 stuks van 2,80")
+        await self.price("11", "AH Sweet Palermo", 3.40, days_ago=5, size="500 g")  # de naamgenoot, alleen `prices` gaat omhoog
+        again: ReadResponse = await client.get("/api/offers?store=ah", headers={"If-None-Match": first.headers["ETag"]})
+        self.assertEqual(again.status_code, 200)
+        self.assertFalse(again.get_json()["offers"][0]["bought"], "de bon hoort nu bij de zak van 500 gram")
 
     async def test_2026_11_13_prices_of_a_few_products_are_looked_up_by_product(self) -> None:
         with closing(db(prices)) as conn:
