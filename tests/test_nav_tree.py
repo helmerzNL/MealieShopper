@@ -158,7 +158,7 @@ class ReceiptsTest(unittest.TestCase):
         )
         history = (ROOT / "static" / "offers_history.js").read_text(encoding="utf-8")
         self.assertIn("window.requestAnimationFrame(() => offerHistoryFitList(list));", history)
-        self.assertIn("const height = pageFitHeight(list.parentElement, { minWidth: 1200 });", history)
+        self.assertIn("const height = pageFitHeight(list.parentElement, { minWidth: 1200, min: OFFER_HISTORY_MIN_HEIGHT });", history)
         self.assertIn('$("#offers-history-detail").style.maxHeight = value;', history)
         app = (ROOT / "static" / "app.js").read_text(encoding="utf-8")
         self.assertIn("window.innerHeight - (rect.top + window.scrollY) - (shell.bottom - rect.bottom)", app)

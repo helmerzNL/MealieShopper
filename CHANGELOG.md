@@ -2,6 +2,17 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub; een stabiele release krijgt de teksten van alle versies sinds de vorige stabiele release.
 
+## v4.23.1
+
+### Verbeterd in 4.23.1
+
+*English summary: The Price history gives the product and its chart more room on a wide screen. The list and the product used to get only the height from where they start to the bottom of the page, and above them sit the search box, the switch, the filters and the count, so on a screen of about 1080 px only some 360 px were left and the chart was half out of view. They now get at least 640 px, enough for the header, the key figures, the chart and the legend together; when that does not fit under the header, the page scrolls along. A taller screen still fits exactly.*
+
+De Prijsgeschiedenis geeft het product met de grafiek op een breed scherm meer ruimte, na de melding dat het vlak met de grafiek te klein was om de grafiek mooi te tonen.
+
+- **Het product met de grafiek is minstens 640 px hoog.** De lijst en het product kregen alleen de hoogte van waar ze beginnen tot de onderkant van de pagina. Daarboven staan de zoekbalk, de schakelaar *Alleen eerder gekocht*, de filters en de telling, dus op een scherm van zo'n 1080 px bleef er ongeveer 360 px over en stond de grafiek half buiten beeld. Nu passen de kop, de kerngetallen, de grafiek en de legenda er samen in. Past dat niet meer onder de kop, dan scrolt de pagina een stuk mee, en daarbinnen scrollen de lijst en het product nog steeds in hun eigen vak. Een hoger scherm vult het vak nog steeds precies tot de onderkant.
+- De lijst links krijgt dezelfde hoogte als het product.
+
 ## v4.23.0
 
 *English summary: Shared AH weekly prices are imported automatically without a linked account. The app checks the native JSON index, downloads only changed documents and verifies their size and SHA-256. Per-document checkpoints survive restarts. Successful checks repeat after 24 hours, failures after 15 minutes. Direct observations take priority over weekly prices, whose original source, week and capture time are preserved. Set `MEALIESHOPPER_SHARED_PRICES=false` to disable the import.*
