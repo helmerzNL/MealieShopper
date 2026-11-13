@@ -1540,6 +1540,59 @@ class PartsTest(BackupCase):
         self.assertFalse(with_links.restores_anything())
 
 
+class StoresTest(BackupCase):
+    """Na het terugzetten in de installatiehulp (static/onboarding.js) ziet de beheerder welke winkels van het bestand nog niet
+    gekoppeld zijn: de klus zegt welke winkels het teruggezette heeft, aan een koppeling of aan gegevens."""
+
+    async def restored(self, data: bytes, passphrase: str = "", **choices: Any) -> dict[str, Any]:
+        token = (await self.stage(data)).get_json()["token"]
+        started = await self.admin.post("/api/backup/jobs", json={"token": token, "passphrase": passphrase, **choices})
+        self.assertEqual(started.status_code, 202, started.get_json())
+        job = await self.wait()
+        self.assertEqual(job["status"], "done", job)
+        return job["summary"]
+
+    def only(self, *parts: str) -> dict[str, bool]:
+        return {part: False for part in backup.PARTS if part not in parts}
+
+    async def test_a_file_with_everything_has_every_store(self):
+        self.seed()
+        _, data = await self.make()
+        self.assertEqual((await self.restored(data))["stores"], list(backup.STORES))
+
+    async def test_a_store_counts_when_the_file_has_data_of_it(self):
+        self.seed()
+        _, data = await self.make(**self.only("lists"))  # lijstjes van Albert Heijn en Jumbo
+        self.wipe()
+        self.assertEqual((await self.restored(data))["stores"], ["ah", "jumbo"])
+
+    async def test_a_store_without_data_or_link_does_not_count(self):
+        self.seed()
+        _, data = await self.make(**self.only("profiles", "prices", "offers"))  # niets dat bij een winkel hoort
+        self.assertEqual((await self.restored(data))["stores"], [])
+
+    async def test_a_link_counts_without_data_and_mealie_is_not_a_store(self):
+        await auth.set_secret("PICNIC_AUTH_KEY", "PICNIC-KEY-abcdefgh")
+        await auth.set_secret(mealie.SECRET_TOKEN, "MEALIE-TOKEN-12345678")
+        _, data = await self.make(links=True, passphrase=PASSPHRASE, **self.only())
+        summary = await self.restored(data, PASSPHRASE, **self.only())
+        self.assertEqual((summary["stores"], sorted(summary["links"])), (["picnic"], ["mealie", "picnic"]))
+
+    async def test_what_you_do_not_restore_does_not_count(self):
+        self.seed()
+        await auth.set_secret("PICNIC_AUTH_KEY", "PICNIC-KEY-abcdefgh")
+        _, data = await self.make(links=True, passphrase=PASSPHRASE)
+        without_links = await self.restored(data, links=False, **self.only("lists"))
+        self.assertEqual(without_links["stores"], ["ah", "jumbo"], "het lijstje telt, de koppeling van Picnic is niet teruggezet")
+        links_only = await self.restored(data, PASSPHRASE, **self.only())
+        self.assertEqual(links_only["stores"], ["picnic"], "alleen de koppeling is teruggezet")
+
+    def test_the_stores_are_the_stores_with_a_link(self):
+        for store in backup.STORES:
+            self.assertIn(store, backup.SECRET_KEYS.values())
+            self.assertTrue(any(table.startswith(f"{store}_") for table in backup.DATA_TABLES), store)
+
+
 class PassphraseTest(BackupCase):
     async def prepare(self) -> bytes:
         await auth.set_secret(mealie.SECRET_TOKEN, "MEALIE-TOKEN-12345678")

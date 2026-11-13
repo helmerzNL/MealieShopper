@@ -275,6 +275,9 @@ PARTS: dict[str, tuple[str, ...]] = {
     "settings": ("offers_schedule",),
 }
 SETTINGS_PART = "settings"  # dit onderdeel heeft ook de PLAIN_SETTINGS uit app_settings, niet alleen tabellen
+# De winkels met een eigen koppeling (SECRET_KEYS: dezelfde namen) en eigen tabellen (`ah_lists`, `jumbo_orders`, ...). Na een
+# terugzetten in de installatiehulp (onboarding.js) ziet de beheerder welke van de winkels in het bestand nog niet gekoppeld zijn.
+STORES = ("ah", "jumbo", "picnic", "crisp")
 
 # Wat de beheerder ziet: tabellen samengevoegd tot een paar regels. Elke groep is een onderdeel van PARTS (zonder groep, zoals
 # `settings`, valt er niets te tellen) en telt alleen de hoofdtabellen: een lijstje, niet zijn artikelen.
@@ -746,6 +749,14 @@ class Plan:
     def kept_tables(self) -> set[str]:
         return {table for part in self.kept_parts() for table in PARTS[part]}
 
+    def stores(self) -> list[str]:
+        """De winkels waar het terug te zetten iets van heeft: een koppeling, of gegevens (lijstjes, bestellingen, bonnen, recepten).
+
+        Na `skip`: een koppeling of onderdeel dat de beheerder niet terugzet, telt niet mee. De installatiehulp biedt na het
+        terugzetten het koppelen aan van wat hiervan nog niet gekoppeld is (bijvoorbeeld bij een back-up zonder koppelingen).
+        """
+        return [store for store in STORES if store in self.links or any(rows for table, rows in self.tables.items() if table.startswith(f"{store}_"))]
+
     def restores_anything(self) -> bool:
         """Of er na `skip` iets overblijft om terug te zetten: een onderdeel, of de koppelingen."""
         return len(self.kept_parts()) < len(PARTS) or bool(self.links)
@@ -958,6 +969,7 @@ def replace_everything(
             "linksKept": plan.secrets is None,
             "skippedProfiles": skipped_profiles,
             "kept": plan.kept_parts(),
+            "stores": plan.stores(),
         }
         on_commit(conn, summary)
         conn.execute("COMMIT")

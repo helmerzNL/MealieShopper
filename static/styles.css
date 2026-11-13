@@ -5144,6 +5144,15 @@ body.has-onboarding {
   text-align: center;
 }
 
+/* Een back-up terugzetten in de installatiehulp: het aanbod op de stap Mealie, en de lijst met onderdelen (zoals onder Instellingen). */
+.ob-restore-offer {
+  margin: 14px 0;
+}
+
+.onboarding .backup-parts__list .check {
+  margin-top: 8px;
+}
+
 .ob-actions {
   display: flex;
   align-items: center;

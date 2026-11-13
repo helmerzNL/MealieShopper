@@ -10,6 +10,9 @@ const BACKUP_TIMING_KEY = "ms_backup_timing";
 // (GET /api/backup), de tekst staat in het woordenboek (backup.part.<naam>). Beide lijsten, bij maken en bij terugzetten,
 // worden daaruit opgebouwd, dus een onderdeel erbij is geen werk in het scherm.
 const BACKUP_LISTS = { make: "#backup-parts", restore: "#backup-restore-parts" };
+// De lijst die een functie krijgt: een naam hierboven, of een eigen selector. De installatiehulp (onboarding.js) zet een back-up
+// terug met haar eigen lijst en gebruikt dezelfde functies.
+const backupList = (list) => BACKUP_LISTS[list] || list;
 
 function backupMessage(text, type = "error") {
   message("#backup-message", text, type);
@@ -67,6 +70,12 @@ function backupPartIds() {
   return backupState.info?.parts || [];
 }
 
+// De gegevens van de server (de onderdelen in schermvolgorde, de grenzen), een keer geladen.
+async function backupLoadInfo() {
+  backupState.info ||= await jsonFetch("/api/backup");
+  return backupState.info;
+}
+
 function backupPartName(part) {
   return t(`backup.part.${part}`);
 }
@@ -94,14 +103,14 @@ function backupRenderMakeParts() {
 
 // Alles aan of uit (alleen wat te kiezen valt).
 function backupSelectAll(list, checked) {
-  document.querySelectorAll(`${BACKUP_LISTS[list]} input:not([data-absent])`).forEach((box) => {
+  document.querySelectorAll(`${backupList(list)} input:not([data-absent])`).forEach((box) => {
     box.checked = checked;
   });
 }
 
 // Zet de vinkjes terug na een nieuwe opbouw van een lijst (andere taal): wat je koos blijft staan.
 function backupApplyChoices(list, choices) {
-  document.querySelectorAll(`${BACKUP_LISTS[list]} input:not([data-absent])`).forEach((box) => {
+  document.querySelectorAll(`${backupList(list)} input:not([data-absent])`).forEach((box) => {
     if (box.dataset.part in choices) box.checked = choices[box.dataset.part];
   });
 }
@@ -195,7 +204,7 @@ async function backupMake() {
 // Per onderdeel: wel (true) of niet (false) mee, volgens de vinkjes in de lijst bij maken ("make") of bij terugzetten ("restore").
 // Een onderdeel dat niet in het bestand zit, telt als niet (false): er valt niets terug te zetten.
 function backupChoices(list) {
-  return Object.fromEntries([...document.querySelectorAll(`${BACKUP_LISTS[list]} input`)].map((box) => [box.dataset.part, box.checked]));
+  return Object.fromEntries([...document.querySelectorAll(`${backupList(list)} input`)].map((box) => [box.dataset.part, box.checked]));
 }
 
 // --- kiezen en controleren ----------------------------------------------------------------------------------------
@@ -239,9 +248,9 @@ async function backupChoose() {
 }
 
 // De lijst bij Terugzetten: elk onderdeel een regel met het aantal; een onderdeel dat er niet in zit, staat erbij maar valt niet te kiezen.
-function backupRenderRestoreParts(summary) {
+function backupRenderRestoreParts(summary, list = "restore") {
   const leftOut = summary.leftOut || [];
-  $(BACKUP_LISTS.restore).replaceChildren(
+  $(backupList(list)).replaceChildren(
     ...backupPartIds().map((part) => {
       const name = backupPartName(part);
       if (leftOut.includes(part)) return backupPartBox(part, t("backup.left_out", { part: name }), { absent: true });
@@ -381,17 +390,18 @@ function backupFollow() {
   tick();
 }
 
-function backupRenderJob(job) {
+// `show`: waar de voortgang komt. Instellingen, Systeem heeft zijn eigen blok; de installatiehulp geeft haar eigen functie mee.
+function backupRenderJob(job, show = backupShowProgress) {
   const leave = t("backup.note.leave");
   if (job.phase === "checking") {
-    backupShowProgress({
+    show({
       label: t("backup.progress.checking"),
       value: job.step,
       max: job.steps,
       note: `${t("backup.note.step", { step: job.step, steps: job.steps })} · ${leave}`,
     });
   } else {
-    backupShowProgress({ label: t("backup.progress.replacing"), note: leave });
+    show({ label: t("backup.progress.replacing"), note: leave });
   }
 }
 
@@ -428,13 +438,11 @@ async function backupFinish(job) {
 
 // Bij het openen van het scherm: weer aansluiten bij een klus die nog loopt (of net klaar is) en de tijden van de vorige keer tonen.
 async function loadBackup() {
-  if (!backupState.info) {
-    try {
-      backupState.info = await jsonFetch("/api/backup");
-    } catch (error) {
-      backupMessage(error.message);
-      return;
-    }
+  try {
+    await backupLoadInfo();
+  } catch (error) {
+    backupMessage(error.message);
+    return;
   }
   if (!$(BACKUP_LISTS.make).children.length) backupRenderMakeParts(); // een keer: wat je al uitvinkte blijft staan
   try {

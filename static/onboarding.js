@@ -7,8 +7,22 @@
 const OB_STORE_STEPS = ["ah", "jumbo", "picnic"];
 const OB_STORE_CHOICES = ["ah", "jumbo", "picnic", "crisp"];
 const OB_STORES_KEY = "ms-ob-stores";
+// Gezet vlak voor het herladen na een terugzetten: de hulp landt dan op "teruggezet" en kijkt wat er nog ontbreekt.
+const OB_RESTORED_KEY = "ms-ob-restored";
+const OB_RESTORE_RELOAD_MS = 1500;
+const OB_RESTORE_ACCEPT = ".gz,.json,application/gzip,application/x-gzip,application/json"; // zoals het bestandsvak onder Instellingen
+// De subschermen van het terugzetten, onder de stap Mealie, en hun titel.
+const OB_RESTORE_TITLES = { restore: "ob.title.restore", restoring: "ob.title.restore", restored: "ob.title.restored" };
 
-const ob = { step: null, sub: "choose", rendered: "", started: false, mfaBusy: false, stores: obStoredStores() };
+const ob = {
+  step: null,
+  sub: "choose",
+  rendered: "",
+  started: false,
+  mfaBusy: false,
+  stores: obStoredStores(),
+  restore: { token: "", summary: null, poller: null, resumed: false }, // het klaargezette bestand en het volgen van de klus
+};
 
 // De gekozen winkels, bewaard voor dit tabblad zodat herladen ze houdt. null: nog niet gekozen.
 function obStoredStores() {
@@ -92,7 +106,12 @@ function renderOnboarding() {
       postJson("/api/onboarding/start").catch(() => {});
     }
   }
-  if (ob.step === null) ob.step = status.authDone ? "mealie" : "auth";
+  if (ob.step === null) {
+    ob.step = status.authDone ? "mealie" : "auth";
+    // Net na een terugzetten herlaadde de pagina (de voorkeuren en de taal kunnen veranderd zijn): door naar wat er nog ontbreekt.
+    if (status.authDone && obTakeRestoredMarker()) ob.sub = "restored";
+    else if (status.authDone && !ob.restore.resumed) obResumeRestore();
+  }
   // Is de beveiliging al geregeld terwijl we nog op de keuzepagina staan (bijvoorbeeld na verversen)? Door.
   if (ob.step === "auth" && ob.sub === "choose" && status.authDone) ob.step = "mealie";
   renderObStep();
@@ -123,7 +142,7 @@ function renderObStep(force = false) {
   if (stepIndex(ob.step) < 0) ob.step = "stores";
   const index = stepIndex(ob.step);
   $("#ob-eyebrow").textContent = t("ob.step_of", { n: index + 1, total: obSteps().length });
-  $("#ob-title").textContent = t(`ob.title.${ob.step}`);
+  $("#ob-title").textContent = t(ob.step === "mealie" && OB_RESTORE_TITLES[ob.sub] ? OB_RESTORE_TITLES[ob.sub] : `ob.title.${ob.step}`);
   $("#ob-progress").innerHTML = obProgressHtml();
   const body = $("#ob-body");
   const renderers = { auth: renderObAuth, mealie: renderObMealie, stores: renderObStores, ah: renderObAh, jumbo: renderObJumbo, picnic: renderObPicnic, done: renderObDone };
@@ -263,9 +282,12 @@ function obNavigation({ back, next }) {
 }
 
 function renderObMealie(body) {
+  const restoring = { restore: renderObRestore, restoring: renderObRestoring, restored: renderObRestored };
+  if (restoring[ob.sub]) return restoring[ob.sub](body);
   body.innerHTML = `
     <p>${escapeHtml(t("ob.mealie.intro"))}</p>
     <div id="ob-mealie-status"></div>
+    ${obRestoreOffer()}
     <div id="ob-mealie-form-area">
       <h3 class="ob-subtitle">${escapeHtml(t("ob.mealie.how"))}</h3>
       <ol class="steps">
@@ -449,13 +471,8 @@ function renderObStores(body) {
   if (!ob.stores) obSaveStores([]);
 }
 
-async function renderObDone(body) {
-  body.innerHTML = `
-    <p>${escapeHtml(t("ob.done.intro"))}</p>
-    <ul class="ob-checklist" id="ob-checklist"></ul>
-    <div class="ob-actions ob-actions--wrap" id="ob-done-actions"></div>`;
-  // Alleen de winkels die je koos (sinds 4.13.0); zonder keuze, bij een hulp die voor 4.13.0 begon, de drie van voorheen.
-  const chosen = ob.stores || OB_STORE_STEPS;
+// De status van Mealie en van de gekozen winkels, zoals de hulp ze toont: gekoppeld of niet.
+async function obLinkStatuses(chosen) {
   const wanted = (store) => chosen.includes(store);
   const [mealie, ah, jumbo, picnic, crisp] = await Promise.all([
     jsonFetch("/api/mealie/status").catch(() => ({})),
@@ -464,14 +481,34 @@ async function renderObDone(body) {
     wanted("picnic") ? jsonFetch("/api/picnic/auth/status").catch(() => ({})) : {},
     wanted("crisp") ? jsonFetch("/api/crisp/auth/status").catch(() => ({})) : {},
   ]);
+  return { mealie, ah, jumbo, picnic, crisp };
+}
+
+// De controlelijst: beveiliging, Mealie en de gekozen winkels, met wat gekoppeld is en wat niet.
+function obChecklistHtml({ mealie, ah, jumbo, picnic, crisp }, chosen) {
+  const wanted = (store) => chosen.includes(store);
   const item = (ok, text) => `<li class="${ok ? "is-ok" : "is-todo"}"><span class="ob-check" aria-hidden="true">${ok ? "&#10003;" : "&#9675;"}</span><span>${escapeHtml(text)}</span></li>`;
-  $("#ob-checklist").innerHTML =
+  return (
     item(true, t("ob.done.security", { mode: authModeLabel() })) +
     item(Boolean(mealie.configured), mealie.configured ? t("ob.done.mealie_ok", { url: mealie.url || "" }) : t("ob.done.mealie_todo")) +
     (wanted("ah") ? item(Boolean(ah.connected), ah.connected ? t("ob.done.ah_ok") : t("ob.done.ah_todo")) : "") +
     (wanted("jumbo") ? item(Boolean(jumbo.connected), jumbo.connected ? t("ob.done.jumbo_ok") : t("ob.done.jumbo_todo")) : "") +
     (wanted("picnic") ? item(Boolean(picnic.connected), picnic.connected ? t("ob.done.picnic_ok") : t("ob.done.picnic_todo")) : "") +
-    (wanted("crisp") ? item(Boolean(crisp.connected), crisp.connected ? t("ob.done.crisp_ok") : t("ob.done.crisp_todo")) : "");
+    (wanted("crisp") ? item(Boolean(crisp.connected), crisp.connected ? t("ob.done.crisp_ok") : t("ob.done.crisp_todo")) : "")
+  );
+}
+
+async function renderObDone(body) {
+  body.innerHTML = `
+    <p>${escapeHtml(t("ob.done.intro"))}</p>
+    <ul class="ob-checklist" id="ob-checklist"></ul>
+    <div class="ob-actions ob-actions--wrap" id="ob-done-actions"></div>`;
+  // Alleen de winkels die je koos (sinds 4.13.0); zonder keuze, bij een hulp die voor 4.13.0 begon, de drie van voorheen.
+  const chosen = ob.stores || OB_STORE_STEPS;
+  const wanted = (store) => chosen.includes(store);
+  const status = await obLinkStatuses(chosen);
+  const { mealie, ah, jumbo, picnic, crisp } = status;
+  $("#ob-checklist").innerHTML = obChecklistHtml(status, chosen);
   const actions = [];
   if (!mealie.configured) actions.push(`<button class="button" type="button" data-ob-action="go-mealie">${escapeHtml(t("ob.done.link_mealie"))}</button>`);
   if (wanted("ah") && !ah.connected) actions.push(`<button class="button button--secondary" type="button" data-ob-action="go-ah">${escapeHtml(t("ob.done.link_ah"))}</button>`);
@@ -484,6 +521,274 @@ async function renderObDone(body) {
     `<button class="button${actions.length ? " button--secondary" : ""}" type="button" data-ob-action="finish">${escapeHtml(t(mealie.configured ? "ob.done.first_meal" : "ob.done.open"))}</button>`
   );
   $("#ob-done-actions").innerHTML = actions.join("");
+}
+
+// ------------------------------------------------------------ een back-up terugzetten
+// Op een nieuwe installatie kun je een back-up terugzetten in plaats van alles opnieuw te koppelen. De stap Mealie biedt het aan
+// (de inlog staat dan al: een back-up bevat hem nooit). Uploaden, controleren en terugzetten gebruiken dezelfde routes en
+// functies als Instellingen, Systeem (backup.js en upload.js). Het terugzetten loopt op de server: sluit je de pagina, dan pakt
+// de hulp de klus weer op. Daarna herlaadt de pagina (de voorkeuren en de taal kunnen veranderd zijn) en kijkt de hulp wat er
+// nog ontbreekt: niets meer, dan naar de homepage; anders verder met de koppelingen die ontbreken.
+
+function obRestoreOffer() {
+  return `
+    <article class="ob-option ob-restore-offer">
+      <h3>${escapeHtml(t("ob.restore.offer_title"))}</h3>
+      <p>${escapeHtml(t("ob.restore.offer_text"))}</p>
+      <button class="button button--secondary" type="button" data-ob-action="go-restore">${escapeHtml(t("ob.restore.offer_button"))}</button>
+    </article>`;
+}
+
+// Wat er na het terugzetten nog niet gekoppeld is, in de volgorde van de hulp: Mealie, dan de gekozen winkels.
+function obMissingLinks(status, stores) {
+  const missing = [];
+  if (!status.mealie?.configured) missing.push("mealie");
+  for (const store of OB_STORE_CHOICES) {
+    if (stores.includes(store) && !status[store]?.connected) missing.push(store);
+  }
+  return missing;
+}
+
+// Waar de hulp heen gaat voor wat ontbreekt: de eerste ontbrekende koppeling met een eigen stap. Crisp heeft er geen: dan Klaar,
+// met zijn knop. Ontbreekt er niets, dan null.
+function obStepForMissing(missing) {
+  const step = missing.find((id) => id === "mealie" || OB_STORE_STEPS.includes(id));
+  return step || (missing.length ? "done" : null);
+}
+
+function obRestoreProgress({ label, value = null, max = null, note = "" }) {
+  const bar = $("#ob-restore-progress-bar");
+  if (!bar) return; // een andere taal tekende het scherm opnieuw, of de hulp is verder
+  if (value !== null && max) {
+    bar.max = max;
+    bar.value = value;
+  } else {
+    bar.removeAttribute("value");
+  }
+  $("#ob-restore-progress-label").textContent = label;
+  $("#ob-restore-progress-note").textContent = note;
+  $("#ob-restore-progress").hidden = false;
+}
+
+function obRestoreProgressBlock(hidden) {
+  return `
+    <div class="backup-progress" id="ob-restore-progress" role="status"${hidden ? " hidden" : ""}>
+      <p id="ob-restore-progress-label"></p>
+      <progress id="ob-restore-progress-bar" max="100"></progress>
+      <p class="muted" id="ob-restore-progress-note"></p>
+    </div>`;
+}
+
+// Het bestand kiezen, of (als het al is gecontroleerd) zien wat erin zit en kiezen wat je terugzet.
+function renderObRestore(body) {
+  const summary = ob.restore.summary;
+  if (!summary) {
+    body.innerHTML = `
+      <p>${escapeHtml(t("ob.restore.intro"))}</p>
+      <label class="field"><span>${escapeHtml(t("backup.file_label"))}</span><input class="input" id="ob-restore-file" type="file" accept="${OB_RESTORE_ACCEPT}"></label>
+      ${obRestoreProgressBlock(true)}
+      <div class="ob-actions">${obBackButton("restore-back")}<span></span></div>`;
+    return;
+  }
+  const when = summary.createdAt ? new Date(summary.createdAt) : null;
+  const made = t("backup.made_at", {
+    date: when && !Number.isNaN(when.getTime()) ? when.toLocaleString(I18N.locale(), { dateStyle: "medium", timeStyle: "short" }) : "?",
+    version: summary.appVersion || "?",
+  });
+  const links = summary.links.map((link) => t(`backup.link.${link}`)).join(", ");
+  const linksField = !summary.links.length
+    ? ""
+    : `<label class="check"><input type="checkbox" id="ob-restore-links" checked><span>${escapeHtml(t("backup.restore_links"))}</span></label>${
+        summary.needsPassphrase
+          ? `<p class="muted">${escapeHtml(t("backup.restore_links_hint"))}</p>
+             <label class="field" id="ob-restore-passphrase-field"><span>${escapeHtml(t("backup.restore_passphrase_label"))}</span><input class="input" id="ob-restore-passphrase" type="password" autocomplete="off"></label>`
+          : ""
+      }`;
+  body.innerHTML = `
+    <form class="auth-form" data-ob-form="restore" autocomplete="off">
+      <p class="muted">${escapeHtml(made)}</p>
+      <p>${escapeHtml(summary.links.length ? t("backup.links_in", { links }) : t("backup.links_none"))}</p>
+      <h3 class="ob-subtitle" id="ob-restore-choose">${escapeHtml(t("backup.restore_choose"))}</h3>
+      ${linksField}
+      <div class="backup-parts__tools">
+        <button class="button button--secondary" type="button" data-ob-action="restore-all">${escapeHtml(t("backup.select_all"))}</button>
+        <button class="button button--secondary" type="button" data-ob-action="restore-none">${escapeHtml(t("backup.select_none"))}</button>
+      </div>
+      <div class="backup-parts__list" id="ob-restore-parts" role="group" aria-labelledby="ob-restore-choose"></div>
+      <p class="muted">${escapeHtml(t("backup.restore_choices_hint"))}</p>
+      <div class="message warning ob-note">${escapeHtml(t("backup.confirm_warning"))}</div>
+      <div class="ob-actions">
+        <button class="button button--secondary" type="button" data-ob-action="restore-other">${escapeHtml(t("ob.restore.other_file"))}</button>
+        <button class="button" type="submit">${escapeHtml(t("backup.restore_go"))}</button>
+      </div>
+    </form>`;
+  backupRenderRestoreParts(summary, "#ob-restore-parts");
+}
+
+// Een bestand gekozen: in stukken uploaden en door de server laten controleren, zoals onder Instellingen, Systeem.
+async function obRestoreChoose(input) {
+  const file = input.files[0];
+  if (!file) return;
+  message("#ob-message", "");
+  input.disabled = true;
+  try {
+    await backupLoadInfo(); // de onderdelen voor de lijst, voor de upload begint
+    const summary = await uploadInChunks(file, "/api/backup/uploads", {
+      onProgress: (done, total) =>
+        obRestoreProgress({
+          label: t("backup.progress.uploading"),
+          value: done,
+          max: total,
+          note: t("backup.note.bytes", { done: backupMegabytes(done), total: backupMegabytes(total) }),
+        }),
+      onChecking: () => obRestoreProgress({ label: t("backup.progress.reading") }),
+    });
+    ob.restore.token = summary.token;
+    ob.restore.summary = summary;
+    obGo("mealie", "restore");
+  } catch (error) {
+    input.value = "";
+    input.disabled = false;
+    $("#ob-restore-progress")?.setAttribute("hidden", "");
+    message("#ob-message", error.message);
+  }
+}
+
+// Het gecontroleerde bestand loslaten (ander bestand, of terug): de server ruimt het anders na een uur op.
+function obRestoreDiscard() {
+  const token = ob.restore.token;
+  ob.restore.token = "";
+  ob.restore.summary = null;
+  if (token) fetch(`/api/backup/stage/${token}`, { method: "DELETE", credentials: "same-origin" }).catch(() => {});
+}
+
+async function obSubmitRestore() {
+  const choices = backupChoices("#ob-restore-parts");
+  const linksBox = $("#ob-restore-links");
+  if (!linksBox?.checked && !Object.values(choices).some(Boolean)) throw new Error(t("backup.nothing_to_restore"));
+  const links = linksBox ? linksBox.checked : true;
+  // Een verkeerd wachtwoord laat het bestand en het token staan: je kunt het meteen opnieuw proberen.
+  await postJson("/api/backup/jobs", {
+    token: ob.restore.token,
+    passphrase: links ? $("#ob-restore-passphrase")?.value || "" : "",
+    links,
+    ...choices,
+  });
+  ob.restore.token = "";
+  ob.restore.summary = null;
+  obGo("mealie", "restoring");
+}
+
+function renderObRestoring(body) {
+  body.innerHTML = obRestoreProgressBlock(false);
+  obRestoreProgress({ label: t("backup.progress.checking") });
+  obRestoreFollow();
+}
+
+// Volgt de klus op de server: elke seconde vragen. Een weggevallen verbinding stopt het terugzetten niet, dus dan vragen we opnieuw.
+function obRestoreFollow() {
+  clearTimeout(ob.restore.poller);
+  const tick = async () => {
+    ob.restore.poller = null;
+    if (ob.step !== "mealie" || ob.sub !== "restoring") return; // het scherm is weg: de klus loopt zelf door
+    let job;
+    try {
+      job = (await jsonFetch("/api/backup/jobs/latest")).job;
+    } catch {
+      ob.restore.poller = setTimeout(tick, BACKUP_POLL_MS);
+      return;
+    }
+    if (job?.status === "running") {
+      backupRenderJob(job, obRestoreProgress);
+      ob.restore.poller = setTimeout(tick, BACKUP_POLL_MS);
+      return;
+    }
+    await obRestoreFinished(job);
+  };
+  tick();
+}
+
+// Een klus die klaar is, of mislukt: de uitkomst melden we één keer (tonen, dan wegklikken). Lukt het wegklikken niet, dan niet
+// herladen: de pagina zou dezelfde afgeronde klus telkens opnieuw oppakken.
+async function obRestoreFinished(job) {
+  if (!job) {
+    obGo("mealie", "restore"); // de klus bestaat niet (meer): opnieuw beginnen
+    return;
+  }
+  let dismissed = true;
+  try {
+    await jsonFetch(`/api/backup/jobs/${job.id}`, { method: "DELETE" });
+  } catch {
+    dismissed = false;
+  }
+  if (job.status !== "done") {
+    obGo("mealie", "restore");
+    message("#ob-message", job.error || t("err.generic"));
+    return;
+  }
+  // Welke winkels het teruggezette heeft (een koppeling of gegevens): die komen als stap in de hulp, zodat wat nog ontbreekt
+  // gekoppeld kan worden.
+  const restored = job.summary?.stores || [];
+  obSaveStores(OB_STORE_CHOICES.filter((store) => (ob.stores || []).includes(store) || restored.includes(store)));
+  let marked = false;
+  try {
+    window.sessionStorage.setItem(OB_RESTORED_KEY, "1");
+    marked = true;
+  } catch {
+    // Zonder opslag onthoudt een herlaadde pagina niet dat er is teruggezet: dan niet herladen.
+  }
+  if (!dismissed || !marked) {
+    obGo("mealie", "restored");
+    return;
+  }
+  message("#ob-message", t("backup.done"), "success");
+  $("#ob-restore-progress")?.setAttribute("hidden", "");
+  setTimeout(() => window.location.reload(), OB_RESTORE_RELOAD_MS);
+}
+
+function obTakeRestoredMarker() {
+  try {
+    const marked = window.sessionStorage.getItem(OB_RESTORED_KEY) === "1";
+    window.sessionStorage.removeItem(OB_RESTORED_KEY);
+    return marked;
+  } catch {
+    return false;
+  }
+}
+
+// Bij het openen van de hulp: een klus die nog loopt (de pagina was dicht) weer volgen, of een afgeronde afhandelen.
+async function obResumeRestore() {
+  ob.restore.resumed = true;
+  let job;
+  try {
+    job = (await jsonFetch("/api/backup/jobs/latest")).job;
+  } catch {
+    return; // geen klus, of niet de beheerder
+  }
+  if (!job || ob.step !== "mealie" || ob.sub !== "choose") return;
+  if (job.status === "running") obGo("mealie", "restoring");
+  else if (job.status === "done") obRestoreFinished(job);
+}
+
+// Na het terugzetten (en het herladen): wat staat er, wat ontbreekt er nog? Niets meer: naar de homepage. Anders verder met de
+// eerste ontbrekende koppeling, of toch naar de homepage en later koppelen.
+async function renderObRestored(body) {
+  body.innerHTML = `
+    <div class="message success">${escapeHtml(t("ob.restore.restored"))}</div>
+    <p id="ob-restore-next"></p>
+    <ul class="ob-checklist" id="ob-checklist"></ul>
+    <div class="ob-actions ob-actions--wrap" id="ob-restore-actions"></div>`;
+  const chosen = ob.stores || [];
+  const status = await obLinkStatuses(chosen);
+  if (ob.step !== "mealie" || ob.sub !== "restored") return; // de beheerder is al verder
+  const missing = obMissingLinks(status, chosen);
+  const next = obStepForMissing(missing);
+  $("#ob-restore-next").textContent = t(next ? "ob.restore.missing" : "ob.restore.all_linked");
+  $("#ob-checklist").innerHTML = obChecklistHtml(status, chosen);
+  const home = `<button class="button${next ? " button--secondary" : ""}" type="button" data-ob-action="finish">${escapeHtml(t("ob.restore.home"))}</button>`;
+  $("#ob-restore-actions").innerHTML = next
+    ? `<button class="button" type="button" data-ob-action="go-${next}">${escapeHtml(t("ob.restore.continue"))}</button>${home}`
+    : home;
 }
 
 async function finishOnboarding({ then = null } = {}) {
@@ -609,6 +914,17 @@ const OB_ACTIONS = {
   "go-mfa": () => obGo("auth", "mfa-setup"),
   "skip-mfa": () => obGo("mealie"),
   "go-mealie": () => obGo("mealie"),
+  "go-restore": () => obGo("mealie", "restore"),
+  "restore-back": () => {
+    obRestoreDiscard();
+    obGo("mealie");
+  },
+  "restore-other": () => {
+    obRestoreDiscard();
+    obGo("mealie", "restore");
+  },
+  "restore-all": () => backupSelectAll("#ob-restore-parts", true),
+  "restore-none": () => backupSelectAll("#ob-restore-parts", false),
   "go-stores": () => obGo("stores"),
   next: () => obGo(obNeighbour(ob.step, 1)),
   back: () => obGo(obNeighbour(ob.step, -1)),
@@ -632,6 +948,9 @@ $("#ob-body").addEventListener("change", (event) => {
     for (const id of ["ob-password", "ob-password2"]) $(`#${id}`).type = event.target.checked ? "text" : "password";
   }
   if (event.target.id === "ob-open-confirm") $("#ob-open-submit").disabled = !event.target.checked;
+  if (event.target.id === "ob-restore-file") obRestoreChoose(event.target);
+  // Het wachtwoord is alleen nodig als je de (versleutelde) koppelingen terugzet.
+  if (event.target.id === "ob-restore-links") $("#ob-restore-passphrase-field")?.toggleAttribute("hidden", !event.target.checked);
   if (event.target.closest("#ob-stores")) {
     obSaveStores([...document.querySelectorAll("#ob-stores input:checked")].map((input) => input.value));
     // De stappenbalk en de teller volgen de keuze meteen.
@@ -649,6 +968,7 @@ $("#ob-body").addEventListener("submit", async (event) => {
     passkey: obSubmitPasskey,
     password: obSubmitPassword,
     open: obSubmitOpen,
+    restore: obSubmitRestore,
     mealie: obSubmitMealie,
     ah: obSubmitAh,
     jumbo: obSubmitJumbo,
@@ -980,9 +1300,12 @@ window.addEventListener("ms:languagechange", () => {
     return;
   }
   const body = $("#ob-body");
-  const saved = [...body.querySelectorAll("input[id]")].map((input) => [input.id, input.type === "checkbox" ? input.checked : input.value]);
+  // Een bestandsveld laat zich niet vullen (alleen leegmaken); de vinkjes van de onderdelen hebben geen id en gaan apart.
+  const saved = [...body.querySelectorAll("input[id]:not([type=file])")].map((input) => [input.id, input.type === "checkbox" ? input.checked : input.value]);
+  const parts = $("#ob-restore-parts") ? backupChoices("#ob-restore-parts") : null;
   ob.rendered = "";
   renderOnboarding();
+  if (parts) backupApplyChoices("#ob-restore-parts", parts);
   for (const [id, value] of saved) {
     const input = document.getElementById(id);
     if (!input) continue;

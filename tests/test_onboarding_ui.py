@@ -76,6 +76,7 @@ def dictionary(lang: str) -> dict[str, str]:
 
 
 NL = dictionary("nl")
+EN = dictionary("en")
 
 
 class ScriptTest(AppTestCase):
@@ -233,6 +234,130 @@ class ScriptTest(AppTestCase):
         self.assertIn("passkey", NL["sec.password.intro_passkey"])
         self.assertIn("Niet nodig", NL["sec.mfa.optional_note"])
         self.assertIn("gebruikersnaam en wachtwoord", NL["sec.mfa.optional_note"])
+
+
+class RestoreTest(AppTestCase):
+    """Een back-up terugzetten in de installatiehulp: de stap Mealie biedt het aan; daarna gaat de hulp naar de homepage of verder
+    met wat er nog niet gekoppeld is."""
+
+    def node(self, body: str) -> object:
+        if not shutil.which("node"):
+            self.skipTest("Node is niet geïnstalleerd")
+        source = "\n".join(
+            re.search(rf"^(?:const {name} = [^\n]*;|function {name}\(.*?^}})$", OB_JS, re.S | re.M).group(0)
+            for name in ("OB_STORE_STEPS", "OB_STORE_CHOICES", "obMissingLinks", "obStepForMissing")
+        )
+        result = subprocess.run(["node", "-e", source + body], capture_output=True, text=True, timeout=30, check=False)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        return json.loads(result.stdout.strip().splitlines()[-1])
+
+    def test_what_is_missing_and_where_the_wizard_goes_next(self):
+        out = self.node(
+            """
+        const linked = { mealie: { configured: true }, ah: { connected: true }, jumbo: { connected: true }, picnic: { connected: true }, crisp: { connected: true } };
+        const without = (...names) => Object.fromEntries(Object.entries(linked).map(([name, value]) => [name, names.includes(name) ? {} : value]));
+        const all = ["ah", "jumbo", "picnic", "crisp"];
+        const case_ = (status, stores) => { const missing = obMissingLinks(status, stores); return [missing, obStepForMissing(missing)]; };
+        console.log(JSON.stringify({
+          nothing: case_(linked, all),
+          mealie: case_(without("mealie"), []),
+          everything: case_({ mealie: {}, ah: {}, jumbo: {}, picnic: {}, crisp: {} }, all),
+          second: case_(without("jumbo"), all),
+          order: case_(without("picnic", "ah"), all),
+          crispOnly: case_(without("crisp"), all),
+          crispAndPicnic: case_(without("crisp", "picnic"), all),
+          notChosen: case_({ mealie: { configured: true } }, []),
+          chosenButNotLinked: case_({ mealie: { configured: true } }, ["jumbo"]),
+          empty: case_({}, []),
+        }));
+        """
+        )
+        self.assertEqual(out["nothing"], [[], None], "alles gekoppeld: geen stap, naar de homepage")
+        self.assertEqual(out["mealie"], [["mealie"], "mealie"])
+        self.assertEqual(out["everything"], [["mealie", "ah", "jumbo", "picnic", "crisp"], "mealie"], "Mealie gaat voor")
+        self.assertEqual(out["second"], [["jumbo"], "jumbo"])
+        self.assertEqual(out["order"], [["ah", "picnic"], "ah"], "in de volgorde van de hulp")
+        self.assertEqual(out["crispOnly"], [["crisp"], "done"], "Crisp heeft geen eigen stap: Klaar heeft zijn knop")
+        self.assertEqual(out["crispAndPicnic"], [["picnic", "crisp"], "picnic"])
+        self.assertEqual(out["notChosen"], [[], None], "een winkel die je niet koos, ontbreekt niet")
+        self.assertEqual(out["chosenButNotLinked"], [["jumbo"], "jumbo"])
+        self.assertEqual(out["empty"], [["mealie"], "mealie"])
+
+    def test_the_mealie_step_offers_it_and_the_restore_has_its_own_screens(self):
+        mealie = re.search(r"^function renderObMealie\(.*?^}$", OB_JS, re.S | re.M).group(0)
+        self.assertIn("${obRestoreOffer()}", mealie)
+        self.assertIn("renderObRestore", mealie)
+        self.assertIn('data-ob-action="go-restore"', OB_JS)
+        for sub in ("restore", "restoring", "restored"):
+            self.assertIn(f"{sub}:", OB_JS.split("const OB_RESTORE_TITLES")[1].split("\n")[0], sub)
+        self.assertIn('"go-restore": () => obGo("mealie", "restore")', OB_JS)
+        # Het terugzetten staat na de beveiliging: de hulp biedt het pas aan als de inlog er is (de back-up bevat hem nooit).
+        self.assertLess(OB_JS.index("function renderObAuth"), OB_JS.index("function renderObMealie"))
+
+    def test_it_uses_the_routes_and_helpers_of_the_settings_screen(self):
+        for needle in (
+            'uploadInChunks(file, "/api/backup/uploads"',
+            '"/api/backup/jobs"',
+            '"/api/backup/jobs/latest"',
+            "/api/backup/jobs/${job.id}",
+            "/api/backup/stage/${token}",
+            "backupRenderRestoreParts(summary",
+            "backupChoices(",
+            "backupRenderJob(job, obRestoreProgress)",
+            "backupLoadInfo()",
+        ):
+            self.assertIn(needle, OB_JS, needle)
+        self.assertNotIn("file.text()", OB_JS, "het bestand wordt op de server gecontroleerd, niet in de browser")
+
+    def test_the_restore_belongs_to_the_server_and_the_page_reloads_only_when_it_can_pick_up_again(self):
+        # Een klus die nog loopt of net klaar is (de pagina was dicht) pakt de hulp bij het openen weer op.
+        self.assertIn("obResumeRestore()", OB_JS)
+        # Herladen alleen als de klus is weggeklikt en de hulp na het herladen weet dat er is teruggezet; anders blijft de pagina.
+        self.assertIn("if (!dismissed || !marked) {", OB_JS)
+        self.assertIn('window.sessionStorage.setItem(OB_RESTORED_KEY, "1")', OB_JS)
+        self.assertIn("window.location.reload()", OB_JS)
+        self.assertEqual(OB_JS.count("window.location.reload()"), 1)
+        # De stappen van wat teruggezet is komen bij de hulp (winkels met een koppeling of gegevens in het bestand).
+        self.assertIn("job.summary?.stores", OB_JS)
+        self.assertIn("obSaveStores(", OB_JS)
+
+    def test_the_language_can_change_in_the_middle_of_a_restore(self):
+        # Een bestandsveld laat zich niet vullen (alleen leegmaken), en de vinkjes van de onderdelen hebben geen id.
+        self.assertIn("input[id]:not([type=file])", OB_JS)
+        self.assertIn('backupChoices("#ob-restore-parts")', OB_JS.split('window.addEventListener("ms:languagechange"')[1])
+        self.assertIn("backupApplyChoices(", OB_JS)
+
+    def test_the_last_step_and_the_restore_share_the_checklist(self):
+        for name in ("obLinkStatuses", "obChecklistHtml"):
+            self.assertIn(f"function {name}(", OB_JS)
+        self.assertIn("obChecklistHtml(status, chosen)", re.search(r"^async function renderObDone\(.*?^}$", OB_JS, re.S | re.M).group(0))
+        self.assertIn("obChecklistHtml(status, chosen)", re.search(r"^async function renderObRestored\(.*?^}$", OB_JS, re.S | re.M).group(0))
+
+    def test_every_text_exists_in_both_languages(self):
+        keys = [key for key in NL if key.startswith("ob.restore.")] + ["ob.title.restore", "ob.title.restored"]
+        self.assertGreaterEqual(len(keys), 12)
+        for key in keys:
+            self.assertIn(key, EN, key)
+            self.assertEqual(re.findall(r"\{(\w+)\}", NL[key]), re.findall(r"\{(\w+)\}", EN[key]), key)
+        for key in (
+            "ob.restore.offer_title",
+            "ob.restore.offer_text",
+            "ob.restore.offer_button",
+            "ob.restore.intro",
+            "ob.restore.other_file",
+            "ob.restore.restored",
+            "ob.restore.all_linked",
+            "ob.restore.missing",
+            "ob.restore.continue",
+            "ob.restore.home",
+        ):
+            self.assertIn(f'"{key}"', OB_JS, key)
+        self.assertIn(".json.gz", NL["ob.restore.intro"])
+        self.assertIn("homepage", EN["ob.restore.home"])
+
+    def test_the_offer_has_a_style(self):
+        self.assertIn(".ob-restore-offer {", CSS)
+        self.assertIn(".onboarding .backup-parts__list .check {", CSS)
 
 
 class StyleTest(AppTestCase):
