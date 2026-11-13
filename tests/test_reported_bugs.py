@@ -1770,3 +1770,111 @@ class BoughtProductHasPriceHistoryTest(test_ah_price_index.RoundCase):
         product: dict = (await prices.history("ah", "", 50, today=test_ah_price_index.TODAY, bought=True, product="446406"))["products"][0]
         self.assertEqual(product["regular"][0]["from"], "2022-07-25")
         self.assertEqual([segment["price"] for segment in product["regular"]], [2.39, 2.49, 2.59, 2.75, 2.79, 1.99, 2.19, 2.29, 2.49, 2.39])
+
+
+class SlowOffersPagesTest(AppTestCase):
+    """Melding (2026-11-13): "kijk wat er mis is met de performance van https://shopper.ytm.nl/offers en de links daaronder. het
+    duurt regelmatig heel lang (e.g. 10s ofzo?) voor die pagina geladen is."
+
+    Gemeten in productie met `MEALIESHOPPER_TELEMETRY`, na de ronde langs de prijsindex (309.000 prijzen van AH) en met een
+    prijsarchief (146.000 rijen in `offer_history`):
+
+    - `/api/offers/history` las alle rijen en zette ze op de event loop om: 6,5 seconden, waarvan de hele app er 5 stilstond.
+    - `/api/offers` telde voor de ETag bij elke aanvraag alle prijzen van de winkel: 1,6 seconde, ook voor een 304.
+    - `/api/prices/history` zocht de prijzen van vijftig producten via de index op dag: 1,6 seconde.
+    - De database stond niet in WAL: een schrijver hield de lezers tegen, tot `database is locked`."""
+
+    def setUp(self) -> None:
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        patcher = mock.patch.dict(os.environ, {"MEALIESHOPPER_DATA_DIR": tmp.name, "PASSKEY_AUTH_ENABLED": "false"})
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        run(auth.init_db())
+
+    def fill_history(self, products: int) -> None:
+        """`products` producten per winkel bij AH en Jumbo, elk met drie periodes, waarvan de middelste een voortzetting is."""
+        rows: list[tuple] = []
+        for store in ("ah", "jumbo"):
+            for number in range(products):
+                for period in range(3):
+                    day: int = 1 + (number * 7 + period * 5) % 27
+                    month: str = f"2026-{period + 1:02d}"
+                    rows.append(
+                        (
+                            store,
+                            f"p{number:04d}",
+                            f"{'Kaas' if number % 3 else 'Brood'} {number}",
+                            1.0 + period,
+                            f"{month}-{day:02d}T05:00:00+00:00",
+                            f"{month}-{min(28, day + number % 4):02d}T05:00:00+00:00",
+                            None if period == 2 and number % 5 == 0 else "2026-06-01T05:00:00+00:00",
+                            period % 2,
+                        )
+                    )
+        with closing(db(offers)) as conn, conn:
+            conn.executemany(
+                "INSERT INTO offer_history (store, product_id, title, price, first_seen, last_seen, ended_at, continued) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                rows,
+            )
+
+    async def history_the_old_way(self, store: str | None, query: str, limit: int) -> dict:
+        """Zoals tot 4.21.0: alle rijen lezen, per product samenvoegen, sorteren en afkappen."""
+        stores: list[str] = [store] if store else list(offers.STORES)
+        async with offers._connect() as conn:
+            rows = await conn.execute_fetchall(
+                f"SELECT * FROM offer_history WHERE store IN ({','.join('?' * len(stores))}) AND title LIKE ? ORDER BY store, product_id, first_seen, id",
+                (*stores, f"%{query}%"),
+            )
+        ranked: list[dict] = sorted(offers._history_products(rows).values(), key=lambda p: (p["lastSeen"], p["timesOnOffer"]), reverse=True)
+        return {"products": ranked[:limit], "total": len(ranked)}
+
+    async def test_2026_11_13_the_offer_history_reads_only_the_products_on_the_page(self) -> None:
+        self.fill_history(120)
+        with mock.patch.object(offers, "_history_products", wraps=offers._history_products) as merged:
+            found: dict = await offers.history(limit=20)
+        self.assertEqual(found["total"], 240)
+        self.assertEqual(len(found["products"]), 20)
+        self.assertEqual(len(list(merged.call_args.args[0])), 20 * 3, "alleen de rijen van de twintig producten, niet alle 720")
+
+    async def test_2026_11_13_the_offer_history_is_the_same_as_before(self) -> None:
+        self.fill_history(120)
+        cases: tuple[tuple[str | None, str, int], ...] = (
+            (None, "", 50),
+            ("ah", "", 200),
+            (None, "Brood", 30),
+            ("jumbo", "Kaas 1", 10),
+            (None, "bestaat niet", 50),
+            (None, "", 1),
+        )
+        for store, query, limit in cases:
+            with self.subTest(store=store, query=query, limit=limit):
+                self.assertEqual(await offers.history(store, query, limit), await self.history_the_old_way(store, query, limit))
+
+    async def test_2026_11_13_the_price_signature_does_not_count_the_prices(self) -> None:
+        before: str = await prices.signature("ah")
+        self.assertTrue(before)
+        with closing(db(prices)) as conn, conn:
+            conn.execute(
+                "INSERT INTO price_observations (store, product_id, day, source, title, price, seen_at) "
+                "VALUES ('ah', '1', '2026-11-13', 'search', 'Brood', 1.99, 'nu')"
+            )
+        self.assertNotEqual(await prices.signature("ah"), before, "een nieuwe prijs ververst het oordeel bij de aanbiedingen")
+        self.assertNotIn("FROM price_observations", inspect.getsource(prices.signature), "de handtekening leest de prijzen zelf niet")
+
+    async def test_2026_11_13_prices_of_a_few_products_are_looked_up_by_product(self) -> None:
+        with closing(db(prices)) as conn:
+            sql: str = f"EXPLAIN QUERY PLAN {prices.OBSERVATIONS_SQL.format(marks='?,?')}"
+            plan: str = " ".join(str(row[3]) for row in conn.execute(sql, ("ah", "1", "2")))
+        self.assertIn("sqlite_autoindex_price_observations_1 (store=? AND product_id=?)", plan)
+        self.assertNotIn("price_observations_day", plan)
+
+    async def test_2026_11_13_the_database_is_in_wal(self) -> None:
+        with closing(db()) as conn:
+            self.assertEqual(conn.execute("PRAGMA journal_mode").fetchone()[0], "wal")
+
+    async def test_2026_11_13_wal_can_be_turned_off(self) -> None:
+        with mock.patch.dict(os.environ, {"MEALIESHOPPER_SQLITE_WAL": "false"}):
+            await auth.init_db()
+        with closing(db()) as conn:
+            self.assertEqual(conn.execute("PRAGMA journal_mode").fetchone()[0], "delete")

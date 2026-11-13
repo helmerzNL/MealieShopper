@@ -2,6 +2,23 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub; een stabiele release krijgt de teksten van alle versies sinds de vorige stabiele release.
 
+## v4.21.1
+
+*English summary: The offers pages load fast again on an installation with a price archive and the weekly prices of ahprijsindex.nl. **Faster**: the offer history no longer reads every row and no longer stalls the whole app for five seconds, the offers list no longer counts every stored price on each request, and the price history looks up prices by product. **Database**: SQLite now runs in WAL, so a writer no longer blocks the readers. `MEALIESHOPPER_SQLITE_WAL=false` turns that off for a data folder on a network share.*
+
+### Sneller in 4.21.1
+
+Gemeten met `MEALIESHOPPER_TELEMETRY` op een installatie met een prijsarchief (146.000 rijen aan aanbiedingen) en de weekprijzen van ahprijsindex.nl (309.000 prijzen van Albert Heijn).
+
+- **De geschiedenis van de aanbiedingen** (`/api/offers/history`) las alle rijen en zette ze in de app om tot producten, om er daarna vijftig te tonen. Dat duurde 6,5 seconden, en vijf daarvan stond de hele app stil, dus elke andere pagina wachtte mee. De database kiest nu de producten van de pagina en de app leest alleen hun rijen.
+- **De lijst met aanbiedingen** (`/api/offers`) telde bij elke aanvraag alle bewaarde prijzen van de winkel om te zien of de lijst veranderd was, ook als de browser de lijst al had. Bij Albert Heijn kostte dat 1,6 seconde per keer. De app gebruikt daarvoor nu de versie die de database al bijhoudt bij elke wijziging.
+- **De prijsgeschiedenis** (`/api/prices/history`) zocht de prijzen van de producten op de pagina via de index op dag en las daarbij alle prijzen van de winkel: 1,6 seconde. Ze zoekt nu per product.
+
+### Opgelost in 4.21.1
+
+- **`database is locked`.** De database staat nu in WAL: lezen en schrijven houden elkaar niet meer tegen. Een pagina wachtte eerder op de nachtelijke synchronisatie, op een import of op een regel in de auditlog, en de ronde langs de prijsindex stopte op een slot van de app. Een verbinding wacht nu ook 30 seconden op een andere schrijver, in plaats van 5.
+- **Nieuwe, optionele instelling:** `MEALIESHOPPER_SQLITE_WAL=false` houdt de database in de oude stand, voor een data-map op een netwerkschijf (NFS, SMB). Met WAL staan naast `auth.sqlite3` de bestanden `auth.sqlite3-wal` en `auth.sqlite3-shm`: kopieer je de database met de hand, neem die dan mee of stop de container eerst. De back-up in de app verandert niet.
+
 ## v4.21.0
 
 *English summary: A new optional setting shows where a slow page spends its time. **Telemetry**: with `MEALIESHOPPER_TELEMETRY=true` every answer carries a `Server-Timing` header, the container log gets a line for each slow request and for each time the app stood still, and the admin sees the numbers per route at `/api/telemetry`. Off by default.*

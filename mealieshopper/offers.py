@@ -707,11 +707,33 @@ def _episode_span(row: Any) -> dict[str, Any]:
     return {"start": start.isoformat() if start else None, "end": end.isoformat() if end else None, "open": is_open}
 
 
+# De producten van `history`, het laatst gezien bovenaan, met het totaal ernaast: de database kiest ze, zodat de app alleen de
+# rijen van de producten op de pagina leest. `rank = 1` is de nieuwste rij van een product, die `lastSeen` geeft, en `times` telt
+# de periodes zoals `_history_products`. De volgorde bij een gelijke stand is die van de rijen: winkel en product.
+HISTORY_PAGE_SQL = """
+WITH matched AS (
+    SELECT store, product_id, last_seen,
+           ROW_NUMBER() OVER (PARTITION BY store, product_id ORDER BY first_seen DESC, id DESC) AS rank,
+           SUM(CASE WHEN continued THEN 0 ELSE 1 END) OVER (PARTITION BY store, product_id) AS times
+    FROM offer_history WHERE store IN ({marks}) AND title LIKE ? ESCAPE '\\'
+)
+SELECT store, product_id, COUNT(*) OVER () AS total FROM matched WHERE rank = 1
+ORDER BY last_seen DESC, times DESC, store, product_id LIMIT ?
+"""
+HISTORY_ROWS_SQL = """
+SELECT * FROM offer_history WHERE store = ? AND product_id IN ({marks}) AND title LIKE ? ESCAPE '\\'
+ORDER BY store, product_id, first_seen, id
+"""
+
+
 async def history(store: Any = None, query: Any = "", limit: Any = 50) -> dict[str, Any]:
     """Hoe vaak producten in de aanbieding waren en wat de details waren, per product, het laatst gezien bovenaan.
 
     `store` en `query` (een deel van de titel) zijn optioneel. `timesOnOffer` telt aaneengesloten periodes: een prijswijziging
     tijdens dezelfde aanbieding telt niet als een nieuwe keer.
+
+    De database kiest de producten van de pagina (`HISTORY_PAGE_SQL`) en de app leest alleen hun rijen. Met een prijsarchief
+    staan er ruim honderdduizend rijen in `offer_history`: ze allemaal lezen en omzetten hield de event loop vijf seconden vast.
     """
     stores = [_valid_store(store)] if store else list(STORES)
     pattern = "%" + str(query or "").strip().replace("\\", "\\\\").replace("%", r"\%").replace("_", r"\_") + "%"
@@ -719,17 +741,16 @@ async def history(store: Any = None, query: Any = "", limit: Any = 50) -> dict[s
         limit = max(1, min(200, int(limit)))
     except (TypeError, ValueError):
         limit = 50
-    marks = ",".join("?" * len(stores))
+    rows: list[Any] = []
     async with _connect() as conn:
-        rows = await conn.execute_fetchall(
-            f"""
-            SELECT * FROM offer_history WHERE store IN ({marks}) AND title LIKE ? ESCAPE '\\'
-            ORDER BY store, product_id, first_seen, id
-            """,
-            (*stores, pattern),
-        )
-    ranked = sorted(_history_products(rows).values(), key=lambda p: (p["lastSeen"], p["timesOnOffer"]), reverse=True)
-    return {"products": ranked[:limit], "total": len(ranked)}
+        page = await conn.execute_fetchall(HISTORY_PAGE_SQL.format(marks=",".join("?" * len(stores))), (*stores, pattern, limit))
+        wanted: dict[str, list[str]] = {}
+        for row in page:
+            wanted.setdefault(row["store"], []).append(row["product_id"])
+        for name, ids in wanted.items():
+            rows += await conn.execute_fetchall(HISTORY_ROWS_SQL.format(marks=",".join("?" * len(ids))), (name, *ids, pattern))
+    products = _history_products(rows)
+    return {"products": [products[(row["store"], row["product_id"])] for row in page], "total": page[0]["total"] if page else 0}
 
 
 async def history_of(store: Any, product_ids: Iterable[Any]) -> dict[str, dict[str, Any]]:

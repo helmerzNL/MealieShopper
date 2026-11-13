@@ -3,8 +3,10 @@ from __future__ import annotations
 import asyncio
 import base64
 import hashlib
+import logging
 import os
 import secrets
+import sqlite3
 import time
 import weakref
 from collections.abc import AsyncIterator, Awaitable, Callable
@@ -32,6 +34,8 @@ SESSION_RENEW_AFTER_SECONDS = 24 * 60 * 60
 # Hoe lang een sessie hooguit verlengd wordt, gerekend vanaf de inlog (`auth_time`): daarna log je hoe dan ook opnieuw in.
 SESSION_ABSOLUTE_SECONDS = 365 * 24 * 60 * 60
 _INITIALIZED = False
+BUSY_SECONDS: float = 30.0  # zo lang wacht een verbinding op het slot van een andere schrijver (sqlite3 zelf: 5 s)
+log: logging.Logger = logging.getLogger(__name__)
 
 # De schema's die dit proces al aanmaakte, per database-pad: elke module maakt haar tabellen, indexen en migraties een keer per
 # proces, niet bij elke verbinding. `forget_runtime_state` wist het, zodat een nieuwe database na een fabrieksreset het schema
@@ -187,7 +191,7 @@ async def connect() -> AsyncIterator[aiosqlite.Connection]:
     """
     data_dir().mkdir(parents=True, exist_ok=True)
     opened: float = time.perf_counter()
-    async with aiosqlite.connect(db_path()) as conn:
+    async with aiosqlite.connect(db_path(), timeout=BUSY_SECONDS) as conn:
         telemetry.watch(conn, opened)  # doet niets zonder MEALIESHOPPER_TELEMETRY
         conn.row_factory = aiosqlite.Row
         yield conn
@@ -304,9 +308,33 @@ async def init_db() -> None:
     via `ensure_db`, nooit per verzoek."""
     global _INITIALIZED
     async with connect() as conn:
+        await _set_journal_mode(conn)
         await conn.executescript(_SCHEMA)
         await _migrate(conn)
     _INITIALIZED = True
+
+
+def wal_enabled() -> bool:
+    return os.environ.get("MEALIESHOPPER_SQLITE_WAL", "true").strip().lower() not in {"0", "false", "no", "off"}
+
+
+async def _set_journal_mode(conn: aiosqlite.Connection) -> None:
+    """Zet de database in WAL (of terug in `delete` met `MEALIESHOPPER_SQLITE_WAL=false`). De keuze staat in het bestand en geldt
+    daarna voor elke verbinding, ook die van een tweede proces.
+
+    Zonder WAL houdt een schrijver elke lezer tegen en omgekeerd: een pagina wachtte op de nachtelijke synchronisatie of op
+    een auditregel, en wie te lang wachtte kreeg `database is locked`. Met WAL lezen en schrijven ze naast elkaar. Lukt het
+    wisselen niet (een andere verbinding is bezig, of het bestandssysteem kan het niet), dan blijft de database zoals ze was."""
+    wanted: str = "wal" if wal_enabled() else "delete"
+    try:
+        row = await fetchone(conn, "PRAGMA journal_mode")
+        if row is not None and str(row[0]).lower() == wanted:
+            return
+        row = await fetchone(conn, f"PRAGMA journal_mode = {wanted}")
+        if row is None or str(row[0]).lower() != wanted:
+            log.warning("De database blijft in journal_mode %s: %s kan hier niet", row[0] if row else "?", wanted)
+    except sqlite3.Error:
+        log.warning("Kon journal_mode %s niet instellen", wanted, exc_info=True)
 
 
 async def _has_session_epoch(conn: aiosqlite.Connection) -> bool:

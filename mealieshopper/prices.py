@@ -1089,9 +1089,14 @@ def _in(ids: list[str]) -> str:
     return ",".join("?" * len(ids))
 
 
+# Per product op dag, de volgorde van de primaire sleutel (winkel, product, dag): zo zoekt SQLite de producten op. Met alleen
+# `ORDER BY day` koos het de index op (winkel, dag) en las het alle prijzen van de winkel om er een paar producten uit te halen.
+OBSERVATIONS_SQL = "SELECT * FROM price_observations WHERE store = ? AND product_id IN ({marks}) ORDER BY product_id, day"
+
+
 async def _observations(conn: aiosqlite.Connection, store: str, ids: list[str]) -> dict[str, list[Any]]:
     found: dict[str, list[Any]] = {}
-    for row in await conn.execute_fetchall(f"SELECT * FROM price_observations WHERE store = ? AND product_id IN ({_in(ids)}) ORDER BY day", (store, *ids)):
+    for row in await conn.execute_fetchall(OBSERVATIONS_SQL.format(marks=_in(ids)), (store, *ids)):
         found.setdefault(row["product_id"], []).append(row)
     return found
 
@@ -1636,19 +1641,16 @@ def _episode_effective(row: Any) -> float | None:
 
 
 async def signature(store: Any) -> str:
-    """Verandert als er voor deze winkel een nieuwe gewone prijs is bewaard: zo ververst het oordeel bij de aanbiedingen (ETag)."""
+    """Verandert als er een prijs, een aankoop of een aanbieding is bewaard: zo ververst het oordeel bij de aanbiedingen (ETag).
+
+    Dat is de versie van de catalogus: `price_observations` en `imported_purchases` staan in `CATALOGUE_TABLES`, dus een trigger
+    hoogt de versie op bij elke rij die erbij komt, verandert of verdwijnt. De rijen van de winkel tellen (zoals tot 4.21.0) las
+    bij elke aanvraag van de aanbiedingen alle prijzen van die winkel, ook voor een 304: bij AH 1,6 seconde voor 309.000 prijzen.
+    """
+    del store  # de versie geldt voor alle winkels, de aanroepers geven de winkel al mee in hun eigen sleutel
     try:
         async with _connect() as conn:
-            row = await auth.fetchone(conn, "SELECT COUNT(*) AS n, MAX(seen_at) AS last FROM price_observations WHERE store = ?", (str(store),))
-            imported = ""
-            if "imported_purchases" in await _tables(conn):
-                extra = await auth.fetchone(
-                    conn, "SELECT COUNT(*) AS n, MAX(imported_at) AS last FROM imported_purchases WHERE store = ?", (str(store),)
-                )
-                imported = f":{extra['n']}:{extra['last'] or ''}"
-            # De catalogusversie: een archiefimport, een nieuwe bon of bestelling verandert de folderacties, de families en de ladder.
-            catalogue = await _catalogue_version(conn)
-        return f"{row['n']}:{row['last'] or ''}{imported}:{catalogue}"
+            return await _catalogue_version(conn)
     except Exception:  # noqa: BLE001 - de cache mag nooit de aanbiedingen tegenhouden
         log.warning("Handtekening van de prijzen mislukt", exc_info=True)
         return ""
