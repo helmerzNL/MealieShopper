@@ -15,7 +15,7 @@ from quart import Quart, Response, jsonify, redirect, render_template, request, 
 from . import about, ah, ah_explore, ah_lists, ah_orders, ah_planner, ah_recipes, ai_match, ai_review, audit, auth_password, backup, cart_memory, crisp, crisp_orders, factory_reset, hellofresh, image_cache, jumbo, jumbo_explore, jumbo_lists, jumbo_orders, jumbo_recipes, loose_names, loose_names_ai, marleyspoon, mcp_http, mealie, mealie_images, offers, offers_schedule, onboarding, picnic, picnic_explore, picnic_orders, picnic_recipes, price_archive, price_import, prices, product_images, product_links, profile, push, recipe_bulk, recipe_nutrition, request_body, server_settings, shared_links, shared_links_export, updates, users
 from . import auth, deals, http_client, tasks, urls
 from . import assets
-from . import compression, telemetry
+from . import compression, compute, telemetry
 from .body_limits import DEFAULT_MAX_BODY, SizedRequest
 from .forwarded import ForwardedHeaders
 from .keep_running import FinishAfterDisconnect
@@ -767,6 +767,10 @@ def create_app() -> Quart:
         # Een gestopte app laat haar opwarmer los, zodat de tests (veel apps na elkaar) niet met een oude blijven zitten.
         if offers_schedule._warmer is warm_offers:
             offers_schedule.set_warmer(None)
+
+    @app.after_serving
+    async def _stop_compute() -> None:
+        compute.shutdown()
 
     async def warm_at_start() -> None:
         await prices.warm_catalogues()

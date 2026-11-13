@@ -33,7 +33,10 @@ SOURCE: Path = Path(__file__).resolve().parent.parent / "mealieshopper"
 FORBIDDEN: tuple[str, ...] = ("import requests", "from requests", "threading.Thread(", "threading.Lock(", "ThreadPoolExecutor", "time.sleep(")
 
 # De bewaker van de event loop (loop_guard.py) draait juist in een eigen thread: een taak op de loop kan zichzelf niet betrappen.
-THREAD_ALLOWED: frozenset[str] = frozenset({"loop_guard.py"})
+THREAD_ALLOWED: frozenset[str] = frozenset({"loop_guard.py", "compute.py"})
+# Wat die modules daarvoor mogen gebruiken. compute.py heeft een eigen pool van daemonthreads (`compute.run`) met een slot om het
+# maken ervan, dat alleen microseconden wordt vastgehouden. Een `ThreadPoolExecutor` of `time.sleep` blijft ook daar verboden.
+THREAD_PATTERNS: tuple[str, ...] = ("threading.Thread(", "threading.Lock(")
 
 # Waar `asyncio.to_thread` mag: alleen rond rekenwerk en ander werk dat geen await kent (zie regels.md).
 TO_THREAD_ALLOWED: dict[str, str] = {
@@ -194,7 +197,7 @@ def test_no_module_uses_requests_threading_or_blocking_sleep() -> None:
         f"{name}:{number}: {code.strip()}"
         for name, text in modules()
         for number, code in code_lines(text)
-        if any(pattern in code for pattern in FORBIDDEN if not (name in THREAD_ALLOWED and pattern == "threading.Thread("))
+        if any(pattern in code for pattern in FORBIDDEN if not (name in THREAD_ALLOWED and pattern in THREAD_PATTERNS))
     ]
     assert found == []
     # Ook als requests ergens anders in de omgeving staat: met requests onvindbaar laadt de app gewoon.
