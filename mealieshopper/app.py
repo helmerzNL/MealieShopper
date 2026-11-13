@@ -770,7 +770,7 @@ def create_app() -> Quart:
 
     @app.after_serving
     async def _stop_compute() -> None:
-        compute.shutdown()
+        await compute.stop()
 
     async def warm_at_start() -> None:
         await prices.warm_catalogues()

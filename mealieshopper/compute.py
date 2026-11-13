@@ -27,12 +27,15 @@ K = TypeVar("K", bound=Hashable)
 V = TypeVar("V")
 
 WORKERS: int = 2
-SHUTDOWN_SECONDS: float = (
-    5.0  # zo lang wacht `shutdown` hooguit op threads die nog bezig zijn
-)
+# Zo lang wacht `shutdown` hooguit op threads die nog bezig zijn.
+SHUTDOWN_SECONDS: float = 5.0
 PHASE: str = "compute"
 
 _Job = tuple["Future[object]", Callable[[], object]]
+
+
+class PoolStopped(RuntimeError):
+    """Een opdracht naar een pool die al gestopt is: `run` pakt dan de nieuwe pool."""
 
 
 class _Pool:
@@ -40,6 +43,8 @@ class _Pool:
 
     def __init__(self) -> None:
         self._jobs: queue.SimpleQueue[_Job | None] = queue.SimpleQueue()
+        self._lock: threading.Lock = threading.Lock()
+        self._stopped: bool = False
         self._threads: list[threading.Thread] = [
             threading.Thread(target=self._work, name=f"compute-{number}", daemon=True)
             for number in range(WORKERS)
@@ -48,8 +53,12 @@ class _Pool:
             thread.start()
 
     def submit(self, call: Callable[[], T]) -> Future[T]:
+        """Zet de opdracht in de wachtrij. Na `stop` faalt dit met `PoolStopped`: niemand zou hem nog uitvoeren."""
         future: Future[T] = Future()
-        self._jobs.put((future, call))  # type: ignore[arg-type]
+        with self._lock:
+            if self._stopped:
+                raise PoolStopped
+            self._jobs.put((future, call))  # type: ignore[arg-type]
         return future
 
     def _work(self) -> None:
@@ -67,6 +76,8 @@ class _Pool:
 
     def stop(self, seconds: float) -> None:
         """Annuleert wat nog wacht en wacht hooguit `seconds` op wat loopt. Een functie die dan nog loopt, kan niet gestopt worden."""
+        with self._lock:
+            self._stopped = True  # onder hetzelfde slot als `submit`: wat hierna komt, wordt geweigerd
         while True:
             try:
                 job: _Job | None = self._jobs.get_nowait()
@@ -85,6 +96,15 @@ _pool: _Pool | None = None
 _pool_lock: threading.Lock = threading.Lock()
 
 
+def _submit(call: Callable[[], T]) -> Future[T]:
+    """Geeft de opdracht aan de pool. Staat die intussen op stoppen (een `shutdown` in een andere thread), dan volgt een nieuwe."""
+    while True:
+        try:
+            return _get_pool().submit(call)
+        except PoolStopped:
+            continue  # `shutdown` laat een pool los voor hij hem stopt, dus `_get_pool` maakt nu een nieuwe
+
+
 def _get_pool() -> _Pool:
     global _pool
     with _pool_lock:
@@ -100,7 +120,7 @@ async def run(function: Callable[P, T], /, *args: P.args, **kwargs: P.kwargs) ->
     de thread in hoeft. Een fout van de functie komt hier terug. Wordt het wachten geannuleerd, dan loopt een functie die al
     begonnen is af, en een functie die nog in de wachtrij stond begint niet meer.
     """
-    future: Future[T] = _get_pool().submit(functools.partial(function, *args, **kwargs))
+    future: Future[T] = _submit(functools.partial(function, *args, **kwargs))
     with telemetry.span(PHASE):
         return await asyncio.wrap_future(future)
 
@@ -112,12 +132,39 @@ def shutdown() -> None:
     thread loopt af op de achtergrond (hij is een daemonthread, dus hij houdt het proces niet vast) en levert zijn uitkomst
     aan wie er nog op wacht.
     """
+    pool: _Pool | None = _detach()
+    if pool is not None:
+        pool.stop(SHUTDOWN_SECONDS)
+
+
+def _detach() -> _Pool | None:
     global _pool
     with _pool_lock:
         pool: _Pool | None = _pool
         _pool = None
-    if pool is not None:
+    return pool
+
+
+async def stop() -> None:
+    """Hetzelfde als `shutdown`, voor een `async def`: het wachten op de threads gebeurt in een eigen thread en niet op de loop.
+
+    Een functie die nog loopt houdt de event loop dus niet vast, ook niet tot `SHUTDOWN_SECONDS`.
+    """
+    pool: _Pool | None = _detach()
+    if pool is None:
+        return
+    loop: asyncio.AbstractEventLoop = asyncio.get_running_loop()
+    done: asyncio.Future[None] = loop.create_future()
+
+    def finish() -> None:
         pool.stop(SHUTDOWN_SECONDS)
+        try:
+            loop.call_soon_threadsafe(done.set_result, None)
+        except RuntimeError:  # de loop is intussen gesloten
+            pass
+
+    threading.Thread(target=finish, name="compute-stop", daemon=True).start()
+    await done
 
 
 class SingleFlight(Generic[K, V]):
@@ -133,7 +180,8 @@ class SingleFlight(Generic[K, V]):
 
     async def get(self, key: K, build: Callable[[], Awaitable[V]]) -> V:
         flight: asyncio.Future[V] | None = self._flights.get(key)
-        if flight is None:
+        if flight is None or flight.done() or flight.get_loop() is not asyncio.get_running_loop():
+            # Een bouw die klaar is maar waarvan `_finished` nog niet liep, of van een andere (gesloten) loop, telt niet mee.
             flight = asyncio.ensure_future(build())
             self._flights[key] = flight
             flight.add_done_callback(functools.partial(self._finished, key))
