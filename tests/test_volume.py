@@ -21,6 +21,7 @@ import sqlite3
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, TypeVar
+from unittest import mock
 
 import loop_watch
 import pytest
@@ -233,9 +234,10 @@ def stalls_until(task: str) -> pytest.MarkDecorator:
     return pytest.mark.xfail(strict=True, raises=pytest.fail.Exception, reason=task)
 
 
+# De catalogus staat niet meer stil (taak 7), het oordeel en de lijnacties nog wel.
 COLD_STALLS: dict[str, Any] = {
-    "ah": stalls_until("taak 7 en 8"),
-    "jumbo": stalls_until("taak 7 en 8"),
+    "ah": stalls_until("taak 8"),
+    "jumbo": stalls_until("taak 8"),
 }
 COLD_STORES: list[Any] = [
     pytest.param(store, marks=COLD_STALLS.get(store, ()))
@@ -284,11 +286,18 @@ PRICE_QUERIES: tuple[str, ...] = (
     "store=ah&bought=1",
     "store=jumbo",
 )
+# Koud: de catalogus staat niet meer stil (taak 7), de lijnacties van de pagina nog wel.
+PRICE_STALLS: dict[str, Any] = {
+    "store=ah": stalls_until("taak 8"),
+    "store=ah&bought=1": stalls_until("taak 8"),
+}
 
 
 @pytest.mark.volume
-@stalls_until("taak 7 en 8")  # koud: de catalogus en de lijnacties van de pagina
-@pytest.mark.parametrize("query", PRICE_QUERIES)
+@pytest.mark.parametrize(
+    "query",
+    [pytest.param(query, marks=PRICE_STALLS.get(query, ())) for query in PRICE_QUERIES],
+)
 async def test_price_history_does_not_stall(
     volume_client: TestClientProtocol, volume_dir: Path, query: str
 ) -> None:
@@ -300,7 +309,7 @@ async def test_price_history_does_not_stall(
 
 
 @pytest.mark.volume
-@stalls_until("taak 7 en 8")  # de catalogi en daarna het oordeel van warm_offers
+@stalls_until("taak 8")  # het oordeel van warm_offers, de catalogi niet meer
 async def test_startup_warming_does_not_stall(volume_dir: Path) -> None:
     app: Quart = create_app()
     async with app.test_app():
@@ -311,3 +320,25 @@ async def test_startup_warming_does_not_stall(volume_dir: Path) -> None:
             await app.extensions["mealieshopper_warm_offers"]()
 
         await quiet(warm_at_start, prepare=cold(volume_dir))
+
+
+@pytest.mark.volume
+async def test_two_cold_requests_build_the_catalogue_once(volume_dir: Path) -> None:
+    # De versie van de catalogus staat vast voordat de twee aanvragen haar lezen.
+    await prices.signature("ah")
+    with mock.patch.object(
+        prices, "_build_catalogue", wraps=prices._build_catalogue
+    ) as built:
+        await asyncio.gather(
+            prices.annotate("ah", [], today=volume.TODAY),
+            prices.annotate("ah", [], today=volume.TODAY),
+        )
+    assert built.call_count == 1
+
+
+@pytest.mark.volume
+async def test_building_the_catalogue_does_not_stall(volume_dir: Path) -> None:
+    await quiet(
+        lambda: prices.warm_catalogues(["ah"], today=volume.TODAY),
+        prepare=cold(volume_dir),
+    )

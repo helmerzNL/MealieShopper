@@ -36,7 +36,7 @@ from typing import Any, Callable, Iterable, NamedTuple
 
 import aiosqlite
 
-from . import ah, ah_lists, ah_orders, auth, deals, line_offers, name_keys, offer_categories, offer_ranking, offers, packs, price_import, product_links, shared_links
+from . import ah, ah_lists, ah_orders, auth, compute, deals, line_offers, name_keys, offer_categories, offer_ranking, offers, packs, price_import, product_links, shared_links
 from .i18n import tr
 from .regular_price import Chosen, RegularPoint, choose
 
@@ -394,16 +394,23 @@ async def _known_prices(conn: aiosqlite.Connection, sources: list[tuple[str, tup
     return found
 
 
-async def _names(conn: aiosqlite.Connection, store: str) -> _Names:
-    sources: list[tuple[str, tuple[Any, ...]]] = _name_sources(await _tables(conn), store)
-    rows: list[Any] = await _name_rows(conn, sources)
+def _name_groups(rows: list[Any]) -> tuple[dict[str, str], dict[str, set[str]]]:
+    """De index van `_name_index` uit de rijen van `_name_rows`, en de namen waar meer dan een product bij hoort (naam -> de
+    producten). Puur: `_names` laat dit in de threadpool lopen, bij AH zijn het tienduizenden namen om te vouwen."""
     index: dict[str, str] = {}
     _add_names(index, rows)
     products: dict[str, set[str]] = {}
     for row in rows:
         if row["product_id"] and row["title"]:
             products.setdefault(_fold_name(row["title"]), set()).add(str(row["product_id"]))
-    several: dict[str, set[str]] = {name: ids for name, ids in products.items() if len(ids) > 1}
+    return index, {name: ids for name, ids in products.items() if len(ids) > 1}
+
+
+async def _names(conn: aiosqlite.Connection, store: str) -> _Names:
+    sources: list[tuple[str, tuple[Any, ...]]] = _name_sources(await _tables(conn), store)
+    index: dict[str, str]
+    several: dict[str, set[str]]
+    index, several = await compute.run(_name_groups, list(await _name_rows(conn, sources)))
     known: dict[str, set[float]] = await _known_prices(conn, sources, sorted(set().union(*several.values()))) if several else {}
     shared: dict[str, dict[str, tuple[float, ...]]] = {
         name: {product_id: tuple(sorted(known.get(product_id, ()))) for product_id in sorted(ids)} for name, ids in several.items()
@@ -555,15 +562,45 @@ async def _receipt_rows(conn: aiosqlite.Connection, store: str, today: str) -> l
     "AH RUNDERGEHAKT" hoort bij "AH Rundergehakt". Past de naam ook nergens, dan is het id van de bon het product, of, zonder id, de
     naam zelf (`bon:ah rundergehakt`), zodat de aankoop altijd te vinden is.
 
-    Het koppelen zelf is `_link_receipt_rows`.
+    Het koppelen zelf is `_link_receipt_rows`, in de threadpool (`_linked_receipts`): bij AH duizenden regels tegen tienduizenden
+    namen.
     """
-    rows = list(await _imported_rows(conn, store, today))
-    if store == "ah" and _RECEIPT_TABLES <= await _tables(conn):
-        rows += await conn.execute_fetchall(_DATED_RECEIPTS_SQL, (today,))
+    rows: list[Any] = await _receipt_source_rows(conn, store, today)
     if not rows:
         return []
+    return await compute.run(_linked_receipts, store, rows, await _link_rows(conn, store))
+
+
+async def _receipt_source_rows(conn: aiosqlite.Connection, store: str, today: str) -> list[Any]:
+    """De regels van `_receipt_rows` voor het koppelen: de ingelezen aankopen (`_imported_rows`) en bij AH de regels van de
+    kassabonnen tot en met `today`."""
+    rows: list[Any] = list(await _imported_rows(conn, store, today))
+    if store == "ah" and _RECEIPT_TABLES <= await _tables(conn):
+        rows += await conn.execute_fetchall(_DATED_RECEIPTS_SQL, (today,))
+    return rows
+
+
+class _LinkRows(NamedTuple):
+    """Wat `_link_receipt_rows` uit de database nodig heeft (`_link_rows`)."""
+
+    names: _Names  # `_names`
+    receipt_products: list[Any]  # de rijen van `_RECEIPT_PRODUCTS_SQL` voor `_receipt_product_map`, leeg zonder die tabel
+    mine: product_links.Links  # je eigen koppelingen (`product_links.load`)
+    shared: dict[str, shared_links.SharedLink]  # de gedeelde koppelingen zonder de afgewezen (`shared_links.active`)
+
+
+async def _link_rows(conn: aiosqlite.Connection, store: str) -> _LinkRows:
+    products: list[Any] = list(await conn.execute_fetchall(_RECEIPT_PRODUCTS_SQL)) if "ah_receipt_products" in await _tables(conn) else []
     shared: dict[str, shared_links.SharedLink] = shared_links.active(store, await shared_links.rejected(conn, store))
-    return _link_receipt_rows(store, rows, await _names(conn, store), await _receipt_products(conn), await product_links.load(conn, store), shared)
+    return _LinkRows(await _names(conn, store), products, await product_links.load(conn, store), shared)
+
+
+def _linked_receipts(store: str, rows: list[Any], links: _LinkRows | None) -> list[dict[str, Any]]:
+    """`_link_receipt_rows` op de regels van `_receipt_source_rows` met de koppelingen van `_link_rows`, leeg zonder regels. Puur:
+    het draait in de threadpool."""
+    if not rows or links is None:
+        return []
+    return _link_receipt_rows(store, rows, links.names, _receipt_product_map(links.receipt_products), links.mine, links.shared)
 
 
 def _link_receipt_rows(
@@ -912,14 +949,17 @@ def _twins(products: dict[str, _Known]) -> dict[str, tuple[str, ...]]:
     return {product_id: tuple(sorted(group)) for group in groups.values() if len(group) > 1 for product_id in group}
 
 
-async def _known_products(conn: aiosqlite.Connection, store: str, today: str, receipts: list[dict[str, Any]]) -> dict[str, _Known]:
+def _known_products(store: str, rows: _CatalogueRows, receipts: list[dict[str, Any]]) -> dict[str, _Known]:
     """Per product van een winkel de laatste dag dat we er iets van weten, en al zijn namen en verpakkingen samen (uit de
     aanbiedingen, de bewaarde prijzen, de bestellingen en de bonnen). Een aanbieding die nog moet beginnen, telt ook (met haar
-    begindag): die staat nog niet in `offer_history`. Zonder zoekterm: die filtert `_candidates` daarna."""
+    begindag): die staat nog niet in `offer_history`. Zonder zoekterm: die filtert `_candidates` daarna.
+
+    Puur, uit de rijen van `_catalogue_rows` en de gekoppelde bonregels (`_linked_receipts`): het draait in de threadpool
+    (`_build_catalogue`)."""
     found: dict[str, dict[str, Any]] = {}
 
-    def add(rows) -> None:
-        for row in rows:
+    def add(source: Iterable[Any]) -> None:
+        for row in source:
             product_id = row["product_id"]
             if not product_id:
                 continue
@@ -932,23 +972,17 @@ async def _known_products(conn: aiosqlite.Connection, store: str, today: str, re
             if size:
                 entry["sizes"].add(size)
 
-    columns = "product_id, title, brand, unit_size"
-    add(await conn.execute_fetchall(f"SELECT {columns}, MAX(last_seen) AS last FROM offer_history WHERE store = ? GROUP BY {columns}", (store,)))
-    add(await conn.execute_fetchall(f"SELECT {columns}, MAX(day) AS last FROM price_observations WHERE store = ? GROUP BY {columns}", (store,)))
-    for sql in _purchase_sources(await _tables(conn), store):
-        add(await conn.execute_fetchall(f"SELECT {columns}, MAX(day) AS last FROM ({sql}) WHERE day <= ? GROUP BY {columns}", (today,)))
+    add(rows.offer_history)
+    add(rows.observations)
+    for purchases in rows.purchases:
+        add(purchases)
     add({**row, "last": row["day"]} for row in receipts)
-    add(await conn.execute_fetchall(_UPCOMING_SQL.format(columns=f"{columns}, COALESCE(valid_from, ?) AS last"), (today, store, today, today, store)))
+    add(rows.upcoming)
     for row in receipts:  # de naam op de bon van een gekoppelde regel blijft vindbaar ("RB PICOLIENT")
         if row.get("receipt_name") and row["product_id"] in found:
             found[row["product_id"]]["names"].add(_fold_name(row["receipt_name"]))
     # De categorie: die de winkel bij een aanbieding meegaf, anders die van de naam (zoals de aanbiedingen en de aankopen doen).
-    stored: dict[str, str] = {
-        row["product_id"]: row["category"]
-        for row in await conn.execute_fetchall(
-            "SELECT product_id, MAX(category) AS category FROM offer_history WHERE store = ? AND COALESCE(category, '') != '' GROUP BY product_id", (store,)
-        )
-    }
+    stored: dict[str, str] = {row["product_id"]: row["category"] for row in rows.categories}
     return {
         product_id: _Known(
             entry["last"], frozenset(entry["names"]), frozenset(entry["sizes"]), entry["brand"],
@@ -993,15 +1027,72 @@ class _Catalogue(NamedTuple):
 _FOLDER_PRODUCTS_SQL = "SELECT DISTINCT product_id, title FROM offer_history WHERE store = ? AND product_id LIKE 'folder:%' ORDER BY product_id"
 
 
-async def _line_index(conn: aiosqlite.Connection, store: str) -> line_offers.LineIndex:
-    """De folderproducten van een winkel (uit een prijsarchief, `folder:...`), om lijnacties bij een product te vinden."""
-    rows = await conn.execute_fetchall(_FOLDER_PRODUCTS_SQL, (store,))
-    return line_offers.LineIndex((row["product_id"], row["title"] or "") for row in rows)
+def _line_index(folder_products: list[Any]) -> line_offers.LineIndex:
+    """De folderproducten van een winkel (uit een prijsarchief, `folder:...`: de rijen van `_FOLDER_PRODUCTS_SQL`), om lijnacties
+    bij een product te vinden. Puur, voor `_build_catalogue`."""
+    return line_offers.LineIndex((row["product_id"], row["title"] or "") for row in folder_products)
+
+
+# Wat de catalogus uit de database leest (`_catalogue_rows`). De bekende producten per naam, merk en verpakking met hun laatste dag:
+_KNOWN_COLUMNS: str = "product_id, title, brand, unit_size"
+_KNOWN_OFFERS_SQL: str = f"SELECT {_KNOWN_COLUMNS}, MAX(last_seen) AS last FROM offer_history WHERE store = ? GROUP BY {_KNOWN_COLUMNS}"
+_KNOWN_OBSERVATIONS_SQL: str = f"SELECT {_KNOWN_COLUMNS}, MAX(day) AS last FROM price_observations WHERE store = ? GROUP BY {_KNOWN_COLUMNS}"
+_KNOWN_PURCHASES_SQL: str = f"SELECT {_KNOWN_COLUMNS}, MAX(day) AS last FROM ({{sql}}) WHERE day <= ? GROUP BY {_KNOWN_COLUMNS}"
+_KNOWN_UPCOMING_SQL: str = _UPCOMING_SQL.format(columns=f"{_KNOWN_COLUMNS}, COALESCE(valid_from, ?) AS last")  # vandaag, dan `_UPCOMING_SQL`
+_CATEGORIES_SQL: str = (
+    "SELECT product_id, MAX(category) AS category FROM offer_history WHERE store = ? AND COALESCE(category, '') != '' GROUP BY product_id"
+)
+
+
+class _CatalogueRows(NamedTuple):
+    """Alles wat de bouw van de catalogus (`_build_catalogue`) uit de database nodig heeft, gelezen door `_catalogue_rows`. Lijsten
+    van `sqlite3.Row`: de threadpool leest ze zonder de verbinding."""
+
+    offer_history: list[Any]  # `_KNOWN_OFFERS_SQL`
+    observations: list[Any]  # `_KNOWN_OBSERVATIONS_SQL`
+    purchases: list[list[Any]]  # `_KNOWN_PURCHASES_SQL`, per aankoopbron van `_purchase_sources`
+    receipts: list[Any]  # de ruwe regels van `_receipt_source_rows`, voor het koppelen
+    upcoming: list[Any]  # `_KNOWN_UPCOMING_SQL`: de aanbiedingen die nog niet in de geschiedenis staan
+    categories: list[Any]  # `_CATEGORIES_SQL`: de categorie die de winkel bij een aanbieding meegaf
+    folder_products: list[Any]  # `_FOLDER_PRODUCTS_SQL`, voor `_line_index`
+    links: _LinkRows | None  # `_link_rows`, None zonder regels om te koppelen
+
+
+async def _catalogue_rows(conn: aiosqlite.Connection, store: str, today: str) -> _CatalogueRows:
+    """De rijen voor de catalogus van een winkel op een dag. Alleen queries, het rekenwerk is `_build_catalogue` (alleen `_names`
+    vouwt de namen al in de threadpool: welke prijzen het daarna leest, hangt van die vouw af)."""
+    receipts: list[Any] = await _receipt_source_rows(conn, store, today)
+    purchases: list[list[Any]] = [
+        list(await conn.execute_fetchall(_KNOWN_PURCHASES_SQL.format(sql=sql), (today,))) for sql in _purchase_sources(await _tables(conn), store)
+    ]
+    return _CatalogueRows(
+        list(await conn.execute_fetchall(_KNOWN_OFFERS_SQL, (store,))),
+        list(await conn.execute_fetchall(_KNOWN_OBSERVATIONS_SQL, (store,))),
+        purchases,
+        receipts,
+        list(await conn.execute_fetchall(_KNOWN_UPCOMING_SQL, (today, store, today, today, store))),
+        list(await conn.execute_fetchall(_CATEGORIES_SQL, (store,))),
+        list(await conn.execute_fetchall(_FOLDER_PRODUCTS_SQL, (store,))),
+        await _link_rows(conn, store) if receipts else None,
+    )
+
+
+def _build_catalogue(store: str, today: str, rows: _CatalogueRows) -> _Catalogue:
+    """De catalogus uit de rijen van `_catalogue_rows`: de gekoppelde bonregels, de bekende producten, de lijnindex en de andere
+    nummers van hetzelfde product. Puur en zonder await, want `_catalogue` laat dit in de threadpool lopen (bij AH seconden
+    rekenwerk). Het leest en schrijft `_CATALOGUES` niet: dat doet de event loop met de uitkomst. `today` rekent niet mee, de
+    rijen gelden al tot en met die dag. Hij hoort bij de sleutel van de bouw."""
+    del today
+    receipts: list[dict[str, Any]] = _linked_receipts(store, rows.receipts, rows.links)
+    products: dict[str, _Known] = _known_products(store, rows, receipts)
+    return _Catalogue(receipts, products, _line_index(rows.folder_products), _twins(products))
 
 
 # (database, winkel) -> (versie, dag, catalogus). Een winkel heeft er een; bij AH met tienduizenden producten scheelt hij per
 # zoekopdracht in de prijsgeschiedenis en per lijst aanbiedingen het grootste deel van een seconde.
 _CATALOGUES: dict[tuple[str, str], tuple[str, str, _Catalogue]] = {}
+# Een bouw per (database, winkel, versie, dag) tegelijk: twee koude aanvragen wachten op dezelfde bouw (`_new_catalogue`).
+_CATALOGUE_BUILDS: compute.SingleFlight[tuple[str, str, str, str], _Catalogue] = compute.SingleFlight()
 
 
 async def _catalogue_version(conn: aiosqlite.Connection) -> str:
@@ -1028,16 +1119,24 @@ async def _catalogue_version(conn: aiosqlite.Connection) -> str:
 
 async def _catalogue(conn: aiosqlite.Connection, store: str, today: str) -> _Catalogue:
     """De catalogus van een winkel op een dag: uit de cache zolang de versie (`_catalogue_version`) en de dag gelijk zijn, anders
-    opnieuw opgebouwd. Verandert er iets terwijl hij wordt opgebouwd, dan is de versie daarna anders en bouwt de volgende aanvraag
-    hem opnieuw."""
-    key = (str(auth.db_path()), store)
-    version = await _catalogue_version(conn)
-    found = _CATALOGUES.get(key)
+    opnieuw opgebouwd (`_new_catalogue`), een keer tegelijk per versie en dag: wie tijdens de bouw komt, wacht op dezelfde.
+    Verandert er iets terwijl hij wordt opgebouwd, dan is de versie daarna anders en bouwt de volgende aanvraag hem opnieuw."""
+    key: tuple[str, str] = (str(auth.db_path()), store)
+    version: str = await _catalogue_version(conn)
+    found: tuple[str, str, _Catalogue] | None = _CATALOGUES.get(key)
     if found is not None and found[0] == version and found[1] == today:
         return found[2]
-    receipts = await _receipt_rows(conn, store, today)
-    products = await _known_products(conn, store, today, receipts)
-    catalogue = _Catalogue(receipts, products, await _line_index(conn, store), _twins(products))
+    return await _CATALOGUE_BUILDS.get((*key, version, today), lambda: _new_catalogue(key, version, today))
+
+
+async def _new_catalogue(key: tuple[str, str], version: str, today: str) -> _Catalogue:
+    """Bouwt de catalogus van `key` (database, winkel): de rijen op een eigen verbinding (`_catalogue_rows`), het rekenwerk in de
+    threadpool (`_build_catalogue`), en dan schrijft de event loop hem in `_CATALOGUES`. Een eigen verbinding, want de bouw loopt
+    door als de aanvraag die hem startte wegvalt (`compute.SingleFlight`), en die sluit dan haar verbinding. Een fout komt bij elke
+    wachtende aanvraag terecht en blijft niet bewaard: de volgende aanvraag bouwt opnieuw."""
+    async with _connect() as conn:
+        rows: _CatalogueRows = await _catalogue_rows(conn, key[1], today)
+    catalogue: _Catalogue = await compute.run(_build_catalogue, key[1], today, rows)
     _CATALOGUES[key] = (version, today, catalogue)
     return catalogue
 
@@ -1262,8 +1361,9 @@ def _known_pack_titles(store: str, catalogue: "_Catalogue | None", packs_known: 
 
 async def warm_catalogues(stores: Iterable[str] | None = None, today: str | None = None) -> None:
     """Bouwt de catalogus van elke winkel alvast op (`_catalogue`: de bekende producten en de lijnindex, bij AH ruim twee
-    seconden), zodat de eerste aanvraag van /api/offers na een start of een synchronisatie er niet op hoeft te wachten. Een fout
-    bij een winkel laat de andere met rust: de aanvraag bouwt de catalogus dan zelf."""
+    seconden rekenwerk in de threadpool), zodat de eerste aanvraag van /api/offers na een start of een synchronisatie er niet op
+    hoeft te wachten. Een aanvraag die tijdens het opwarmen komt, wacht op dezelfde bouw. Een fout bij een winkel laat de andere
+    met rust: de aanvraag bouwt de catalogus dan zelf."""
     day = today or date.today().isoformat()
     for store in stores or offers.STORES:
         try:
