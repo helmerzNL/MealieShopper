@@ -967,9 +967,12 @@ function renderMealRecipeBody(entry) {
     ${nutritionTable(entry.nutrition, { servings: entry.servings?.planned, headingLevel: 4 })}`;
 }
 
-function openMealRecipe(entry) {
+// Een maaltijd uit het weekmenu. Vanuit het weekmenu begint de reeks om door de maaltijden met een recept te bladeren (recipe_nav.js);
+// met `move` is dit een stap naar de vorige of volgende maaltijd, in hetzelfde venster.
+function openMealRecipe(entry, { move = false } = {}) {
   mealRecipe.entry = entry;
   const dialog = $("#meal-recipe-dialog");
+  if (!move && typeof recipeNavMeal === "function") recipeNavMeal(entry);
   $("#meal-recipe-type").textContent = `${mealLabel(entry.entryType)} · ${formatDate(entry.date)}`;
   $("#meal-recipe-title").textContent = mealName(entry);
   // Het totaal alleen als het iets toevoegt: bij één portie is het gelijk aan de kcal per portie.
@@ -992,6 +995,7 @@ function openMealRecipe(entry) {
   if (!dialog.open) dialog.showModal();
   dialog.scrollTop = 0;
   if (typeof cookWakeUpdate === "function") cookWakeUpdate(); // "Scherm aan laten" (recipe_view.js)
+  if (move && typeof recipeNavArrived === "function") recipeNavArrived(dialog);
 }
 
 function renderMealPlan(entries) {
