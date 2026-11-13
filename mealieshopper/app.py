@@ -15,7 +15,7 @@ from quart import Quart, Response, jsonify, redirect, render_template, request, 
 from . import about, ah, ah_explore, ah_lists, ah_orders, ah_planner, ah_recipes, ai_match, ai_review, audit, auth_password, backup, cart_memory, crisp, crisp_orders, factory_reset, hellofresh, image_cache, jumbo, jumbo_explore, jumbo_lists, jumbo_orders, jumbo_recipes, loose_names, loose_names_ai, marleyspoon, mcp_http, mealie, mealie_images, offers, offers_schedule, onboarding, picnic, picnic_explore, picnic_orders, picnic_recipes, price_archive, price_import, prices, product_images, product_links, profile, push, recipe_bulk, recipe_nutrition, request_body, server_settings, shared_links, shared_links_export, updates, users
 from . import auth, deals, http_client, tasks, urls
 from . import assets
-from . import compression
+from . import compression, telemetry
 from .body_limits import DEFAULT_MAX_BODY, SizedRequest
 from .forwarded import ForwardedHeaders
 from .keep_running import FinishAfterDisconnect
@@ -110,6 +110,8 @@ def create_app() -> Quart:
     # Achter de reverse proxy: schema, host en client-adres uit X-Forwarded-* (een hop), zoals ProxyFix voorheen. Daarbinnen,
     # direct om Quart: een handler maakt zijn werk af als de client weggaat (keep_running.py), zoals een thread onder 3.x.
     app.asgi_app = ForwardedHeaders(FinishAfterDisconnect(app.asgi_app))  # type: ignore[method-assign]
+    # Met MEALIESHOPPER_TELEMETRY: de duur van elke aanvraag, buiten om de rest heen en voor de eerste before_request (telemetry.py).
+    telemetry.register(app)
     # De receptvoorstellen bij Aanbiedingen staan standaard verborgen zolang de koppelingen niet goed genoeg zijn.
     app.config["OFFERS_RECIPES"] = environ.get("MEALIESHOPPER_OFFERS_RECIPES", "false").strip().lower() in {"1", "true", "yes", "on"}
 

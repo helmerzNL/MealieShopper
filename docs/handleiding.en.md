@@ -818,6 +818,8 @@ chown -R nobody:users /mnt/user/appdata/mealieshopper
 chmod -R ug+rwX /mnt/user/appdata/mealieshopper
 ```
 
+**The app is slow.** Set `MEALIESHOPPER_TELEMETRY=true` in the environment of the container and restart it. Every answer then carries the `Server-Timing` header, which the browser shows under Network, Timing: `total` is the time until the answer began, `db` the time in the database and `gzip` the compression. A request of half a second or longer is written to the container log as `Trage aanvraag` (slow request), with its slowest query. The line `De event loop stond ... ms stil` means that the app itself was computing for that long while every other request waited, and it names the requests that were running. As the admin you see the numbers per route since the start at `/api/telemetry`: the count, the mean, the median, the 95th percentile and the longest.
+
 **The passkey doesn't work.** A passkey needs a domain name and HTTPS (on `localhost` it works too). Open MealieShopper through that address and check `RP_ID` and `RP_ORIGINS`; the setup guide explains why it can't work on an IP address.
 
 **Jumbo: "Jumbo refuses the request (403)".** Jumbo blocks this address or server. Try again later; if it keeps happening, Jumbo does not work from this location. See **Explore Jumbo routes**.

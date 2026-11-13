@@ -24,6 +24,8 @@ from collections import OrderedDict
 
 from quart import Quart, Response, request
 
+from . import telemetry
+
 MIN_BYTES: int = 1024  # daaronder past het antwoord in een pakket en kost verpakken meer dan het oplevert
 LEVEL: int = 6
 CACHE_BYTES: int = 32 * 1024 * 1024
@@ -91,7 +93,8 @@ async def _compressed(cache: CompressedCache, response: Response) -> bytes:
     if found is not None:
         return found
     body: bytes = await response.get_data()
-    packed: bytes = await asyncio.to_thread(gzip.compress, body, LEVEL, mtime=0)
+    with telemetry.span("gzip"):
+        packed: bytes = await asyncio.to_thread(gzip.compress, body, LEVEL, mtime=0)
     if key:
         cache.put(key, packed)
     return packed

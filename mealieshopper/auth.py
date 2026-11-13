@@ -5,6 +5,7 @@ import base64
 import hashlib
 import os
 import secrets
+import time
 import weakref
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
@@ -20,7 +21,7 @@ from webauthn import verify_authentication_response, verify_registration_respons
 from webauthn.helpers.cose import COSEAlgorithmIdentifier
 
 from .i18n import tr
-from . import request_body
+from . import request_body, telemetry
 
 OWNER_ID = "owner"  # de eerste gebruiker is de beheerder; alle anderen zijn gewone gebruikers
 SESSION_COOKIE_NAME = "ms_session"
@@ -185,7 +186,9 @@ async def connect() -> AsyncIterator[aiosqlite.Connection]:
     dezelfde klasse): `row["key"]` en `row[0]` werken allebei.
     """
     data_dir().mkdir(parents=True, exist_ok=True)
+    opened: float = time.perf_counter()
     async with aiosqlite.connect(db_path()) as conn:
+        telemetry.watch(conn, opened)  # doet niets zonder MEALIESHOPPER_TELEMETRY
         conn.row_factory = aiosqlite.Row
         yield conn
 
@@ -1001,7 +1004,7 @@ def register_routes(app: Quart) -> None:
 # Alleen de beheerder: Mealie en Albert Heijn koppelen, gebruikers beheren en de serverinstellingen. Gewone gebruikers
 # zien de status ervan wel (/api/mealie/status, /api/ah/auth/status), maar kunnen niets wijzigen.
 ADMIN_PREFIXES = ("/api/users", "/api/server-settings", "/api/audit", "/api/update", "/api/system", "/api/backup", "/api/price-archive", "/api/mealie/auth", "/api/prices/import", "/api/ah/auth/", "/api/picnic/auth/", "/api/jumbo/auth/", "/api/crisp/auth/", "/api/loose-names")
-ADMIN_PATHS = {"/api/mealie/bulk-import/group", "/api/mealie/nutrition/backfill", "/api/offers/sync-all", "/api/offers/ai", "/api/offers/ai/test", "/api/offers/ai/review", "/api/offers/ai/search", "/api/offers/ai/search/plan", "/api/offers/ai/search/status", "/api/ah/auth", "/api/ah/explore", "/api/picnic/auth", "/api/picnic/explore", "/api/jumbo/auth", "/api/jumbo/explore", "/api/crisp/auth", "/api/crisp/explore", "/api/shared-links/export"}
+ADMIN_PATHS = {"/api/mealie/bulk-import/group", "/api/mealie/nutrition/backfill", "/api/offers/sync-all", "/api/offers/ai", "/api/offers/ai/test", "/api/offers/ai/review", "/api/offers/ai/search", "/api/offers/ai/search/plan", "/api/offers/ai/search/status", "/api/ah/auth", "/api/ah/explore", "/api/picnic/auth", "/api/picnic/explore", "/api/jumbo/auth", "/api/jumbo/explore", "/api/crisp/auth", "/api/crisp/explore", "/api/shared-links/export", "/api/telemetry"}
 ADMIN_EXCEPTIONS = {"/api/ah/auth/status", "/api/picnic/auth/status", "/api/jumbo/auth/status", "/api/crisp/auth/status"}
 
 

@@ -818,6 +818,8 @@ chown -R nobody:users /mnt/user/appdata/mealieshopper
 chmod -R ug+rwX /mnt/user/appdata/mealieshopper
 ```
 
+**De app is traag.** Zet `MEALIESHOPPER_TELEMETRY=true` in de omgeving van de container en start hem opnieuw. Elk antwoord krijgt dan de header `Server-Timing`, die de browser toont bij Netwerk, Timing: `total` is de tijd tot het antwoord begon, `db` de tijd in de database en `gzip` het verpakken. Een aanvraag van een halve seconde of langer komt in het log van de container als `Trage aanvraag`, met de traagste query erbij. De regel `De event loop stond ... ms stil` betekent dat de app zelf zo lang rekende en dat elke andere aanvraag daarop wachtte, en noemt de aanvragen die toen liepen. Als beheerder zie je op `/api/telemetry` de cijfers per route sinds de start: het aantal, het gemiddelde, de mediaan, het 95e percentiel en de langste.
+
 **De passkey werkt niet.** Een passkey vraagt een domeinnaam en HTTPS (op `localhost` werkt het ook). Open MealieShopper via dat adres en controleer `RP_ID` en `RP_ORIGINS`; de installatiehulp legt uit waarom het op een IP-adres niet kan.
 
 **Jumbo: "Jumbo weigert het verzoek (403)".** Jumbo weert dit adres of deze server. Probeer het later opnieuw; blijft het gebeuren, dan werkt Jumbo vanaf deze plek niet. Zie **Jumbo-routes verkennen**.

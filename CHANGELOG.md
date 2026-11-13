@@ -2,6 +2,17 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub; een stabiele release krijgt de teksten van alle versies sinds de vorige stabiele release.
 
+## v4.21.0
+
+*English summary: A new optional setting shows where a slow page spends its time. **Telemetry**: with `MEALIESHOPPER_TELEMETRY=true` every answer carries a `Server-Timing` header, the container log gets a line for each slow request and for each time the app stood still, and the admin sees the numbers per route at `/api/telemetry`. Off by default.*
+
+### Nieuw in 4.21.0
+
+- **Meten waar een trage pagina zijn tijd laat.** Met `MEALIESHOPPER_TELEMETRY=true` meet de app elke aanvraag: de hele duur, de tijd in de database met het aantal bewerkingen en de traagste query, en het verpakken met gzip. Aanleiding: de aanbiedingen laadden op een installatie geregeld tien seconden, en niets in de app zei welke route dat was.
+- **Waar je het ziet.** Elk antwoord krijgt de header `Server-Timing`, die de browser toont bij Netwerk, Timing. Een aanvraag van 500 ms of langer komt in het log van de container, en ook elke keer dat de app een kwart seconde of langer stilstond, met de aanvragen die toen liepen. De beheerder ziet op `/api/telemetry` de cijfers per route sinds de start (aantal, gemiddelde, mediaan, 95e percentiel, langste), de laatste honderd trage aanvragen en de laatste honderd keren dat de app stilstond.
+- **Wat er bewaard wordt.** Alles staat in het geheugen en begint bij een herstart opnieuw. Van een adres blijft het pad over met alleen de parameters `store`, `week`, `limit` en `bought`, van een query de tekst zonder de waarden.
+- **Nieuwe, optionele instellingen:** `MEALIESHOPPER_TELEMETRY=true` zet het meten aan, `MEALIESHOPPER_TELEMETRY_SLOW_MS` (standaard `500`) bepaalt wat traag is. Zonder de eerste verandert er niets.
+
 ## v4.20.0
 
 *English summary: Albert Heijn products you bought now get a regular price for every week since July 2022, so an offer on them is judged against a fresh price. **Price index**: the daily task fetches the weekly regular price from ahprijsindex.nl for each Albert Heijn product you bought at least once, one product per ten seconds, and returns to a product after two weeks. **Where you see it**: the badge on an offer becomes solid, and the Price history shows the regular price through the years. `MEALIESHOPPER_PRICE_INDEX=false` turns it off.*
