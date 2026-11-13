@@ -8,7 +8,7 @@ Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar
 
 ### Nieuw in 4.21.0
 
-Pull request: [#324](https://github.com/helmerzNL/MealieShopper/pull/324). Vervolg op issue [#322](https://github.com/helmerzNL/MealieShopper/issues/322).
+Pull request: [#325](https://github.com/helmerzNL/MealieShopper/pull/325). Vervolg op issue [#322](https://github.com/helmerzNL/MealieShopper/issues/322).
 
 - **Filters voor alle bronnen.** Onder *Soort gerecht, tijd en tags* bij Recepten zoeken kies je een menugang (ontbijt, lunch, voorgerecht, soep, hoofdgerecht, bijgerecht, dessert of snack), vegetarisch of veganistisch, en vlees, vis of gevogelte. Samen met de bereidingstijd gelden ze nu ook voor de winkels en maaltijdboxen, voor zover die het in hun zoekresultaten geven:
   - **Albert Heijn** filtert zelf, met de groepen van zijn eigen zoekfunctie. *Tot 15 minuten* is het filter *snel* van AH. Bij een ruimere tijd bekijkt MealieShopper 48 recepten per keer en houdt hij wat binnen de tijd valt.
