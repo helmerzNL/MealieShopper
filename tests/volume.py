@@ -1058,6 +1058,10 @@ async def no_receipt_lookup(
     names: list[str], *args: Any, **kwargs: Any
 ) -> dict[str, int]:
     """`ah_orders.resolve_receipt_names` zonder AH: de prijsgeschiedenis met een zoekterm zoekt de namen op de bon die nog
-    bij geen product horen meteen op bij AH. Een volumetest bereikt geen winkel, dus AH vindt hier niets."""
+    bij geen product horen meteen op bij AH. Een volumetest bereikt geen winkel, dus AH vindt hier niets.
+
+    Let op: dit verbergt werk van productie. Daar schrijft de opzoeking wat AH vindt in `ah_receipt_products`, dat verhoogt
+    de versie van de catalogus, en de volgende aanvraag met `q=` bouwt de catalogus dan opnieuw op. Deze stub schrijft niets,
+    dus dat opnieuw opbouwen meten de volumetests hier niet. Een latere volumetest dekt dat schrijven af."""
     del names, args, kwargs
     return {"found": 0, "missing": 0, "failed": 0, "searches": 0}

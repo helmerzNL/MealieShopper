@@ -226,9 +226,16 @@ async def _get(client: TestClientProtocol, path: str) -> Any:
     return await response.get_json()
 
 
+def stalls_until(task: str) -> pytest.MarkDecorator:
+    """`xfail` voor een aanvraag die nu nog stilstaat, tot `task` dat oplost. Alleen de melding van `quiet`
+    (`pytest.fail`) telt als verwacht: een kapotte fixture, een 500 of een `KeyError` is een gewone fout, en een test die
+    niet meer stilstaat wordt rood (`strict`)."""
+    return pytest.mark.xfail(strict=True, raises=pytest.fail.Exception, reason=task)
+
+
 COLD_STALLS: dict[str, Any] = {
-    "ah": pytest.mark.xfail(strict=True, reason="taak 7 en 8"),
-    "jumbo": pytest.mark.xfail(strict=True, reason="taak 7 en 8"),
+    "ah": stalls_until("taak 7 en 8"),
+    "jumbo": stalls_until("taak 7 en 8"),
 }
 COLD_STORES: list[Any] = [
     pytest.param(store, marks=COLD_STALLS.get(store, ()))
@@ -249,7 +256,7 @@ async def test_cold_offers_do_not_stall(
 
 
 @pytest.mark.volume
-@pytest.mark.xfail(strict=True, reason="taak 8")
+@stalls_until("taak 8")
 async def test_warm_offers_do_not_stall(
     volume_client: TestClientProtocol, volume_dir: Path
 ) -> None:
@@ -280,9 +287,7 @@ PRICE_QUERIES: tuple[str, ...] = (
 
 
 @pytest.mark.volume
-@pytest.mark.xfail(
-    strict=True, reason="taak 7 en 8"
-)  # koud: de catalogus en de lijnacties van de pagina
+@stalls_until("taak 7 en 8")  # koud: de catalogus en de lijnacties van de pagina
 @pytest.mark.parametrize("query", PRICE_QUERIES)
 async def test_price_history_does_not_stall(
     volume_client: TestClientProtocol, volume_dir: Path, query: str
@@ -295,9 +300,7 @@ async def test_price_history_does_not_stall(
 
 
 @pytest.mark.volume
-@pytest.mark.xfail(
-    strict=True, reason="taak 7 en 8"
-)  # de catalogi en daarna het oordeel van warm_offers
+@stalls_until("taak 7 en 8")  # de catalogi en daarna het oordeel van warm_offers
 async def test_startup_warming_does_not_stall(volume_dir: Path) -> None:
     app: Quart = create_app()
     async with app.test_app():

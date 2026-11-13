@@ -180,11 +180,21 @@ async def client(app: Quart) -> AsyncIterator[TestClientProtocol]:
 
 
 @pytest.fixture(scope="session")
-def volume_template(tmp_path_factory: pytest.TempPathFactory) -> Path:
-    """De volumedatabase (`tests/volume.py`), een keer per run gebouwd. Een test werkt op een kopie: `volume_dir`."""
+def volume_template(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
+    """De volumedatabase (`tests/volume.py`), een keer per run gebouwd. Een test werkt op een kopie: `volume_dir`.
+
+    Aan het eind van de sessie gaat de map weg: pytest bewaart de tijdelijke mappen van de laatste drie runs, en de database
+    is ruim 100 MB."""
     folder: Path = tmp_path_factory.mktemp("volume")
     volume.build(folder)
-    return folder
+    yield folder
+    shutil.rmtree(folder, ignore_errors=True)
+
+
+def _remove_database(folder: Path) -> None:
+    """De kopie van de volumedatabase met haar WAL-bestanden weg, zodat de tijdelijke map van een test klein blijft."""
+    for name in (volume.DB_NAME, f"{volume.DB_NAME}-wal", f"{volume.DB_NAME}-shm"):
+        (folder / name).unlink(missing_ok=True)
 
 
 @pytest.fixture
@@ -194,7 +204,7 @@ def volume_dir(
     """Een kopie van de volumedatabase als datamap, met de klok op `volume.TODAY`, zonder inloggen en zonder AH.
 
     `prices._CATALOGUES` gaat ervoor en erna leeg: de catalogus van AH is op deze schaal groot, en de sleutel is het pad van
-    de database, dus elke kopie zou er anders een laten staan.
+    de database, dus elke kopie zou er anders een laten staan. Na de test gaat de kopie weg (ruim 100 MB per test).
     """
     shutil.copyfile(volume_template / volume.DB_NAME, tmp_path / volume.DB_NAME)
     monkeypatch.setenv("MEALIESHOPPER_DATA_DIR", str(tmp_path))
@@ -207,6 +217,7 @@ def volume_dir(
     prices._CATALOGUES.clear()
     yield tmp_path
     prices._CATALOGUES.clear()
+    _remove_database(tmp_path)
 
 
 @pytest.fixture
