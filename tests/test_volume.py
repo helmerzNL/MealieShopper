@@ -28,7 +28,7 @@ import helpers
 import loop_watch
 import pytest
 import volume
-from quart import Quart
+from quart import Quart, Response
 
 from mealieshopper import app as app_module
 from mealieshopper import loop_guard, offers, prices
@@ -318,8 +318,8 @@ async def test_the_offers_body_is_serialised_once(
     with mock.patch.object(
         app_module, "json_bytes", wraps=app_module.json_bytes
     ) as spy:
-        first = await volume_client.get(path)
-        second = await volume_client.get(path)
+        first: Response = await volume_client.get(path)
+        second: Response = await volume_client.get(path)
     assert first.status_code == second.status_code == 200
     assert spy.call_count == 1
     assert await first.get_data() == await second.get_data()
@@ -412,7 +412,7 @@ async def test_the_offers_response_is_the_same_json_as_jsonify(
     client: TestClientProtocol, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     await small_list(monkeypatch)
-    response = await client.get(SMALL_PATH)
+    response: Response = await client.get(SMALL_PATH)
     body: bytes = await response.get_data()
     assert response.status_code == 200
     assert response.headers["Content-Type"] == SMALL_CONTENT_TYPE
@@ -437,11 +437,11 @@ async def test_an_error_in_the_json_reaches_the_request_and_is_not_kept(
     # Review Focus 1: de aanvraag krijgt de fout, de cache bewaart hem niet en de volgende aanvraag rekent opnieuw
     await small_list(monkeypatch)
     with mock.patch.object(app_module, "json_bytes", side_effect=TypeError("stuk")):
-        failed = await client.get(SMALL_PATH)
+        failed: Response = await client.get(SMALL_PATH)
     assert failed.status_code == 424
     assert (await failed.get_json())["error"] == "stuk"
     with mock.patch.object(app_module, "json_bytes", wraps=app_module.json_bytes) as spy:
-        again = await client.get(SMALL_PATH)
+        again: Response = await client.get(SMALL_PATH)
     assert again.status_code == 200
     assert spy.call_count == 1
     assert hashlib.sha256(await again.get_data()).hexdigest() == SMALL_BODY_SHA256
@@ -463,14 +463,14 @@ async def test_a_request_that_goes_away_leaves_the_whole_list(
         return real(data)
 
     with mock.patch.object(app_module, "json_bytes", side_effect=slow) as spy:
-        first: asyncio.Task[Any] = asyncio.ensure_future(client.get(SMALL_PATH))
+        first: asyncio.Task[Response] = asyncio.ensure_future(client.get(SMALL_PATH))
         assert await asyncio.to_thread(started.wait, 5)
-        second: asyncio.Task[Any] = asyncio.ensure_future(client.get(SMALL_PATH))
+        second: asyncio.Task[Response] = asyncio.ensure_future(client.get(SMALL_PATH))
         await asyncio.sleep(0.05)
         first.cancel()
         release.set()
-        answer = await second
-        third = await client.get(SMALL_PATH)
+        answer: Response = await second
+        third: Response = await client.get(SMALL_PATH)
     assert first.cancelled()
     assert answer.status_code == third.status_code == 200
     assert spy.call_count == 1

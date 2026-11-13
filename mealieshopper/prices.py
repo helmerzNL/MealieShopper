@@ -1432,7 +1432,7 @@ async def history(store: Any = None, query: Any = "", limit: Any = 50, today: st
         ranked: _Ranked = await compute.run(
             _rank_history, catalogues, candidates, pinned, only, _Choice.of(brands, brands_out), _Choice.of(categories, categories_out), limit
         )
-        chosen = ranked.chosen
+        chosen: list[tuple[str, str]] = ranked.chosen
         found: dict[str, tuple[dict[str, list[Any]], dict[str, list[Any]], dict[str, list[dict[str, Any]]]]] = {}
         for name in stores:
             ids = sorted(_with_twins({product_id for store_name, product_id in chosen if store_name == name}, catalogues[name].twins))
@@ -2167,7 +2167,7 @@ def _own_lines(
     points: dict[str, list[tuple[str, float, str]]] = {product_id: list(found) for product_id, found in facts.points.items()}
     lines: dict[str, list[dict[str, Any]]] = {}
     for product_id, found in facts.lines.items():
-        spans = [{"start": offers._episode_span(row)["start"], "end": offers._episode_span(row)["end"]} for row in episodes.get(product_id, [])]
+        spans: list[dict[str, Any]] = [{"start": offers._episode_span(row)["start"], "end": offers._episode_span(row)["end"]} for row in episodes.get(product_id, [])]
         lines[product_id] = _without_own_weeks(found, spans)
         points.setdefault(product_id, []).extend((line["start"], line["price"], "line") for line in lines[product_id] if _number(line.get("price")))
         points[product_id].sort()
@@ -2186,7 +2186,7 @@ def _known_packs(recent: list[Any], items: list[dict[str, Any]]) -> list[dict[st
         for pid, row in latest.items()
     ]
     for offer in items:
-        effective = _effective(offer)
+        effective: float | None = _effective(offer)
         packs_known.append({"productId": str(offer.get("id")), "title": offer.get("title"), "brand": offer.get("brand"), "unitSize": offer.get("unitSize"),
                             "price": effective, "unitPrice": unit_price(effective, offer.get("unitSize")), "onOffer": True})
     return packs_known
@@ -2195,11 +2195,11 @@ def _known_packs(recent: list[Any], items: list[dict[str, Any]]) -> list[dict[st
 def _cheaper_pack(offer: dict[str, Any], product_id: str, by_base: dict[str, list[dict[str, Any]]]) -> dict[str, Any] | None:
     """Een andere verpakking van hetzelfde product (zelfde naam zonder maat, zelfde merk) die per eenheid minstens `PACK_MARGIN`
     goedkoper is, de goedkoopste, of None."""
-    mine_unit = offer["unitPricePer"]
-    base = base_title(offer.get("title"))
+    mine_unit: dict[str, Any] | None = offer["unitPricePer"]
+    base: str = base_title(offer.get("title"))
     if not mine_unit or not base:
         return None
-    cheaper = [
+    cheaper: list[dict[str, Any]] = [
         pack for pack in by_base.get(base, [])
         if pack["productId"] != product_id and pack["unitPrice"]["unit"] == mine_unit["unit"]
         and (not offer.get("brand") or not pack["brand"] or ah_lists._fold(pack["brand"]) == ah_lists._fold(offer["brand"]))
@@ -2207,7 +2207,7 @@ def _cheaper_pack(offer: dict[str, Any], product_id: str, by_base: dict[str, lis
     ]
     if not cheaper:
         return None
-    best = min(cheaper, key=lambda pack: pack["unitPrice"]["value"])
+    best: dict[str, Any] = min(cheaper, key=lambda pack: pack["unitPrice"]["value"])
     return {key: best[key] for key in ("productId", "title", "unitSize", "price", "unitPrice", "onOffer")}
 
 
@@ -2231,9 +2231,9 @@ def _judge(store: str, items: list[dict[str, Any]], today: str, facts: _VerdictF
         family["bought"] = any(pack["productId"] in facts.bought for pack in family["packs"])
 
     for offer in items:
-        product_id = str(offer.get("id"))
-        effective = _effective(offer)
-        stated = _stated_regular(offer)
+        product_id: str = str(offer.get("id"))
+        effective: float | None = _effective(offer)
+        stated: float | None = _stated_regular(offer)
         if _number(offer.get("unitPrice")) is None and effective is not None and stated is not None:
             offer["unitPrice"] = effective  # zo toont de kaart ook bij "1+1 gratis" van AH wat een stuk kost
         offer["unitPricePer"] = unit_price(effective if effective is not None else offer.get("price"), offer.get("unitSize"))
@@ -2242,9 +2242,9 @@ def _judge(store: str, items: list[dict[str, Any]], today: str, facts: _VerdictF
         badge: dict[str, Any] | None
         verdict, badge = _verdict_of(effective, stated, _regular_for_verdict(facts.regulars.get(product_id, []), today))
         offer["badge"] = None if badge is None else {**badge, "claimed": _claimed_percent(offer)}
-        mine = [row for row in episodes.get(product_id, []) if not row["continued"]]
-        started = [row for row in mine if (offers._episode_span(row)["start"] or "") >= since_year]
-        line_weeks = [line for line in lines.get(product_id, []) if str(line["start"]) >= since_year]
+        mine: list[Any] = [row for row in episodes.get(product_id, []) if not row["continued"]]
+        started: list[Any] = [row for row in mine if (offers._episode_span(row)["start"] or "") >= since_year]
+        line_weeks: list[dict[str, Any]] = [line for line in lines.get(product_id, []) if str(line["start"]) >= since_year]
         verdict["timesThisYear"] = max(len(started) + len(line_weeks), 1)
         verdict["often"] = verdict["timesThisYear"] >= OFTEN_PER_YEAR
         offer["priceLabel"] = price_label(effective, [(day, price) for day, price, _ in points.get(product_id, [])], today)

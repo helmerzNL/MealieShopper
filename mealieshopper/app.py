@@ -79,9 +79,12 @@ AH_PROXY_BLOCKED_RESPONSE_HEADERS: frozenset[str] = frozenset(
 
 def json_bytes(data: Any) -> bytes:
     """`data` als JSON-bytes, precies zoals `jsonify` ze buiten de debugmodus verstuurt: met de instellingen van de standaard
-    JSON-provider (ASCII, gesorteerde sleutels en de extra typen van Quart), zonder spaties en met een regeleinde erachter. Puur,
-    zodat de lijst van /api/offers via `compute.run` buiten de event loop naar JSON gaat. In de debugmodus springt `jsonify`
-    in, dit niet."""
+    JSON-provider (ASCII, gesorteerde sleutels en de extra typen van Quart), zonder spaties en met een regeleinde erachter. In de
+    debugmodus springt `jsonify` in, dit niet.
+
+    De winst zit in de cache: /api/offers maakt de bytes een keer per ETag en `ResponseCache` bewaart ze, zodat elke volgende
+    aanvraag ze alleen verstuurt. Dat het in een thread van `compute.run` loopt, scheelt minder dan het lijkt: de encoder van
+    `json` is in C geschreven en houdt de GIL vast zolang hij een lijst omzet."""
     provider: type[DefaultJSONProvider] = DefaultJSONProvider
     text: str = json.dumps(data, default=provider.default, ensure_ascii=provider.ensure_ascii, sort_keys=provider.sort_keys, separators=(",", ":"))
     return f"{text}\n".encode()
