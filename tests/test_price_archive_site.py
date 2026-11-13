@@ -10,8 +10,12 @@ import hashlib
 import io
 import json
 import re
+import shutil
+import subprocess
+import unittest
 import zipfile
 from contextlib import closing
+from pathlib import Path
 from typing import Any, Callable
 
 import httpx
@@ -21,6 +25,7 @@ from test_price_archive import TOP, ArchiveCase, by_store, offer, price  # noqa:
 
 from mealieshopper import about, price_archive, price_archive_export, price_archive_tidy  # noqa: E402
 
+ROOT = Path(__file__).resolve().parent.parent
 SITE = "https://data.mealieshopper.nl"
 # De regels van data.mealieshopper.nl (scripts/datastore.py): namen, grootte en sleutels die op een geheim wijzen.
 COLLECTION_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,62}$")
@@ -723,3 +728,68 @@ class FetchTest(ArchiveCase):
             response = await self.fetch()
         self.assertEqual((response.status_code, response.get_json()["code"]), (502, "site_unreachable"))
         self.assertEqual(self.staged_files(), [])
+
+
+class SiteNameTest(unittest.TestCase):
+    """data.mealieshopper.nl heet in het blok Prijsarchief importeren en in het blok Prijsarchief exporteren ook de MealieShopper
+    Community Database, en de bron in het importresultaat mag MealieShopper CD heten. De server geeft de bron ongewijzigd."""
+
+    def dictionary(self, lang: str) -> dict[str, str]:
+        source = (ROOT / "static" / "i18n" / f"{lang}.js").read_text(encoding="utf-8")
+        return {json.loads(f'"{k}"'): json.loads(f'"{v}"') for k, v in re.findall(r'^  "([^"]+)": "((?:[^"\\]|\\.)*)",$', source, re.M)}
+
+    def test_both_blocks_name_the_community_database_in_both_languages(self):
+        for lang in ("nl", "en"):
+            texts = self.dictionary(lang)
+            for key in (
+                "price_archive.formats",
+                "price_archive.keep_unlinked_more",
+                "price_archive.fetch_note",
+                "price_archive.progress.fetching",
+                "price_export.site_note",
+            ):
+                self.assertIn("MealieShopper Community Database", texts[key], (lang, key))
+            # De afkorting wordt ingevoerd waar de naam bij de knoppen staat; het adres blijft er ook bij.
+            for key in ("price_archive.fetch_note", "price_export.site_note"):
+                self.assertIn("MealieShopper CD, data.mealieshopper.nl", texts[key], (lang, key))
+            self.assertIn("MealieShopper CD", texts["price_export.site_go"], lang)
+            self.assertEqual(texts["price_archive.source_site"], "MealieShopper CD")
+
+    def test_the_messages_of_the_import_block_name_it_too(self):
+        for key in ("site_unreachable", "site_catalog", "site_checksum", "site_empty", "not_an_archive"):
+            for text in price_archive.MESSAGES[key]:
+                self.assertIn("MealieShopper Community Database", text, key)
+        for text in price_archive.MESSAGES["site_unreachable"]:
+            self.assertIn("data.mealieshopper.nl", text, "het adres staat er nog bij")
+
+    def test_the_source_in_the_result_is_shown_as_mealieshopper_cd_and_the_rest_is_left_alone(self):
+        if not shutil.which("node"):
+            self.skipTest("Node is niet geïnstalleerd")
+        js = (ROOT / "static" / "price_archive.js").read_text(encoding="utf-8")
+        source = "\n".join(
+            re.search(rf"^(?:const {name} = [^\n]*;|function {name}\(.*?^}})$", js, re.S | re.M).group(0)
+            for name in ("PRICE_ARCHIVE_SITE_SOURCE", "priceArchiveSourceName")
+        )
+        script = (
+            source
+            + """
+        const t = (key) => ({ "price_archive.source_site": "MealieShopper CD" })[key];
+        console.log(JSON.stringify([
+          priceArchiveSourceName("data.mealieshopper.nl"),
+          priceArchiveSourceName("data.mealieshopper.nl (abc1234)"),
+          priceArchiveSourceName("supermarket-archives/2026-11-08"),
+          priceArchiveSourceName("mijn-eigen-export"),
+          priceArchiveSourceName(""),
+        ]));
+        """
+        )
+        result = subprocess.run(["node", "-e", script], capture_output=True, text=True, timeout=30, check=False)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(
+            json.loads(result.stdout.strip().splitlines()[-1]),
+            ["MealieShopper CD", "MealieShopper CD (abc1234)", "supermarket-archives/2026-11-08", "mijn-eigen-export", ""],
+        )
+        self.assertIn('t("price_archive.source", { source: priceArchiveSourceName(summary.source) })', js, "het scherm gebruikt de functie")
+        self.assertEqual(
+            price_archive.SITE_FORMAT, "data.mealieshopper.nl", "de server bewaart de bron ongewijzigd: alleen het scherm noemt hem anders"
+        )

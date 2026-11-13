@@ -117,6 +117,14 @@ function priceArchiveStoreLine(store, stats) {
 }
 
 // Met het vinkje Vervangen gaan de oude archiefregels er eerst uit; de server rekende beide uitkomsten al uit.
+// De bron zoals de beheerder hem leest: data.mealieshopper.nl (met de commit erachter) heet op het scherm MealieShopper CD, de
+// MealieShopper Community Database. De server bewaart en geeft de bron ongewijzigd (`price_archive.SITE_FORMAT`).
+const PRICE_ARCHIVE_SITE_SOURCE = "data.mealieshopper.nl";
+
+function priceArchiveSourceName(source) {
+  return source.startsWith(PRICE_ARCHIVE_SITE_SOURCE) ? t("price_archive.source_site") + source.slice(PRICE_ARCHIVE_SITE_SOURCE.length) : source;
+}
+
 function priceArchiveRenderSummary(summary) {
   const existing = summary.archived || {};
   const archived = Number(existing.offers || 0) + Number(existing.prices || 0);
@@ -130,7 +138,7 @@ function priceArchiveRenderSummary(summary) {
   $("#price-archive-keeps").hidden = replace;
   $("#price-archive-keeps-replace").hidden = !replace;
   const meta = [
-    summary.source ? t("price_archive.source", { source: summary.source }) : "",
+    summary.source ? t("price_archive.source", { source: priceArchiveSourceName(summary.source) }) : "",
     summary.license ? t("price_archive.license", { license: summary.license }) : "",
   ].filter(Boolean);
   $("#price-archive-source").textContent = meta.join(" · ");

@@ -186,8 +186,8 @@ JOB_DONE_SQL = (
 
 MESSAGES: dict[str, tuple[str, str]] = {
     "not_an_archive": (
-        "Dit is geen prijsarchief. Kies de ZIP van het pakket of van de gist voor data.mealieshopper.nl, het .tar.gz-archief, een export van MealieShopper (ook die voor data.mealieshopper.nl) of een .jsonl-bestand in het formaat mealieshopper-price-archive.",
-        "This is not a price archive. Choose the ZIP of the package or of the gist for data.mealieshopper.nl, the .tar.gz archive, an export from MealieShopper (also the one for data.mealieshopper.nl) or a .jsonl file in the mealieshopper-price-archive format.",
+        "Dit is geen prijsarchief. Kies de ZIP van het pakket of van de gist voor de MealieShopper Community Database (data.mealieshopper.nl), het .tar.gz-archief, een export van MealieShopper (ook die voor data.mealieshopper.nl) of een .jsonl-bestand in het formaat mealieshopper-price-archive.",
+        "This is not a price archive. Choose the ZIP of the package or of the gist for the MealieShopper Community Database (data.mealieshopper.nl), the .tar.gz archive, an export from MealieShopper (also the one for data.mealieshopper.nl) or a .jsonl file in the mealieshopper-price-archive format.",
     ),
     "old_package": (
         "Dit is het eerdere AH-pakket. Kies de ZIP met supermarket-manifest.json: die bevat dezelfde AH-gegevens, gecorrigeerd, en ook Jumbo, Picnic en Crisp.",
@@ -211,20 +211,20 @@ MESSAGES: dict[str, tuple[str, str]] = {
     ),
     "too_many_files": ("Het archief heeft meer dan {limit} bestanden.", "The archive has more than {limit} files."),
     "site_unreachable": (
-        "data.mealieshopper.nl is niet bereikbaar ({detail}). Probeer het later opnieuw.",
-        "data.mealieshopper.nl cannot be reached ({detail}). Try again later.",
+        "De MealieShopper Community Database (data.mealieshopper.nl) is niet bereikbaar ({detail}). Probeer het later opnieuw.",
+        "The MealieShopper Community Database (data.mealieshopper.nl) cannot be reached ({detail}). Try again later.",
     ),
     "site_catalog": (
-        "De catalogus van data.mealieshopper.nl (index.json) klopt niet: {detail}.",
-        "The catalogue of data.mealieshopper.nl (index.json) is not valid: {detail}.",
+        "De catalogus van de MealieShopper Community Database (index.json) klopt niet: {detail}.",
+        "The catalogue of the MealieShopper Community Database (index.json) is not valid: {detail}.",
     ),
     "site_checksum": (
-        "{file} op data.mealieshopper.nl klopt niet met de catalogus. Probeer het later opnieuw.",
-        "{file} on data.mealieshopper.nl does not match the catalogue. Try again later.",
+        "{file} uit de MealieShopper Community Database klopt niet met de catalogus. Probeer het later opnieuw.",
+        "{file} from the MealieShopper Community Database does not match the catalogue. Try again later.",
     ),
     "site_empty": (
-        "Op data.mealieshopper.nl staan nog geen aanbiedingen of prijzen om op te halen.",
-        "There are no offers or prices on data.mealieshopper.nl to fetch yet.",
+        "In de MealieShopper Community Database staan nog geen aanbiedingen of prijzen om op te halen.",
+        "There are no offers or prices in the MealieShopper Community Database to fetch yet.",
     ),
     "bad_row": ("{file}, regel {line}: {reason}", "{file}, line {line}: {reason}"),
     "empty": ("Het archief bevat geen prijzen.", "The archive contains no prices."),
