@@ -330,19 +330,28 @@ function renderPurchaseTable(visible, hits) {
   window.requestAnimationFrame(fitPurchaseTable);
 }
 
-// De tabel vult het scherm tot onderaan en scrolt in zijn eigen vak (pageFitHeight in app.js); op een smal scherm scrolt de pagina.
+// Zo hoog is een vak met aankopen minstens: de tabel, de kaarten en het overzicht, en de producten of de bon van een geopende aankoop.
+// Boven de tabel staan de kop, de uitleg, de zoekbalk, de filters, een melding en de weergavebalk, en boven de producten van een
+// aankoop de kop, de badges, de melding en de balk, dus op een scherm van gemiddelde hoogte bleef er eerst maar 240 px over (het
+// minimum van pageFitHeight): zo'n 3 rijen van de tabel. Nu zijn dat er zo'n 10, of de hele bon. Past het niet onder de kop, dan
+// scrolt de pagina mee (zoals bij de prijsgeschiedenis, OFFER_HISTORY_MIN_HEIGHT). Dezelfde 640 px als --scroll-list-max in styles.css.
+const PURCHASE_MIN_HEIGHT = 640;
+
+// De tabel vult het scherm tot onderaan, maar niet minder dan PURCHASE_MIN_HEIGHT, en scrolt in zijn eigen vak (pageFitHeight in
+// app.js); op een smal scherm scrolt de pagina.
 function fitPurchaseTable() {
   const wrap = $("#ah-purchase-table-wrap");
-  const height = pageFitHeight(wrap);
+  const height = pageFitHeight(wrap, { min: PURCHASE_MIN_HEIGHT });
   wrap.style.maxHeight = height === null ? "" : `${height}px`;
 }
 
-// Het vak met de producten of de bon van een geopende aankoop zo hoog als er onder de kop past, en het scrolt zelf (op een breed
-// scherm, gemeten door pageFitHeight), zodat de pagina niet schuift. Op een smal scherm doet de pagina het.
+// Het vak met de producten of de bon van een geopende aankoop zo hoog als er onder de kop past, maar niet minder dan
+// PURCHASE_MIN_HEIGHT, en het scrolt zelf (op een breed scherm, gemeten door pageFitHeight), zodat de pagina niet schuift. Op een
+// smal scherm doet de pagina het.
 function fitReceiptBox() {
   const box = $("#ah-order-items");
   if (!orderPage.purchase || $("#ah-order-detail").hidden) return;
-  const height = pageFitHeight(box);
+  const height = pageFitHeight(box, { min: PURCHASE_MIN_HEIGHT });
   box.classList.toggle("order-items--fit", height !== null);
   box.style.maxHeight = height === null ? "" : `${height}px`;
 }
