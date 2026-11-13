@@ -18,7 +18,7 @@ from typing import Any, Awaitable, Callable
 
 import aiosqlite
 
-from . import ah_orders, auth, image_cache, loose_names, offers, prices, purchase_sync, tasks
+from . import ah_orders, ah_price_index, auth, image_cache, loose_names, offers, prices, purchase_sync, tasks
 
 log = logging.getLogger(__name__)
 
@@ -100,7 +100,8 @@ async def run_all(trigger: str, now: datetime | None = None, *, wait_for_images:
     in hetzelfde rustige tempo bij de winkels langsgaan: een deel van de artikelnummers op de kassabonnen koppelen
     (ah_orders.resolve_receipt_products), de foto's bij oude koppelingen en de afbeeldingencache aanvullen (image_cache.prefetch),
     en de gewone prijs per aankoopregel bijwerken (prices.fill_regular_prices_nightly). Elk extraatje staat alleen in de uitkomst
-    als het iets te doen had."""
+    als het iets te doen had. De weekprijzen van je gekochte AH-producten (ah_price_index.start) gaan in een eigen task: die
+    ronde wacht tien seconden tussen twee verzoeken."""
     result = await offers.sync_all()
     # Alleen de dagelijkse run (die wacht ook op de foto's): de knop geeft meteen antwoord, en de bestelpagina heeft een eigen
     # knop. Voor de catalogus en de extraatjes: die rekenen met de nieuwe aankopen.
@@ -123,6 +124,7 @@ async def run_all(trigger: str, now: datetime | None = None, *, wait_for_images:
             result = {**result, key: outcome}
     if wait_for_images:
         _start_loose_names()
+        _start_price_index()
         images = await image_cache.prefetch_nightly()
         if images is not None:
             result = {**result, "images": images}
@@ -145,6 +147,14 @@ def _start_loose_names() -> None:
         loose_names.start(None, "nightly")
     except Exception:  # noqa: BLE001 - een extraatje: een fout bij het starten mag de nachtelijke run niet vertragen of laten falen
         log.warning("Ronde voor losse namen starten mislukt", exc_info=True)
+
+
+def _start_price_index() -> None:
+    """Start de ronde langs de prijsindex van AH in een eigen task: de run wacht er niet op."""
+    try:
+        ah_price_index.start()
+    except Exception:  # noqa: BLE001 - een extraatje: een fout bij het starten mag de nachtelijke run niet laten falen
+        log.warning("Ronde langs de prijsindex starten mislukt", exc_info=True)
 
 
 async def _warm() -> None:

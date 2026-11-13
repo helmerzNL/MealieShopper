@@ -45,6 +45,9 @@ log = logging.getLogger(__name__)
 STORES = offers.STORES
 MAX_LIMIT = 200
 PUBLIC_OBSERVED_UNKNOWN: str = "public_observed_unknown"
+# De gewone prijs per week van ahprijsindex.nl (`ah_price_index.py`). Telt als gemeten prijs in de geschiedenis en het oordeel,
+# niet in de ladder van laagste prijzen (`_history_points`).
+PRICE_INDEX: str = "ahprijsindex"
 
 SCHEMA = """
 -- De versie van de catalogus van de prijzen (`_catalogue_version`): triggers op de tabellen eronder hogen hem op. `token` is
@@ -1703,8 +1706,10 @@ async def _history_points(
         (store, selected),
     ):
         add(row["product_id"], offers._episode_span(row)["start"], _episode_effective(row), "offer")
+    # Zonder de weekprijzen van de prijsindex: die gaan jaren terug en kennen alleen de gewone prijs. Telden ze mee als dekking,
+    # dan werd een actieprijs "laagste ooit" over jaren waarvan de app de acties niet kent.
     for row in await conn.execute_fetchall(
-        f"SELECT product_id, day, price FROM price_observations WHERE store = ? AND {_WANTED_SQL}", (store, selected)
+        f"SELECT product_id, day, price FROM price_observations WHERE store = ? AND source != ? AND {_WANTED_SQL}", (store, PRICE_INDEX, selected)
     ):
         add(row["product_id"], row["day"], row["price"], "observation")
     for sql in _purchase_sources(await _tables(conn), store):

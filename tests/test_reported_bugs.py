@@ -26,6 +26,7 @@ from helpers import AppTestCase, db, returned, run, sent_json, served  # helpers
 import httpx
 
 import test_ah_orders  # als module: de opzet van het AH-mandje
+import test_ah_price_index  # idem: de opzet van de ronde langs de prijsindex
 import test_shared_links  # idem: de gedeelde lijst en zijn opzet
 import test_price_import  # idem
 import test_loose_names  # idem: de opzet van de losse aankoopnamen
@@ -38,7 +39,7 @@ import test_order_views  # idem: de Node-opbouw van order_views.js en de gedeeld
 from test_prices import PricesCase, offer
 
 from mealieshopper import ah, ah_orders, assets, auth, deals, image_cache, line_offers, offer_categories, offer_ranking, offers, offers_schedule, price_archive_tidy, price_import, prices
-from mealieshopper import loose_names, product_links
+from mealieshopper import ah_price_index, loose_names, product_links
 from mealieshopper.app import create_app
 
 ROOT: Path = Path(__file__).resolve().parents[1]
@@ -1735,3 +1736,37 @@ class CompressedResponsesTest(AppTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class BoughtProductHasPriceHistoryTest(test_ah_price_index.RoundCase):
+    """Melding (2026-11-13), bij een schermfoto van vier broden van AH op /offers, drie met een gestippelde badge: "heel veel
+    prijzen hebben geen "vaste" historie, ik zie de stippellijntjes. [...] ieder product wat eerder gekocht is moet een fatsoenlijke
+    prijs historie hebben".
+
+    De gestippelde badge betekent dat de app geen gewone prijs van het laatste jaar kent en dus de van-prijs van de winkel toont.
+    De app kende de gewone prijs alleen van de dagen waarop ze het product zelf zag. Nu haalt een ronde de prijs per week van
+    ahprijsindex.nl voor elk product dat je kocht (`ah_price_index.py`)."""
+
+    BREAD: ClassVar[dict] = {"id": "446406", "title": "AH Les pains boulogne heel", "brand": "AH", "unitSize": "per stuk"}
+
+    async def badge(self) -> dict:
+        bread: dict = {**self.BREAD, "price": 2.39, "priceBefore": 2.39, "promoLabel": "1+1 gratis", **deals.describe("1+1 gratis", price_now=2.39, price_before=2.39)}
+        return (await prices.annotate("ah", [bread], today=test_ah_price_index.TODAY))[0]["badge"]
+
+    async def test_a_bread_bought_long_ago_gets_a_solid_badge_after_the_round(self) -> None:
+        await self.buy(446406, day="2025-06-02")  # langer dan een jaar geleden: te oud voor een oordeel
+        self.assertEqual((await self.badge())["source"], "store", "zonder de index: de gestippelde badge")
+        with served(test_ah_price_index.html(test_ah_price_index.FIXTURE.read_text(encoding="utf-8"))):
+            result = await ah_price_index.run_round(now=test_ah_price_index.NOW)
+        self.assertEqual((result["checked"], result["prices"]), (1, 225))
+        badge: dict = await self.badge()
+        self.assertEqual((badge["source"], badge["percent"]), ("history", 50))
+        self.assertEqual(badge["regular"]["price"], 2.39)
+
+    async def test_the_price_history_goes_back_to_2022(self) -> None:
+        await self.buy(446406)
+        with served(test_ah_price_index.html(test_ah_price_index.FIXTURE.read_text(encoding="utf-8"))):
+            await ah_price_index.run_round(now=test_ah_price_index.NOW)
+        product: dict = (await prices.history("ah", "", 50, today=test_ah_price_index.TODAY, bought=True, product="446406"))["products"][0]
+        self.assertEqual(product["regular"][0]["from"], "2022-07-25")
+        self.assertEqual([segment["price"] for segment in product["regular"]], [2.39, 2.49, 2.59, 2.75, 2.79, 1.99, 2.19, 2.29, 2.49, 2.39])

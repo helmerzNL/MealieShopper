@@ -102,6 +102,7 @@ EXCLUDED_TABLES = frozenset({
     "hellofresh_menus",  # kopie van openbare menu's van HelloFresh: herlaadbaar, dus niet in de back-up
     "marleyspoon_menus",  # idem voor Marley Spoon
     "ah_receipt_products",  # koppeling artikelnummer -> product, zoekt de volgende synchronisatie van de bonnen opnieuw op
+    "ah_price_index",  # wanneer de ronde langs ahprijsindex.nl een product vroeg (ah_price_index.py): de prijzen zelf staan in price_observations
     "image_cache",  # cache van winkelfoto's op schijf (image_cache.py), opnieuw op te bouwen
     "mealie_recipe_nutrition", "mealie_recipe_nutrition_meta",  # calorieën van de recepten in Mealie (recipe_nutrition.py), herlaadbaar
     "price_archive_jobs",  # de import van een prijsarchief die loopt (price_archive.py): tijdelijke staat

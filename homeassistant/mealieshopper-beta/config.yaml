@@ -1,7 +1,7 @@
 # AFGELEID VAN ../mealieshopper door `python scripts/ha_addon.py`: pas dit bestand niet met de hand aan. De versie hoort gelijk te zijn aan ../../VERSION
 # (een test controleert dat); de Supervisor haalt het image `<image>:<versie>` op, en die tag bouwt docker.yml bij een push naar main.
 name: MealieShopper (beta)
-version: "4.19.1-beta"
+version: "4.20.0-beta"
 slug: mealieshopper_beta
 description: Development version of MealieShopper (beta), with its own data folder
 url: https://github.com/helmerznl/mealieshopper

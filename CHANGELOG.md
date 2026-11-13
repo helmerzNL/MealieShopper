@@ -2,6 +2,21 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub; een stabiele release krijgt de teksten van alle versies sinds de vorige stabiele release.
 
+## v4.20.0
+
+*English summary: Albert Heijn products you bought now get a regular price for every week since July 2022, so an offer on them is judged against a fresh price. **Price index**: the daily task fetches the weekly regular price from ahprijsindex.nl for each Albert Heijn product you bought at least once, one product per ten seconds, and returns to a product after two weeks. **Where you see it**: the badge on an offer becomes solid, and the Price history shows the regular price through the years. `MEALIESHOPPER_PRICE_INDEX=false` turns it off.*
+
+### Nieuw in 4.20.0
+
+- **De gewone prijs per week van wat je bij Albert Heijn kocht.** De dagelijkse taak haalt voor elk product van Albert Heijn dat je minstens een keer kocht de gewone prijs per week op bij [ahprijsindex.nl](https://www.ahprijsindex.nl), terug tot juli 2022. De app kende de gewone prijs alleen van de dagen waarop ze het product zelf zag, in een bestelling, op een bon of bij een zoekopdracht. Bij de meeste aanbiedingen stond daardoor een gestippelde badge met de claim van de winkel.
+- **Waar je het ziet.** De weekprijzen tellen als gemeten prijs. De badge van een aanbieding op een gekocht product rust daarmee op een prijs van deze week en krijgt een dichte rand, en de Prijsgeschiedenis toont de gewone prijs door de jaren heen. Een prijs die de app zelf mat op dezelfde dag blijft staan. De ladder van laagste prijzen (*Laagste prijs in een jaar*) rekent niet met de weekprijzen: die kennen alleen de gewone prijs en niet de acties van die jaren.
+- **Rustig voor de site.** De ronde vraagt alleen productpagina's, een per tien seconden zoals de robots.txt van de site vraagt, noemt MealieShopper in de User-Agent en stopt bij de eerste weigering. Een product komt na twee weken opnieuw aan de beurt, een product dat de site niet kent na dertig dagen. De eerste ronde kan met de hand: `python -m mealieshopper.ah_price_index_run`.
+- **Nieuwe, optionele instelling:** `MEALIESHOPPER_PRICE_INDEX=false` zet de ronde uit.
+
+### Opgelost in 4.20.0
+
+- Veel aanbiedingen op eerder gekochte producten van Albert Heijn hadden een gestippelde badge, omdat de app geen gewone prijs van het laatste jaar kende.
+
 ## v4.19.1
 
 *English summary: Pages load faster on a slow connection, because the app now sends text compressed. **Faster**: JSON, scripts and styles go to the browser with gzip, where a reverse proxy often compresses HTML only. Opening the offers of Albert Heijn transferred 5.3 MB and now 0.75 MB, of which the list itself went from 3.7 MB to 260 KB.*
