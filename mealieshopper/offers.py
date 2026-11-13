@@ -25,7 +25,7 @@ from typing import Any, Callable, Iterable, TypeVar
 
 import aiosqlite
 
-from . import about, ah, ah_lists, aldi, deals, lidl, offer_categories, offer_courses, offer_translate, ah_recipes, auth, crisp, jumbo, jumbo_recipes, mealie, mealie_images, picnic, picnic_recipes
+from . import about, ah, ah_lists, aldi, compute, deals, lidl, offer_categories, offer_courses, offer_translate, ah_recipes, auth, crisp, jumbo, jumbo_recipes, mealie, mealie_images, picnic, picnic_recipes
 from .i18n import tr
 
 # Winkels waarvan we aanbiedingen kunnen ophalen, met de functie die dat doet.
@@ -749,7 +749,7 @@ async def history(store: Any = None, query: Any = "", limit: Any = 50) -> dict[s
             wanted.setdefault(row["store"], []).append(row["product_id"])
         for name, ids in wanted.items():
             rows += await conn.execute_fetchall(HISTORY_ROWS_SQL.format(marks=",".join("?" * len(ids))), (name, *ids, pattern))
-    products = _history_products(rows)
+    products: dict[tuple[str, str], dict[str, Any]] = await compute.run(_history_products, rows)
     return {"products": [products[(row["store"], row["product_id"])] for row in page], "total": page[0]["total"] if page else 0}
 
 
@@ -776,6 +776,12 @@ async def history_of(store: Any, product_ids: Iterable[Any]) -> dict[str, dict[s
                     (SELECT product_id FROM offer_history WHERE store = ? AND ended_at IS NULL) ORDER BY personal""",
                 (store, *chunk, store),
             ))
+    return await compute.run(_history_by_id, rows)
+
+
+def _history_by_id(rows: list[Any]) -> dict[str, dict[str, Any]]:
+    """De rijen van `history_of` (uit `offer_history` en `_not_yet_recorded`) op product en begin, samengevoegd per product-id.
+    Puur: `history_of` laat dit via `compute.run` buiten de event loop lopen, want een prijsarchief geeft hier duizenden rijen."""
     rows.sort(key=lambda row: (row["product_id"], row["first_seen"]))
     return {product["productId"]: product for product in _history_products(rows).values()}
 
