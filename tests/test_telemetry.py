@@ -8,6 +8,7 @@ een stilstaande event loop meet.
 from __future__ import annotations
 
 import asyncio
+import gc
 import logging
 import os
 import threading
@@ -20,7 +21,7 @@ import pytest
 from quart import Quart
 from quart.typing import TestClientProtocol
 
-from mealieshopper import auth, loop_guard, telemetry
+from mealieshopper import auth, gc_watch, loop_guard, telemetry
 from mealieshopper.app import create_app
 
 
@@ -230,6 +231,37 @@ def test_a_stall_in_the_app_has_no_threads() -> None:
         )
     )
     assert measured.snapshot()["stalls"][0]["threads"] == []
+
+
+def test_a_long_collection_is_kept_and_logged(caplog: pytest.LogCaptureFixture) -> None:
+    measured: telemetry.Telemetry = telemetry.Telemetry(slow_seconds=60)
+    with caplog.at_level(logging.WARNING, logger="mealieshopper.telemetry"):
+        measured.collected(gc_watch.Collection(2, 0.15, "compute-0", 0))
+        measured.collected(gc_watch.Collection(1, 0.03, "MainThread", 12))
+    assert [entry["ms"] for entry in measured.snapshot()["gc"]] == [30.0, 150.0]
+    assert measured.snapshot()["gc"][1]["thread"] == "compute-0"
+    logged: list[str] = [record.getMessage() for record in caplog.records if record.name == "mealieshopper.telemetry"]
+    assert logged == ["Een ronde van de garbage collector hield de GIL vast: GC generatie 2 150 ms in compute-0"]
+
+
+def _watches() -> int:
+    """Hoeveel metingen van de GC er hangen: de tests zelf hebben er al een (`loop_watch.GC`)."""
+    return sum(isinstance(getattr(callback, "__self__", None), gc_watch.GcWatch) for callback in gc.callbacks)
+
+
+async def test_the_gc_is_watched_only_when_asked(data_dir: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("MEALIESHOPPER_TELEMETRY", "true")
+    monkeypatch.setenv("PASSKEY_AUTH_ENABLED", "false")  # zonder inloggen is iedereen beheerder
+    before: int = _watches()
+    async with create_app().test_app():
+        assert _watches() == before  # standaard uit: de meting kost een aanroep per ronde
+    monkeypatch.setenv("MEALIESHOPPER_TELEMETRY_GC", "true")
+    app: Quart = create_app()
+    async with app.test_app() as test_app:
+        assert _watches() == before + 1
+        body: dict[str, Any] = await (await test_app.test_client().get("/api/telemetry")).get_json()
+        assert "gc" in body
+    assert _watches() == before
 
 
 def test_the_stall_limit_is_a_hundred_milliseconds() -> None:

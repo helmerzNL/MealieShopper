@@ -31,7 +31,7 @@ import volume
 from quart import Quart, Response
 
 from mealieshopper import app as app_module
-from mealieshopper import loop_guard, offers, prices
+from mealieshopper import gc_watch, loop_guard, offers, prices
 from mealieshopper.app import create_app
 
 if (
@@ -159,22 +159,26 @@ async def quiet(
     """Voert `action` uit en faalt als de event loop daarbij langer dan `loop_watch.LIMIT` stilstond.
 
     Bij een stilstand draait `action` opnieuw, tot `attempts` keer: een stilstand door de code herhaalt zich, een hik van de
-    machine niet. De test faalt pas als elke poging een stilstand had, met `describe()` van elke stilstand per poging. `prepare`
+    machine niet. De test faalt pas als elke poging een stilstand had, met `describe()` van elke stilstand per poging en de
+    lange rondes van de GC in die poging (`loop_watch.GC`): die houden de GIL vast en staan op geen stack. `prepare`
     loopt voor elke poging buiten de meting (zoals het koud maken: een grote catalogus opruimen houdt de loop zelf even vast).
     Wat `quiet` meet, haalt het zelf uit de bewaker (`loop_watch.drain`): de controle na de test ziet het niet nog eens.
     """
     seen: list[list[loop_guard.Stall]] = []
+    collected: list[list[gc_watch.Collection]] = []
     for _ in range(attempts):
         if prepare is not None:
             await prepare()
             await settle()
         loop_watch.drain()
+        loop_watch.GC.drain()
         result: T = await action()
         await settle()
         stalls: list[loop_guard.Stall] = _too_long(loop_watch.drain())
         if not stalls:
             return result
         seen.append(stalls)
+        collected.append(loop_watch.GC.drain())
     lines: list[str] = [
         f"De event loop stond in alle {attempts} pogingen langer dan {round(loop_watch.LIMIT * 1000)} ms stil:"
     ]
@@ -182,6 +186,7 @@ async def quiet(
         lines += [f"  poging {number}:"] + [
             f"    {stall.describe()}" for stall in stalls
         ]
+        lines += [f"    {collection.describe()}" for collection in collected[number - 1]]
     pytest.fail("\n".join(lines), pytrace=False)
 
 
