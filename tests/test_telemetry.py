@@ -162,6 +162,7 @@ async def test_fast_request_is_not_logged(
     )  # de cijfers per route tellen wel elke aanvraag
 
 
+@pytest.mark.may_block("de test blokkeert de event loop met opzet")
 async def test_blocked_event_loop_is_reported(
     measured: TestClientProtocol, measured_app: Quart, caplog: pytest.LogCaptureFixture
 ) -> None:

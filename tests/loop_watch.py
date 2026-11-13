@@ -1,0 +1,152 @@
+"""Een bewaker om elke event loop in de tests: een test die de event loop van de app langer dan de limiet blokkeert, valt op.
+
+`install()` verpakt `BaseEventLoop.run_forever`, en daar komen alle manieren waarop de tests een loop starten samen:
+pytest-asyncio, `unittest.IsolatedAsyncioTestCase` en `asyncio.run` (`helpers.run` en `helpers.run_aside`). Per aanroep
+draait een `loop_guard.LoopGuard` mee, in een eigen thread. De stilstanden komen in een lijst die de fixture in `conftest.py`
+na elke test leegt met `drain()`.
+
+Omgeving, gelezen bij het importeren:
+
+- `MEALIESHOPPER_LOOP_GUARD`: `report` (standaard), `enforce` of `off`. `report` somt de stilstanden aan het eind van de run op
+  en laat geen test falen, `enforce` laat de test falen, `off` zet de bewaker uit.
+- `MEALIESHOPPER_LOOP_GUARD_MS`: de limiet in milliseconden, standaard 100.
+
+Alleen een stilstand met een regel van de app op de stack telt (`Stall.in_app`): een `time.sleep` in de test zelf niet. Een test
+die de loop met opzet blokkeert, krijgt `@pytest.mark.may_block("reden")`.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import functools
+import os
+import threading
+from collections.abc import Callable
+from dataclasses import dataclass
+from typing import Any
+
+from mealieshopper import loop_guard
+
+MODES: tuple[str, ...] = ("report", "enforce", "off")
+MODE: str = os.environ.get("MEALIESHOPPER_LOOP_GUARD", "report")
+LIMIT: float = float(os.environ.get("MEALIESHOPPER_LOOP_GUARD_MS", "100")) / 1000
+if MODE not in MODES:
+    raise ValueError(f"MEALIESHOPPER_LOOP_GUARD moet een van {MODES} zijn, niet {MODE!r}")
+
+GUARD_ATTRIBUTE: str = "_loop_watch_guard"
+WRAPPED_ATTRIBUTE: str = "_loop_watch_wrapped"
+
+_stalls: list[loop_guard.Stall] = []
+_lock: threading.Lock = threading.Lock()
+
+
+@dataclass(frozen=True)
+class Reported:
+    """Een stilstand in `report`-modus, met de test waarin hij viel."""
+
+    test: str
+    stall: loop_guard.Stall
+
+
+_reported: list[Reported] = []
+
+
+def _collect(stall: loop_guard.Stall) -> None:
+    """Loopt in een bewakerthread, van welke loop ook."""
+    with _lock:
+        _stalls.append(stall)
+
+
+def drain() -> list[loop_guard.Stall]:
+    """De stilstanden sinds de vorige aanroep, allemaal (ook die zonder regel van de app). Veilig vanuit elke thread."""
+    with _lock:
+        found: list[loop_guard.Stall] = list(_stalls)
+        _stalls.clear()
+    return found
+
+
+class ThreadGuard(loop_guard.LoopGuard):
+    """Een bewaker die start op de thread die de loop gaat draaien, nog voor `run_forever` de loop als lopend aanmeldt.
+
+    De eerste taak van een test blokkeert vaak al in de eerste ronde van de loop, dus de bewaker moet de thread kennen
+    voordat de eerste tik is beantwoord: anders is de stack van die stilstand leeg.
+    """
+
+    def _own_thread_if_running(self) -> int | None:
+        return threading.get_ident()
+
+
+def install() -> None:
+    """Verpakt `run_forever`: bewaker aan, het origineel, bewaker uit. Een tweede aanroep doet niets."""
+    original: Callable[[asyncio.BaseEventLoop], None] = (
+        asyncio.base_events.BaseEventLoop.run_forever
+    )
+    if MODE == "off" or getattr(original, WRAPPED_ATTRIBUTE, False):
+        return
+
+    @functools.wraps(original)
+    def run_forever(self: asyncio.BaseEventLoop) -> None:
+        if getattr(self, GUARD_ATTRIBUTE, None) is not None:  # een geneste aanroep
+            return original(self)
+        guard: loop_guard.LoopGuard = ThreadGuard(self, LIMIT, _collect)
+        setattr(self, GUARD_ATTRIBUTE, guard)
+        guard.start()
+        try:
+            return original(self)
+        finally:
+            guard.stop()
+            setattr(self, GUARD_ATTRIBUTE, None)
+
+    setattr(run_forever, WRAPPED_ATTRIBUTE, True)
+    asyncio.base_events.BaseEventLoop.run_forever = run_forever  # type: ignore[method-assign]
+
+
+def counted(stalls: list[loop_guard.Stall], exempt: bool) -> list[loop_guard.Stall]:
+    """De stilstanden die tellen: die de app veroorzaakte, tenzij de test is vrijgesteld (`may_block`)."""
+    if exempt:
+        return []
+    return [stall for stall in stalls if stall.in_app]
+
+
+def failure_message(mode: str, stalls: list[loop_guard.Stall]) -> str | None:
+    """De foutmelding voor een test, of `None`: alleen `enforce` laat een test falen."""
+    if mode != "enforce" or not stalls:
+        return None
+    lines: list[str] = [f"De event loop stond {len(stalls)} keer stil:"]
+    lines.extend(f"  {stall.describe()}" for stall in stalls)
+    return "\n".join(lines)
+
+
+def record(test: str, stalls: list[loop_guard.Stall]) -> None:
+    """Onthoudt de stilstanden van een test voor het overzicht aan het eind van de run."""
+    _reported.extend(Reported(test, stall) for stall in stalls)
+
+
+def exemption_reason(marker: Any) -> str | None:
+    """De reden van `@pytest.mark.may_block("reden")`, `None` zonder markering. Zonder reden: `ValueError`."""
+    if marker is None:
+        return None
+    reason: Any = marker.args[0] if marker.args else marker.kwargs.get("reason")
+    if not isinstance(reason, str) or not reason.strip():
+        raise ValueError("may_block eist een reden: @pytest.mark.may_block('waarom de test de loop blokkeert')")
+    return reason
+
+
+def summary_lines(reported: list[Reported] | None = None) -> list[str]:
+    """Het overzicht voor `pytest_terminal_summary`: per binnenste regel van de app het aantal tests en de langste duur."""
+    items: list[Reported] = _reported if reported is None else reported
+    groups: dict[str, list[Reported]] = {}
+    for entry in items:
+        frames: tuple[loop_guard.Frame, ...] = entry.stall.app_frames
+        groups.setdefault(frames[-1].short() if frames else "?", []).append(entry)
+    ordered: list[tuple[str, list[Reported]]] = sorted(
+        groups.items(), key=lambda pair: -max(entry.stall.seconds for entry in pair[1])
+    )
+    lines: list[str] = []
+    for where, entries in ordered:
+        tests: set[str] = {entry.test for entry in entries}
+        longest: float = max(entry.stall.seconds for entry in entries)
+        lines.append(
+            f"{round(longest * 1000):>6} ms  {len(tests):>3} tests  {len(entries):>3}x  {where}"
+        )
+    return lines

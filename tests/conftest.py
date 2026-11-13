@@ -20,8 +20,12 @@ os.environ.setdefault("MEALIESHOPPER_TESTING", "1")
 # haar zelf aanzet: zo start een test van de dagelijkse run geen task die na de test nog in de database leest.
 os.environ.setdefault("MEALIESHOPPER_PRICE_INDEX", "false")
 
-from mealieshopper import auth  # noqa: E402
+import loop_watch
+
+from mealieshopper import auth, loop_guard  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
+
+loop_watch.install()  # elke event loop in de tests draait onder de bewaker van de event loop
 
 
 # Hosts die een test mag bereiken: alleen deze machine. De back-up- en TLS-tests draaien een lokale server, respx en de
@@ -163,3 +167,33 @@ async def client(app: Quart) -> AsyncIterator[TestClientProtocol]:
     """Async testclient van de app: `before_serving` en `after_serving` lopen een keer per test."""
     async with app.test_app() as test_app:
         yield test_app.test_client()
+
+
+@pytest.fixture(autouse=True)
+def loop_watch_check(request: pytest.FixtureRequest) -> Iterator[None]:
+    """Na elke test: de stilstanden van de event loop die de app veroorzaakte, in `enforce` een fout, in `report` genoteerd.
+
+    Een stilstand zonder regel van de app (een `time.sleep` in de test zelf) telt niet, en `@pytest.mark.may_block("reden")`
+    stelt een test vrij.
+    """
+    try:
+        reason: str | None = loop_watch.exemption_reason(request.node.get_closest_marker("may_block"))
+    except ValueError as error:
+        pytest.fail(str(error), pytrace=False)
+    loop_watch.drain()  # wat een vorige loop nog meldde, hoort niet bij deze test
+    yield
+    stalls: list[loop_guard.Stall] = loop_watch.counted(loop_watch.drain(), reason is not None)
+    if loop_watch.MODE == "report":
+        loop_watch.record(request.node.nodeid, stalls)
+    message: str | None = loop_watch.failure_message(loop_watch.MODE, stalls)
+    if message:
+        pytest.fail(message, pytrace=False)
+
+
+def pytest_terminal_summary(terminalreporter: Any) -> None:
+    lines: list[str] = loop_watch.summary_lines()
+    if not lines:
+        return
+    terminalreporter.section(f"stilstanden van de event loop (> {round(loop_watch.LIMIT * 1000)} ms, binnenste regel van de app)")
+    for line in lines:
+        terminalreporter.write_line(line)
