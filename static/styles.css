@@ -1257,9 +1257,15 @@ a.subtab-menu__item[hidden] {
   padding-left: 18px;
 }
 
-/* De boodschappenlijst onder het weekmenu (shopping.js, 4.11.0): een aanvinklijst met per regel een huisje voor "altijd in huis",
+/* De boodschappenlijst bij het weekmenu (shopping.js, 4.11.0): een aanvinklijst met per regel een huisje voor "altijd in huis",
    de dagen waarvoor je boodschappen doet als chips erboven, en wat in huis is ingeklapt eronder. Regels van 44 px. */
-/* De knop Boodschappen en het zoeken springen naar deze koppen: onder de balk die bovenaan blijft staan, niet erachter. */
+/* De boodschappenlijst staat sinds 4.24.0 in een eigen weergave (#shop-view) op de plek van het weekmenu, dus bovenaan en zonder
+   de afstand die ze had onder de dagen. Het zoeken springt nog naar de kop van de controlelijst: onder de balk die bovenaan blijft
+   staan, niet erachter. */
+#shop-view .ingredients {
+  margin-top: 0;
+}
+
 #shop-title,
 #cart-review-title {
   scroll-margin-top: 96px;

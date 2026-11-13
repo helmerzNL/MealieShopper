@@ -1134,6 +1134,7 @@ async function loadMealPlan({ force = false } = {}) {
   const week = getWeekBounds(state.weekOffset);
   const request = ++mealPlanRequest;
   message("#planner-message", "");
+  closeShopView(); // een andere of opnieuw opgehaalde week: de boodschappenlijst (shopping.js) staat weer achter de knop
   $("#cart-result").innerHTML = "";
   const cached = force ? null : cachedMealPlan(week);
   if (cached) {
@@ -2940,7 +2941,10 @@ document.querySelectorAll(".subtab[data-subtab], .subtab-menu__item[data-subtab]
     const target = panel.querySelector(`#${subtab.dataset.subtab}`);
     if (target) target.classList.add("is-active");
     if (panel.id === "offers" && typeof showOffers === "function") showOffers();
-    if (subtab.dataset.subtab === "planner") ensureMealPlan();
+    if (subtab.dataset.subtab === "planner") {
+      closeShopView(); // Weekmenu is ook de weg terug uit de boodschappenlijst (shopping.js)
+      ensureMealPlan();
+    }
     if (subtab.dataset.subtab === "search" && typeof showRecipeSearch === "function") showRecipeSearch();
     if (subtab.dataset.subtab === "settings-link" && typeof loadOffersSyncStatus === "function") loadOffersSyncStatus();
     if (subtab.dataset.subtab === "settings-link" && typeof loadLinkingBox === "function") loadLinkingBox();
