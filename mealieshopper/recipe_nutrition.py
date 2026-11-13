@@ -8,6 +8,12 @@ Mealie geeft in zijn lijst van recepten (`/api/recipes`) geen voedingswaarden, e
 - zoek je op calorieën en is de cache ouder dan `INDEX_TTL`, dan leest `refresh` de lijst van Mealie en haalt alleen de
   recepten op die nieuw zijn of een andere `updatedAt` hebben.
 
+Sinds 4.20.0 (issue #322) staan bij elk recept ook de tags, de categorieën, de bereidingstijd, de datum waarop het in Mealie
+kwam en de waardering. Daarop filtert en sorteert Recepten zoeken (`search` met `Filters`, en `facets` voor de lijsten met
+tags en categorieën). Op de bereidingstijd kan Mealie zelf niet filteren. Die gegevens staan in de lijst van Mealie, dus elke
+ronde werkt ze voor alle recepten bij, zonder elk recept op te halen. De dagelijkse run (`offers_schedule.run_all`) start
+een ronde met `refresh_nightly`.
+
 De cache is opnieuw op te bouwen en gaat niet mee in de back-up (zie `backup.EXCLUDED_TABLES`). Hoort hij bij een ander
 Mealie-adres, dan begint hij opnieuw.
 
@@ -22,8 +28,9 @@ import json
 import logging
 import math
 import time
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Iterable
 from contextlib import asynccontextmanager
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
 
@@ -39,6 +46,10 @@ RETRY_AFTER = 60  # seconden na een mislukte ronde (Mealie onbereikbaar) voordat
 STALE_WITHOUT_STAMP = 24 * 3600  # een recept zonder `updatedAt` halen we na een dag opnieuw op
 MAX_RECIPES = 2000  # zoveel recepten lezen we hooguit in
 SEARCH_WAIT = 15.0  # seconden die een zoekopdracht op de eerste ronde wacht; daarna komt wat er al is, met de voortgang
+FACETS_WAIT = 5.0  # seconden die de lijsten met tags en categorieën op de eerste ronde wachten
+MAX_FILTER_VALUES = 50  # zoveel tags of categorieën per kant (erbij, eruit) in één zoekopdracht
+MAX_MINUTES = 24 * 60  # de hoogste grens op de bereidingstijd
+SORTS = ("", "name", "newest", "rating")  # "" is de standaard: de beste treffer bij een zoekterm, anders op naam
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS mealie_recipe_nutrition (
@@ -61,7 +72,16 @@ CREATE TABLE IF NOT EXISTS mealie_recipe_nutrition_meta (
 # Kolommen die later kwamen, zoals `offers.COLUMN_MIGRATIONS`: (tabel, kolom, soort).
 # - `nutrition` (4.7.0): alle voedingswaarden als JSON (`{veld: getal}`, zie nutrition.values). Een rij van daarvoor heeft NULL
 #   en wordt bij de volgende ronde opnieuw opgehaald.
-COLUMN_MIGRATIONS: tuple[tuple[str, str, str], ...] = (("mealie_recipe_nutrition", "nutrition", "TEXT"),)
+# - `tags` en `categories` (4.20.0): JSON, `[{"slug": .., "name": ..}]`; `minutes` (de bereidingstijd), `created_at` (wanneer het
+#   recept in Mealie kwam) en `rating`. Een rij van daarvoor heeft NULL in `tags`; de volgende ronde vult ze uit de lijst van Mealie.
+COLUMN_MIGRATIONS: tuple[tuple[str, str, str], ...] = (
+    ("mealie_recipe_nutrition", "nutrition", "TEXT"),
+    ("mealie_recipe_nutrition", "tags", "TEXT"),
+    ("mealie_recipe_nutrition", "categories", "TEXT"),
+    ("mealie_recipe_nutrition", "minutes", "INTEGER"),
+    ("mealie_recipe_nutrition", "created_at", "TEXT"),
+    ("mealie_recipe_nutrition", "rating", "REAL"),
+)
 
 _refresh_task: asyncio.Task[Any] | None = None
 _refresh: dict[str, Any] = {"done": 0, "total": 0, "error": "", "failedAt": 0.0}
@@ -109,6 +129,57 @@ def _sort_name(name: Any) -> str:
     return " ".join(str(name or "").split()).casefold()
 
 
+def _organizers(items: Any) -> list[dict[str, str]]:
+    """De tags of categorieën van een recept als `[{"slug": .., "name": ..}]`; zonder slug telt een tag niet mee."""
+    found: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for item in items if isinstance(items, list) else []:
+        if not isinstance(item, dict):
+            continue
+        slug = str(item.get("slug") or "").strip()
+        name = " ".join(str(item.get("name") or "").split()) or slug
+        if slug and slug not in seen:
+            seen.add(slug)
+            found.append({"slug": slug, "name": name})
+    return found
+
+
+def _facts(recipe: dict[str, Any]) -> dict[str, Any]:
+    """Waarop Recepten zoeken filtert en sorteert (issue #322). Staat zowel in de lijst van Mealie als in een volledig recept."""
+    rating = recipe.get("rating")
+    return {
+        "tags": _organizers(recipe.get("tags")),
+        "categories": _organizers(recipe.get("recipeCategory")),
+        "minutes": mealie.recipe_minutes(recipe),
+        "created_at": str(recipe.get("createdAt") or recipe.get("dateAdded") or "").strip(),
+        "rating": float(rating) if isinstance(rating, (int, float)) and not isinstance(rating, bool) and rating > 0 else None,
+    }
+
+
+def _facts_params(facts: dict[str, Any]) -> tuple[Any, ...]:
+    """De kolommen `tags`, `categories`, `minutes`, `created_at` en `rating`, in die volgorde."""
+    return (json.dumps(facts["tags"]), json.dumps(facts["categories"]), facts["minutes"], facts["created_at"], facts["rating"])
+
+
+def _row_facts(row: Any) -> dict[str, Any]:
+    """De gegevens van `_facts` uit een rij van de cache."""
+
+    def listed(raw: Any) -> list[dict[str, str]]:
+        try:
+            return _organizers(json.loads(raw)) if raw else []
+        except ValueError:
+            return []
+
+    rating = row["rating"]
+    return {
+        "tags": listed(row["tags"]),
+        "categories": listed(row["categories"]),
+        "minutes": int(row["minutes"]) if row["minutes"] else None,
+        "created_at": str(row["created_at"] or ""),
+        "rating": float(rating) if rating else None,
+    }
+
+
 # --- de cache bijhouden -------------------------------------------------------------------------------------------
 
 
@@ -124,12 +195,25 @@ async def remember(recipe: dict[str, Any]) -> None:
         async with _connect() as conn:
             await conn.execute(
                 """
-                INSERT INTO mealie_recipe_nutrition (recipe_id, slug, name, updated_at, kcal, card, fetched_at, nutrition)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO mealie_recipe_nutrition (recipe_id, slug, name, updated_at, kcal, card, fetched_at, nutrition,
+                  tags, categories, minutes, created_at, rating)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(recipe_id) DO UPDATE SET slug = excluded.slug, name = excluded.name, updated_at = excluded.updated_at,
-                  kcal = excluded.kcal, card = excluded.card, fetched_at = excluded.fetched_at, nutrition = excluded.nutrition
+                  kcal = excluded.kcal, card = excluded.card, fetched_at = excluded.fetched_at, nutrition = excluded.nutrition,
+                  tags = excluded.tags, categories = excluded.categories, minutes = excluded.minutes, created_at = excluded.created_at,
+                  rating = excluded.rating
                 """,
-                (recipe_id, slug, card["name"], _stamp(recipe), found.get("calories"), json.dumps(card), time.time(), json.dumps(found)),
+                (
+                    recipe_id,
+                    slug,
+                    card["name"],
+                    _stamp(recipe),
+                    found.get("calories"),
+                    json.dumps(card),
+                    time.time(),
+                    json.dumps(found),
+                    *_facts_params(_facts(recipe)),
+                ),
             )
             await conn.commit()
     except Exception:  # noqa: BLE001 - een cache die niet bijgewerkt wordt, is geen reden om het recept niet te tonen
@@ -178,6 +262,17 @@ def refresh_progress() -> dict[str, int]:
     return {"done": int(_refresh["done"]), "total": int(_refresh["total"])}
 
 
+async def refresh_nightly() -> bool:
+    """De ronde van de dagelijkse run (offers_schedule.run_all), alleen als Mealie gekoppeld is. Zo zijn de tijden, tags en
+    voedingswaarden ook bij als niemand overdag zoekt. Start de ronde in een eigen task; True als er een liep of startte."""
+    try:
+        await mealie.ensure_configured()
+    except Exception:  # noqa: BLE001 - zonder Mealie is er niets bij te werken
+        return False
+    start_refresh()
+    return True
+
+
 async def _run_refresh() -> None:
     """Lees de lijst van Mealie en haal de recepten op die nieuw of gewijzigd zijn. Een fout wordt bewaard, niet gegooid."""
     try:
@@ -212,7 +307,21 @@ async def _run_refresh() -> None:
 
         await tasks.map_bounded(mealie.RECIPE_WORKERS, one, todo)
         ids = [str(summary.get("id")) for summary in summaries if summary.get("id")]
+        # De kaart, de tags, de categorieën, de tijd en de waardering staan in de lijst: die werken we voor elk recept bij, ook als
+        # het recept zelf niet veranderde (een tag die je in Mealie hernoemt, verandert de `updatedAt` van het recept niet).
+        current = []
+        for summary in summaries:
+            if summary.get("id"):
+                card = mealie.recipe_card(summary)
+                current.append((card["name"], json.dumps(card), *_facts_params(_facts(summary)), str(summary["id"])))
         async with _connect() as conn:
+            await conn.executemany(
+                """
+                UPDATE mealie_recipe_nutrition SET name = ?, card = ?, tags = ?, categories = ?, minutes = ?, created_at = ?, rating = ?
+                WHERE recipe_id = ?
+                """,
+                current,
+            )
             if len(summaries) < MAX_RECIPES:  # anders weten we niet welke er weg zijn
                 await conn.execute(f"DELETE FROM mealie_recipe_nutrition WHERE recipe_id NOT IN ({','.join('?' * len(ids)) or 'NULL'})", ids)
             await conn.execute(
@@ -237,7 +346,9 @@ async def _fresh(wait: float) -> dict[str, int] | None:
     base = await mealie.mealie_url()
     async with _connect() as conn:
         meta = await auth.fetchone(conn, "SELECT base, synced_at FROM mealie_recipe_nutrition_meta WHERE id = 1")
-    fresh = meta is not None and meta["base"] == (base or "") and time.time() - meta["synced_at"] < INDEX_TTL
+        # Een rij zonder tags komt van vóór 4.20.0: de eerste ronde daarna vult ze, ook als de cache verder bij is.
+        unfilled = await auth.fetchone(conn, "SELECT 1 FROM mealie_recipe_nutrition WHERE tags IS NULL LIMIT 1")
+    fresh = meta is not None and meta["base"] == (base or "") and time.time() - meta["synced_at"] < INDEX_TTL and unfilled is None
     task = refresh_running()
     if task is None and not fresh and time.time() - _refresh["failedAt"] >= RETRY_AFTER:
         task = start_refresh()
@@ -300,19 +411,98 @@ def card_with(card: dict[str, Any], found: dict[str, float]) -> dict[str, Any]:
     return {**card, "kcal": round(kcal) if kcal is not None else None, "nutrition": nutrition.items(found)}
 
 
+@dataclass(frozen=True)
+class Filters:
+    """De filters van Recepten zoeken naast de voedingswaarden (issue #322). Tags en categorieën zijn slugs: een recept moet
+    alles uit `tags` en `categories` hebben en niets uit `tags_out` en `categories_out`. `max_minutes` laat alleen recepten
+    met een bekende bereidingstijd tot en met die grens door. `sort` is een van `SORTS`."""
+
+    tags: tuple[str, ...] = ()
+    tags_out: tuple[str, ...] = ()
+    categories: tuple[str, ...] = ()
+    categories_out: tuple[str, ...] = ()
+    max_minutes: int | None = None
+    sort: str = ""
+
+    def active(self) -> bool:
+        """Of er iets anders gevraagd is dan de standaard; zonder filters zoekt de route gewoon in Mealie zelf."""
+        return bool(self.tags or self.tags_out or self.categories or self.categories_out or self.max_minutes or self.sort)
+
+
+def _slugs(value: Any) -> tuple[str, ...]:
+    """Een lijst slugs uit een verzoek: `a,b` of herhaald (`tags=a&tags=b`), zonder lege en dubbele, hooguit `MAX_FILTER_VALUES`."""
+    raw = value if isinstance(value, (list, tuple)) else [value]
+    found: list[str] = []
+    for part in raw:
+        for slug in str(part or "").split(","):
+            slug = slug.strip()[:100]
+            if slug and slug not in found:
+                found.append(slug)
+    return tuple(found[:MAX_FILTER_VALUES])
+
+
+def filters(source: Any) -> Filters:
+    """De filters uit een verzoek: `tags`, `tagsOut`, `categories`, `categoriesOut` (slugs, met komma's), `maxMinutes` en `sort`."""
+
+    def values(key: str) -> tuple[str, ...]:
+        getlist = getattr(source, "getlist", None)
+        return _slugs(getlist(key) if callable(getlist) else source.get(key))
+
+    raw_minutes = str(source.get("maxMinutes") or "").strip()
+    try:
+        minutes = int(float(raw_minutes)) if raw_minutes else None
+    except ValueError:
+        raise ValueError(tr("Geef de bereidingstijd op als een aantal minuten.", "Give the cooking time as a number of minutes.")) from None
+    sort = str(source.get("sort") or "").strip()
+    return Filters(
+        tags=values("tags"),
+        tags_out=values("tagsOut"),
+        categories=values("categories"),
+        categories_out=values("categoriesOut"),
+        max_minutes=max(1, min(MAX_MINUTES, minutes)) if minutes is not None and minutes > 0 else None,
+        sort=sort if sort in SORTS else "",
+    )
+
+
+def _passes(facts: dict[str, Any], wanted: Filters) -> bool:
+    """Of een recept door de tags en categorieën van `wanted` komt (de tijd telt `search` apart)."""
+    for chosen, excluded, key in ((wanted.tags, wanted.tags_out, "tags"), (wanted.categories, wanted.categories_out, "categories")):
+        own = {item["slug"] for item in facts[key]}
+        if not own.issuperset(chosen) or own.intersection(excluded):
+            return False
+    return True
+
+
+def _ordered(candidates: list[tuple[dict[str, Any], dict[str, float], dict[str, Any]]], sort: str, by_name: bool) -> list[Any]:
+    """De volgorde van de treffers: nieuwste eerst, waardering of naam (een recept zonder datum of waardering achteraan, dan op
+    naam). `by_name` False houdt de volgorde zoals ze binnenkwam: de beste treffer van Mealie bij een zoekterm."""
+    if sort == "newest":
+        named = sorted(candidates, key=lambda item: _sort_name(item[0].get("name")))
+        return sorted(named, key=lambda item: item[2]["created_at"] or "", reverse=True)
+    if sort == "rating":
+        return sorted(candidates, key=lambda item: (-(item[2]["rating"] or 0), _sort_name(item[0].get("name"))))
+    if sort == "name" or by_name:
+        return sorted(candidates, key=lambda item: _sort_name(item[0].get("name")))
+    return candidates
+
+
 async def search(
     query: Any,
     limits: Limits,
     page: Any = 1,
     per_page: int = mealie.SEARCH_PAGE,
     wait: float = SEARCH_WAIT,
+    wanted: Filters | None = None,
 ) -> dict[str, Any]:
-    """Je recepten in Mealie die binnen de grenzen vallen (`limits`, zie `bounds`), per portie.
+    """Je recepten in Mealie die binnen de grenzen vallen (`limits`, zie `bounds`, per portie) en door de filters komen
+    (`wanted`, zie `Filters`).
 
-    Met een zoekterm bepaalt Mealie welke recepten passen en in welke volgorde; zonder zoekterm komen alle recepten uit de
-    cache, op naam. Een recept zonder een gevraagde waarde valt weg en telt mee in `withoutValues` (en, zoals in 4.4,
-    `withoutKcal`). Loopt de eerste ronde nog, dan staat de voortgang in `indexing` (`{done, total}`) en komt wat er al bekend is.
+    Met een zoekterm bepaalt Mealie welke recepten passen (en, zonder `sort`, in welke volgorde); zonder zoekterm komen alle
+    recepten uit de cache, op naam of zoals `sort` zegt. Een recept zonder een gevraagde voedingswaarde valt weg en telt mee in
+    `withoutValues` (en, zoals in 4.4, `withoutKcal`); een recept zonder bereidingstijd bij een grens op de tijd telt mee in
+    `withoutTime`. Loopt de eerste ronde nog, dan staat de voortgang in `indexing` (`{done, total}`) en komt wat er al bekend is.
     """
+    wanted = wanted or Filters()
     await mealie.ensure_configured()
     try:
         number = max(1, int(page or 1))
@@ -321,27 +511,70 @@ async def search(
     size = max(1, min(100, int(per_page)))
     indexing = await _fresh(wait)
     async with _connect() as conn:
-        rows = await conn.execute_fetchall("SELECT slug, name, kcal, card, nutrition FROM mealie_recipe_nutrition")
+        rows = await conn.execute_fetchall(
+            "SELECT slug, name, kcal, card, nutrition, tags, categories, minutes, created_at, rating FROM mealie_recipe_nutrition"
+        )
     if not rows and indexing is None and _refresh["error"]:
         raise RuntimeError(_refresh["error"])
     known = {row["slug"]: _values(row) for row in rows}
     text = " ".join(str(query or "").split())[:200]
     if text:
+        # De lijst van Mealie heeft de tags, categorieën en tijden zelf al: die zijn hier het verst bij.
         listed = await mealie.list_recipes(MAX_RECIPES, search=text)
-        candidates = [(mealie.recipe_card(summary), known.get(summary["slug"]) or {}) for summary in listed]
+        candidates = [(mealie.recipe_card(summary), known.get(summary["slug"]) or {}, _facts(summary)) for summary in listed]
     else:
-        candidates = [(json.loads(row["card"]), known[row["slug"]]) for row in sorted(rows, key=lambda row: _sort_name(row["name"]))]
+        candidates = [(json.loads(row["card"]), known[row["slug"]], _row_facts(row)) for row in rows]
 
-    matches = [card_with(card, found) for card, found in candidates if fits(found, limits)]
-    missing = sum(1 for _, found in candidates if any(nutrition.value_of(found, name) is None for name in limits))
+    candidates = [item for item in candidates if _passes(item[2], wanted)]
+    without_values = sum(1 for _, found, _ in candidates if any(nutrition.value_of(found, name) is None for name in limits))
+    without_time = sum(1 for _, _, facts in candidates if facts["minutes"] is None) if wanted.max_minutes else 0
+    kept = [
+        item
+        for item in candidates
+        if fits(item[1], limits) and (not wanted.max_minutes or (item[2]["minutes"] is not None and item[2]["minutes"] <= wanted.max_minutes))
+    ]
+    matches = [card_with(card, found) for card, found, _ in _ordered(kept, wanted.sort, by_name=not text)]
     start = (number - 1) * size
     return {
         "recipes": matches[start : start + size],
         "total": len(matches),
         "page": number,
         "more": start + size < len(matches),
-        "withoutValues": missing,
-        "withoutKcal": missing,
+        "withoutValues": without_values,
+        "withoutKcal": without_values,
+        "withoutTime": without_time,
+        "indexing": indexing,
+    }
+
+
+def _counted(lists: Iterable[list[dict[str, str]]]) -> list[dict[str, Any]]:
+    """Telt tags of categorieën over de recepten: `[{value: slug, label: naam, count}]`, op aantal en dan op naam."""
+    counts: dict[str, list[Any]] = {}
+    for items in lists:
+        for item in items:
+            entry = counts.setdefault(item["slug"], [item["name"], 0])
+            entry[1] += 1
+    return sorted(
+        ({"value": slug, "label": label, "count": count} for slug, (label, count) in counts.items()),
+        key=lambda item: (-item["count"], _sort_name(item["label"])),
+    )
+
+
+async def facets(wait: float = FACETS_WAIT) -> dict[str, Any]:
+    """De tags en categorieën van je recepten in Mealie met het aantal recepten per stuk, voor de filters van Recepten zoeken.
+    Loopt de eerste ronde nog, dan staat de voortgang in `indexing` en tellen alleen de recepten die al binnen zijn."""
+    await mealie.ensure_configured()
+    indexing = await _fresh(wait)
+    async with _connect() as conn:
+        rows = await conn.execute_fetchall("SELECT tags, categories, minutes, created_at, rating FROM mealie_recipe_nutrition")
+    if not rows and indexing is None and _refresh["error"]:
+        raise RuntimeError(_refresh["error"])
+    facts = [_row_facts(row) for row in rows]
+    return {
+        "tags": _counted(item["tags"] for item in facts),
+        "categories": _counted(item["categories"] for item in facts),
+        "recipes": len(facts),
+        "withTime": sum(1 for item in facts if item["minutes"] is not None),
         "indexing": indexing,
     }
 

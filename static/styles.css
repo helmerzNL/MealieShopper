@@ -9313,6 +9313,34 @@ html.is-standalone .user-menu__item--standalone:not([hidden]) {
   text-align: left;
 }
 
+/* De filters van Recepten zoeken (issue #322): bovenaan de bereidingstijd en de volgorde, daaronder de tags en categorieën. */
+.recipe-filters__row {
+  display: flex;
+  flex-basis: 100%;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+}
+
+.recipe-filters__field {
+  display: flex;
+  flex: 1 1 180px;
+  flex-direction: column;
+  gap: 4px;
+  max-width: 260px;
+  color: var(--muted);
+  font-size: var(--text-sm);
+}
+
+.recipe-filters__note,
+#search-facets-message {
+  flex-basis: 100%;
+  margin: 0;
+}
+
+#search-facets-message:empty {
+  display: none;
+}
+
 /* De merken: een winkel heeft er honderden, dus een eigen schuifbalk onder het zoekveld. */
 .offer-facet--scroll {
   max-height: 300px;

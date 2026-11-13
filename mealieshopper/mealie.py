@@ -1151,6 +1151,15 @@ def _minutes(value: Any) -> int | None:
     return (int(text) or None) if text.isdigit() else None
 
 
+def recipe_minutes(recipe: dict[str, Any]) -> int | None:
+    """De bereidingstijd in minuten: de totale tijd, of anders de voorbereiding plus de kook- of oventijd (issue #322)."""
+    total = _minutes(recipe.get("totalTime"))
+    if total:
+        return total
+    parts = [_minutes(recipe.get("prepTime")), _minutes(recipe.get("cookTime")) or _minutes(recipe.get("performTime"))]
+    return sum(part for part in parts if part) or None
+
+
 def _portions(recipe: dict[str, Any]) -> int | None:
     for key in ("recipeServings", "recipeYieldQuantity"):
         value = recipe.get(key)
@@ -1171,7 +1180,7 @@ def recipe_card(recipe: dict[str, Any]) -> dict[str, Any]:
         "recipeId": recipe.get("id"),
         "name": str(recipe.get("name") or slug),
         "image": _image_path(recipe),
-        "minutes": _minutes(recipe.get("totalTime")),
+        "minutes": recipe_minutes(recipe),
         "portions": _portions(recipe),
         "rating": rating if isinstance(rating, (int, float)) and rating > 0 else None,
         "tags": tags[:3],
