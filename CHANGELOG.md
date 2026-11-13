@@ -8,6 +8,8 @@ Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar
 
 ### Nieuw in 4.21.0
 
+Pull request: [#324](https://github.com/helmerzNL/MealieShopper/pull/324).
+
 - **Bladeren van recept naar recept.** Staat een recept open, dan ga je naar het vorige of volgende recept van de lijst waar je het uit opende, zonder eerst terug te gaan. Dat werkt bij het detail van Recepten zoeken, onder Winkels (je bewaarde AH-recepten, de weekplanner van de AH-app, Jumbo, Picnic en Crisp), bij Maaltijdboxen en in het venster van een maaltijd in het weekmenu.
 - **De lijst is wat er op het scherm staat.** De reeks is de kaarten die op het scherm stonden toen je het recept opende, in dezelfde volgorde. Met een zoekterm, een filter, een gekozen week, een receptgroep of een lijst bladert het dus precies daardoorheen. In het weekmenu zijn het de maaltijden met een recept, in de volgorde van het scherm; een notitie als *Uit eten* heeft geen recept en wordt overgeslagen.
 - **Pijltjes, toetsen en vegen.** Bovenaan het recept staan twee pijltjes met je plek erachter (*3 van 24*; in het venster van een maaltijd naast de maaltijdsoort), en onder het recept **Vorige** en **Volgende**, zodat je na een lang recept niet naar boven hoeft. Met een toetsenbord gebruik je de pijltjestoetsen links en rechts, behalve in een invulveld of terwijl de kookmodus openstaat. Op een telefoon of tablet veeg je naar links (volgende) of rechts (vorige); omhoog en omlaag blijft scrollen, en een veeg op een brede tabel scrolt de tabel. Het nieuwe recept schuift in vanaf de kant waar je naartoe gaat (niet als je beweging beperkt hebt in je apparaat), de pagina springt naar boven, en bij het eerste of laatste recept valt het pijltje uit.
