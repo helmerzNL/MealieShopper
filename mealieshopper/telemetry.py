@@ -10,7 +10,8 @@ rekende of achter een andere aanvraag in de rij stond. Met de vlag aan houdt de 
 - Andere fasen die een module zelf aangeeft met `span`, zoals het verpakken met gzip (compression.py).
 - Hoe lang de event loop stilstond, en waar (`loop_guard.LoopGuard`). De app draait in een proces met een event loop: rekent
   een route daar seconden op, dan wacht elke andere aanvraag mee. Een bewakerthread leest dan de stack van de loop, dus de
-  melding noemt de functie en de regel die de loop vasthield, en de aanvragen die op dat moment liepen.
+  melding noemt de functie en de regel die de loop vasthield, en de aanvragen die op dat moment liepen. Wachtte de loop zelf,
+  dan noemt ze ook de andere threads die bezig waren: een daarvan hield de GIL vast.
 
 Waar je het ziet:
 
@@ -309,6 +310,8 @@ class Telemetry:
                 "ms": _ms(stall.seconds),
                 "active": targets,
                 "stack": [frame.short() for frame in reversed(frames[-STALL_FRAMES:])],
+                # wachtte de loop zelf, dan de andere threads die bezig waren: een daarvan hield de GIL vast
+                "threads": [thread.short() for thread in stall.busy_threads],
             }
         )
         logger.warning(

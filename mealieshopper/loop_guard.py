@@ -8,20 +8,32 @@ taak op de loop kan zichzelf niet betrappen (die loopt dan juist niet), dus de b
   (`sys._current_frames`). Dat is het moment dat de loop nog vastzit, dus de stack wijst naar de regel die blokkeert.
 - Zodra de loop de tik alsnog beantwoordt, roept de thread `on_stall` aan met de hele duur en die stack.
 
+Wacht de loop zelf (de binnenste regel staat in de selector, of er staat geen regel van de app op de stack), dan hield iets
+anders hem tegen: meestal een andere thread die de GIL vasthoudt met een lange aanroep in C, zoals een grote `sorted`, of een
+volle ronde van de garbage collector (die staat op geen stack, zie gc_watch.py). Python wisselt pas tussen twee bytecodes van
+thread, dus zo'n aanroep houdt alle andere threads tegen, de loop en de bewaker ook. Een `fetchall` hoort er niet bij: sqlite3
+laat de GIL los bij elke stap. De bewaker leest dan ook de stacks van de andere threads (`Stall.threads`, met `sys._current_frames`),
+zodra hij zelf aan de beurt is: bij het lezen van de stack van de loop, of anders meteen bij het antwoord van de loop. De thread
+die de GIL had, staat dan nog bij de regel na zijn lange aanroep, of is al klaar en wacht weer. Een stilstand die begint terwijl
+er geen tik openstaat, ziet de bewaker niet: hij kan zelf pas weer een tik sturen als hij de GIL terug heeft.
+
 `on_stall` loopt in de bewakerthread, niet op de loop. Een fout daarin wordt gelogd en stopt de bewaker niet.
 """
 
 from __future__ import annotations
 
 import asyncio
+import linecache
 import logging
 import os
+import re
 import sys
 import threading
 import time
 import traceback
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
+from types import FrameType
 
 APP_DIR: str = os.path.dirname(os.path.abspath(__file__))
 EXEMPT_FUNCTIONS: frozenset[str] = frozenset(
@@ -29,6 +41,13 @@ EXEMPT_FUNCTIONS: frozenset[str] = frozenset(
 )  # opstarten telt niet
 THREAD_NAME: str = "loop-guard"
 JOIN_TIMEOUT: float = 2.0
+# Een loop met zijn binnenste regel in een van deze bestanden wacht op de selector (of op de GIL om daaruit terug te komen).
+SELECTOR_FILES: frozenset[str] = frozenset({"selectors.py", "selector_events.py"})
+# Een thread waarvan de binnenste regel zo'n aanroep doet, wacht op werk, een slot of de selector (`queue.get`,
+# `Condition.wait`, `Lock.acquire`, `kqueue.control`) en hield de GIL dus niet vast. Het gaat om de tekst van de regel, zodat
+# ook een wachtrij in C telt (aiosqlite en compute.py wachten in `SimpleQueue.get`, zonder eigen regel op de stack).
+WAITING_CALL: re.Pattern[str] = re.compile(r"\.(?:get|wait|acquire|control|select|join|sleep)\(")
+THREAD_FRAMES: int = 4  # zoveel regels per andere thread noemt `describe`
 
 logger: logging.Logger = logging.getLogger("mealieshopper.loop_guard")
 
@@ -50,11 +69,40 @@ class Frame:
 
 
 @dataclass(frozen=True)
+class ThreadStack:
+    """De stack van een andere thread tijdens een stilstand: de naam en de regels van buiten naar binnen."""
+
+    name: str
+    stack: tuple[Frame, ...]
+
+    @property
+    def idle(self) -> bool:
+        """Of de thread op werk of een slot wachtte: dan hield hij de GIL niet vast."""
+        if not self.stack:
+            return True
+        inner: Frame = self.stack[-1]
+        return WAITING_CALL.search(linecache.getline(inner.path, inner.line)) is not None
+
+    def short(self, limit: int = THREAD_FRAMES) -> str:
+        """De naam en de binnenste `limit` regels, van binnen naar buiten. Ook regels buiten de app: die liep echt."""
+        return " ".join(
+            [
+                self.name,
+                " < ".join(frame.short() for frame in reversed(self.stack[-limit:])),
+            ]
+        )
+
+
+@dataclass(frozen=True)
 class Stall:
-    """Een keer dat de event loop `seconds` stilstond, met de stack van buiten naar binnen (de laatste regel liep)."""
+    """Een keer dat de event loop `seconds` stilstond, met de stack van buiten naar binnen (de laatste regel liep).
+
+    `threads` zijn de andere threads, alleen als de loop zelf wachtte (`loop_waiting`): een daarvan hield hem tegen.
+    """
 
     seconds: float
     stack: tuple[Frame, ...]
+    threads: tuple[ThreadStack, ...] = ()
 
     @property
     def app_frames(self) -> tuple[Frame, ...]:
@@ -69,11 +117,77 @@ class Stall:
             frame.function in EXEMPT_FUNCTIONS for frame in frames
         )
 
+    @property
+    def busy_threads(self) -> tuple[ThreadStack, ...]:
+        """De andere threads die niet wachtten: wie de GIL had, staat hiertussen."""
+        return tuple(thread for thread in self.threads if not thread.idle)
+
     def describe(self, limit: int = 6) -> str:
-        """Een regel voor het log: de duur en de binnenste `limit` regels, van binnen naar buiten."""
+        """Een regel voor het log: de duur en de binnenste `limit` regels, van binnen naar buiten, en dan de andere threads."""
         frames: tuple[Frame, ...] = self.app_frames or self.stack
         shown: list[str] = [frame.short() for frame in reversed(frames[-limit:])]
-        return f"{round(self.seconds * 1000)} ms: " + " < ".join(shown)
+        line: str = f"{round(self.seconds * 1000)} ms: " + " < ".join(shown)
+        return line + self._describe_threads()
+
+    def _describe_threads(self) -> str:
+        if not self.threads:
+            return ""
+        busy: tuple[ThreadStack, ...] = self.busy_threads
+        idle: int = len(self.threads) - len(busy)
+        shown: str = " | ".join(thread.short() for thread in busy) or "geen bezig"
+        return f". Andere threads: {shown}" + (f" ({idle} wachtend)" if idle else "")
+
+
+def loop_waiting(stack: tuple[Frame, ...]) -> bool:
+    """Of de loop zelf niets deed: de binnenste regel staat in de selector, of er staat geen regel van de app op de stack."""
+    if any(frame.in_app for frame in stack):
+        return os.path.basename(stack[-1].path) in SELECTOR_FILES
+    return True
+
+
+def _frames(frame: FrameType) -> tuple[Frame, ...]:
+    return tuple(
+        Frame(entry.filename, entry.lineno or 0, entry.name)
+        for entry in traceback.extract_stack(frame)
+    )
+
+
+def _thread_names() -> dict[int, str]:
+    return {
+        thread.ident: thread.name
+        for thread in threading.enumerate()
+        if thread.ident is not None
+    }
+
+
+def current_threads(skip: Iterable[int | None]) -> dict[int, ThreadStack]:
+    """De stack van elke levende thread nu, behalve `skip`, per id van de thread."""
+    names: dict[int, str] = _thread_names()
+    skipped: set[int | None] = set(skip)
+    return {
+        ident: ThreadStack(names.get(ident, hex(ident)), _frames(frame))
+        for ident, frame in sys._current_frames().items()
+        if ident not in skipped
+    }
+
+
+def _by_name(threads: Iterable[ThreadStack]) -> tuple[ThreadStack, ...]:
+    """De threads op naam, zonder bewakers: die van een andere loop houdt de GIL niet vast."""
+    return tuple(
+        sorted(
+            (thread for thread in threads if thread.name != THREAD_NAME),
+            key=lambda thread: thread.name,
+        )
+    )
+
+
+@dataclass
+class _Tick:
+    """Een tik die nog niet is afgehandeld: wanneer hij verstuurd is, en wat de bewaker zelf zag terwijl hij openstond."""
+
+    sent: float
+    stack: tuple[Frame, ...] | None = None
+    threads: tuple[ThreadStack, ...] = ()
 
 
 class LoopGuard:
@@ -141,25 +255,47 @@ class LoopGuard:
 
     def _capture(self) -> tuple[Frame, ...]:
         thread_id: int | None = self._loop_thread
-        frame = sys._current_frames().get(thread_id) if thread_id else None
+        frame: FrameType | None = (
+            sys._current_frames().get(thread_id) if thread_id else None
+        )
         if frame is None:
             return ()
-        return tuple(
-            Frame(entry.filename, entry.lineno or 0, entry.name)
-            for entry in traceback.extract_stack(frame)
-        )
+        return _frames(frame)
 
-    def _report(self, seconds: float, stack: tuple[Frame, ...]) -> None:
+    def _others(self) -> tuple[ThreadStack, ...]:
+        """De andere threads nu, op naam, zonder de loop en de bewaker."""
+        found: dict[int, ThreadStack] = current_threads(
+            (self._loop_thread, threading.get_ident())
+        )
+        return _by_name(found.values())
+
+    def _look(self, tick: _Tick) -> None:
+        """De tik staat `threshold` open: lees de stack van de loop, en de andere threads als de loop zelf wachtte."""
+        tick.stack = self._capture()
+        if loop_waiting(tick.stack):
+            tick.threads = self._others()
+
+    def _witnesses(self, tick: _Tick) -> tuple[tuple[Frame, ...], tuple[ThreadStack, ...]]:
+        """De stack van de loop en de andere threads voor de melding. Zag de bewaker de loop niet (hij kwam zelf niet aan de
+        beurt voor de loop antwoordde), dan is de stack leeg en leest hij de andere threads nu: eerder kon niet."""
+        stack: tuple[Frame, ...] = tick.stack if tick.stack is not None else ()
+        if not loop_waiting(stack):
+            return stack, ()
+        return stack, tick.threads or self._others()
+
+    def _report(
+        self, seconds: float, stack: tuple[Frame, ...], threads: tuple[ThreadStack, ...]
+    ) -> None:
         try:
-            self._on_stall(Stall(seconds, stack))
+            self._on_stall(Stall(seconds, stack, threads))
         except Exception:
             logger.exception("on_stall van de event-loopbewaker faalde")
 
-    def _settle(self, pending_since: float, stack: tuple[Frame, ...] | None) -> None:
+    def _settle(self, tick: _Tick) -> None:
         """Verwerkt een beantwoorde tik: meld de stilstand als de loop te lang wegbleef."""
-        seconds: float = self._answered_at - pending_since
-        if stack is not None or seconds >= self._threshold:
-            self._report(seconds, stack or ())
+        seconds: float = self._answered_at - tick.sent
+        if tick.stack is not None or seconds >= self._threshold:
+            self._report(seconds, *self._witnesses(tick))
 
     def _run(self) -> None:
         """Eén keer per `interval`: een beantwoorde tik afhandelen en meteen de volgende sturen, zodat er geen blinde tik tussen zit.
@@ -168,18 +304,17 @@ class LoopGuard:
         hooguit één `interval` te kort gemeten. Bij het stoppen volgt een laatste controle, zodat een al beantwoorde maar nog
         niet gemelde stilstand niet verloren gaat.
         """
-        pending_since: float | None = None
-        stack: tuple[Frame, ...] | None = None
+        tick: _Tick | None = None
         while not self._stop.wait(self._interval):
             now: float = time.perf_counter()
-            if pending_since is not None and self._answered.is_set():
-                self._settle(pending_since, stack)
-                pending_since, stack = None, None
-            if pending_since is None:
+            if tick is not None and self._answered.is_set():
+                self._settle(tick)
+                tick = None
+            if tick is None:
                 if not self._send_tick():
                     return
-                pending_since = now
-            elif stack is None and now - pending_since >= self._threshold:
-                stack = self._capture()
-        if pending_since is not None and self._answered.is_set():
-            self._settle(pending_since, stack)
+                tick = _Tick(now)
+            elif tick.stack is None and now - tick.sent >= self._threshold:
+                self._look(tick)
+        if tick is not None and self._answered.is_set():
+            self._settle(tick)

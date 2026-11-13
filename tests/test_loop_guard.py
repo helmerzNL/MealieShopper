@@ -194,3 +194,120 @@ def test_a_stall_in_the_first_iteration_has_a_stack_when_the_loop_thread_is_give
         loop.close()
     assert len(stalls) == 1
     assert any(frame.function == "block_at_once" for frame in stalls[0].stack)
+
+
+# --- de andere threads ------------------------------------------------------------------------------------------------
+
+HOLD_COUNT: int = 50_000_000  # `sum(range(...))` is een aanroep in C die de GIL zo'n 300 ms vasthoudt
+
+
+def hold_the_gil(start: threading.Event, done: list[bool]) -> None:
+    """Wacht op `start`, houdt dan de GIL vast met een lange aanroep in C (Python wisselt daarin niet van thread) en rekent daarna
+    in Python door tot `done[0]` (zonder aanroep, die zou een eigen regel geven): zo staat de thread nog in deze functie als de bewaker de GIL terugkrijgt."""
+    start.wait(5)
+    time.sleep(0.03)  # de loop slaapt dan al, en de tik van de bewaker staat open
+    sum(range(HOLD_COUNT))
+    while not done[0]:
+        pass
+
+
+async def test_a_thread_holding_the_gil_is_reported_with_its_frame() -> None:
+    """De loop wil verder, maar een andere thread houdt de GIL vast: de stilstand noemt die thread en zijn regel."""
+    stalls: list[loop_guard.Stall] = []
+    start: threading.Event = threading.Event()
+    done: list[bool] = [False]
+    holder: threading.Thread = threading.Thread(target=hold_the_gil, args=(start, done), name="holder")
+    holder.start()
+    guard: loop_guard.LoopGuard = loop_guard.LoopGuard(asyncio.get_running_loop(), 0.1, stalls.append)
+    guard.start()
+    try:
+        await asyncio.sleep(0.05)
+        start.set()
+        time.sleep(0.05)  # noqa: ASYNC251 - geeft de GIL vrij: de loop blokkeert niet zelf, hij wil daarna verder
+        await asyncio.sleep(0.05)
+    finally:
+        guard.stop()
+        done[0] = True
+        holder.join()
+    stall: loop_guard.Stall = max(stalls, key=lambda found: found.seconds)
+    assert stall.seconds >= 0.15
+    holders: list[loop_guard.ThreadStack] = [thread for thread in stall.busy_threads if thread.name == "holder"]
+    assert holders and holders[0].stack[-1].function == "hold_the_gil"
+    assert "Andere threads: holder test_loop_guard.py:" in stall.describe()
+
+
+async def test_the_other_threads_are_read_when_the_loop_waits() -> (
+    None
+):
+    """De bewaker leest de andere threads als de loop geen regel van de app draait."""
+    stalls: list[loop_guard.Stall] = []
+    stop: threading.Event = threading.Event()
+
+    def spin() -> None:
+        while not stop.is_set():
+            sum(range(1000))  # rekent in Python: de GIL wisselt tussen de bytecodes
+
+    spinner: threading.Thread = threading.Thread(target=spin, name="spinner")
+    spinner.start()
+    guard: loop_guard.LoopGuard = loop_guard.LoopGuard(
+        asyncio.get_running_loop(), 0.05, stalls.append
+    )
+    guard.start()
+    try:
+        time.sleep(0.2)  # noqa: ASYNC251
+        await asyncio.sleep(0.05)
+    finally:
+        guard.stop()
+        stop.set()
+        spinner.join()
+    assert len(stalls) == 1
+    names: list[str] = [thread.name for thread in stalls[0].busy_threads]
+    assert "spinner" in names
+    assert loop_guard.THREAD_NAME not in [thread.name for thread in stalls[0].threads]
+
+
+def test_a_loop_busy_in_the_app_lists_no_other_threads() -> None:
+    selector: loop_guard.Frame = loop_guard.Frame(
+        "/usr/lib/python3.12/selectors.py", 566, "select"
+    )
+    app: loop_guard.Frame = loop_guard.Frame(APP_PATH, 5, "_catalogue")
+    assert not loop_guard.loop_waiting((selector, app))
+    assert loop_guard.loop_waiting((app, selector))
+    assert loop_guard.loop_waiting((selector,))
+    assert loop_guard.loop_waiting(())
+
+
+def line_of(path: str, text: str) -> int:
+    """Het nummer van de eerste regel van `path` met `text`: wachten herkent de bewaker aan de tekst van de regel."""
+    with open(path, encoding="utf-8") as source:
+        return next(number for number, line in enumerate(source, 1) if text in line)
+
+
+def test_describe_names_the_busy_threads_and_counts_the_waiting_ones() -> None:
+    compute_path: str = os.path.join(loop_guard.APP_DIR, "compute.py")
+    busy: loop_guard.ThreadStack = loop_guard.ThreadStack(
+        "compute-0",
+        (
+            loop_guard.Frame(compute_path, 70, "_work"),
+            loop_guard.Frame("/app/mealieshopper/prices.py", 1234, "_rows"),
+        ),
+    )
+    idle: loop_guard.ThreadStack = loop_guard.ThreadStack(
+        "compute-1",
+        (loop_guard.Frame(compute_path, line_of(compute_path, "self._jobs.get()"), "_work"),),
+    )
+    waiting: loop_guard.ThreadStack = loop_guard.ThreadStack(
+        "Thread-3 (_connection_worker_thread)",
+        (loop_guard.Frame(threading.__file__, line_of(threading.__file__, "waiter.acquire()"), "wait"),),
+    )
+    stall: loop_guard.Stall = loop_guard.Stall(0.145, (), (busy, idle, waiting))
+    assert stall.busy_threads == (busy,)
+    assert (
+        stall.describe()
+        == "145 ms: . Andere threads: compute-0 prices.py:1234 _rows < compute.py:70 _work (2 wachtend)"
+    )
+    assert (
+        loop_guard.Stall(0.2, (), (idle,)).describe()
+        == "200 ms: . Andere threads: geen bezig (1 wachtend)"
+    )
+    assert loop_guard.Stall(0.2, ()).describe() == "200 ms: "
