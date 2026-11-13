@@ -2058,6 +2058,7 @@ function renderMealieStatus(data, { verified = false } = {}) {
   const setup = $("#mealie-setup");
   if (setup) setup.hidden = Boolean(data.configured);
   state.linkedStores.mealie = Boolean(data.configured); // Recepten zoeken zoekt dan ook in Mealie
+  if (typeof recipeSearchMealieChanged === "function") recipeSearchMealieChanged(); // en bladert er zonder zoekterm doorheen
   if (typeof renderAhPlannerButton === "function") renderAhPlannerButton(); // Naar weekmenu (ah_planner.js) vraagt Mealie
   // Eerst de eerste dag van de week, zodat het weekmenu meteen de goede week ophaalt.
   const weekChanged = applyWeekStart(data.weekStart);
@@ -2913,6 +2914,7 @@ document.querySelectorAll(".subtab[data-subtab], .subtab-menu__item[data-subtab]
     if (target) target.classList.add("is-active");
     if (panel.id === "offers" && typeof showOffers === "function") showOffers();
     if (subtab.dataset.subtab === "planner") ensureMealPlan();
+    if (subtab.dataset.subtab === "search" && typeof showRecipeSearch === "function") showRecipeSearch();
     if (subtab.dataset.subtab === "settings-link" && typeof loadOffersSyncStatus === "function") loadOffersSyncStatus();
     if (subtab.dataset.subtab === "settings-link" && typeof loadLinkingBox === "function") loadLinkingBox();
     if (subtab.dataset.subtab === "settings-link" && typeof loadAiReviewSettings === "function") loadAiReviewSettings();

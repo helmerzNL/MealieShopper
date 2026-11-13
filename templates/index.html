@@ -711,15 +711,55 @@
                 <input class="input kcal-filter__input" id="search-salt-max" form="search-form" type="number" inputmode="decimal" min="0" max="50" step="0.1" placeholder="max." autocomplete="off" aria-labelledby="search-salt-label search-word-max" data-i18n-attr="placeholder:kcal.max">
               </div>
             </details>
-          <p class="muted" data-i18n="search.intro">Zoekt in één keer in Mealie, bij je winkels en in de weekmenu's van HelloFresh en Marley Spoon.</p>
+          <details class="facet-panel recipe-filters" id="search-facets" data-facet-panel="recipes" data-facet-closed hidden>
+            <summary><span data-i18n="rsearch.filters_title">Tags, categorieën en tijd</span><span class="facet-panel__count"></span></summary>
+            <div class="facet-panel__body">
+              <div class="recipe-filters__row">
+                <label class="recipe-filters__field">
+                  <span data-i18n="rsearch.time">Bereidingstijd</span>
+                  <select class="input" id="search-max-minutes">
+                    <option value="" data-i18n="rsearch.time_any">Elke tijd</option>
+                    <option value="15" data-i18n="rsearch.time_15">Tot 15 minuten</option>
+                    <option value="30" data-i18n="rsearch.time_30">Tot 30 minuten</option>
+                    <option value="45" data-i18n="rsearch.time_45">Tot 45 minuten</option>
+                    <option value="60" data-i18n="rsearch.time_60">Tot een uur</option>
+                    <option value="90" data-i18n="rsearch.time_90">Tot anderhalf uur</option>
+                  </select>
+                </label>
+                <label class="recipe-filters__field">
+                  <span data-i18n="rsearch.sort">Volgorde</span>
+                  <select class="input" id="search-sort">
+                    <option value="" data-i18n="rsearch.sort_name">Naam</option>
+                    <option value="newest" data-i18n="rsearch.sort_newest">Nieuwste eerst</option>
+                    <option value="rating" data-i18n="rsearch.sort_rating">Waardering</option>
+                  </select>
+                </label>
+              </div>
+              <section class="facet-panel__list">
+                <h4 data-i18n="rsearch.tags">Tags</h4>
+                <input class="input offer-facet__search" id="search-tags-search" type="search" autocomplete="off" placeholder="Zoek een tag" aria-label="Zoek een tag" data-i18n-attr="placeholder:rsearch.tags_search;aria-label:rsearch.tags_search">
+                <ul class="offer-facet offer-facet--scroll" id="search-tags"></ul>
+              </section>
+              <section class="facet-panel__list">
+                <h4 data-i18n="rsearch.categories">Categorieën</h4>
+                <input class="input offer-facet__search" id="search-categories-search" type="search" autocomplete="off" placeholder="Zoek een categorie" aria-label="Zoek een categorie" data-i18n-attr="placeholder:rsearch.categories_search;aria-label:rsearch.categories_search">
+                <ul class="offer-facet offer-facet--scroll" id="search-categories"></ul>
+              </section>
+              <div id="search-facets-message"></div>
+              <p class="muted recipe-filters__note" id="search-facets-note" data-i18n="rsearch.filters_note">Tags, categorieën en de bereidingstijd komen uit je recepten in Mealie. Met een van deze filters zoekt alleen Mealie mee.</p>
+              <button class="link-button facet-panel__clear" type="button" data-facet-clear data-i18n="offers.filters.clear" hidden>Alles wissen</button>
+            </div>
+          </details>
+          <p class="muted" id="search-intro" data-i18n="search.intro">Zoekt in één keer in Mealie, bij je winkels en in de weekmenu's van HelloFresh en Marley Spoon.</p>
+          <p class="muted" id="search-browse-hint" data-i18n="rsearch.browse_hint" hidden>Hieronder staan je recepten in Mealie. Typ een zoekterm om ook bij je winkels en in de weekmenu's van HelloFresh en Marley Spoon te zoeken.</p>
           <details class="help">
             <summary data-i18n="common.help">Hoe werkt dit?</summary>
-            <p class="muted" data-i18n="search.intro_more">Albert Heijn doet altijd mee, Jumbo, Picnic en Crisp zodra ze gekoppeld zijn; voor de menu's van HelloFresh en Marley Spoon (deze week en de komende weken) is geen koppeling nodig. Bekijk een recept voor de ingrediënten en de bereiding, of plan het in je weekmenu; een recept van een winkel komt dan ook in Mealie. Plak je een link naar een recept op een andere site (https://...) in het zoekveld, dan importeert Zoeken dat recept in Mealie.</p>
+            <p class="muted" data-i18n="search.intro_more">Albert Heijn doet altijd mee, Jumbo, Picnic en Crisp zodra ze gekoppeld zijn; voor de menu's van HelloFresh en Marley Spoon (deze week en de komende weken) is geen koppeling nodig. Laat je het zoekveld leeg, dan zie je je recepten in Mealie; onder Tags, categorieën en tijd kies je tags, categorieën, een bereidingstijd en de volgorde. Bekijk een recept voor de ingrediënten en de bereiding, of plan het in je weekmenu; een recept van een winkel komt dan ook in Mealie. Plak je een link naar een recept op een andere site (https://...) in het zoekveld, dan importeert Zoeken dat recept in Mealie.</p>
           </details>
           <div id="search-message"></div>
           <div id="search-sections">
             <section class="search-store" id="search-mealie" hidden>
-              <h3><span>Mealie</span> <span class="muted" id="search-mealie-count"></span></h3>
+              <h3><span id="search-mealie-title">Mealie</span> <span class="muted" id="search-mealie-count"></span></h3>
               <div id="search-mealie-message"></div>
               <div id="search-mealie-results" class="recipe-grid recipe-grid--compact"></div>
               <p><button class="button button--secondary" id="search-mealie-more" type="button" hidden data-i18n="rsearch.more">Meer recepten</button></p>

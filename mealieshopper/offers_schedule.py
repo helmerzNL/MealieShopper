@@ -19,7 +19,7 @@ from typing import Any, Awaitable, Callable
 
 import aiosqlite
 
-from . import ah_orders, auth, image_cache, loose_names, offers, prices, purchase_sync, tasks
+from . import ah_orders, auth, image_cache, loose_names, offers, prices, purchase_sync, recipe_nutrition, tasks
 
 log = logging.getLogger(__name__)
 
@@ -124,6 +124,7 @@ async def run_all(trigger: str, now: datetime | None = None, *, wait_for_images:
             result = {**result, key: outcome}
     if wait_for_images:
         _start_loose_names()
+        await _start_recipe_index()
         images = await image_cache.prefetch_nightly()
         if images is not None:
             result = {**result, "images": images}
@@ -146,6 +147,15 @@ def _start_loose_names() -> None:
         loose_names.start(None, "nightly")
     except Exception:  # noqa: BLE001 - een extraatje: een fout bij het starten mag de nachtelijke run niet vertragen of laten falen
         log.warning("Ronde voor losse namen starten mislukt", exc_info=True)
+
+
+async def _start_recipe_index() -> None:
+    """Werk de receptencache van Recepten zoeken bij (tijden, tags en voedingswaarden, issue #322), in een eigen task: de run
+    wacht er niet op."""
+    try:
+        await recipe_nutrition.refresh_nightly()
+    except Exception:  # noqa: BLE001 - een extraatje: een fout bij het starten mag de nachtelijke run niet laten falen
+        log.warning("Receptencache bijwerken starten mislukt", exc_info=True)
 
 
 async def _warm() -> None:

@@ -143,9 +143,12 @@ class WiringTest(unittest.TestCase):
             for name in ("protein", "fat", "carbs", "sugar", "fiber", "salt"):
                 for side in ("min", "max"):
                     self.assertIn(f'id="{scope}-{name}-{side}"', HTML, f"{scope}-{name}-{side}")
-        # Met een grens zoekt alleen Mealie; de andere winkels gaan uit beeld.
-        self.assertIn('(!kcal || store === "mealie")', function_source("runRecipeSearch", SEARCH_JS))
-        self.assertIn('recipeSearch.kcal && store !== "mealie"', function_source("renderSearchStore", SEARCH_JS))
+        # Met een grens zoekt alleen Mealie; de andere winkels gaan uit beeld. Sinds 4.20.0 (issue #322) ook zonder zoekterm
+        # (bladeren) en met een filter op tags, categorieën of tijd: dat heet nu `mealieOnly`.
+        search = function_source("runRecipeSearch", SEARCH_JS)
+        self.assertIn("const mealieOnly = !query || Boolean(kcal) || recipeFiltersNarrow();", search)
+        self.assertIn('(!mealieOnly || store === "mealie")', search)
+        self.assertIn('recipeSearch.mealieOnly && store !== "mealie"', function_source("renderSearchStore", SEARCH_JS))
 
     def test_servings_go_to_mealie_only_when_changed(self):
         save = function_source("savePlanEntry")

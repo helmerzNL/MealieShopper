@@ -338,14 +338,21 @@ def create_app() -> Quart:
     @app.get("/api/mealie/recipes")
     async def mealie_recipes_search():
         async def found() -> dict[str, Any]:
-            # Met een grens op een voedingswaarde (kcalMin, proteinMax, saltMax ..., zie nutrition.FILTERS) zoekt de cache van
-            # recipe_nutrition.py, anders Mealie zelf.
+            # Met een grens op een voedingswaarde (kcalMin, proteinMax, saltMax ..., zie nutrition.FILTERS) of een filter op tags,
+            # categorieën, bereidingstijd of volgorde (issue #322, zie recipe_nutrition.filters) zoekt de cache van
+            # recipe_nutrition.py, anders Mealie zelf. Zonder zoekterm en filters geeft Mealie alle recepten op naam (bladeren).
             limits = recipe_nutrition.bounds(request.args)
-            if not limits:
+            wanted = recipe_nutrition.filters(request.args)
+            if not limits and not wanted.active():
                 return await mealie.search_recipes(request.args.get("q"), request.args.get("page") or 1)
-            return await recipe_nutrition.search(request.args.get("q"), limits, request.args.get("page") or 1)
+            return await recipe_nutrition.search(request.args.get("q"), limits, request.args.get("page") or 1, wanted=wanted)
 
         return await mealie_action(found, tr("Zoeken in Mealie mislukt", "Searching Mealie failed"))
+
+    # De tags en categorieën van je recepten met het aantal per stuk: de lijsten met plus en min van Recepten zoeken (issue #322).
+    @app.get("/api/mealie/recipes/facets")
+    async def mealie_recipes_facets():
+        return await mealie_action(recipe_nutrition.facets, tr("Tags uit Mealie laden mislukt", "Loading the tags from Mealie failed"))
 
     # Voedingswaarden van oude AH-recepten in Mealie aanvullen (alleen de beheerder: het pad staat in auth.ADMIN_PATHS).
     @app.get("/api/mealie/nutrition/backfill")

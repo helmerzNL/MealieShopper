@@ -57,14 +57,15 @@ function facetRows(counts, selection, { label = (value) => value, search = "" } 
 }
 
 // Eén regel. `cls` is een extra klasse per waarde (de kleur van een categorie), `dot` zet het kleurbolletje voor de naam.
-function facetRowHtml(name, row, { cls = () => "", dot = false } = {}) {
+// `include` en `exclude` zijn de vertaalsleutels van de knoppen: bij de recepten moet een gekozen tag erbij (issue #322).
+function facetRowHtml(name, row, { cls = () => "", dot = false, include = "offers.filters.include", exclude = "offers.filters.exclude" } = {}) {
   const step = (mode, icon, key) => {
     const label = escapeHtml(t(key, { name: row.label }));
     return `<button type="button" class="offer-facet__step offer-facet__step--${mode}" data-mode="${mode}" aria-pressed="${row.mode === mode}" aria-label="${label}" title="${label}">${mdiIcon(icon)}</button>`;
   };
   const bullet = dot ? '<i class="offer-chip__dot" aria-hidden="true"></i>' : "";
   return `<li class="offer-facet__row${cls(row.value)}${row.mode ? ` is-${row.mode}` : ""}" data-facet="${escapeHtml(name)}" data-value="${escapeHtml(row.value)}">
-      ${step("in", MDI_PLUS, "offers.filters.include")}${step("out", MDI_MINUS, "offers.filters.exclude")}
+      ${step("in", MDI_PLUS, include)}${step("out", MDI_MINUS, exclude)}
       <span class="offer-facet__name" title="${escapeHtml(row.label)}">${bullet}${escapeHtml(row.label)}</span>
       <span class="offer-facet__count">${escapeHtml(I18N.formatNumber(row.count))}</span>
     </li>`;
@@ -109,7 +110,8 @@ function facetPanelCount(panel, count) {
   if (clear) clear.hidden = !count;
 }
 
-// Open of dicht onthoudt de browser per vak. Zonder keuze staat het open: de filters horen in beeld.
+// Open of dicht onthoudt de browser per vak. Zonder keuze staat het open: de filters horen in beeld. Een vak met
+// `data-facet-closed` staat zonder keuze dicht: bij Recepten zoeken komt eerst het zoekveld (issue #322).
 const FACET_PANEL_KEY = "ms-facet-panel";
 
 function facetPanelsInit() {
@@ -121,7 +123,7 @@ function facetPanelsInit() {
     } catch {
       // Dan staat het vak open.
     }
-    panel.open = saved !== "0";
+    panel.open = saved === null ? !panel.hasAttribute("data-facet-closed") : saved !== "0";
     panel.addEventListener("toggle", () => {
       try {
         localStorage.setItem(key, panel.open ? "1" : "0");
