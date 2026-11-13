@@ -30,6 +30,7 @@ uit `SAFE_PARAMS`, van een query alleen de tekst zonder de waarden: de app geeft
 from __future__ import annotations
 
 import asyncio
+import gc
 import logging
 import time
 from collections import deque
@@ -282,6 +283,7 @@ class Telemetry:
         self.slow: deque[Recording] = deque(maxlen=KEPT_SLOW)
         self.stalls: deque[dict[str, Any]] = deque(maxlen=KEPT_STALLS)
         self.collections: deque[dict[str, Any]] = deque(maxlen=gc_watch.KEPT)
+        self.loop: asyncio.AbstractEventLoop | None = None  # waar `collected` het loggen heen stuurt
         self.active: dict[int, Recording] = {}
         self.finished: deque[tuple[float, str]] = deque(maxlen=KEPT_FINISHED)
 
@@ -332,12 +334,33 @@ class Telemetry:
     def collected(self, collection: gc_watch.Collection) -> None:
         """Een lange ronde van de GC (`gc_watch.GcWatch`): bewaar hem, en meld hem als hij de loop had kunnen tegenhouden.
 
-        Loopt in de thread van de GC, terwijl die de GIL heeft: alleen een append en hooguit een regel in het log."""
+        Loopt in de callback van de GC: alleen een append, en het loggen gaat naar de loop (`call_soon_threadsafe`). Een handler
+        van het log neemt een slot, en dat hoort niet midden in de GC."""
         self.collections.append(
             {"at": datetime.now(UTC).isoformat(timespec="seconds"), **collection.as_dict()}
         )
-        if collection.seconds >= STALL_SECONDS:
-            logger.warning("Een ronde van de garbage collector hield de GIL vast: %s", collection.describe())
+        loop: asyncio.AbstractEventLoop | None = self.loop
+        if collection.seconds >= STALL_SECONDS and loop is not None:
+            try:
+                loop.call_soon_threadsafe(self._log_collection, collection)
+            except RuntimeError:  # de loop is dicht
+                pass
+
+    def _log_collection(self, collection: gc_watch.Collection) -> None:
+        logger.warning("Een ronde van de garbage collector hield de GIL vast: %s", collection.describe())
+
+    def gc_counts(self) -> dict[str, Any]:
+        """Voor `snapshot`: de lange rondes, en hoeveel objecten bevroren zijn (`gc_watch.set_aside`). Groeit `frozen` over weken
+        terwijl de catalogi even groot blijven, dan houdt een bevriezing iets vast dat al weg had gemogen.
+
+        `counters` zijn de tellers van `gc.get_count()`, geen aantallen objecten: voor generatie 0 de objecten erbij sinds de
+        laatste ronde, voor 1 en 2 het aantal rondes van de generatie eronder. `gc.get_freeze_count()` loopt de bevroren lijst af
+        (2,5 ms bij 600.000 objecten, gemeten): goed voor deze pagina van de beheerder, niet voor elke aanvraag."""
+        return {
+            "collections": list(reversed(self.collections)),
+            "frozen": gc.get_freeze_count(),
+            "counters": list(gc.get_count()),
+        }
 
     def snapshot(self) -> dict[str, Any]:
         routes: list[tuple[str, RouteStats]] = sorted(
@@ -352,7 +375,7 @@ class Telemetry:
             "routes": [stats.as_dict(route) for route, stats in routes],
             "slow": [recording.as_dict() for recording in reversed(self.slow)],
             "stalls": list(reversed(self.stalls)),
-            "gc": list(reversed(self.collections)),
+            "gc": self.gc_counts(),
         }
 
 
@@ -425,6 +448,7 @@ def register(app: Quart) -> Telemetry | None:
         watcher.start()  # op de loop zelf, zodat de bewaker de thread van de loop kent
         guard.append(watcher)
         if collections is not None:
+            telemetry.loop = asyncio.get_running_loop()
             collections.start()
 
     @app.after_serving

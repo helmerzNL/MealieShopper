@@ -50,13 +50,18 @@ class Node:
     me: Node | None = None
 
 
-def test_set_aside_freezes_what_lives_and_clears_young_cycles_first() -> None:
+def test_a_dead_cycle_in_the_old_generation_is_swept_before_it_is_frozen() -> None:
+    """Review van taak 9b: `set_aside` alleen (`gc.collect(1)` en `gc.freeze()`) kijkt niet in generatie 2, en bevroor een dode
+    kring daar voor de rest van het proces. De bouw roept daarom eerst `sweep` aan."""
     before: int = gc.get_freeze_count()
     kept: list[Node] = [Node() for _ in range(1000)]
     cycle: Node = Node()
     cycle.me = cycle
     gone: weakref.ref[Node] = weakref.ref(cycle)
-    del cycle  # nu afval, maar alleen de GC ruimt een kring op
+    gc.collect(1)  # nog levend: de kring gaat naar generatie 2
+    del cycle  # nu afval in generatie 2, en alleen een volle ronde ruimt een kring op
+    gc_watch.sweep()
     gc_watch.set_aside()
-    assert gone() is None  # opgeruimd voor het bevriezen, dus niet voor altijd bewaard
-    assert gc.get_freeze_count() >= before + len(kept)
+    gc.collect()
+    assert gone() is None  # niet bevroren
+    assert gc.get_freeze_count() >= before + len(kept)  # wat leeft wel

@@ -1135,6 +1135,7 @@ async def _new_catalogue(key: tuple[str, str], version: str, today: str) -> _Cat
     threadpool (`_build_catalogue`), en dan schrijft de event loop hem in `_CATALOGUES`. Een eigen verbinding, want de bouw loopt
     door als de aanvraag die hem startte wegvalt (`compute.SingleFlight`), en die sluit dan haar verbinding. Een fout komt bij elke
     wachtende aanvraag terecht en blijft niet bewaard: de volgende aanvraag bouwt opnieuw."""
+    gc_watch.sweep()  # het afval in generatie 2 weg, voordat set_aside het bevriest (gc_watch.py)
     async with _connect() as conn:
         rows: _CatalogueRows = await _catalogue_rows(conn, key[1], today)
     gc_watch.set_aside()  # anders loopt elke volle ronde van de GC tijdens de bouw langs alles wat er al is (gc_watch.py)

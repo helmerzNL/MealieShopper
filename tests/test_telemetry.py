@@ -233,14 +233,21 @@ def test_a_stall_in_the_app_has_no_threads() -> None:
     assert measured.snapshot()["stalls"][0]["threads"] == []
 
 
-def test_a_long_collection_is_kept_and_logged(caplog: pytest.LogCaptureFixture) -> None:
+async def test_a_long_collection_is_kept_and_logged_from_the_loop(caplog: pytest.LogCaptureFixture) -> None:
     measured: telemetry.Telemetry = telemetry.Telemetry(slow_seconds=60)
+    measured.loop = asyncio.get_running_loop()
     with caplog.at_level(logging.WARNING, logger="mealieshopper.telemetry"):
         measured.collected(gc_watch.Collection(2, 0.15, "compute-0", 0))
         measured.collected(gc_watch.Collection(1, 0.03, "MainThread", 12))
-    assert [entry["ms"] for entry in measured.snapshot()["gc"]] == [30.0, 150.0]
-    assert measured.snapshot()["gc"][1]["thread"] == "compute-0"
-    logged: list[str] = [record.getMessage() for record in caplog.records if record.name == "mealieshopper.telemetry"]
+        logged: list[str] = [record.getMessage() for record in caplog.records if record.name == "mealieshopper.telemetry"]
+        assert logged == []  # niet in de callback van de GC zelf
+        await asyncio.sleep(0)
+    found: dict[str, Any] = measured.snapshot()["gc"]
+    assert [entry["ms"] for entry in found["collections"]] == [30.0, 150.0]
+    assert found["collections"][1]["thread"] == "compute-0"
+    assert found["frozen"] == gc.get_freeze_count()
+    assert len(found["counters"]) == 3
+    logged = [record.getMessage() for record in caplog.records if record.name == "mealieshopper.telemetry"]
     assert logged == ["Een ronde van de garbage collector hield de GIL vast: GC generatie 2 150 ms in compute-0"]
 
 
@@ -260,7 +267,7 @@ async def test_the_gc_is_watched_only_when_asked(data_dir: Path, monkeypatch: py
     async with app.test_app() as test_app:
         assert _watches() == before + 1
         body: dict[str, Any] = await (await test_app.test_client().get("/api/telemetry")).get_json()
-        assert "gc" in body
+        assert set(body["gc"]) == {"collections", "frozen", "counters"}
     assert _watches() == before
 
 

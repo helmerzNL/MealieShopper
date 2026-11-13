@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import gc
 import hashlib
 import json
 import os
@@ -559,3 +560,69 @@ async def test_building_the_catalogue_sets_the_heap_aside(volume_dir: Path) -> N
     with mock.patch.object(gc_watch, "set_aside", wraps=gc_watch.set_aside) as spy:
         await prices.warm_catalogues(["jumbo"], today=volume.TODAY)
     assert spy.call_count == 2  # voor de bouw (de app en de andere catalogi) en erna (de nieuwe catalogus)
+
+
+
+class _Wrapper:
+    """Zoals hypercorn 0.18 `ProtocolWrapper`: zijn `send` is een gebonden methode van de server."""
+
+    def __init__(self, send: Callable[[object], None]) -> None:
+        self.send: Callable[[object], None] = send
+
+
+class _Server:
+    """Zoals hypercorn 0.18 `TCPServer`: `protocol` wijst naar de wrapper en de wrapper terug naar de server, een kring die bij
+    het sluiten niemand breekt. Alleen een volle ronde van de GC ruimt hem op, en dan telt `removed` hem."""
+
+    removed: int = 0
+
+    def __init__(self) -> None:
+        self.protocol: _Wrapper = _Wrapper(self.protocol_send)
+
+    def protocol_send(self, event: object) -> None:
+        del event
+
+    def __del__(self) -> None:
+        _Server.removed += 1
+
+
+def _dead_cycles_in_the_old_generation(count: int) -> None:
+    """`count` gesloten verbindingen als afval in generatie 2: eerst levend naar generatie 2 (een ronde over de jonge
+    generaties), dan los. Een bevroren kring ruimt de GC nooit meer op."""
+    servers: list[_Server] = [_Server() for _ in range(count)]
+    gc.collect(1)
+    del servers
+
+
+PRODUCT_CHANGE: str = (
+    "UPDATE price_observations SET title = title || ' (nieuw)'"
+    " WHERE rowid = (SELECT MIN(rowid) FROM price_observations WHERE store = 'ah')"
+)
+PLANTED: int = 500  # gesloten verbindingen per ronde, elk vijf objecten die de GC volgt
+FROZEN_SPREAD: int = 1000  # de catalogus is na elke bouw even groot, op een product na: geen 2500 objecten per ronde erbij
+
+
+@pytest.mark.volume
+async def test_rebuilds_do_not_freeze_dead_cycles(volume_client: TestClientProtocol, volume_dir: Path) -> None:
+    # Review van taak 9b: gc.collect(1) en gc.freeze() bevroren ook dode kringen uit generatie 2, voor de rest van het proces.
+    # Elke ronde: dode kringen zoals gesloten verbindingen van hypercorn, dan een nieuwe catalogus (koud, of na een wijziging
+    # van een product). De drempel van generatie 2 staat hoog, zodat geen volle ronde van zichzelf het afval opruimt voor de
+    # bouw: zo ligt het er nog op het moment dat de catalogus opzij gaat, zoals in productie tussen twee volle rondes.
+    thresholds: tuple[int, int, int] = gc.get_threshold()
+    removed: int = _Server.removed
+    frozen: list[int] = []
+    gc.set_threshold(thresholds[0], thresholds[1], 1_000_000)
+    try:
+        for number in range(4):
+            _dead_cycles_in_the_old_generation(PLANTED)
+            if number == 2:
+                await asyncio.to_thread(_execute, volume_dir / volume.DB_NAME, PRODUCT_CHANGE)
+            else:
+                await cold(volume_dir)()
+            await _get(volume_client, "/api/prices/history?store=ah")
+            frozen.append(gc.get_freeze_count())
+    finally:
+        gc.set_threshold(*thresholds)
+    gc.collect()
+    assert _Server.removed - removed == 4 * PLANTED  # niets van het afval is voor altijd bevroren
+    assert max(frozen[1:]) - min(frozen[1:]) < FROZEN_SPREAD, frozen
