@@ -8,6 +8,8 @@ Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar
 
 ### Verbeterd in 4.25.1
 
+Pull request: [#330](https://github.com/helmerzNL/MealieShopper/pull/330).
+
 Het scherm Bestellingen en kassabonnen geeft zijn vakken op een breed scherm meer ruimte, na de melding dat het veel te klein was, net als de Prijsgeschiedenis in 4.23.1. Daarna zijn alle lijsten met een eigen schuifbalk gelijkgetrokken.
 
 - **De vakken met aankopen zijn minstens 640 px hoog.** De tabel met aankopen, de kaarten, het overzicht, en het vak met de producten of de bon van een geopende aankoop kregen alleen de hoogte van waar ze beginnen tot de onderkant van de pagina, en `pageFitHeight` gaf niet minder dan 240 px. Boven de tabel staan de kop, de uitleg, de zoekbalk, de filters, een melding en de weergavebalk, en boven de producten van een aankoop de kop, de badges, de melding en de balk. Op een laptop (een scherm van zo'n 650 px hoog) en zelfs op 1920 × 950 bleef zo elk vak op 240 tot 380 px hangen: ongeveer drie rijen. Nu is dat minstens 640 px, ongeveer tien rijen of de hele bon (`PURCHASE_MIN_HEIGHT` in `static/orders.js`). Past het niet onder de kop, dan scrolt de pagina mee. Een hoger scherm blijft precies passen, en op een smal scherm (onder 1200 px) scrolt de pagina zoals eerst.
