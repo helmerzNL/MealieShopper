@@ -2481,14 +2481,24 @@ async def _regular_points(
     `purchases_before_until` laat de aankopen van de dag `until` zelf weg. `ids` beperkt het tot die producten. `choosable` (met `ids`)
     laat van de bewaarde prijzen alleen die staan die `regular_price.choose` op `until` kan kiezen (`_choosable_points`): genoeg voor
     het oordeel, niet voor een lijst van alle punten."""
+    rows: _RegularRows = await _regular_rows(
+        conn, store, since, until, purchases_before_until=purchases_before_until, ids=ids, choosable=choosable
+    )
+    return await compute.run(_regular_from_rows, rows, receipts, since, until, purchases_before_until, ids)
+
+
+async def _regular_rows(
+    conn: aiosqlite.Connection, store: str, since: str, until: str, *, purchases_before_until: bool, ids: list[str] | None,
+    choosable: bool = False,
+) -> _RegularRows:
+    """De rijen uit de database voor `_regular_points` (zie daar voor de argumenten)."""
     fresh_from: str | None = (date.fromisoformat(until) - timedelta(days=FRESH_DAYS)).isoformat() if choosable else None
-    rows: _RegularRows = _RegularRows(
+    return _RegularRows(
         await (_choosable_points(conn, store, since, until, ids, fresh_from) if fresh_from is not None and ids is not None
                else _search_points(conn, store, since, until, ids)),
         await _order_points(conn, store, since, until, purchases_before_until, ids),
         await _offer_rows(conn, store, since, ids),
     )
-    return await compute.run(_regular_from_rows, rows, receipts, since, until, purchases_before_until, ids)
 
 
 class _RegularRows(NamedTuple):
@@ -2851,9 +2861,17 @@ async def _chosen_before(
 
     Een aankoop van `day` zelf telt niet als gewone prijs (`purchases_before_until`), de van-prijs van een aanbieding die op `day`
     loopt wel (hij staat op `day`). Alleen een keuze die `judged` is (hoogstens een jaar oud) komt in het resultaat."""
-    points: dict[str, list[RegularPoint]] = await _regular_points(
-        conn, store, _days_ago(day, YEAR_DAYS), day, receipts=receipts, purchases_before_until=True, ids=ids
-    )
+    since: str = _days_ago(day, YEAR_DAYS)
+    rows: _RegularRows = await _regular_rows(conn, store, since, day, purchases_before_until=True, ids=ids)
+    return await compute.run(_chosen_from_rows, rows, receipts, since, day, ids)
+
+
+def _chosen_from_rows(
+    rows: _RegularRows, receipts: list[dict[str, Any]], since: str, day: str, ids: list[str] | None
+) -> dict[str, Chosen]:
+    """De keuzes van `_chosen_before` uit zijn rijen. Puur, voor `compute.run`: de punten van het jaar van elk product en de keuze
+    daaruit (taak 10: dit liep op de event loop, een keer per aankoopdag van de nachtelijke ronde). De punten blijven in de thread."""
+    points: dict[str, list[RegularPoint]] = _regular_from_rows(rows, receipts, since, day, True, ids)
     chosen: dict[str, Chosen] = {}
     for product_id, product_points in points.items():
         pick: Chosen | None = choose(product_points, day)
@@ -2909,7 +2927,9 @@ def _price_to_store(stored: Any, pick: Chosen | None) -> float | None:
 
 class _Picks:
     """De keuzes van `_chosen_before` per aankoopdag, voor `fill_regular_prices`. De catalogus (voor de bonnen en de ingelezen
-    aankopen) wordt pas gelezen bij de eerste regel die hem nodig heeft: een aankoop openen zonder te vullen regels bouwt hem niet."""
+    aankopen) wordt pas gelezen bij de eerste regel die hem nodig heeft: een aankoop openen zonder te vullen regels bouwt hem niet.
+    Per dag alleen de producten van de regels (`choose`): de keuze van een product hangt alleen van zijn eigen punten af, en zo
+    houdt de ronde geen keuze per gekocht product per dag vast (taak 10, de GC)."""
 
     def __init__(self, conn: aiosqlite.Connection, store: str, today: str) -> None:
         self.conn: aiosqlite.Connection = conn
@@ -2917,6 +2937,7 @@ class _Picks:
         self.today: str = today
         self.receipts: list[dict[str, Any]] | None = None
         self.by_day: dict[str, dict[str, Chosen]] = {}
+        self.asked: dict[str, set[str]] = {}  # per dag de producten waarvoor `by_day` al een antwoord heeft (ook zonder keuze)
 
     async def ready(self) -> bool:
         """Leest de catalogus bij de eerste vraag. False als hij niet te lezen is (`_catalogue_or_none` logt dat)."""
@@ -2927,24 +2948,38 @@ class _Picks:
             self.receipts = catalogue.receipts
         return True
 
-    async def pick(self, day: str, product_id: str) -> Chosen | None:
-        """De keuze voor dit product bij een aankoop op `day`. Pas na `ready`."""
-        if day not in self.by_day:
-            self.by_day[day] = await _chosen_before(self.conn, self.store, day, self.receipts or [])
-        return self.by_day[day].get(product_id)
+    async def choose(self, day: str, product_ids: set[str]) -> None:
+        """Rekent de keuzes uit voor deze producten bij een aankoop op `day`, voor zover dat nog niet gebeurde. Pas na `ready`."""
+        asked: set[str] = self.asked.setdefault(day, set())
+        missing: list[str] = sorted(product_ids - asked)
+        if missing:
+            found: dict[str, Chosen] = await _chosen_before(self.conn, self.store, day, self.receipts or [], missing)
+            self.by_day.setdefault(day, {}).update(found)
+            asked.update(missing)
+
+    def pick(self, day: str, product_id: str) -> Chosen | None:
+        """De keuze voor dit product bij een aankoop op `day`, na `choose`."""
+        return self.by_day.get(day, {}).get(product_id)
 
 
 async def _line_updates(picks: _Picks, lines: list[Any], stamp: str) -> list[tuple[Any, ...]] | None:
     """Per regel de nieuwe `regular_price` en `regular_checked_at`, of None als de catalogus niet te lezen is. Dan blijft alles
     ongestempeld: een regel die zonder de bonnen en de ingelezen aankopen is bepaald, komt nooit meer terug."""
-    updates: list[tuple[Any, ...]] = []
+    wanted: dict[str, set[str]] = {}
     for line in lines:
         day: str | None = _iso_day(line["day"])
+        if day is not None and line["product_id"] is not None:
+            wanted.setdefault(day, set()).add(str(line["product_id"]))
+    if wanted and not await picks.ready():
+        return None
+    for day, product_ids in wanted.items():
+        await picks.choose(day, product_ids)
+    updates: list[tuple[Any, ...]] = []
+    for line in lines:
+        day = _iso_day(line["day"])
         pick: Chosen | None = None
         if day is not None and line["product_id"] is not None:
-            if not await picks.ready():
-                return None
-            pick = await picks.pick(day, str(line["product_id"]))
+            pick = picks.pick(day, str(line["product_id"]))
         updates.append((_price_to_store(line["stored"], pick), stamp, line["purchase"], line["position"]))
     return updates
 
