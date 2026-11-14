@@ -15,16 +15,15 @@ from typing import Any, Generic, NamedTuple, TypeVar
 
 from . import ah_lists
 
-MEMO_SIZE: int = 524_288  # de namen per generatie van `TextMemo` als een functie niets opgeeft
-# De grootte per functie, de namen per generatie: 1,3 tot 1,5 keer het aantal namen dat een opbouw van de catalogus van elke winkel
-# op de volumedatabase (`tests/volume.py`, de schaal van productie) erin zet. Een opbouw past dan in een generatie, dus een
-# volgende opbouw vindt alles terug. Een opbouw zet erin: fold 341.326, near 68.249, categorize 65.870, offer_category 70.692,
-# _parts 59.979, _size_of 96.208. `tests/test_name_memo.py` eist dat een tweede opbouw geen enkele naam opnieuw uitrekent.
+MEMO_SIZE: int = 524_288  # hoeveel namen `TextMemo` hooguit vasthoudt als een functie niets opgeeft
+# De grootte per functie, de namen die de memo hooguit vasthoudt: 1,3 tot 1,5 keer het aantal namen dat een opbouw van de
+# catalogus van elke winkel op de volumedatabase (`tests/volume.py`, de schaal van productie) erin zet, zodat een volgende opbouw
+# alles terugvindt. Een opbouw zet erin: fold 341.326, near 68.249, categorize 65.870, offer_category 70.692, _parts 59.979,
+# _size_of 96.208. `tests/test_name_memo.py` eist dat een tweede opbouw geen enkele naam opnieuw uitrekent.
 # Het geheugen: een gewone dict kost per naam de sleutel, het antwoord en een plek in de tabel, zonder de schakel van lru_cache.
-# De app op de volumedatabase met alle catalogi gebouwd en 779.468 namen in de memo's: 441 MiB (taak 9c). Een tweede opbouw zet
-# dezelfde namen in de nieuwe generatie, dan delen de twee generaties hun sleutels en antwoorden. Het slechtste geval, elke memo
-# met twee volle generaties vol verschillende namen, kost de memo's samen 354 MiB (gemeten met namen van 27 tekens): dat haalt
-# alleen een opbouw met een heel andere set namen dan de vorige.
+# Het slechtste geval: de volumedatabase met alle catalogi gebouwd, en dan elke memo tot `size` gevuld met namen die niet in de
+# catalogus staan. Een testproces piekt dan op 371 MiB (3.12) of 398 MiB (3.15), gemeten in taak 9c. Met twee generaties van
+# elk `size` namen, die naast elkaar bleven staan, was dat 589 en 619 MiB.
 FOLD_SIZE: int = 450_560
 CATEGORY_SIZE: int = 98_304
 OFFER_CATEGORY_SIZE: int = 98_304
@@ -43,7 +42,7 @@ class MemoInfo(NamedTuple):
     hits: int
     misses: int
     maxsize: int
-    currsize: int  # in beide generaties samen, een naam die van de oude naar de nieuwe ging telt twee keer
+    currsize: int  # de namen in beide generaties samen: een naam staat in een van de twee
     resets: int  # hoe vaak een generatie met namen erin wegviel (`TextMemo`): binnen een opbouw hoort dat 0 te zijn
 
 
@@ -61,12 +60,12 @@ class TextMemo(Generic[_Result]):
     Het geheugen is een gewone dict en geen `functools.lru_cache`: die houdt per naam een schakel bij die de garbage collector bij
     elke volle ronde langsloopt (770.000 namen op de volumedatabase: 55 ms per ronde, gemeten), en zo'n ronde houdt de GIL vast
     (gc_watch.py). Een dict met tekst als sleutel en tekst of tuples van tekst als waarde slaat de GC over (3.12) of loopt hij snel
-    door. Er zijn twee generaties van elk `size` namen: een naam wordt eerst in de nieuwe gezocht en dan in de oude, en een
-    treffer in de oude gaat mee naar de nieuwe. Is de nieuwe vol, dan wordt hij de oude en valt de vorige oude weg (`resets` telt
-    het, als er namen in zaten). Zo blijft wat vaak terugkomt bewaard, zoals bij lru_cache, zonder een schakel per naam, en houdt
-    de memo hooguit twee keer `size` namen vast (`MemoInfo.maxsize`). Een generatie van `size // 2` is te klein: een opbouw die
-    niet in een generatie past, laat bij de volgende opbouw een deel van zijn namen vallen. De groottes bovenaan zijn ruim genoeg
-    voor de namen van een opbouw van alle catalogi: `tests/test_name_memo.py` eist dat een tweede opbouw niets mist."""
+    door. Er zijn twee generaties: een naam wordt eerst in de nieuwe gezocht en dan in de oude, en een treffer in de oude verhuist
+    naar de nieuwe. Een naam staat dus in een van de twee, en de nieuwe heeft alles wat sinds de laatste wissel terugkwam. Zijn
+    er samen meer dan `size` namen, dan valt de oude weg (`resets` telt het, als er namen in zaten) en wordt de nieuwe de oude:
+    weg is alleen wat sinds de vorige wissel niet terugkwam. Zo blijft wat vaak terugkomt bewaard, zoals bij lru_cache, zonder een
+    schakel per naam, en houdt de memo hooguit `size` namen vast (een meer op het moment van de wissel). De groottes bovenaan zijn
+    ruim genoeg voor de namen van een opbouw van alle catalogi: `tests/test_name_memo.py` eist dat een tweede opbouw niets mist."""
 
     def __init__(self, function: Callable[..., _Result], size: int = MEMO_SIZE) -> None:
         update_wrapper(self, function)
@@ -107,10 +106,10 @@ class TextMemo(Generic[_Result]):
         if found is not _MISSING:
             self._hits += 1
             return found
-        found = self._old.get(key, _MISSING)
-        if found is not _MISSING:
+        found = self._old.pop(key, _MISSING)
+        if found is not _MISSING:  # verhuist naar de nieuwe generatie: samen blijven het evenveel namen
             self._hits += 1
-            self._keep(key, found)
+            self._new[key] = found
             return found
         self._misses += 1
         result: _Result = self._function(*texts)
@@ -118,16 +117,17 @@ class TextMemo(Generic[_Result]):
         return result
 
     def _keep(self, key: Any, value: _Result) -> None:
-        """Bewaart een antwoord in de nieuwe generatie. Is die vol, dan wordt hij de oude en valt de vorige oude weg."""
-        if len(self._new) >= max(1, self.size):
+        """Bewaart een nieuw antwoord. Zijn er samen meer dan `size` namen, dan valt de oude generatie weg en wordt de nieuwe de
+        oude."""
+        self._new[key] = value
+        if len(self._new) + len(self._old) > self.size:
             if self._old:
                 self._resets += 1
             self._old = self._new
             self._new = {}
-        self._new[key] = value
 
     def cache_info(self) -> MemoInfo:
-        return MemoInfo(self._hits, self._misses, 2 * self.size, len(self._new) + len(self._old), self._resets)
+        return MemoInfo(self._hits, self._misses, self.size, len(self._new) + len(self._old), self._resets)
 
     def cache_clear(self) -> None:
         self._new = {}

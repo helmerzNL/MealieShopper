@@ -76,7 +76,7 @@ def test_offer_category_gives_the_same_answer() -> None:
 def test_every_function_has_cache_info_and_clear(function: Callable[..., Any]) -> None:
     function.cache_clear()
     assert function.cache_info().currsize == 0
-    assert function.cache_info().maxsize == 2 * function.size  # twee generaties van `size` namen
+    assert function.cache_info().maxsize == function.size
     assert 0 < function.size <= name_keys.MEMO_SIZE
 
 
@@ -160,20 +160,22 @@ async def test_a_second_catalogue_build_hits_the_memo(volume_dir: Path) -> None:
 
 
 def test_the_old_generation_keeps_what_comes_back() -> None:
-    """`TextMemo` met generaties van twee namen: een treffer in de oude generatie gaat mee naar de nieuwe, en `resets` telt een
-    generatie die met namen erin wegvalt."""
+    """`TextMemo` van drie namen: een treffer in de oude generatie verhuist naar de nieuwe, en bij meer dan drie namen valt de
+    oude weg (`resets`, als er namen in zaten). Wat sinds de vorige wissel terugkwam, blijft."""
     calls: list[str] = []
 
     def shout(text: str) -> str:
         calls.append(text)
         return text.upper()
 
-    memo: name_keys.TextMemo[str] = name_keys.TextMemo(shout, size=2)
-    for text in ("a", "b", "c", "a", "d", "e", "a"):  # "a" komt steeds terug uit de oude generatie, "b" en "c" vallen weg
+    memo: name_keys.TextMemo[str] = name_keys.TextMemo(shout, size=3)
+    # na "d" zijn het er vier: de nieuwe wordt de oude. "a" komt terug en verhuist, bij "e" valt de oude (b, c, d) weg.
+    for text in ("a", "b", "c", "d", "a", "e", "a"):
         memo(text)
     assert calls == ["a", "b", "c", "d", "e"]
+    assert memo.cache_info().resets == 1
     assert memo("b") == "B" and calls[-1] == "b"
-    assert memo.cache_info().resets == 2
+    assert memo.cache_info().currsize <= 3
 
 
 @pytest.mark.volume
