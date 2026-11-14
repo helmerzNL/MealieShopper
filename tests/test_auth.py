@@ -567,3 +567,27 @@ def test_the_data_dir_follows_the_environment_and_is_resolved_once(tmp_path: Pat
     monkeypatch.setenv("MEALIESHOPPER_DATA_DIR", str(first))
     assert auth.data_dir() == original(first)
     assert resolved == [first, second, tmp_path / "link"]
+
+
+def test_connect_makes_the_data_dir_once_per_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Review van taak 9c: elke `auth.connect` deed `mkdir(exist_ok=True)`, een mkdir en een stat op de event loop. Nu een keer per
+    pad, en opnieuw na `forget_runtime_state` (de map kan dan weg zijn)."""
+    made: list[Path] = []
+    original: Any = Path.mkdir
+
+    def counted(self: Path, *args: Any, **kwargs: Any) -> None:
+        made.append(self)
+        original(self, *args, **kwargs)
+
+    async def three() -> None:
+        for _ in range(3):
+            async with auth.connect() as conn:
+                await conn.execute("SELECT 1")
+
+    monkeypatch.setattr(Path, "mkdir", counted)
+    monkeypatch.setenv("MEALIESHOPPER_DATA_DIR", str(tmp_path / "data"))
+    run(three())
+    assert made == [(tmp_path / "data").resolve()]
+    auth.forget_runtime_state()
+    run(three())
+    assert len(made) == 2

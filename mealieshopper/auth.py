@@ -79,6 +79,20 @@ def data_dir() -> Path:
     return found
 
 
+# De data-mappen die `ensure_data_dir` al aanmaakte (of die er al waren). Leeg na `forget_runtime_state`.
+_DIRS_MADE: set[Path] = set()
+
+
+def ensure_data_dir() -> Path:
+    """De data-map (`data_dir`), aangemaakt als hij er nog niet was. Een keer per pad: `mkdir` met `exist_ok` doet een mkdir en
+    een stat, twee systeemaanroepen op de event loop bij elke verbinding (het konvooi van loop_guard.py)."""
+    folder: Path = data_dir()
+    if folder not in _DIRS_MADE:
+        folder.mkdir(parents=True, exist_ok=True)
+        _DIRS_MADE.add(folder)
+    return folder
+
+
 def session_max_age_seconds() -> int:
     """Hoe lang een sessie duurt: `MEALIESHOPPER_SESSION_DAYS` dagen, standaard 90. Tot 4.10.2 was dat een vaste dag,
     zonder verlenging: wie de app elke dag gebruikte, logde elke dag opnieuw in."""
@@ -211,7 +225,7 @@ async def connect() -> AsyncIterator[aiosqlite.Connection]:
     Wie schrijft, eindigt dus zelf met `await conn.commit()`. De rijen zijn `sqlite3.Row` (`aiosqlite.Row` is
     dezelfde klasse): `row["key"]` en `row[0]` werken allebei.
     """
-    data_dir().mkdir(parents=True, exist_ok=True)
+    ensure_data_dir()
     opened: float = time.perf_counter()
     async with aiosqlite.connect(db_path(), timeout=BUSY_SECONDS) as conn:
         telemetry.watch(conn, opened)  # doet niets zonder MEALIESHOPPER_TELEMETRY
@@ -756,6 +770,7 @@ def forget_runtime_state() -> None:
     global _INITIALIZED
     _INITIALIZED = False
     _SCHEMAS_READY.clear()
+    _DIRS_MADE.clear()  # de map kan weg zijn: de volgende verbinding maakt hem weer aan
     _master_secrets.clear()
     forget_cached_data()
 
