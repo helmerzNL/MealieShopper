@@ -29,8 +29,9 @@ jobs:
           ruff check .
           ruff format --check .
       - name: Tests draaien
-        run: MEALIESHOPPER_TESTING=1 python -m pytest -q -m "not volume"
+        run: MEALIESHOPPER_TESTING=1 python -m pytest -q -n auto -m "not volume"
       # De volumetests draaien de zware paden op een database van productieschaal (een paar minuten): een eigen stap, zodat
-      # een stilstand van de event loop daar los te zien is van een gewone fout.
+      # een stilstand van de event loop daar los te zien is van een gewone fout. Deze stap draait serieel (zonder `-n`): de tests
+      # meten stilstanden van de event loop en mogen de processor niet delen.
       - name: Volumetests draaien
         run: MEALIESHOPPER_TESTING=1 python -m pytest -q -m volume
