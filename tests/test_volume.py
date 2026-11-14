@@ -13,6 +13,7 @@ Drie soorten tests:
 from __future__ import annotations
 
 import asyncio
+import collections
 import contextlib
 import gc
 import hashlib
@@ -22,6 +23,7 @@ import re
 import sqlite3
 import threading
 import time
+import zlib
 from collections.abc import AsyncIterator, Awaitable, Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, TypeVar
@@ -40,6 +42,7 @@ from mealieshopper import (
     ah_price_index,
     ai_match,
     ai_review,
+    auth,
     backup,
     gc_watch,
     image_cache,
@@ -821,19 +824,18 @@ async def test_judging_with_a_built_catalogue_is_fast_enough(volume_dir: Path, m
 async def test_cold_offers_are_fast_enough(volume_dir: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     best: float = await best_total(volume_dir, monkeypatch, cold(volume_dir))
     assert best < COLD_LIMIT_MS, f"koud duurde {best:.0f} ms (grens {COLD_LIMIT_MS:.0f} ms)"
+
+
 # --- de andere zware paden (taak 10) ----------------------------------------------------------------------------------
 #
 # Elk pad dat met de rijen van productie rekent: de status van de aanbiedingen, het vergelijken van verpakkingen, de pagina's van
-# de aankopen, een synchronisatie, de rondes op de achtergrond (prijsindex, losse namen, koppelen) en de nachtelijke run. Een
+# de aankopen, een synchronisatie, de rondes op de achtergrond (prijsindex, losse namen, koppelen, de AI) en de nachtelijke run. Een
 # winkel is nagebootst: een zoekopdracht geeft een vaste lijst, een pagina van de prijsindex is de opgenomen pagina, en wachten
-# tussen twee verzoeken duurt niets.
+# tussen twee verzoeken duurt niets. Elke poging van `quiet` controleert zelf dat het werk gebeurde: een ronde die na de eerste
+# poging niets meer te doen heeft, meet niets. Waar een ronde haar werk afvinkt, zet `restored` de tabellen voor elke poging terug.
 
-PRICE_INDEX_PAGE: Path = (
-    Path(__file__).parent / "fixtures" / "ahprijsindex-product-446406.html"
-)
-PRICE_INDEX_PRODUCTS: int = (
-    25  # producten per ronde van de prijsindex, elk met 225 weekprijzen
-)
+PRICE_INDEX_PAGE: Path = Path(__file__).parent / "fixtures" / "ahprijsindex-product-446406.html"
+PRICE_INDEX_PRODUCTS: int = 25  # producten per ronde van de prijsindex, elk met 225 weekprijzen
 STAMP: str = volume.NOW.isoformat(timespec="seconds")
 
 
@@ -853,13 +855,48 @@ def _scalar(path: Path, sql: str) -> Any:
         return conn.execute(sql).fetchone()[0]
 
 
+def _table_names(conn: sqlite3.Connection) -> set[str]:
+    return {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
+
+
+def _restore(path: Path, saved: dict[str, tuple[list[str], list[tuple[Any, ...]]]]) -> None:
+    """Zet de tabellen van `saved` terug: alle rijen weg, de bewaarde rijen erin. Een kolom die er later bij kwam, wordt leeg."""
+    with contextlib.closing(sqlite3.connect(path, timeout=30)) as conn:
+        present: set[str] = _table_names(conn)
+        for table, (columns, rows) in saved.items():
+            if table not in present:
+                continue
+            conn.execute(f"DELETE FROM {table}")
+            if rows:
+                marks: str = ", ".join("?" * len(columns))
+                conn.executemany(f"INSERT INTO {table} ({', '.join(columns)}) VALUES ({marks})", rows)
+        conn.commit()
+
+
+def restored(path: Path, tables: tuple[str, ...]) -> Callable[[], Awaitable[None]]:
+    """Een `prepare` voor `quiet`: elke poging begint met deze tabellen zoals ze nu zijn (een tabel die er nu niet is, begint
+    leeg). Zo heeft een ronde die haar werk afvinkt in elke poging hetzelfde werk. Het terugzetten gaat in een thread."""
+    saved: dict[str, tuple[list[str], list[tuple[Any, ...]]]] = {}
+    with contextlib.closing(sqlite3.connect(path)) as conn:
+        present: set[str] = _table_names(conn)
+        for table in tables:
+            if table in present:
+                cursor: sqlite3.Cursor = conn.execute(f"SELECT * FROM {table}")
+                saved[table] = ([column[0] for column in cursor.description], cursor.fetchall())
+            else:
+                saved[table] = ([], [])
+
+    async def prepare() -> None:
+        await asyncio.to_thread(_restore, path, saved)
+
+    return prepare
+
+
 def _store_offers(path: Path, store: str) -> list[dict[str, Any]]:
     """De aanbiedingen van `store` uit de volumedatabase in de vorm van `offers.FETCHERS`: wat een nagebootste winkel teruggeeft."""
     with contextlib.closing(sqlite3.connect(path)) as conn:
         conn.row_factory = sqlite3.Row
-        rows: list[sqlite3.Row] = conn.execute(
-            "SELECT * FROM offers WHERE store = ? ORDER BY position", (store,)
-        ).fetchall()
+        rows: list[sqlite3.Row] = conn.execute("SELECT * FROM offers WHERE store = ? ORDER BY position", (store,)).fetchall()
     return [
         {"id": row["product_id"], "title": row["title"], "brand": row["brand"], "unitSize": row["unit_size"], "price": row["price"],
          "priceBefore": row["price_before"], "promoLabel": row["promo_label"], "image": row["image"], "url": row["url"],
@@ -868,9 +905,7 @@ def _store_offers(path: Path, store: str) -> list[dict[str, Any]]:
     ]  # fmt: skip
 
 
-def _fetcher(
-    found: list[dict[str, Any]],
-) -> Callable[[], Awaitable[list[dict[str, Any]]]]:
+def _fetcher(found: list[dict[str, Any]]) -> Callable[[], Awaitable[list[dict[str, Any]]]]:
     """Een fetcher van `offers.FETCHERS` die `found` geeft, elke keer een nieuwe kopie (`offers.sync` past de dicts niet aan)."""
 
     async def fetch() -> list[dict[str, Any]]:
@@ -883,50 +918,41 @@ def _shifted(found: list[dict[str, Any]], step: int) -> list[dict[str, Any]]:
     """`found` met een andere prijs voor een op de tien aanbiedingen: een synchronisatie sluit dan rijen in `offer_history` en
     begint nieuwe, zoals elke week."""
     return [
-        {**offer, "price": round(float(offer["price"] or 1) + 0.01 * step, 2)}
-        if number % 10 == step % 10
-        else offer
+        {**offer, "price": round(float(offer["price"] or 1) + 0.01 * step, 2)} if number % 10 == step % 10 else offer
         for number, offer in enumerate(found)
     ]
 
 
+PACK_UNITS: tuple[str, ...] = ("g", "ml", "stuks")  # elke soort eenheid, zodat er naast elk product verpakkingen staan
+
+
 async def _pack_search(query: Any, limit: int = 5) -> list[dict[str, Any]]:
-    """Een zoekopdracht bij een nagebootste winkel: `limit` verpakkingen van het gezochte product, in de vorm van `search_products`."""
+    """Een zoekopdracht bij een nagebootste winkel: `limit` verpakkingen van het gezochte product in elke soort eenheid, in de
+    vorm van `search_products`."""
     return [
-        {"id": f"{9_000_000 + number}", "title": f"{query} {100 * (number + 1)} g", "brand": "AH",
-         "unitSize": f"{100 * (number + 1)} g", "price": round(0.49 + 0.37 * number, 2), "image": "", "url": ""}
+        {"id": f"{9_000_000 + number}", "title": f"{query} {100 * (number + 1)} {PACK_UNITS[number % 3]}", "brand": "AH",
+         "unitSize": f"{100 * (number + 1)} {PACK_UNITS[number % 3]}", "price": round(0.49 + 0.37 * number, 2), "image": "",
+         "url": ""}
         for number in range(limit)
     ]  # fmt: skip
 
 
-def _hq_search(
-    path: Path,
-) -> Callable[[str], Awaitable[list[tuple[int, int, str, str]]]]:
+def _hq_search(path: Path) -> Callable[[str], Awaitable[list[tuple[int, int, str, str]]]]:
     """`ah.search_hq_ids` van een nagebootste AH: een zoekopdracht vindt de artikelnummers van de bonregels met die naam (de helft
-    van de namen), zoals AH ze teruggeeft: (hqId, webshopId, titel, foto)."""
+    van de namen, vast per naam), zoals AH ze teruggeeft: (hqId, webshopId, titel, foto)."""
     with contextlib.closing(sqlite3.connect(path)) as conn:
         rows: list[tuple[Any, ...]] = conn.execute(
             "SELECT DISTINCT name, product_id FROM ah_receipt_items WHERE product_id IS NOT NULL"
         ).fetchall()
     by_name: dict[str, list[int]] = {}
     for name, product_id in rows:
-        by_name.setdefault(" ".join(str(name).split()).casefold(), []).append(
-            int(product_id)
-        )
+        by_name.setdefault(" ".join(str(name).split()).casefold(), []).append(int(product_id))
 
     async def search(query: str) -> list[tuple[int, int, str, str]]:
-        ids: list[int] = by_name.get(" ".join(query.split()).casefold(), [])
-        if hash(query) % 2:
+        if zlib.crc32(query.encode("utf-8")) % 2:  # vast per naam, anders dan `hash` (PYTHONHASHSEED)
             return []
-        return [
-            (
-                hq_id,
-                7_000_000 + hq_id,
-                query.title(),
-                f"https://static.ah.nl/dam/product/{hq_id}",
-            )
-            for hq_id in ids
-        ]
+        ids: list[int] = by_name.get(" ".join(query.split()).casefold(), [])
+        return [(hq_id, 7_000_000 + hq_id, query.title(), f"https://static.ah.nl/dam/product/{hq_id}") for hq_id in ids]
 
     return search
 
@@ -955,6 +981,9 @@ def fake_stores(volume_dir: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(ah, "get_products_by_ids", _ah_products)
     monkeypatch.setattr(ah_orders, "_wait", _no_wait)
     monkeypatch.setattr(ah_orders, "RECEIPT_PRODUCTS_PER_HOUR", 1_000_000)
+    # Het tempo van AH geldt voor het hele proces: de verzoeken van deze test tellen na de test niet mee voor het uurbudget.
+    monkeypatch.setitem(ah_orders._PACE, "recent", collections.deque())
+    monkeypatch.setitem(ah_orders._PACE, "last", float("-inf"))
     monkeypatch.setattr(image_cache, "_wait", _no_wait)
     monkeypatch.setattr(image_cache, "_download", _no_image)
     monkeypatch.setattr(product_images, "_download", _no_image)
@@ -969,11 +998,13 @@ async def _finished(*names: str) -> None:
 
 
 @pytest.mark.volume
-async def test_offer_status_and_overview_do_not_stall(
-    volume_client: TestClientProtocol,
-) -> None:
-    answer: Any = await quiet(lambda: _get(volume_client, "/api/offers/status"))
-    assert answer["stores"]["ah"]["total"] == volume.SIZES["offers_ah"]
+async def test_offer_status_and_overview_do_not_stall(volume_client: TestClientProtocol) -> None:
+    async def status() -> Any:
+        answer: Any = await _get(volume_client, "/api/offers/status")
+        assert answer["stores"]["ah"]["total"] == volume.SIZES["offers_ah"], answer["stores"]
+        return answer
+
+    await quiet(status)
 
 
 @pytest.mark.volume
@@ -988,10 +1019,13 @@ async def test_price_compare_does_not_stall(
         "(SELECT product_id FROM offers WHERE store = 'ah') ORDER BY i.product_id LIMIT 1",
     )
     monkeypatch.setattr(prices, "_search_function", lambda store: _pack_search)
-    answer: Any = await quiet(
-        lambda: _get(volume_client, f"/api/prices/compare?store=ah&id={product_id}")
-    )
-    assert answer["candidates"]
+
+    async def compare() -> Any:
+        answer: Any = await _get(volume_client, f"/api/prices/compare?store=ah&id={product_id}")
+        assert len(answer["candidates"]) > 1 and not answer["product"]["onOffer"], answer
+        return answer
+
+    await quiet(compare)
 
 
 PURCHASE_PAGES: tuple[str, ...] = (
@@ -1000,77 +1034,77 @@ PURCHASE_PAGES: tuple[str, ...] = (
     "/api/ah/receipts",
     "/api/ah/receipts/bon-00000",
     "POST /api/ah/receipts/bon-00000/products",
-    "/api/ah/receipts/search?q=",
+    "/api/ah/receipts/search?q=AH",
     "/api/ah/receipts/search?q=melk&limit=all",
-    "/api/ah/purchases/search?q=&limit=all",
+    "/api/ah/purchases/search?q=ah&limit=all",
     "/api/ah/purchases/search?q=melk&limit=all",
     "/api/jumbo/orders",
-    "/api/jumbo/purchases/search?q=&limit=all",
+    "/api/jumbo/purchases/search?q=jumbo&limit=all",
     "/api/picnic/orders",
     "/api/crisp/orders",
 )
 
 
+def _has_rows(answer: Any) -> bool:
+    """Of een antwoord van een pagina van de aankopen iets bevat: een lijst met regels, of een bon of bestelling met regels."""
+    if isinstance(answer, list):
+        return bool(answer)
+    return isinstance(answer, dict) and any(isinstance(value, list) and value for value in answer.values())
+
+
 @pytest.mark.volume
 @pytest.mark.parametrize("path", PURCHASE_PAGES)
-async def test_purchase_and_receipt_pages_do_not_stall(
-    volume_client: TestClientProtocol, fake_stores: None, path: str
-) -> None:
+async def test_purchase_and_receipt_pages_do_not_stall(volume_client: TestClientProtocol, fake_stores: None, path: str) -> None:
     method, _, address = path.rpartition(" ")
 
     async def page() -> Any:
         response: Response = await volume_client.open(address, method=method or "GET")
         assert response.status_code == 200, (path, response.status_code)
-        await _finished(
-            "receipt-images"
-        )  # de bonnenlijst vult de foto's aan op de achtergrond
-        return await response.get_json()
+        await _finished("receipt-images")  # de bonnenlijst vult de foto's aan op de achtergrond
+        answer: Any = await response.get_json()
+        assert _has_rows(answer), (path, str(answer)[:300])
+        return answer
 
-    assert await quiet(page)
+    await quiet(page)
 
 
 @pytest.mark.volume
-async def test_an_offers_sync_does_not_stall(
-    volume_client: TestClientProtocol, volume_dir: Path, fake_stores: None
-) -> None:
+async def test_an_offers_sync_does_not_stall(volume_client: TestClientProtocol, volume_dir: Path, fake_stores: None) -> None:
     found: list[dict[str, Any]] = _store_offers(volume_dir / volume.DB_NAME, "ah")
     assert len(found) == volume.SIZES["offers_ah"]
     step: list[int] = [0]
 
     async def sync_and_list() -> Any:
         step[0] += 1
-        with mock.patch.dict(
-            offers.FETCHERS, {"ah": _fetcher(_shifted(found, step[0]))}
-        ):
-            await offers.sync("ah")
-        return await _get(volume_client, "/api/offers?store=ah&week=2026-11-09")
+        with mock.patch.dict(offers.FETCHERS, {"ah": _fetcher(_shifted(found, step[0]))}):
+            synced: dict[str, Any] = await offers.sync("ah")
+        answer: Any = await _get(volume_client, "/api/offers?store=ah&week=2026-11-09")
+        assert synced["total"] > 2000 and answer["syncedAt"] == synced["syncedAt"] and answer["offers"], step  # deze week
+        return answer
 
-    answer: Any = await quiet(sync_and_list)
-    assert answer["offers"]
+    await quiet(sync_and_list)
 
 
 def _price_index_page(request: httpx.Request) -> httpx.Response:
     """De opgenomen pagina van ahprijsindex.nl, voor het product van het verzoek: 225 weekprijzen."""
     product_id: str = str(request.url.path).rsplit("/", 1)[-1]
-    text: str = PRICE_INDEX_PAGE.read_text(encoding="utf-8").replace(
-        "446406", product_id
-    )
-    return httpx.Response(
-        200, text=text, headers={"Content-Type": "text/html; charset=utf-8"}
-    )
+    text: str = PRICE_INDEX_PAGE.read_text(encoding="utf-8").replace("446406", product_id)
+    return httpx.Response(200, text=text, headers={"Content-Type": "text/html; charset=utf-8"})
 
 
 @pytest.mark.volume
-async def test_a_price_index_round_does_not_stall(
-    volume_dir: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+async def test_a_price_index_round_does_not_stall(volume_dir: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # Elke poging vraagt de volgende producten: wat al gevraagd is, wacht twee weken.
     monkeypatch.setenv("MEALIESHOPPER_PRICE_INDEX", "true")
     monkeypatch.setattr(ah_price_index, "_sleep", _no_wait)
+
+    async def price_index_round() -> Any:
+        result: Any = await ah_price_index.run_round(limit=PRICE_INDEX_PRODUCTS, now=STAMP)
+        assert result["checked"] == PRICE_INDEX_PRODUCTS and result["prices"] >= 100 * PRICE_INDEX_PRODUCTS, result
+        return result
+
     with helpers.served(side_effect=_price_index_page):
-        result: Any = await quiet(
-            lambda: ah_price_index.run_round(limit=PRICE_INDEX_PRODUCTS, now=STAMP)
-        )
-    assert result["checked"] == PRICE_INDEX_PRODUCTS and result["prices"] > 0, result
+        await quiet(price_index_round)
 
 
 async def _loose_search(name: Any, limit: int = 5) -> list[dict[str, Any]]:
@@ -1082,100 +1116,161 @@ async def _loose_search(name: Any, limit: int = 5) -> list[dict[str, Any]]:
     ]  # fmt: skip
 
 
+LOOSE_NAME_TABLES: tuple[str, ...] = ("loose_names", "product_links")
+
+
 @pytest.mark.volume
-async def test_the_loose_names_round_does_not_stall(
-    volume_dir: Path, fake_stores: None, monkeypatch: pytest.MonkeyPatch
-) -> None:
+async def test_the_loose_names_round_does_not_stall(volume_dir: Path, fake_stores: None, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(loose_names, "_default_search", lambda store: _loose_search)
     monkeypatch.setattr(loose_names, "_wait", _no_wait)
-    result: Any = await quiet(
-        lambda: loose_names.run_all_stores("nightly", now=STAMP, only="ah")
-    )
-    assert result["stores"]["ah"]["searches"] > 0, result
+
+    async def loose_round() -> Any:
+        result: Any = await loose_names.run_all_stores("nightly", now=STAMP, only="ah")
+        assert result["stores"]["ah"]["searches"] == loose_names.SEARCHES_PER_ROUND, result
+        return result
+
+    await quiet(loose_round, prepare=restored(volume_dir / volume.DB_NAME, LOOSE_NAME_TABLES))
+
+
+def _without_last_linking_round(path: Path) -> Callable[[], Awaitable[None]]:
+    """De `prepare` van het koppelen: `ah_receipt_products` zoals bij het begin, en geen laatste ronde. `SETTING_LAST_ROUND` telt
+    de rondes met hetzelfde tijdstip bij elkaar op, en de klok staat in een volumetest stil."""
+    tables: Callable[[], Awaitable[None]] = restored(path, ("ah_receipt_products",))
+
+    async def prepare() -> None:
+        await tables()
+        await auth.set_setting(ah_orders.SETTING_LAST_ROUND, "")
+
+    return prepare
 
 
 @pytest.mark.volume
-async def test_linking_receipt_lines_does_not_stall(
-    volume_dir: Path, fake_stores: None
-) -> None:
+async def test_linking_receipt_lines_does_not_stall(volume_dir: Path, fake_stores: None) -> None:
     async def linking_round() -> Any:
         await ah_orders.run_linking(None)
         await _finished("linking-run")
-        return await ah_orders.linking_status()
+        status: Any = await ah_orders.linking_status()
+        last: Any = status["lastRound"] or {}
+        # De foto's: de bonregels van de volumedatabase hebben al een merk en een inhoud, dus daar is niets te doen.
+        assert last.get("searches", 0) > 0 and last.get("found", 0) > 0, status
+        return status
 
-    status: Any = await quiet(linking_round)
-    assert status
+    await quiet(linking_round, prepare=_without_last_linking_round(volume_dir / volume.DB_NAME))
 
 
 MCP_TOOLS: tuple[Any, ...] = (
-    pytest.param(
-        "get_price_history", {"store": "ah", "limit": 50}, id="get_price_history"
-    ),
-    pytest.param(
-        "get_price_history",
-        {"store": "ah", "bought": True, "limit": 50},
-        id="get_price_history-bought",
-    ),
-    pytest.param(
-        "get_price_history", {"query": "melk", "limit": 50}, id="get_price_history-melk"
-    ),
-    pytest.param(
-        "review_offer_matches", {"store": "ah", "limit": 100}, id="review_offer_matches"
-    ),
-    pytest.param("list_offer_mismatches", {}, id="list_offer_mismatches"),
-    pytest.param("list_ah_orders", {"limit": 200}, id="list_ah_orders"),
-    pytest.param("list_ah_receipts", {"limit": 200}, id="list_ah_receipts"),
-    pytest.param("get_ah_receipt", {"receipt_id": "bon-00000"}, id="get_ah_receipt"),
-    pytest.param(
-        "search_ah_purchases", {"query": "melk", "limit": 200}, id="search_ah_purchases"
-    ),
+    pytest.param("get_price_history", {"store": "ah", "limit": 50}, "products", id="get_price_history"),
+    pytest.param("get_price_history", {"store": "ah", "bought": True, "limit": 50}, "products", id="get_price_history-bought"),
+    pytest.param("get_price_history", {"query": "melk", "limit": 50}, "products", id="get_price_history-melk"),
+    pytest.param("review_offer_matches", {"store": "ah", "limit": 100}, "", id="review_offer_matches"),
+    pytest.param("list_offer_mismatches", {}, "", id="list_offer_mismatches"),
+    pytest.param("list_ah_orders", {"limit": 200}, "orders", id="list_ah_orders"),
+    pytest.param("list_ah_receipts", {"limit": 200}, "receipts", id="list_ah_receipts"),
+    pytest.param("get_ah_receipt", {"receipt_id": "bon-00000"}, "items", id="get_ah_receipt"),
+    pytest.param("search_ah_purchases", {"query": "melk", "limit": 200}, "occurrences", id="search_ah_purchases"),
 )
 
 
 @pytest.mark.volume
-@pytest.mark.parametrize(("tool", "arguments"), MCP_TOOLS)
+@pytest.mark.parametrize(("tool", "arguments", "listed"), MCP_TOOLS)
 async def test_mcp_tools_do_not_stall(
-    volume_client: TestClientProtocol, tool: str, arguments: dict[str, Any]
+    volume_client: TestClientProtocol, tool: str, arguments: dict[str, Any], listed: str
 ) -> None:
-    answer: Any = await quiet(lambda: mcp.call_tool(tool, arguments))
-    assert not answer["isError"], answer
+    # `listed`: de lijst die in het antwoord niet leeg mag zijn. Zonder recepten en meldingen heeft de volumedatabase voor
+    # review_offer_matches en list_offer_mismatches geen paren: die lezen wel de aanbiedingen.
+    async def call() -> Any:
+        answer: Any = await mcp.call_tool(tool, arguments)
+        assert not answer["isError"], answer
+        text: str = answer["content"][0]["text"]  # ingekort boven mcp.MAX_RESULT_CHARS, dus geen JSON meer
+        if listed:
+            assert f'"{listed}": [' in text and f'"{listed}": []' not in text, (tool, text[:300])
+        return answer
+
+    await quiet(call)
 
 
-@pytest.mark.volume
-async def test_the_nightly_tasks_do_not_stall(
-    volume_dir: Path, fake_stores: None, monkeypatch: pytest.MonkeyPatch
-) -> None:
+# Wat de nachtelijke run afvinkt: de gewone prijs per aankoopregel, het koppelen en de foto's van de bonnen, de losse namen en de
+# afbeeldingencache. Elke poging begint daar weer mee zoals de database het had.
+NIGHTLY_TABLES: tuple[str, ...] = (
+    "ah_order_items", "jumbo_order_items", "ah_receipt_items", "ah_receipt_products", "loose_names", "product_links", "image_cache",
+)  # fmt: skip
+
+
+async def _ah_only() -> list[str]:
+    """`loose_names._linked_stores` met AH gekoppeld."""
+    return ["ah"]
+
+
+def _nightly(volume_dir: Path, monkeypatch: pytest.MonkeyPatch) -> Callable[[], Awaitable[Any]]:
+    """Een nachtelijke run (`offers_schedule.run_all`) met nagebootste winkels, met daarna de tasks die hij start. Elke run heeft
+    andere prijzen bij een op de tien aanbiedingen, en controleert dat elk onderdeel werk had. Binnen `app.test_app()`
+    aanroepen."""
     path: Path = volume_dir / volume.DB_NAME
-    stores: dict[str, list[dict[str, Any]]] = {
-        store: _store_offers(path, store) for store in offers.STORES
-    }
+    stores: dict[str, list[dict[str, Any]]] = {store: _store_offers(path, store) for store in offers.STORES}
     monkeypatch.setattr(offers, "linked", _always_linked)
+    monkeypatch.setattr(loose_names, "_linked_stores", _ah_only)
     monkeypatch.setattr(loose_names, "_default_search", lambda store: _loose_search)
     monkeypatch.setattr(loose_names, "_wait", _no_wait)
     step: list[int] = [0]
-    app: Quart = (
-        create_app()
-    )  # met de opwarmer van /api/offers, die de run als laatste aanroept
+
+    async def nightly() -> Any:
+        step[0] += 1
+        fetchers: dict[str, Any] = {store: _fetcher(_shifted(found, step[0])) for store, found in stores.items()}
+        with mock.patch.dict(offers.FETCHERS, fetchers):
+            result: Any = await offers_schedule.run_all("scheduled", volume.NOW)
+        await _finished(loose_names.TASK_NAME, "warm-offers", "image-prefetch")
+        loose: Any = await loose_names.last_round()
+        assert result["stores"]["ah"]["count"] > 2000, result["stores"]  # deze week, zonder die van volgende week
+        assert result.get("regularPrices", {}).get("lines", 0) > 0, result
+        assert result.get("receiptProducts", {}).get("searches", 0) > 0, result
+        assert loose["stores"]["ah"]["searches"] > 0, loose
+        return result
+
+    return nightly
+
+
+@pytest.mark.volume
+async def test_the_nightly_tasks_do_not_stall(volume_dir: Path, fake_stores: None, monkeypatch: pytest.MonkeyPatch) -> None:
+    # De ronde langs de prijsindex staat in de tests uit (conftest.py): die heeft haar eigen test hierboven.
+    nightly: Callable[[], Awaitable[Any]] = _nightly(volume_dir, monkeypatch)
+    app: Quart = create_app()  # met de opwarmer van /api/offers, die de run als laatste aanroept
     async with app.test_app():
+        await quiet(nightly, prepare=restored(volume_dir / volume.DB_NAME, NIGHTLY_TABLES))
 
-        async def nightly() -> Any:
-            step[0] += 1
-            fetchers: dict[str, Any] = {
-                store: _fetcher(_shifted(found, step[0]))
-                for store, found in stores.items()
-            }
-            with mock.patch.dict(offers.FETCHERS, fetchers):
-                result: Any = await offers_schedule.run_all("scheduled", volume.NOW)
-            await _finished(
-                loose_names.TASK_NAME,
-                ah_price_index.TASK_NAME,
-                "warm-offers",
-                "image-prefetch",
-            )
-            return result
 
-        result: Any = await quiet(nightly)
-    assert result["stores"]["ah"]["count"], result
+# Hoeveel gevolgde objecten een nachtelijke run er hooguit bij heeft op het moment dat een volle ronde van de GC begint, in welke
+# thread ook: zoals `BUILD_PEAK_ADDED_LIMIT` voor een koude bouw. Daar horen de catalogi van alle winkels bij, die de run bouwt.
+NIGHTLY_PEAK_ADDED_LIMIT: int = 90_000
+
+
+@pytest.mark.volume
+async def test_a_nightly_run_keeps_the_tracked_set_small(
+    volume_dir: Path, fake_stores: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    peaks: list[int] = []
+
+    def at_full_collection(phase: str, info: dict[str, Any]) -> None:
+        if phase == "start" and info.get("generation") == 2:
+            peaks.append(len(gc.get_objects()))
+
+    nightly: Callable[[], Awaitable[Any]] = _nightly(volume_dir, monkeypatch)
+    app: Quart = create_app()
+    async with app.test_app():
+        # Zoals in `test_a_cold_build_keeps_the_tracked_set_small`: de rest van de suite in de vaste generatie.
+        gc.collect()
+        gc.freeze()
+        try:
+            gc.collect()
+            before: int = len(gc.get_objects())
+            gc.callbacks.append(at_full_collection)
+            try:
+                await nightly()
+            finally:
+                gc.callbacks.remove(at_full_collection)
+        finally:
+            gc.unfreeze()
+    assert peaks, "geen volle ronde van de GC tijdens de run: dan meet deze test niets"
+    assert max(peaks) - before < NIGHTLY_PEAK_ADDED_LIMIT, (before, sorted(peaks)[-5:])
 
 
 FILE_CHUNK: int = 1024 * 1024
@@ -1191,7 +1286,7 @@ async def _file_chunks(path: Path) -> AsyncIterator[bytes]:
 @pytest.mark.volume
 async def test_a_backup_and_its_restore_do_not_stall(volume_client: TestClientProtocol, volume_dir: Path) -> None:
     # Wat de knoppen onder Instellingen > Back-up doen: het bestand maken (in een thread, zoals de route), het klaarzetten en
-    # controleren, en het terugzetten als achtergrondtask (`backup-restore-<id>`).
+    # controleren, en het terugzetten als achtergrondtask (`backup-restore-<id>`). Elke poging doet het hele werk opnieuw.
     made: Path = volume_dir / "volume-backup.json"
     await backup.ensure_schemas()
 
@@ -1200,13 +1295,14 @@ async def test_a_backup_and_its_restore_do_not_stall(volume_client: TestClientPr
         staged: dict[str, Any] = await backup.stage(_file_chunks(made), None)
         job: dict[str, Any] = await backup.start_job(staged["token"], "")
         await _finished(f"backup-restore-{job['id']}")
-        return await backup.latest_job()
+        done: Any = await backup.latest_job()
+        assert done["status"] == "done" and staged["counts"] and done["id"] == job["id"], (done, staged["counts"])
+        return done
 
     try:
-        job: Any = await quiet(backup_and_restore)
+        await quiet(backup_and_restore)
     finally:
         made.unlink(missing_ok=True)
-    assert job["status"] == "done", job
 
 
 @pytest.mark.volume
@@ -1217,32 +1313,30 @@ async def test_a_price_archive_import_does_not_stall(volume_client: TestClientPr
     await price_archive.ensure_schema()
 
     async def export_and_import() -> Any:
-        await asyncio.to_thread(price_archive_export.write_export, made)
+        header: dict[str, Any] = await asyncio.to_thread(price_archive_export.write_export, made)
         staged: dict[str, Any] = await price_archive.stage(_file_chunks(made), None)
         job: dict[str, Any] = await price_archive.start_job(staged["token"])
         await _finished(f"price-archive-{job['id']}")
-        return await price_archive.latest_job()
+        done: Any = await price_archive.latest_job()
+        assert sum(header["counts"]["offers"].values()) > 100_000, header["counts"]
+        assert done["status"] == "done" and done["id"] == job["id"], done
+        return done
 
     try:
-        job: Any = await quiet(export_and_import)
+        await quiet(export_and_import)
     finally:
         made.unlink(missing_ok=True)
-    assert job["status"] == "done", job
-AI_RECIPES: int = (
-    1_000  # recepten in de receptindex (`offer_recipes`), elk met tien regels
-)
+
+
+AI_RECIPES: int = 1_000  # recepten in de receptindex (`offer_recipes`), elk met tien regels
 _RECIPE_NUMBER: re.Pattern[str] = re.compile(r"^RECIPE (\d+):", re.MULTILINE)
 
 
 def _recipe_rows(path: Path) -> list[tuple[str, str, str, str]]:
-    """`AI_RECIPES` recepten voor de receptindex, met regels uit de namen van de aanbiedingen van AH: (bron, id, titel, regels)."""
+    """`AI_RECIPES` recepten voor de receptindex, met regels uit de namen van de aanbiedingen van AH: (bron, id, titel,
+    regels)."""
     with contextlib.closing(sqlite3.connect(path)) as conn:
-        titles: list[str] = [
-            row[0]
-            for row in conn.execute(
-                "SELECT title FROM offers WHERE store = 'ah' ORDER BY position"
-            )
-        ]
+        titles: list[str] = [row[0] for row in conn.execute("SELECT title FROM offers WHERE store = 'ah' ORDER BY position")]
     return [
         ("mealie", f"recept-{number:04d}", f"Recept {number}",
          json.dumps([f"{100 + line} g {titles[(number * 10 + line) % len(titles)].lower()}" for line in range(10)]))
@@ -1250,21 +1344,12 @@ def _recipe_rows(path: Path) -> list[tuple[str, str, str, str]]:
     ]  # fmt: skip
 
 
-async def _ai_answer(
-    provider: str, key: str, model: str, system: str, payload: str, **options: Any
-) -> tuple[Any, int]:
+async def _ai_answer(provider: str, key: str, model: str, system: str, payload: str, **options: Any) -> tuple[Any, int]:
     """`ai_review._call` zonder AI: elk recept van de groep krijgt twee regels aan een aanbieding gekoppeld."""
     del provider, key, model, system, options
     numbers: list[int] = [int(found) for found in _RECIPE_NUMBER.findall(payload)]
     answer: list[dict[str, Any]] = [
-        {
-            "recipe": number,
-            "matches": [
-                {"line": 1, "product": number},
-                {"line": 2, "product": number + 40},
-            ],
-        }
-        for number in numbers
+        {"recipe": number, "matches": [{"line": 1, "product": number}, {"line": 2, "product": number + 40}]} for number in numbers
     ]
     return {"recipes": answer}, 1000 * len(numbers)
 
@@ -1274,31 +1359,26 @@ async def test_an_ai_match_round_does_not_stall(
     volume_client: TestClientProtocol, volume_dir: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     # De ronde van de AI langs de recepten (`ai-match`): de aanbiedingen van deze week, de recepten die nog moeten, en per groep
-    # van veertig recepten een antwoord om te bewaren. Elke poging doet de volgende `MAX_RECIPES` recepten.
+    # van veertig recepten een antwoord om te bewaren. Elke poging begint zonder doorzochte recepten (`restored`).
     path: Path = volume_dir / volume.DB_NAME
     async with offers._connect():
         pass  # de tabellen van de receptindex
     with contextlib.closing(sqlite3.connect(path)) as conn:
         conn.executemany(
-            "INSERT INTO offer_recipes (source, recipe_id, title, ingredients) VALUES (?, ?, ?, ?)",
-            _recipe_rows(path),
+            "INSERT INTO offer_recipes (source, recipe_id, title, ingredients) VALUES (?, ?, ?, ?)", _recipe_rows(path)
         )
         conn.commit()
-    monkeypatch.setattr(
-        ai_review, "active_provider", lambda: helpers.returned("openai")
-    )
-    monkeypatch.setattr(
-        ai_review, "api_key", lambda provider: helpers.returned(("sleutel", "env"))
-    )
-    monkeypatch.setattr(
-        ai_review, "model_of", lambda provider: helpers.returned("model")
-    )
+    monkeypatch.setattr(ai_review, "active_provider", lambda: helpers.returned("openai"))
+    monkeypatch.setattr(ai_review, "api_key", lambda provider: helpers.returned(("sleutel", "env")))
+    monkeypatch.setattr(ai_review, "model_of", lambda provider: helpers.returned("model"))
     monkeypatch.setattr(ai_review, "_call", _ai_answer)
 
     async def ai_round() -> Any:
         await ai_match.start("ah", ai_match.MAX_RECIPES)
         await _finished("ai-match")
-        return ai_match.progress()
+        result: Any = ai_match.progress()
+        assert result["state"] == "done" and result["result"]["searched"] == ai_match.MAX_RECIPES, result
+        assert result["result"]["matched"] > ai_match.MAX_RECIPES, result
+        return result
 
-    result: Any = await quiet(ai_round)
-    assert result["state"] == "done" and result["result"]["matched"], result
+    await quiet(ai_round, prepare=restored(path, ("ai_recipe_matches", "ai_recipe_runs")))

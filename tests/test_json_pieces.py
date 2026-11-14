@@ -29,7 +29,7 @@ INVALID: tuple[str, ...] = (
     "{tables: {}}",
     '{"tables":{"a":[NaN]}}',
     '{"tables":{"a":[{"id":1}]',
-    '﻿{"tables":{}}',
+    '\ufeff{"tables":{}}',
 )
 
 
