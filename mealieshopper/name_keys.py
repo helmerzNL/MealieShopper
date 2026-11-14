@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 import inspect
+import threading
 from functools import update_wrapper
 from typing import Any, Generic, NamedTuple, TypeVar
 
@@ -17,7 +18,7 @@ from . import ah_lists
 
 MEMO_SIZE: int = 524_288  # hoeveel namen `TextMemo` hooguit vasthoudt als een functie niets opgeeft
 ORDER_SLACK: int = 4  # `TextMemo._evict` kort `_order` in zodra de cursor voorbij 1/ORDER_SLACK van de tuple is
-# De grootte per functie, de namen die de memo hooguit vasthoudt: 1,3 tot 1,5 keer het aantal namen dat een opbouw van de
+# De grootte per functie, de namen die de memo hooguit vasthoudt: 1,32 tot 1,53 keer het aantal namen dat een opbouw van de
 # catalogus van elke winkel op de volumedatabase (`tests/volume.py`, de schaal van productie) erin zet, zodat een volgende opbouw
 # alles terugvindt. Een opbouw zet erin: fold 341.326, near 68.249, categorize 65.870, offer_category 70.692, _parts 59.979,
 # _size_of 96.208. `tests/test_name_memo.py` eist dat een tweede opbouw geen enkele naam opnieuw uitrekent.
@@ -92,6 +93,7 @@ class TextMemo(Generic[_Result]):
         self._old: dict[Any, _Result] = {}
         self._order: tuple[Any, ...] = ()  # de sleutels van de oude generatie op volgorde van binnenkomst, bij de wissel vastgelegd
         self._next: int = 0  # waar `_evict` in `_order` verder zoekt
+        self._lock: threading.Lock = threading.Lock()  # voor `_evict`: de rekenthreads missen tegelijk, een treffer wacht er niet op
         self._hits: int = 0
         self._misses: int = 0
         self._evicted: int = 0
@@ -140,10 +142,29 @@ class TextMemo(Generic[_Result]):
             self._evict()
 
     def _evict(self) -> None:
-        """Haalt de oudste naam uit de oude generatie die er nog in staat. Is de oude leeg, dan wordt eerst de nieuwe de oude."""
-        if not self._old:
-            self._old, self._new = self._new, {}
-            self._order, self._next = tuple(self._old), 0
+        """Haalt de oudste naam uit de oude generatie die er nog in staat. Is de oude leeg, dan wordt eerst de nieuwe de oude.
+
+        Onder `_lock`: `self._next += 1` en het inkorten van `_order` zijn elk meer dan een stap, en twee rekenthreads die tegelijk
+        missen, konden zo de cursor van de oude tuple in de nieuwe zetten. Dan sloeg hij namen over die in de oude generatie
+        bleven, en als de cursor op was, haalde de memo niets meer weg en wisselde hij nooit meer: hij groeide zonder grens. Een
+        treffer komt hier niet. Is `_order` toch op terwijl de oude nog namen heeft (een naam die een andere thread net in de
+        nieuwe zette toen die de oude werd), dan begint de volgorde opnieuw bij wat de oude nu heeft."""
+        with self._lock:
+            if len(self._new) + len(self._old) <= self.size:  # een andere thread was ons voor
+                return
+            if not self._old:
+                # eerst een lege nieuwe, dan de oude: een andere thread ziet zo even te weinig namen (een treffer wordt een
+                # misser), nooit de volle generatie twee keer (`self._old, self._new = self._new, {}` zet ze een moment gelijk)
+                full: dict[Any, _Result] = self._new
+                self._new = {}
+                self._old = full
+                self._order, self._next = tuple(full), 0
+            if not self._evict_oldest() and self._old:
+                self._order, self._next = tuple(self._old), 0
+                self._evict_oldest()
+
+    def _evict_oldest(self) -> bool:
+        """`_evict` zonder de wissel, onder `_lock`. False als `_order` op is zonder dat er een naam uit kon."""
         while self._next < len(self._order):
             key: Any = self._order[self._next]
             self._next += 1
@@ -151,10 +172,15 @@ class TextMemo(Generic[_Result]):
                 self._evicted += 1
                 if self._next * ORDER_SLACK > len(self._order):  # laat de sleutels voor de cursor los
                     self._order, self._next = self._order[self._next :], 0
-                return
+                return True
+        return False
 
     def cache_info(self) -> MemoInfo:
-        return MemoInfo(self._hits, self._misses, self.size, len(self._new) + len(self._old), self._evicted)
+        """De tellers, met `currsize` onder `_lock`: zo valt de telling niet midden in een wissel, waar een thread die `_new`
+        voor de wissel en `_old` erna leest dezelfde generatie twee keer telt."""
+        with self._lock:
+            current: int = len(self._old) + len(self._new)
+        return MemoInfo(self._hits, self._misses, self.size, current, self._evicted)
 
     def cache_clear(self) -> None:
         self._new = {}

@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import gc
 import random
+import sys
+import threading
 import tracemalloc
 from collections.abc import Callable
 from pathlib import Path
@@ -209,6 +211,49 @@ def test_the_order_lets_go_of_evicted_names() -> None:
         assert memo._next * name_keys.ORDER_SLACK <= len(memo._order), number
         if number >= 1000:
             assert len(memo._order) - memo._next == len(memo._old), number
+
+
+def test_threads_that_miss_together_keep_the_memo_bounded() -> None:
+    """Review van taak 9c: zonder slot kon een thread midden in `self._next += 1` zitten terwijl een andere `_order` inkortte, en
+    dan de oude cursor in de korte tuple zetten. Een wisselinterval van een microseconde laat de threads op elke bytecode wisselen:
+    vier threads die alleen missen, houden de memo op hooguit `size` plus een naam per thread."""
+    size: int = 64
+    memo: name_keys.TextMemo[str] = name_keys.TextMemo(str.upper, size=size)
+    threads: int = 4
+    largest: list[int] = []
+
+    def hammer(offset: int) -> None:
+        for number in range(20_000):
+            memo(f"naam {offset} {number}")
+        largest.append(memo.cache_info().currsize)
+
+    previous: float = sys.getswitchinterval()
+    sys.setswitchinterval(1e-6)
+    try:
+        workers: list[threading.Thread] = [threading.Thread(target=hammer, args=(n,)) for n in range(threads)]
+        for worker in workers:
+            worker.start()
+        for worker in workers:
+            worker.join()
+    finally:
+        sys.setswitchinterval(previous)
+    assert len(largest) == threads
+    assert max(largest) <= size + threads, largest
+    for number in range(4 * size):  # en hij blijft werken: weer een thread, dan precies `size`
+        memo(f"daarna {number}")
+    assert memo.cache_info().currsize == size
+
+
+def test_an_order_that_ran_out_starts_again_from_the_old_generation() -> None:
+    """Het vangnet van `_evict`: is `_order` op terwijl de oude generatie nog namen heeft, dan begint de volgorde opnieuw. Zonder
+    dat haalde de memo niets meer weg en groeide hij bij elke misser."""
+    memo, _ = shouting(10)
+    for number in range(11):  # de wissel: tien in de oude generatie, de oudste eruit
+        memo(f"naam {number}")
+    memo._next = len(memo._order)  # zoals na een overgeslagen stuk
+    for number in range(20):
+        memo(f"later {number}")
+    assert memo.cache_info().currsize == 10
 
 
 def test_a_full_memo_that_keeps_missing_stays_near_its_full_size() -> None:
