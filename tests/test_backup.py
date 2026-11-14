@@ -254,6 +254,15 @@ class BackupCase(unittest.IsolatedAsyncioTestCase):
     def staged_files(self) -> list[str]:
         return sorted(path.name for path in self.data.glob(".restore-*"))
 
+    async def wait_until_staged(self, size: int, timeout: float = 5) -> None:
+        """Wacht tot er een bestand van een upload naar /api/backup/stage staat met minstens `size` bytes op schijf."""
+        deadline: float = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            if any(path.stat().st_size >= size for path in self.data.glob(".restore-*")):
+                return
+            await asyncio.sleep(0.001)
+        self.fail(f"na {timeout} s staan er nog geen {size} bytes van de upload op schijf")
+
     def gate_after_checking(self) -> tuple[threading.Event, threading.Event]:
         """Houdt de klus vast na de controle van de rijen (in zijn thread), tot de test `release` zet.
 
@@ -2021,9 +2030,21 @@ class BodyLimitTest(BackupCase):
     async def test_restore_upload_up_to_the_backup_limit_is_accepted(self) -> None:
         # Quart weigert standaard alles boven 16 MiB met 413. Een bestand van precies de back-upgrens moet erdoor: het is geen
         # geldige back-up, dus de validator mag 400 geven, maar de aanvraag mag niet al bij de lichaamsgrens stranden.
-        body = bytes(backup.MAX_STAGE_BYTES)
-        response = await self.stage(body)
-        self.assertNotEqual(response.status_code, 413, response.get_data()[:200])
+        # Het lichaam komt in stukken van 1 MiB, zoals een server het aflevert (hypercorn: hooguit 64 KB per keer), en elk stuk
+        # staat op schijf voor het volgende komt. In een keer (`self.stage`) kopieert Quart de hele 200 MB op de event loop
+        # (`bytes(self._data)` in `Body.__anext__`): dat hield hem op een runner van GitHub langer dan 100 ms vast (2026-11-14).
+        piece: bytes = bytes(1024 * 1024)
+        total: int = backup.MAX_STAGE_BYTES
+        headers: dict[str, str] = {"Content-Type": "application/octet-stream", "Content-Length": str(total)}
+        async with self.admin.stream("/api/backup/stage", headers) as connection:
+            sent: int = 0
+            while sent < total:
+                await connection.send(piece[: total - sent])
+                sent = min(total, sent + len(piece))
+                await self.wait_until_staged(sent)
+            await connection.send_complete()
+        response = await connection.as_response()
+        self.assertNotEqual(response.status_code, 413, (await response.get_data())[:200])
         self.assertLess(response.status_code, 500)
 
     async def test_a_large_chunk_is_written_in_pieces_with_a_turn_for_the_loop_between(self) -> None:
