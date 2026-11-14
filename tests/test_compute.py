@@ -197,6 +197,37 @@ async def test_single_flight_leaves_nothing_behind_when_the_only_caller_is_cance
     assert problems == []
 
 
+async def test_a_failed_build_is_not_reported_when_a_cancelled_caller_left_another_waiting() -> None:
+    """Op Python 3.15 meldde `asyncio.shield` de fout van de bouw bij de loop zodra een aanroeper geannuleerd was ("exception in
+    shielded future"), ook als de tweede aanroeper die fout zelf kreeg. Nu wacht elke aanroeper met `tasks.share`: de tweede
+    krijgt de fout en de loop meldt niets."""
+    flight: compute.SingleFlight[str, int] = compute.SingleFlight()
+    release: asyncio.Event = asyncio.Event()
+    problems: list[dict[str, Any]] = []
+    loop: asyncio.AbstractEventLoop = asyncio.get_running_loop()
+    previous: Any = loop.get_exception_handler()
+    loop.set_exception_handler(lambda _loop, context: problems.append(context))
+
+    async def failing() -> int:
+        await release.wait()
+        raise RuntimeError("mislukt")
+
+    try:
+        first: asyncio.Task[int] = asyncio.create_task(flight.get("k", failing))
+        second: asyncio.Task[int] = asyncio.create_task(flight.get("k", failing))
+        await asyncio.sleep(0)
+        first.cancel()
+        await asyncio.sleep(0)
+        release.set()
+        with pytest.raises(RuntimeError, match="mislukt"):
+            await second
+        assert first.cancelled()
+        gc.collect()
+    finally:
+        loop.set_exception_handler(previous)
+    assert problems == []
+
+
 async def test_shutdown_returns_within_five_seconds(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

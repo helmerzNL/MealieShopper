@@ -43,8 +43,8 @@ class ResponseCache:
             tasks.wait_at_shutdown(running)  # een lading zonder aanroeper loopt door: het afsluiten wacht erop
             self._running[(key, etag)] = running
             running.add_done_callback(lambda _: self._running.pop((key, etag), None))
-        # shield: gaat een van de wachtende aanvragen weg (de browser sluit), dan rekent de taak door voor de andere.
-        return await asyncio.shield(running)
+        # gaat een van de wachtende aanvragen weg (de browser sluit), dan rekent de taak door voor de andere
+        return await tasks.share(running)
 
     async def _load(
         self, key: Hashable, etag: str, load: Callable[[], Awaitable[Any]]

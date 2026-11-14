@@ -133,6 +133,19 @@ async def shielded(coro: Coroutine[Any, Any, T]) -> T:
         raise
 
 
+async def share(future: asyncio.Future[T]) -> T:
+    """Wacht op de uitkomst van `future` zonder hem te annuleren als de aanroeper geannuleerd wordt: voor werk dat meer aanroepers
+    delen (`compute.SingleFlight`, `response_cache.ResponseCache`). Wie geannuleerd wordt, krijgt zijn `CancelledError` en
+    `future` loopt door voor de anderen.
+
+    Niet `asyncio.shield`: vanaf Python 3.15 meldt die een fout van `future` bij de loop ("exception in shielded future") zodra
+    een aanroeper geannuleerd werd, ook als een andere aanroeper op dezelfde `future` die fout gewoon krijgt. `asyncio.wait`
+    annuleert wat het wacht niet en haalt bij een annulering alleen zijn eigen callback weg. Wie de fout van werk zonder
+    aanroeper ophaalt, regelt de eigenaar (`SingleFlight._finished`, `_shielded_done`)."""
+    await asyncio.wait((future,))
+    return future.result()
+
+
 def wait_at_shutdown(task: asyncio.Future[Any]) -> None:
     """Laat `cancel_all` op `task` wachten zoals op het werk van `shielded`, zonder hem te annuleren. Voor een bouw of een lading
     die achter `asyncio.shield` doorloopt als zijn aanroeper weggaat (`compute.SingleFlight`, `response_cache.ResponseCache`):

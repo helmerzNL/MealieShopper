@@ -173,9 +173,9 @@ async def stop() -> None:
 class SingleFlight(Generic[K, V]):
     """Een bouw per sleutel tegelijk: wie dezelfde sleutel vraagt terwijl er een bouw loopt, wacht op diezelfde uitkomst.
 
-    Er blijft niets over na de bouw: de aanroeper schrijft de uitkomst zelf in zijn cache. De bouw is een eigen taak die achter
-    `asyncio.shield` staat, dus een aanroeper die geannuleerd wordt haalt de bouw voor de anderen niet neer. Een bouw die
-    mislukt nadat de laatste aanroeper weg is, geeft geen waarschuwing over een fout die nooit is opgehaald.
+    Er blijft niets over na de bouw: de aanroeper schrijft de uitkomst zelf in zijn cache. De bouw is een eigen taak waar elke
+    aanroeper met `tasks.share` op wacht, dus een aanroeper die geannuleerd wordt haalt de bouw voor de anderen niet neer. Een
+    bouw die mislukt nadat de laatste aanroeper weg is, geeft geen melding over een fout die nooit is opgehaald.
     """
 
     def __init__(self) -> None:
@@ -189,7 +189,7 @@ class SingleFlight(Generic[K, V]):
             tasks.wait_at_shutdown(flight)  # een bouw zonder aanroeper loopt door: het afsluiten wacht erop
             self._flights[key] = flight
             flight.add_done_callback(functools.partial(self._finished, key))
-        return await asyncio.shield(flight)
+        return await tasks.share(flight)
 
     def _finished(self, key: K, flight: asyncio.Future[V]) -> None:
         """Haalt de bouw uit de lijst, nog voor de wachters verder gaan, en leest de fout zodat die nooit "niet opgehaald" is."""
