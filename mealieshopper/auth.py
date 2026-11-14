@@ -56,8 +56,27 @@ def auth_enabled() -> bool:
     }
 
 
+# (MEALIESHOPPER_DATA_DIR, de werkmap bij een relatief pad) -> de map, absoluut en zonder symlinks (`data_dir`).
+_DATA_DIRS: dict[tuple[str, str], Path] = {}
+DATA_DIRS_KEPT: int = 64  # de tests zetten elke test een eigen map: daarna begint het register opnieuw
+
+
 def data_dir() -> Path:
-    return Path(os.environ.get("MEALIESHOPPER_DATA_DIR", "data")).resolve()
+    """De map met de gegevens (MEALIESHOPPER_DATA_DIR, anders `data`), absoluut en zonder symlinks.
+
+    Een keer opgezocht per waarde van de variabele: `Path.resolve` doet een lstat per deel van het pad, en elke systeemaanroep
+    laat de GIL los. Rekent er een andere thread, dan krijgt de event loop hem pas na het wisselinterval (5 ms) terug: onder
+    belasting kostte elke lstat 5 tot 19 ms, een `data_dir` 24 tot 63 ms, en een paar verbindingen na elkaar een stilstand van
+    105 tot 204 ms (taak 9c). De sleutel is de tekst van de variabele, zodat een test die hem verandert meteen een andere map
+    krijgt, en bij een relatief pad ook de werkmap."""
+    raw: str = os.environ.get("MEALIESHOPPER_DATA_DIR", "data")
+    key: tuple[str, str] = (raw, "" if os.path.isabs(raw) else os.getcwd())
+    found: Path | None = _DATA_DIRS.get(key)
+    if found is None:
+        if len(_DATA_DIRS) >= DATA_DIRS_KEPT:
+            _DATA_DIRS.clear()
+        found = _DATA_DIRS[key] = Path(raw).resolve()
+    return found
 
 
 def session_max_age_seconds() -> int:
