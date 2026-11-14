@@ -17,6 +17,16 @@ zodra hij zelf aan de beurt is: bij het lezen van de stack van de loop, of ander
 die de GIL had, staat dan nog bij de regel na zijn lange aanroep, of is al klaar en wacht weer. Een stilstand die begint terwijl
 er geen tik openstaat, ziet de bewaker niet: hij kan zelf pas weer een tik sturen als hij de GIL terug heeft.
 
+Er is een tweede manier waarop een andere thread de loop tegenhoudt, zonder zelf lang de GIL te houden: het konvooi. Laat de
+loop de GIL los in een systeemaanroep (een stat, een lstat, `Thread.start`, de select van de selector) terwijl een rekenthread
+of een thread van aiosqlite Python draait, dan krijgt de loop hem pas terug als die thread hem afstaat, na het wisselinterval
+(`sys.getswitchinterval()`, 5 ms). Elke aanroep die de GIL loslaat kost de loop dan tot 5 ms, en een pad met twintig van zulke
+aanroepen stond onder belasting 100 tot 200 ms stil. De stack van de loop staat dan in die aanroep, en een andere thread is bezig
+(`Stall.threads`). Gevonden in taak 9c: `Path.resolve` in `auth.data_dir` (een lstat per deel van het pad, bij elke
+verbinding), de mislukte `import sniffio` van httpcore (een stat per map van sys.path, bij elke verbinding), en `Thread.start`
+in `aiosqlite.connect` (een thread per verbinding, ook per auditregel). Daarom zoekt de controle van taak 10 op de loop naar
+aanroepen die de GIL loslaten en vaak terugkomen, niet alleen naar lang rekenwerk.
+
 `on_stall` loopt in de bewakerthread, niet op de loop. Een fout daarin wordt gelogd en stopt de bewaker niet.
 """
 
