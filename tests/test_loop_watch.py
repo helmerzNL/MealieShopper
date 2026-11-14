@@ -45,6 +45,17 @@ def test_a_stall_outside_the_app_does_not_count() -> None:
     assert loop_watch.failure_message("enforce", counted) is None
 
 
+def test_a_collection_on_the_loop_counts_only_when_the_app_started_it() -> None:
+    """Eindreview: na een ronde van de GC op de thread van de loop is `GcWatch._callback` de binnenste regel, en die staat in de
+    app. Zo telde een lange ronde die asyncio of een test startte als stilstand van de app. Nu telt alleen wat de ronde aanriep."""
+    callback: loop_guard.Frame = loop_guard.Frame(os.path.join(loop_guard.APP_DIR, "gc_watch.py"), 93, "_callback")
+    selector: loop_guard.Frame = loop_guard.Frame("/usr/lib/python3.12/asyncio/base_events.py", 1990, "_run_once")
+    outside: loop_guard.Stall = loop_guard.Stall(0.3, (loop_guard.Frame("/x/test_a.py", 3, "test_a"), selector, callback))
+    inside: loop_guard.Stall = loop_guard.Stall(0.3, (*app_stall().stack, callback))
+    assert outside.in_app, "zonder het weglaten telt de regel van gc_watch.py als de app"
+    assert loop_watch.counted([outside, inside], exempt=False) == [inside]
+
+
 def test_may_block_exempts_a_test() -> None:
     assert loop_watch.counted([app_stall()], exempt=True) == []
     marker: Any = pytest.mark.may_block("de test blokkeert met opzet").mark

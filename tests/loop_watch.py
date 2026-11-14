@@ -22,7 +22,7 @@ import functools
 import os
 import threading
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
 from mealieshopper import gc_watch, loop_guard
@@ -93,11 +93,22 @@ def install() -> None:
     asyncio.base_events.BaseEventLoop.run_forever = run_forever  # type: ignore[method-assign]
 
 
+def _without_gc_callback(stall: loop_guard.Stall) -> loop_guard.Stall:
+    """De stilstand zonder de regels van gc_watch.py binnenin de stack: na een ronde van de GC op de thread van de loop is
+    `GcWatch._callback` de binnenste regel van de app, wie de ronde ook aanriep. Zonder die regels telt alleen wat de ronde
+    aanriep: code van de app, of asyncio en de test zelf."""
+    stack: tuple[loop_guard.Frame, ...] = stall.stack
+    while stack and stack[-1].in_app and os.path.basename(stack[-1].path) == "gc_watch.py":
+        stack = stack[:-1]
+    return replace(stall, stack=stack)
+
+
 def counted(stalls: list[loop_guard.Stall], exempt: bool) -> list[loop_guard.Stall]:
-    """De stilstanden die tellen: die de app veroorzaakte, tenzij de test is vrijgesteld (`may_block`)."""
+    """De stilstanden die tellen: die de app veroorzaakte, tenzij de test is vrijgesteld (`may_block`). Een ronde van de GC telt
+    alleen als de app hem aanriep (`_without_gc_callback`)."""
     if exempt:
         return []
-    return [stall for stall in stalls if stall.in_app]
+    return [stall for stall in stalls if _without_gc_callback(stall).in_app]
 
 
 def failure_message(mode: str, stalls: list[loop_guard.Stall]) -> str | None:
