@@ -1524,14 +1524,26 @@ def _known_pack_titles(store: str, catalogue: "_Catalogue | None", packs_known: 
         return {}
     suffixes = {ah_lists._fold(pack.get("brand") or "").strip() for pack in packs_known} | {store}
     suffixes.discard("")
+    by_last: dict[str, list[str]] = _by_last_word(suffixes)
     found: dict[str, str] = {}
     for product_id, known in catalogue.products.items():
         for name in known[_NAMES]:
-            candidates = [name] + [name[: -len(suffix) - 1] for suffix in suffixes if name.endswith(f" {suffix}")]
+            endings: list[str] = by_last.get(name.rsplit(" ", 1)[-1], [])
+            candidates = [name] + [name[: -len(suffix) - 1] for suffix in endings if name.endswith(f" {suffix}")]
             title = next((candidate for candidate in candidates if base_title(candidate) in bases), None)
             if title:
                 found[product_id] = title
                 break
+    return found
+
+
+def _by_last_word(suffixes: Iterable[str]) -> dict[str, list[str]]:
+    """De merken per laatste woord (wat na de laatste spatie staat), elk in de volgorde van `suffixes`. Eindigt een naam op " merk",
+    dan is zijn laatste woord dat van het merk: zo vergelijkt `_known_pack_titles` een naam alleen met de merken die erop kunnen
+    passen, en niet met alle tientallen merken van de week (op de volumedatabase 2,6 miljoen keer `endswith` per oordeel)."""
+    found: dict[str, list[str]] = {}
+    for suffix in suffixes:
+        found.setdefault(suffix.rsplit(" ", 1)[-1], []).append(suffix)
     return found
 
 
