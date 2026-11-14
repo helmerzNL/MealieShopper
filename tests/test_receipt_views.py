@@ -42,7 +42,7 @@ class ReceiptPaperTest(unittest.TestCase):
 
     def test_the_box_scrolls_inside_on_a_wide_screen_instead_of_the_page(self):
         box = function_source("fitReceiptBox")
-        self.assertIn("pageFitHeight(box)", box)
+        self.assertIn("pageFitHeight(box, { min: PURCHASE_MIN_HEIGHT })", box)
         self.assertIn("orderPage.purchase", box, "voor elke weergave van een geopende aankoop")
         self.assertIn('box.classList.toggle("order-items--fit", height !== null)', box)
         self.assertIn("if (ordersState.loaded) fitPurchaseTable();\n  fitReceiptBox();", ORDERS)

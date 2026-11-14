@@ -29,7 +29,7 @@ from urllib.parse import urlsplit
 import aiosqlite
 import httpx
 
-from . import about, auth, http_client, mealie, mealkit_import, nutrition
+from . import about, auth, http_client, mealie, mealkit_import, nutrition, recipe_diet
 from .ah_lists import _fold
 from .i18n import tr
 
@@ -306,7 +306,7 @@ async def get_menu(week: Any = None, refresh: bool = False) -> dict[str, Any]:
     }
 
 
-async def search(query: Any, load: int = 0) -> dict[str, Any]:
+async def search(query: Any, load: int = 0, wanted: Any = None) -> dict[str, Any]:
     """Zoek in alle bewaarde menu's; alle woorden moeten voorkomen in naam, kop, keuken of label. Zonder `load` vraagt dit
     HelloFresh niets; met `load` worden eerst de komende weken opgehaald (en bewaard) die er nog niet zijn."""
     words = _fold(query).split()
@@ -327,7 +327,8 @@ async def search(query: Any, load: int = 0) -> dict[str, Any]:
             text = _fold(" ".join((recipe.get("name", ""), recipe.get("headline", ""), recipe.get("cuisine", ""), recipe.get("label", ""))))
             if recipe.get("key") not in found and all(word in text for word in words):
                 found[recipe["key"]] = {**recipe, "week": row["week"]}
-    results = list(found.values())
+    # Met filters (recipe_diet.Wanted: menugang, dieet, tijd) vóór het afkappen, zodat het totaal klopt (4.22.0).
+    results = recipe_diet.filter_cards("hellofresh", list(found.values()), wanted) if wanted is not None else list(found.values())
     return {"weeks": len(rows), "total": len(results), "recipes": results[:MAX_RESULTS]}
 
 

@@ -21,6 +21,7 @@ os.environ.setdefault("MEALIESHOPPER_TESTING", "1")
 # De ronde langs ahprijsindex.nl (ah_price_index.py) hoort bij de dagelijkse run. In de tests staat ze uit, tenzij een test
 # haar zelf aanzet: zo start een test van de dagelijkse run geen task die na de test nog in de database leest.
 os.environ.setdefault("MEALIESHOPPER_PRICE_INDEX", "false")
+os.environ.setdefault("MEALIESHOPPER_SHARED_PRICES", "false")
 
 import loop_watch
 import volume

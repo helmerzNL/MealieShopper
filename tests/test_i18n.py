@@ -19,6 +19,7 @@ HTML = (ROOT / "templates" / "index.html").read_text(encoding="utf-8")
 SOURCES = {
     "app.js": (STATIC / "app.js").read_text(encoding="utf-8"),
     "recipe_view.js": (STATIC / "recipe_view.js").read_text(encoding="utf-8"),
+    "recipe_nav.js": (STATIC / "recipe_nav.js").read_text(encoding="utf-8"),
     "cook_timers.js": (STATIC / "cook_timers.js").read_text(encoding="utf-8"),
     "categories.js": (STATIC / "categories.js").read_text(encoding="utf-8"),
     "onboarding.js": (STATIC / "onboarding.js").read_text(encoding="utf-8"),
@@ -173,10 +174,8 @@ class UsageTest(AppTestCase):
             "offers.cat.",
             "offers.course.",
             "offers.regular.source.",
-            "backup.count.",
             "backup.link.",
             "backup.part.",
-            "backup.restore_part.",
         }
         for key in NL:
             base = re.sub(r"\.(one|other)$", "", key)
@@ -262,7 +261,7 @@ class PageTest(AppTestCase):
         dark = re.search(r':root\[data-theme="dark"\]\s*{(.*?)\n}', css, re.S).group(1)
         names = lambda block: set(re.findall(r"(--[\w-]+):", block))
         unchanged = {"--lemon", "--control-height", "--font-body", "--font-heading", "--ease"}
-        unchanged |= {name for name in names(light) if name.startswith(("--radius-", "--text-"))}  # maten, geen kleuren
+        unchanged |= {name for name in names(light) if name.startswith(("--radius-", "--text-", "--scroll-"))}  # maten, geen kleuren
         self.assertEqual(sorted(names(light) - names(dark) - unchanged), [])
 
     def test_engine_keeps_the_language_and_tells_the_server(self):

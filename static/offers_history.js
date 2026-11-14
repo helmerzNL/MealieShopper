@@ -662,11 +662,17 @@ function renderOfferHistory() {
   window.requestAnimationFrame(() => offerHistoryFitList(list)); // na dit tekenen verdwijnt de laadmelding erboven nog
 }
 
-// Op een breed scherm passen de lijst en het product samen precies op het scherm: elke kolom krijgt de hoogte van waar de
-// kolommen beginnen tot waar de pagina ophoudt (pageFitHeight in app.js, gemeten aan de kolommen samen, want de lijst alleen
-// kan korter zijn dan het product) en scrolt daarbinnen. Op een smal scherm geldt het maximum uit styles.css.
+// Zo hoog is het product minstens: de kop, de kerngetallen (tot drie rijen), de grafiek en de legenda passen er dan samen in. Boven de
+// lijst en het product staan de zoekbalk, de schakelaar, de filters en de telling, dus op een scherm van gemiddelde hoogte bleef er
+// eerst maar zo'n 360 px over en stond de grafiek half buiten beeld. Past het niet onder de kop, dan scrolt de pagina mee.
+const OFFER_HISTORY_MIN_HEIGHT = 640; // dezelfde 640 px als PURCHASE_MIN_HEIGHT (orders.js) en --scroll-list-max (styles.css)
+
+// Op een breed scherm passen de lijst en het product samen op het scherm: elke kolom krijgt de hoogte van waar de kolommen
+// beginnen tot waar de pagina ophoudt (pageFitHeight in app.js, gemeten aan de kolommen samen, want de lijst alleen kan korter
+// zijn dan het product), maar niet minder dan OFFER_HISTORY_MIN_HEIGHT, en scrolt daarbinnen. Op een smal scherm geldt het
+// maximum uit styles.css.
 function offerHistoryFitList(list) {
-  const height = pageFitHeight(list.parentElement, { minWidth: 1200 });
+  const height = pageFitHeight(list.parentElement, { minWidth: 1200, min: OFFER_HISTORY_MIN_HEIGHT });
   const value = height === null ? "" : `${height}px`;
   list.style.maxHeight = value;
   $("#offers-history-detail").style.maxHeight = value;

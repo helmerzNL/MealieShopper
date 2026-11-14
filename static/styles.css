@@ -89,6 +89,11 @@
   --radius-lg: 16px;
   --radius-pill: 999px;
   --control-height: 44px;
+  /* Hoe hoog een lijst met een eigen schuifbalk mag worden voor hij scrolt: dezelfde maat voor elke lijst, op een pagina en in een
+     dialoog. Hooguit 640 px (de hoogte die de aankopen en de prijsgeschiedenis op een breed scherm minstens krijgen: PURCHASE_MIN_HEIGHT
+     en OFFER_HISTORY_MIN_HEIGHT), en op een laag scherm hooguit 60% ervan, zodat een dialoog met zo'n lijst niet uit beeld loopt.
+     Een korte lijst blijft kort: dit is een maximum. */
+  --scroll-list-max: min(640px, 60vh);
 
   /* Typeschaal: acht stappen. Gebruik alleen deze; een letterlijke grootte mag alleen voor wat geen lopende tekst is (de menubalk,
      een icoon, de initialen in een grote avatar) en de clamp() van de kookmodus. tests/test_brand.py houdt dat bij. */
@@ -1257,9 +1262,15 @@ a.subtab-menu__item[hidden] {
   padding-left: 18px;
 }
 
-/* De boodschappenlijst onder het weekmenu (shopping.js, 4.11.0): een aanvinklijst met per regel een huisje voor "altijd in huis",
+/* De boodschappenlijst bij het weekmenu (shopping.js, 4.11.0): een aanvinklijst met per regel een huisje voor "altijd in huis",
    de dagen waarvoor je boodschappen doet als chips erboven, en wat in huis is ingeklapt eronder. Regels van 44 px. */
-/* De knop Boodschappen en het zoeken springen naar deze koppen: onder de balk die bovenaan blijft staan, niet erachter. */
+/* De boodschappenlijst staat sinds 4.24.0 in een eigen weergave (#shop-view) op de plek van het weekmenu, dus bovenaan en zonder
+   de afstand die ze had onder de dagen. Het zoeken springt nog naar de kop van de controlelijst: onder de balk die bovenaan blijft
+   staan, niet erachter. */
+#shop-view .ingredients {
+  margin-top: 0;
+}
+
 #shop-title,
 #cart-review-title {
   scroll-margin-top: 96px;
@@ -3640,6 +3651,98 @@ select.input {
   background: var(--surface);
 }
 
+/* ---- Bladeren door recepten (recipe_nav.js): chevrons in de kop van het recept met de plek erachter ("3 van 24"), onder het recept
+   Vorige en Volgende, en een veeg naar links of rechts. Het hele recept is het vlak voor die veeg: zijwaarts is van ons, omhoog en
+   omlaag blijft scrollen, en knijpen blijft zoomen. */
+[data-recipe-surface] {
+  touch-action: pan-y pinch-zoom;
+}
+
+.recipe-nav {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+}
+
+.recipe-nav__count {
+  min-width: 4.5em;
+  color: var(--muted);
+  text-align: center;
+  font-size: var(--text-sm);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.recipe-nav--bottom {
+  justify-content: space-between;
+  margin-top: 24px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+
+.recipe-nav .mdi,
+.recipe-nav svg {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  fill: currentColor;
+}
+
+/* Op een smal scherm krijgt de balk in de kop een eigen regel onder de titel, met een chevron aan elke kant. */
+@media (max-width: 640px) {
+  .list-header .recipe-nav {
+    flex: 1 1 100%;
+    justify-content: space-between;
+  }
+}
+
+/* In het venster van een maaltijd staat de balk rechts op de regel van de maaltijdsoort en is hij compact. */
+.meal-recipe__top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.meal-recipe__top .meal-recipe__type {
+  margin: 0;
+}
+
+.meal-recipe__top .recipe-nav {
+  margin-left: auto;
+}
+
+.meal-recipe__top .icon-button {
+  min-height: 36px;
+  padding: 0 10px;
+}
+
+/* Het nieuwe recept schuift in vanaf de kant waar je naartoe veegt; met minder beweging gewoon meteen. */
+@media (prefers-reduced-motion: no-preference) {
+  .recipe-slide-next {
+    animation: recipe-slide-next 0.22s var(--ease) backwards;
+  }
+
+  .recipe-slide-prev {
+    animation: recipe-slide-prev 0.22s var(--ease) backwards;
+  }
+}
+
+@keyframes recipe-slide-next {
+  from {
+    opacity: 0;
+    transform: translateX(24px);
+  }
+}
+
+@keyframes recipe-slide-prev {
+  from {
+    opacity: 0;
+    transform: translateX(-24px);
+  }
+}
+
 /* ---- De kookmodus (#cook-mode, recipe_view.js): schermvullend, één stap in grote letters, met Vorige en Volgende onderaan
    binnen bereik van je duim. De ingrediënten liggen op een smal scherm als paneel over de onderkant, vanaf 860 px ernaast. */
 .cook-mode {
@@ -4319,7 +4422,7 @@ html:has(#cook-mode[open]) {
 .plan-recipe-results {
   display: grid;
   gap: 4px;
-  max-height: min(320px, 40vh);
+  max-height: var(--scroll-list-max);
   margin: 0;
   padding: 0;
   overflow: auto;
@@ -6047,7 +6150,7 @@ html.is-standalone body {
   margin: 0;
   padding: 0;
   list-style: none;
-  max-height: 50vh;
+  max-height: var(--scroll-list-max);
   overflow-y: auto;
 }
 
@@ -7257,7 +7360,7 @@ html.is-standalone body {
 }
 
 .audit-body {
-  max-height: 320px;
+  max-height: var(--scroll-list-max);
   margin: 0;
   padding: 10px;
   overflow: auto;
@@ -7860,7 +7963,7 @@ html.is-standalone .user-menu__item--standalone:not([hidden]) {
   gap: 6px;
   margin: 0;
   padding: 0;
-  max-height: 420px;
+  max-height: var(--scroll-list-max);
   overflow-y: auto;
   list-style: none;
 }
@@ -8629,6 +8732,41 @@ html.is-standalone .user-menu__item--standalone:not([hidden]) {
   padding-left: 20px;
 }
 
+/* De onderdelen van een back-up: bij maken en bij terugzetten dezelfde lijst vinkjes, in kolommen waar het scherm breed genoeg is. */
+.backup-parts {
+  min-width: 0;
+  margin: 16px 0 0;
+  padding: 0;
+  border: 0;
+}
+
+.backup-parts legend {
+  padding: 0;
+  font-weight: 600;
+}
+
+.backup-parts__tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.backup-parts__list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 280px), 1fr));
+  column-gap: 20px;
+}
+
+#backup-box .backup-parts__list .check {
+  margin-top: 8px;
+}
+
+/* Een onderdeel dat niet in het bestand zit: er valt niets te kiezen. */
+.backup-parts__list .check.is-absent {
+  color: var(--muted);
+}
+
 /* Prijsarchief: per winkel een regel met de periode en daaronder wat erbij komt. */
 .price-archive-stores li + li {
   margin-top: 8px;
@@ -9304,18 +9442,42 @@ html.is-standalone .user-menu__item--standalone:not([hidden]) {
   text-transform: uppercase;
 }
 
-.facet-panel .offer-facet--scroll {
-  max-height: 230px;
-}
-
 .facet-panel__clear {
   flex-basis: 100%;
   text-align: left;
 }
 
+/* De filters van Recepten zoeken (issue #322): bovenaan de bereidingstijd en de volgorde, daaronder de tags en categorieën. */
+.recipe-filters__row {
+  display: flex;
+  flex-basis: 100%;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+}
+
+.recipe-filters__field {
+  display: flex;
+  flex: 1 1 180px;
+  flex-direction: column;
+  gap: 4px;
+  max-width: 260px;
+  color: var(--muted);
+  font-size: var(--text-sm);
+}
+
+.recipe-filters__note,
+#search-facets-message {
+  flex-basis: 100%;
+  margin: 0;
+}
+
+#search-facets-message:empty {
+  display: none;
+}
+
 /* De merken: een winkel heeft er honderden, dus een eigen schuifbalk onder het zoekveld. */
 .offer-facet--scroll {
-  max-height: 300px;
+  max-height: var(--scroll-list-max);
   overflow-y: auto;
   overscroll-behavior: contain;
 }
@@ -9975,7 +10137,7 @@ html.is-standalone .user-menu__item--standalone:not([hidden]) {
   margin: 8px 0 0;
   padding: 0;
   list-style: none;
-  max-height: 60vh;
+  max-height: var(--scroll-list-max);
   overflow-y: auto;
 }
 
@@ -10134,7 +10296,7 @@ html.is-standalone .user-menu__item--standalone:not([hidden]) {
 }
 
 .import-prompt pre {
-  max-height: 220px;
+  max-height: var(--scroll-list-max);
   overflow: auto;
   margin: 8px 0 0;
   padding: 10px 12px;
@@ -10157,7 +10319,7 @@ html.is-standalone .user-menu__item--standalone:not([hidden]) {
 .import-report {
   display: grid;
   gap: 4px;
-  max-height: 220px;
+  max-height: var(--scroll-list-max);
   overflow: auto;
   margin: 0;
   padding: 0;
@@ -10300,10 +10462,6 @@ html.is-standalone .user-menu__item--standalone:not([hidden]) {
   height: 10px;
   margin-bottom: 6px;
   accent-color: var(--primary);
-}
-
-.bulk-report {
-  max-height: min(320px, 40vh);
 }
 
 .bulk-report:empty {

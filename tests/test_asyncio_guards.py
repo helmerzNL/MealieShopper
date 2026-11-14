@@ -51,6 +51,7 @@ TO_THREAD_ALLOWED: dict[str, str] = {
     "audit.py": "de export van tot 5000 regels als JSON of CSV",
     "factory_reset.py": "de afbeeldingencache wissen (shutil.rmtree over duizenden bestanden)",
     "compression.py": "een antwoord met tekst verpakken met gzip (de lijst met aanbiedingen is 3,7 MB)",
+    "price_archive_sync.py": "begrensde JSON-documenten valideren en per document in SQLite invoegen, met checkpoints en lease",
     "price_archive.py": "een prijsarchief uitpakken en controleren, invoegen en exporteren (zip, tar, gzip, tot een miljoen regels)",
     "uploads.py": "een stuk van een upload (tot 4 MB) naar schijf schrijven",
     "telemetry.py": "bij het afsluiten wachten tot de thread van de bewaker stopt (Thread.join, hooguit loop_guard.JOIN_TIMEOUT)",
@@ -107,6 +108,7 @@ THREAD_ONLY: frozenset[str] = frozenset(
             )
         ),
         "json_pieces.loads",
+        *(f"price_archive_sync.{name}" for name in ("_claim", "_renew", "_release", "_unchanged", "_document_rows", "_import_document")),
         "thread_db.connect",
         "price_archive.apply",
         "price_archive._check_upload",

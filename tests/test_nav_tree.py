@@ -136,7 +136,7 @@ class ReceiptsTest(unittest.TestCase):
         self.assertIn("purchaseTimer = setTimeout(searchPurchases, 250);", ORDERS)
         self.assertIn("return !hits || hits.has(`${row.kind}:${row.id}`);", ORDERS)
         # De tabel vult het scherm tot onderaan en scrolt in zijn eigen vak.
-        self.assertIn("const height = pageFitHeight(wrap);", ORDERS)
+        self.assertIn("const height = pageFitHeight(wrap, { min: PURCHASE_MIN_HEIGHT });", ORDERS)
         self.assertRegex(CSS, r"\.purchase-table-wrap \{\n  overflow: auto;")
         self.assertRegex(CSS, r"\.purchase-table thead th \{\n  position: sticky;")
 
@@ -154,11 +154,11 @@ class ReceiptsTest(unittest.TestCase):
         # De lijst en het product krijgen allebei de hoogte tot de onderkant van de pagina en scrollen in hun eigen vak.
         self.assertRegex(
             CSS,
-            r"\.ohc-list \{\n  display: grid;(?:.*\n)*?  max-height: 420px;(?:.*\n)*?@media \(min-width: 1200px\) \{\n  \.ohc-detail \{\n    overflow-y: auto;",
+            r"\.ohc-list \{\n  display: grid;(?:.*\n)*?  max-height: var\(--scroll-list-max\);(?:.*\n)*?@media \(min-width: 1200px\) \{\n  \.ohc-detail \{\n    overflow-y: auto;",
         )
         history = (ROOT / "static" / "offers_history.js").read_text(encoding="utf-8")
         self.assertIn("window.requestAnimationFrame(() => offerHistoryFitList(list));", history)
-        self.assertIn("const height = pageFitHeight(list.parentElement, { minWidth: 1200 });", history)
+        self.assertIn("const height = pageFitHeight(list.parentElement, { minWidth: 1200, min: OFFER_HISTORY_MIN_HEIGHT });", history)
         self.assertIn('$("#offers-history-detail").style.maxHeight = value;', history)
         app = (ROOT / "static" / "app.js").read_text(encoding="utf-8")
         self.assertIn("window.innerHeight - (rect.top + window.scrollY) - (shell.bottom - rect.bottom)", app)
@@ -169,7 +169,7 @@ class ReceiptsTest(unittest.TestCase):
         self.assertNotRegex(CSS, r"\.receipt \{\n(?:.*\n)*?    min-height: calc\(100vh")
         orders = (ROOT / "static" / "orders.js").read_text(encoding="utf-8")
         self.assertIn("function fitReceiptBox()", orders)
-        self.assertIn("pageFitHeight(box)", orders)
+        self.assertIn("pageFitHeight(box, { min: PURCHASE_MIN_HEIGHT })", orders)
         self.assertIn("if (ordersState.loaded) fitPurchaseTable();\n  fitReceiptBox();", orders)
 
 

@@ -654,7 +654,7 @@ class PageTest(AppTestCase):
             "links.saving",
             "links.unlink",
             "links.note",
-            "backup.count.productLinks",
+            "backup.part.productLinks",  # de regel (en het vinkje) van je eigen koppelingen in het back-upscherm
         ):
             self.assertIn(f'"{key}":', NL, key)
             self.assertIn(f'"{key}":', EN, key)

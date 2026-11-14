@@ -1,5 +1,5 @@
-// De boodschappenlijst onder het weekmenu en de controlelijst voor het mandje. Sinds 4.11.0 een eigen script (daarvoor in
-// app.js), omdat het weekmenu nu onthoudt wat je doet:
+// De boodschappenlijst bij het weekmenu en de controlelijst voor het mandje. Sinds 4.11.0 een eigen script (daarvoor in
+// app.js), omdat het weekmenu nu onthoudt wat je doet; sinds 4.24.0 staan ze achter de knop Boodschappen, op de plek van het weekmenu:
 //   - de boodschappenlijst is een aanvinklijst: het vinkje is "deze week kopen", het huisje "altijd in huis" (per gebruiker
 //     bewaard, /api/pantry). Wat in huis is, staat apart en gaat de zoekronde niet in;
 //   - je kiest voor welke dagen je boodschappen doet; in de lopende week tellen dagen die voorbij zijn standaard niet mee;
@@ -17,6 +17,8 @@ const REVIEW_STORAGE_KEY = "ms-cart-review";
 const REVIEW_MAX_AGE_MS = 12 * 60 * 60 * 1000; // een controlelijst van gisteren heeft prijzen en aanbiedingen van gisteren
 const MDI_HOME = "M10,20V14H14V20H19V12H22L12,3L2,12H5V20H10Z";
 const MDI_HOME_OUTLINE = "M12 5.69L17 10.19V18H15V12H9V18H7V10.19L12 5.69M12 3L2 12H5V20H11V14H13V20H19V12H22";
+
+const MDI_CHEVRON_BACK = "M15.41,16.58L10.83,12L15.41,7.41L14,6L8,12L14,18L15.41,16.58Z";
 
 const shopping = {
   pantry: new Map(), // gevouwen naam -> naam: wat je altijd in huis hebt
@@ -141,6 +143,32 @@ function shopTitle(items) {
   return t(key, { count: I18N.formatNumber(count), total: I18N.formatNumber(items.length) });
 }
 
+// De boodschappenlijst en de controlelijst staan niet meer onder het weekmenu (sinds 4.24.0) maar in een eigen weergave, standaard
+// verborgen. De knop Boodschappen opent haar op de plek van het weekmenu, met een pijltje terug in de kop van de lijst.
+function shopViewIsOpen() {
+  return !$("#shop-view").hidden;
+}
+
+function openShopView() {
+  if (shopViewIsOpen() || !$("#shop-title")) return; // zonder lijst valt er niets te openen
+  $("#week-view").hidden = true;
+  $("#shop-view").hidden = false;
+  window.scrollTo({ top: 0 }); // de knop staat in de paginakop: de lijst begint ook bovenaan, niet halverwege
+  $("#shop-title").focus({ preventScroll: true }); // een schermlezer hoort waar je bent; Tab gaat daar verder
+}
+
+// `back`: terug naar het weekmenu door op het pijltje te tikken, dus bovenaan en met de focus op de knop waarmee je opende.
+// Zonder `back` gaat de weergave alleen dicht: een andere week of een lijst die er niet meer is, mag de pagina niet laten scrollen
+// (ook niet als je in Aanbiedingen een andere week kiest) en de focus niet verplaatsen.
+function closeShopView({ back = false } = {}) {
+  if (!shopViewIsOpen()) return;
+  $("#shop-view").hidden = true;
+  $("#week-view").hidden = false;
+  if (!back) return;
+  window.scrollTo({ top: 0 });
+  $("#shop-jump").focus({ preventScroll: true });
+}
+
 // De kop, de knop in de paginakop en de toevoegknop volgen het aantal aangevinkte regels.
 function shopUpdateCount(items) {
   const count = items.filter((item) => item.checked).length;
@@ -161,6 +189,7 @@ function renderShoppingList({ pantryOpen = null } = {}) {
   if (!dates.length) {
     panel.innerHTML = "";
     if ($("#shop-jump")) $("#shop-jump").hidden = true;
+    closeShopView(); // geen lijst meer om te tonen: terug naar het weekmenu, niet naar een leeg scherm
     return;
   }
   const buying = items.filter((item) => !item.pantry);
@@ -174,7 +203,10 @@ function renderShoppingList({ pantryOpen = null } = {}) {
     .join("");
   panel.innerHTML = `
     <div class="box ingredients" id="shop-box">
-      <h2 id="shop-title" tabindex="-1">${escapeHtml(shopTitle(items))}</h2>
+      <div class="list-header">
+        <button class="icon-button" id="shop-back" type="button" aria-label="${escapeHtml(t("shop.back"))}" title="${escapeHtml(t("shop.back"))}">${mdiIcon(MDI_CHEVRON_BACK, "")}</button>
+        <h2 id="shop-title" tabindex="-1">${escapeHtml(shopTitle(items))}</h2>
+      </div>
       <div class="shop-days" role="group" aria-labelledby="shop-days-label">
         <span class="shop-days__label" id="shop-days-label">${escapeHtml(t("shop.for"))}</span>
         ${days}
@@ -243,6 +275,10 @@ async function setPantry(key, name, present) {
 }
 
 $("#ingredients-panel").addEventListener("click", (event) => {
+  if (event.target.closest("#shop-back")) {
+    closeShopView({ back: true });
+    return;
+  }
   const day = event.target.closest("[data-shop-day]");
   if (day) {
     shopping.dayPicks[day.dataset.shopDay] = day.getAttribute("aria-pressed") !== "true";
@@ -261,7 +297,7 @@ $("#ingredients-panel").addEventListener("click", (event) => {
 
 $("#ingredients-panel").addEventListener("change", (event) => {
   if (event.target.id === "cart-organic") {
-    savePreferOrganic(event.target);
+    savePreferOrganic(event.target, "#shop-message"); // het weekmenu met zijn meldingen is nu uit beeld
     return;
   }
   const key = event.target.dataset?.shopItem;
@@ -276,12 +312,7 @@ $("#ingredients-panel").addEventListener("change", (event) => {
   shopUpdateCount(shopNow().items);
 });
 
-$("#shop-jump").addEventListener("click", () => {
-  const title = $("#shop-title");
-  if (!title) return;
-  title.scrollIntoView({ block: "start" });
-  title.focus({ preventScroll: true });
-});
+$("#shop-jump").addEventListener("click", openShopView);
 
 // ---- De controlelijst
 

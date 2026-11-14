@@ -7,20 +7,24 @@ nieuwe versie die het gedrag terugdraait hier rood wordt. Een nieuwe melding kri
 
 import gzip
 import inspect
+import io
 import json
 import os
 import re
 import shutil
+import sqlite3
 import subprocess
 import tempfile
 import unittest
+import zipfile
 from contextlib import closing
 from datetime import date, timedelta
 from pathlib import Path
-from typing import ClassVar
+from typing import Any, ClassVar
 from unittest import mock
 
 import httpx
+import jsonschema
 import jwt
 import test_ah_orders  # als module: de opzet van het AH-mandje
 import test_ah_price_index  # idem: de opzet van de ronde langs de prijsindex
@@ -30,6 +34,7 @@ import test_loose_names  # idem: de opzet van de losse aankoopnamen
 import test_offers  # idem: de opzet van de receptvoorstellen
 import test_offers_scan_js  # idem: de Node-opbouw van offers.js
 import test_order_views  # idem: de Node-opbouw van order_views.js en de gedeelde keuzelijst
+import test_price_archive
 import test_price_import  # idem
 import test_shared_links  # idem: de gedeelde lijst en zijn opzet
 from helpers import AppClient, AppTestCase, ReadResponse, db, returned, run, sent_json, served  # helpers zet ook het pad naar de app
@@ -50,6 +55,7 @@ from mealieshopper import (
     offer_ranking,
     offers,
     offers_schedule,
+    price_archive,
     price_archive_tidy,
     price_import,
     prices,
@@ -1826,6 +1832,157 @@ class CookingIngredientsFitOnAPhoneTest(unittest.TestCase):
         self.assertIn("margin-top: auto", self.rule(".cook-mode__stage > :first-child"))
 
 
+@unittest.skipUnless(shutil.which("node"), "Node is not installed")
+class PriceHistoryChartHasRoomTest(unittest.TestCase):
+    """2026-11-13: "Het aanbiedingenscherm met de grafiek en de historie is te klein om de grafiek mooi weer te geven. Zorg dat het
+    vlak waar ook de grafiek zichtbaar is wat meer ruimte krijgt." Op een breed scherm kreeg het product met de grafiek alleen de
+    hoogte tot de onderkant van de pagina; boven de lijst staan de zoekbalk, de schakelaar, de filters en de telling, dus bleef er
+    op een scherm van 1080 px zo'n 360 px over en stond de grafiek half buiten beeld."""
+
+    APP: str = (ROOT / "static" / "app.js").read_text(encoding="utf-8")
+    HISTORY: str = (ROOT / "static" / "offers_history.js").read_text(encoding="utf-8")
+
+    def fitted(self, *, viewport: int, wide: bool = True) -> str:
+        """De maximale hoogte die offerHistoryFitList aan de lijst geeft, met de echte pageFitHeight en een nagebootst venster: de
+        kolommen beginnen op 900 px, zijn 500 px hoog en de pagina loopt 50 px verder (de marge onder het vak)."""
+        fit_start: int = self.APP.index("function pageFitHeight(")
+        fit: str = self.APP[fit_start : self.APP.index("\n}\n", fit_start) + 3]
+        part_start: int = self.HISTORY.index("const OFFER_HISTORY_MIN_HEIGHT")
+        part: str = self.HISTORY[part_start : self.HISTORY.index("async function loadOfferHistory")]
+        script: str = f"""
+const detail = {{ style: {{}} }};
+const $ = () => detail;
+const window = {{ innerHeight: {viewport}, scrollY: 0, matchMedia: () => ({{ matches: {json.dumps(wide)} }}) }};
+const document = {{ querySelector: () => ({{ getBoundingClientRect: () => ({{ bottom: 1450 }}) }}) }};
+{fit}
+{part}
+const list = {{ style: {{}}, parentElement: {{ offsetParent: {{}}, getBoundingClientRect: () => ({{ top: 900, bottom: 1400 }}) }} }};
+offerHistoryFitList(list);
+console.log(JSON.stringify([list.style.maxHeight, detail.style.maxHeight]));
+"""
+        result: subprocess.CompletedProcess = subprocess.run(["node", "-e", script], capture_output=True, text=True, check=True)
+        lists: list[str] = json.loads(result.stdout)
+        self.assertEqual(lists[0], lists[1], "de lijst en het product krijgen dezelfde hoogte")
+        return lists[0]
+
+    def test_a_low_screen_still_gives_the_chart_its_room(self) -> None:
+        self.assertEqual(self.fitted(viewport=1080), "640px", "eerst bleef hier 240 px of minder van over")
+
+    def test_a_tall_screen_still_fits_exactly(self) -> None:
+        self.assertEqual(self.fitted(viewport=2000), "1050px", "op een hoog scherm blijft het vak tot de onderkant van de pagina lopen")
+
+    def test_a_narrow_screen_keeps_the_page_scroll(self) -> None:
+        self.assertEqual(self.fitted(viewport=1080, wide=False), "", "op een smal scherm geldt het maximum uit styles.css")
+
+
+@unittest.skipUnless(shutil.which("node"), "Node is not installed")
+class PurchaseBoxesHaveRoomTest(unittest.TestCase):
+    """2026-11-13: "Voer een vergelijkbare verbetering door voor het bestellingen/kassabon scherm, dat is ook veel te klein." Op een
+    breed scherm kregen de tabel met aankopen, de kaarten, het overzicht en het vak met de producten of de bon van een geopende
+    aankoop alleen de hoogte tot de onderkant van de pagina, en pageFitHeight gaf niet minder dan 240 px. Boven de tabel staan de
+    kop, de uitleg, de zoekbalk, de filters, een melding en de weergavebalk, dus op een laptop was elk vak 240 px: zo'n drie rijen."""
+
+    APP: str = (ROOT / "static" / "app.js").read_text(encoding="utf-8")
+    ORDERS: str = (ROOT / "static" / "orders.js").read_text(encoding="utf-8")
+    VIEWS: str = (ROOT / "static" / "purchase_views.js").read_text(encoding="utf-8")
+
+    def fitted(self, *, viewport: int, wide: bool = True) -> dict[str, str]:
+        """De maximale hoogte die elk vak krijgt, met de echte pageFitHeight, fitPurchaseTable, fitReceiptBox en purchaseViewFit en
+        een nagebootst venster: de vakken beginnen op 900 px, zijn 500 px hoog en de pagina loopt 50 px verder (de marge eronder)."""
+        fit_start: int = self.APP.index("function pageFitHeight(")
+        fit: str = self.APP[fit_start : self.APP.index("\n}\n", fit_start) + 3]
+        orders_start: int = self.ORDERS.index("const PURCHASE_MIN_HEIGHT")
+        orders: str = self.ORDERS[orders_start : self.ORDERS.index('window.addEventListener("resize"', orders_start)]
+        views_start: int = self.VIEWS.index("function purchaseViewFit()")
+        views: str = self.VIEWS[views_start : self.VIEWS.index("\n}\n", views_start) + 3]
+        script: str = f"""
+const box = () => ({{ hidden: false, style: {{}}, offsetParent: {{}}, classList: {{ toggle() {{}} }}, getBoundingClientRect: () => ({{ top: 900, bottom: 1400 }}) }});
+const els = {{
+  "#ah-purchase-table-wrap": box(),
+  "#ah-order-items": box(),
+  "#ah-order-detail": {{ hidden: false }},
+  "#ah-purchase-cards": box(),
+  "#ah-purchase-overview": Object.assign(box(), {{ hidden: true }}),
+}};
+const $ = (selector) => els[selector];
+const orderPage = {{ purchase: {{}} }};
+const window = {{ innerHeight: {viewport}, scrollY: 0, matchMedia: () => ({{ matches: {json.dumps(wide)} }}) }};
+const document = {{ querySelector: () => ({{ getBoundingClientRect: () => ({{ bottom: 1450 }}) }}) }};
+{fit}
+{orders}
+{views}
+fitPurchaseTable();
+fitReceiptBox();
+purchaseViewFit();
+console.log(JSON.stringify(Object.fromEntries(Object.entries(els).map(([id, el]) => [id, el.style ? (el.style.maxHeight ?? "") : null]))));
+"""
+        result: subprocess.CompletedProcess = subprocess.run(["node", "-e", script], capture_output=True, text=True, check=True)
+        return json.loads(result.stdout)
+
+    def test_a_laptop_screen_gives_every_box_its_room(self) -> None:
+        heights: dict[str, str] = self.fitted(viewport=1080)
+        for box in ("#ah-purchase-table-wrap", "#ah-order-items", "#ah-purchase-cards"):
+            self.assertEqual(heights[box], "640px", f"{box}: eerst bleef hier 240 px van over")
+        self.assertEqual(heights["#ah-purchase-overview"], "", "een vak dat dicht is, blijft ongemoeid")
+
+    def test_a_tall_screen_still_fits_exactly(self) -> None:
+        heights: dict[str, str] = self.fitted(viewport=2000)
+        for box in ("#ah-purchase-table-wrap", "#ah-order-items", "#ah-purchase-cards"):
+            self.assertEqual(heights[box], "1050px", f"{box}: op een hoog scherm loopt het vak tot de onderkant van de pagina")
+
+    def test_a_narrow_screen_keeps_the_page_scroll(self) -> None:
+        heights: dict[str, str] = self.fitted(viewport=1080, wide=False)
+        for box in ("#ah-purchase-table-wrap", "#ah-order-items", "#ah-purchase-cards"):
+            self.assertEqual(heights[box], "", f"{box}: op een smal scherm scrolt de pagina")
+
+
+class ScrollListsAreUniformTest(unittest.TestCase):
+    """2026-11-13, na de melding dat het scherm Bestellingen en kassabonnen veel te klein was en de vraag welke vakken nog meer zo
+    smal waren: "Je mag ze allemaal wel gelijktrekken, dan ziet het er allemaal uniform uit." De lijsten met een eigen schuifbalk
+    hadden elk een eigen maat (220, 230, 300, 320 en 420 px, 40, 50 en 60% van het scherm); nu delen ze één maximum."""
+
+    CSS: str = (ROOT / "static" / "styles.css").read_text(encoding="utf-8")
+    ORDERS: str = (ROOT / "static" / "orders.js").read_text(encoding="utf-8")
+    HISTORY: str = (ROOT / "static" / "offers_history.js").read_text(encoding="utf-8")
+    LISTS: tuple[str, ...] = (
+        ".plan-recipe-results",  # de receptkiezer in het plandialoog
+        ".link-list",  # het koppeldialoog
+        ".audit-body",  # het verzoek en het antwoord in het logboek
+        ".ohc-list",  # de lijst in de prijsgeschiedenis op een smal scherm
+        ".offer-facet--scroll",  # de lijsten met merken, categorieën en tags in de filters
+        ".compare-list",  # verpakkingen vergelijken
+        ".import-prompt pre",  # de opdracht bij het importeren van oude aankopen
+        ".import-report",  # het rapport van dat importeren en van het bulk-importeren van recepten
+    )
+
+    def rule(self, selector: str) -> str:
+        found: re.Match[str] | None = re.search(rf"^{re.escape(selector)} \{{(.*?)\n\}}", self.CSS, re.S | re.M)
+        self.assertIsNotNone(found, f"regel {selector} niet gevonden")
+        assert found is not None
+        return found.group(1)
+
+    def test_every_list_with_its_own_scrollbar_uses_the_one_maximum(self) -> None:
+        for selector in self.LISTS:
+            self.assertIn("max-height: var(--scroll-list-max);", self.rule(selector), selector)
+
+    def test_the_maximum_is_640_px_but_never_more_than_60_percent_of_the_screen(self) -> None:
+        self.assertIn("--scroll-list-max: min(640px, 60vh);", self.CSS)
+
+    def test_the_boxes_that_fit_the_page_get_the_same_640_px(self) -> None:
+        self.assertIn("const PURCHASE_MIN_HEIGHT = 640;", self.ORDERS)
+        self.assertIn("const OFFER_HISTORY_MIN_HEIGHT = 640;", self.HISTORY)
+
+    def test_no_other_list_gets_a_size_of_its_own_again(self) -> None:
+        # Alleen het onderpaneel van de kookmodus (65%) en de productfoto in het groot (max(160px, ...), een foto en geen lijst) houden
+        # een eigen verhouding tot het scherm; elke andere vaste hoogte hoort bij het token.
+        fixed: list[str] = re.findall(r"^\s*max-height: (?!calc\(|none|var\(--scroll-list-max\))([^;]+);", self.CSS, re.M)
+        self.assertEqual(
+            fixed,
+            ["max(160px, calc(100vh - 220px))", "max(160px, calc(100dvh - 220px))", "65%"],
+            "gebruik var(--scroll-list-max) voor een lijst met een eigen schuifbalk",
+        )
+
+
 class LooseNamesSharedListTest(test_shared_links.SharedListCase):
     async def test_2026_11_10_a_loose_name_in_the_shared_list_counts_for_its_product(self):
         """Rick, 2026-11-10: "hoe lossen we dit probleem fatsoenlijk op voor de rest van de aankoopregels? kijk of er een patroon
@@ -2224,3 +2381,99 @@ class SlowOffersPagesTest(AppTestCase):
         again: ReadResponse = await client.get("/api/offers?store=ah", headers={"If-None-Match": first.headers["ETag"]})
         self.assertEqual(again.status_code, 200)
         self.assertFalse(again.get_json()["offers"][0]["bought"], "de bon hoort nu bij 22, dus 20 en 21 zijn niet meer gekocht")
+
+
+class WeeklyPriceArchiveTest(test_price_archive.ArchiveCase):
+    """Weekprijzen behouden hun bron en het latere verzameltijdstip."""
+
+    async def test_2026_11_13_weekly_prices_survive_both_exports_and_import(self) -> None:
+        # "Weekprijzen verdwijnen uit prijsarchief export": historische weken zijn later verzameld.
+        suffix: str
+        document: str
+        for suffix, document in (
+            ("", "prices/ah/2022-07.jsonl"),
+            ("?format=site", "data/ah/prices/2022-001.json"),
+        ):
+            with self.subTest(format=suffix or "archive"):
+                conn: sqlite3.Connection
+                with closing(self.connect()) as conn, conn:
+                    conn.execute("DELETE FROM price_observations")
+                    conn.execute(
+                        "INSERT INTO price_observations "
+                        "(store, product_id, day, source, title, brand, unit_size, price, seen_at) "
+                        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                        ("ah", "8001", "2022-07-04", "ahprijsindex", "AH Halfvolle melk", "AH", "1 l", 1.39, "2026-11-13T10:00:00+00:00"),
+                    )
+                response: Any = await self.admin.post("/api/price-archive/export" + suffix)
+                self.assertEqual(response.status_code, 200)
+                payload: bytes = response.get_data()
+                archive: zipfile.ZipFile
+                with zipfile.ZipFile(io.BytesIO(payload)) as archive:
+                    self.assertIn(document, archive.namelist())
+                    records: list[dict[str, Any]] = (
+                        json.loads(archive.read(document)) if suffix else [json.loads(line) for line in archive.read(document).splitlines()]
+                    )
+                    self.assertEqual(len(records), 1)
+                    self.assertEqual(
+                        (records[0]["day"], records[0]["source"], records[0]["seen_at"], records[0]["price"]),
+                        ("2022-07-04", "ahprijsindex", "2026-11-13T10:00:00+00:00", 1.39),
+                    )
+                    if suffix:
+                        jsonschema.Draft202012Validator(json.loads(archive.read("schemas/ah.schema.json"))).validate(records)
+                with closing(self.connect()) as conn, conn:
+                    conn.execute("DELETE FROM price_observations")
+                await self.run_import(payload)
+                restored: list[dict[str, Any]] = self.rows("price_observations")
+                self.assertEqual(
+                    [(row["store"], row["day"], row["source"], row["seen_at"], row["price"]) for row in restored],
+                    [("ah", "2022-07-04", "ahprijsindex", "2026-11-13T10:00:00+00:00", 1.39)],
+                )
+
+
+async def test_2026_11_13_shared_weekly_prices_default_without_accounts(data_dir: Path, monkeypatch: Any) -> None:
+    """2026-11-13: shared historical AH prices were never fetched automatically."""
+    from datetime import datetime, timezone
+
+    from mealieshopper import price_archive_sync
+
+    monkeypatch.delenv("MEALIESHOPPER_SHARED_PRICES", raising=False)
+    assert price_archive_sync.enabled()
+    with (
+        mock.patch.object(price_archive_sync, "run_if_due", mock.AsyncMock(return_value={"documents": 1})) as shared,
+        mock.patch.object(offers_schedule, "_claim", mock.AsyncMock(return_value=False)),
+    ):
+        await offers_schedule.run_if_due(datetime(2026, 11, 13, 6, tzinfo=timezone.utc))
+    shared.assert_awaited_once()
+
+
+class WeeklyCaptureBoundsTest(unittest.TestCase):
+    def test_2026_11_13_weekly_capture_dates_keep_their_validation_bounds(self) -> None:
+        # "Weekprijzen verdwijnen uit prijsarchief export": alleen de prijsindex mag later verzameld zijn.
+        bounds: price_archive.Today = price_archive.Today()
+        bounds.today = date(2026, 11, 13)
+        bounds.later = date(2027, 11, 14)
+        row: dict[str, Any] = {
+            "store": "ah",
+            "product_id": "8001",
+            "day": "2022-07-04",
+            "source": "ahprijsindex",
+            "title": "AH Halfvolle melk",
+            "price": 1.39,
+            "seen_at": "2026-11-13T10:00:00+00:00",
+        }
+        self.assertEqual(price_archive.normalise_price(row, bounds)[3], "ahprijsindex")
+        changes: dict[str, str]
+        reason: str
+        for changes, reason in (
+            ({"seen_at": "2022-07-03T23:59:59+00:00"}, "seen_at"),
+            ({"seen_at": "2027-11-15T00:00:00+00:00"}, "date_range"),
+            ({"source": "search"}, "seen_at"),
+            ({"source": "archive_search"}, "seen_at"),
+            ({"source": "public_press_release"}, "seen_at"),
+            ({"source": "public_observed_unknown"}, "seen_at"),
+            ({"store": "jumbo", "seen_at": "2022-07-04T00:00:00+00:00"}, "source"),
+        ):
+            with self.subTest(changes=changes):
+                with self.assertRaises(price_archive.RowError) as error:
+                    price_archive.normalise_price({**row, **changes}, bounds)
+                self.assertEqual(error.exception.reason, reason)

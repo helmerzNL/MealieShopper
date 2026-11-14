@@ -536,6 +536,23 @@ async def add_organizers(
     return True
 
 
+async def change_tags(slug: str, add: list[dict[str, str]], remove: list[str]) -> list[dict[str, Any]]:
+    """Zet tags bij een recept en haal tags weg (op naam, hoofdletters maken niet uit). Haalt het recept eerst opnieuw op,
+    zodat een wijziging die intussen in Mealie gebeurde blijft staan. Geeft de tags zoals ze nu zijn."""
+    recipe = await _fetch_recipe(slug)
+    gone = {name.casefold() for name in remove}
+    current = [item for item in (recipe.get("tags") or []) if isinstance(item, dict) and str(item.get("name") or "").strip().casefold() not in gone]
+    names = {str(item.get("name") or "").strip().casefold() for item in current}
+    tags = current + [item for item in add if item["name"].casefold() not in names]
+    if len(tags) == len(recipe.get("tags") or []) and not add and not remove:
+        return tags
+    base, token = await _endpoint()
+    response = await _client().patch(f"{base}/api/recipes/{slug}", headers=_headers(token), json={"tags": tags}, timeout=30)
+    if response.status_code >= 400:
+        raise RuntimeError(f"Tags zetten mislukt ({response.status_code})")
+    return tags
+
+
 async def _catalog(kind: str) -> list[dict[str, Any]]:
     """Alle eenheden (`units`) of ingrediënten (`foods`) die Mealie kent."""
     items: list[dict[str, Any]] = []
@@ -1151,6 +1168,15 @@ def _minutes(value: Any) -> int | None:
     return (int(text) or None) if text.isdigit() else None
 
 
+def recipe_minutes(recipe: dict[str, Any]) -> int | None:
+    """De bereidingstijd in minuten: de totale tijd, of anders de voorbereiding plus de kook- of oventijd (issue #322)."""
+    total = _minutes(recipe.get("totalTime"))
+    if total:
+        return total
+    parts = [_minutes(recipe.get("prepTime")), _minutes(recipe.get("cookTime")) or _minutes(recipe.get("performTime"))]
+    return sum(part for part in parts if part) or None
+
+
 def _portions(recipe: dict[str, Any]) -> int | None:
     for key in ("recipeServings", "recipeYieldQuantity"):
         value = recipe.get(key)
@@ -1171,7 +1197,7 @@ def recipe_card(recipe: dict[str, Any]) -> dict[str, Any]:
         "recipeId": recipe.get("id"),
         "name": str(recipe.get("name") or slug),
         "image": _image_path(recipe),
-        "minutes": _minutes(recipe.get("totalTime")),
+        "minutes": recipe_minutes(recipe),
         "portions": _portions(recipe),
         "rating": rating if isinstance(rating, (int, float)) and rating > 0 else None,
         "tags": tags[:3],

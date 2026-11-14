@@ -318,12 +318,13 @@ function purchaseSortBy(key, dir = null) {
   purchaseView.sortBy(key, dir, viewSortStart(purchaseBarSpec(), key));
 }
 
-// Bij een ander venster past het zichtbare vak zijn hoogte aan (de tabel doet dat zelf in orders.js).
+// Bij een ander venster past het zichtbare vak zijn hoogte aan (de tabel doet dat zelf in orders.js, waar ook PURCHASE_MIN_HEIGHT
+// staat: de kaarten en het overzicht zijn minstens zo hoog).
 function purchaseViewFit() {
   for (const id of ["ah-purchase-cards", "ah-purchase-overview"]) {
     const pane = $(`#${id}`);
     if (!pane || pane.hidden) continue;
-    const height = pageFitHeight(pane);
+    const height = pageFitHeight(pane, { min: PURCHASE_MIN_HEIGHT });
     pane.style.maxHeight = height === null ? "" : `${height}px`;
   }
 }
