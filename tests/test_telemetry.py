@@ -271,6 +271,24 @@ async def test_the_gc_is_watched_only_when_asked(data_dir: Path, monkeypatch: py
     assert _watches() == before
 
 
+async def test_stopping_the_guard_joins_its_thread_off_the_loop(data_dir: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Eindreview: `_stop_watching` wachtte op de loop tot de thread van de bewaker stopte (`Thread.join`, hooguit
+    `loop_guard.JOIN_TIMEOUT`). Nu in een thread (`asyncio.to_thread`), zodat het afsluiten de loop niet vasthoudt."""
+    monkeypatch.setenv("MEALIESHOPPER_TELEMETRY", "true")
+    stopped_on: list[int] = []
+    stop: Any = loop_guard.LoopGuard.stop
+
+    def stop_and_note(guard: loop_guard.LoopGuard) -> None:
+        stopped_on.append(threading.get_ident())
+        stop(guard)
+
+    monkeypatch.setattr(loop_guard.LoopGuard, "stop", stop_and_note)
+    async with create_app().test_app():
+        pass
+    assert len(stopped_on) == 1
+    assert stopped_on[0] != threading.get_ident(), "de bewaker stopt buiten de thread van de loop"
+
+
 def test_the_stall_limit_is_a_hundred_milliseconds() -> None:
     assert telemetry.STALL_SECONDS == 0.1
 

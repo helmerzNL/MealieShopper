@@ -53,6 +53,7 @@ TO_THREAD_ALLOWED: dict[str, str] = {
     "compression.py": "een antwoord met tekst verpakken met gzip (de lijst met aanbiedingen is 3,7 MB)",
     "price_archive.py": "een prijsarchief uitpakken en controleren, invoegen en exporteren (zip, tar, gzip, tot een miljoen regels)",
     "uploads.py": "een stuk van een upload (tot 4 MB) naar schijf schrijven",
+    "telemetry.py": "bij het afsluiten wachten tot de thread van de bewaker stopt (Thread.join, hooguit loop_guard.JOIN_TIMEOUT)",
 }
 
 # Waar `sqlite3.connect(` mag: in thread_db, de verbinding voor de fasen van de back-up en het prijsarchief, die als geheel in

@@ -477,8 +477,9 @@ def register(app: Quart) -> Telemetry | None:
 
     @app.after_serving
     async def _stop_watching() -> None:
+        # `stop` wacht op de thread van de bewaker (`Thread.join`, hooguit `loop_guard.JOIN_TIMEOUT`): niet op de loop.
         for watcher in guard:
-            watcher.stop()
+            await asyncio.to_thread(watcher.stop)
         guard.clear()
         if collections is not None:
             collections.stop()
