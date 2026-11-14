@@ -134,7 +134,8 @@ class ThreadStack:
 class Stall:
     """Een keer dat de event loop `seconds` stilstond, met de stack van buiten naar binnen (de laatste regel liep).
 
-    `threads` zijn de andere threads, alleen als de loop zelf wachtte (`loop_waiting`): een daarvan hield hem tegen.
+    `threads` zijn de andere threads, als de loop wachtte of zijn binnenste regel buiten de app stond (`_threads_matter`): een
+    daarvan hield hem tegen. Rekende de loop zelf in de app, dan blijft het leeg.
     """
 
     seconds: float
@@ -180,6 +181,14 @@ def _waiting(paths: tuple[str, ...]) -> bool:
     if any(path.startswith(APP_DIR + os.sep) for path in paths):
         return os.path.basename(paths[-1]) in SELECTOR_FILES
     return True
+
+
+def _threads_matter(paths: tuple[str, ...]) -> bool:
+    """Of de andere threads een stilstand kunnen verklaren, op de bestanden van de stack van de loop (van buiten naar binnen): de
+    loop wachtte (`_waiting`), of zijn binnenste regel staat buiten de app, in een aanroep die de app deed en die de GIL kan
+    loslaten (`Path.resolve`, `Thread.start`): het konvooi van de module-docstring. Alleen met de binnenste regel in de app rekende
+    de loop zelf."""
+    return not paths or not paths[-1].startswith(APP_DIR + os.sep)
 
 
 def loop_waiting(stack: tuple[Frame, ...]) -> bool:
@@ -320,17 +329,17 @@ class LoopGuard:
         return tuple(_raw_threads((self._loop_thread, threading.get_ident())).values())
 
     def _look(self, tick: _Tick) -> None:
-        """De tik staat `threshold` open: leg de stack van de loop vast, en de andere threads als de loop zelf wachtte. Zonder
-        bestanden te lezen: de loop zit nog vast (de module-docstring)."""
+        """De tik staat `threshold` open: leg de stack van de loop vast, en de andere threads als die de stilstand kunnen verklaren
+        (`_threads_matter`). Zonder bestanden te lezen: de loop zit nog vast (de module-docstring)."""
         tick.stack = self._capture()
-        if _waiting(tuple(path for path, _, _ in tick.stack)):
+        if _threads_matter(tuple(path for path, _, _ in tick.stack)):
             tick.threads = self._others()
 
     def _witnesses(self, tick: _Tick) -> tuple[tuple[Frame, ...], tuple[ThreadStack, ...]]:
         """De stack van de loop en de andere threads voor de melding, opgemaakt. Zag de bewaker de loop niet (hij kwam zelf niet
         aan de beurt voor de loop antwoordde), dan is de stack leeg en leest hij de andere threads nu: eerder kon niet."""
         stack: tuple[Frame, ...] = _frames(tick.stack or ())
-        if not loop_waiting(stack):
+        if not _threads_matter(tuple(frame.path for frame in stack)):
             return stack, ()
         return stack, _by_name(tick.threads or self._others())
 

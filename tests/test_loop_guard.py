@@ -289,6 +289,36 @@ async def test_the_other_threads_are_read_when_the_loop_waits() -> (
     assert loop_guard.THREAD_NAME not in [thread.name for thread in stalls[0].threads]
 
 
+@pytest.mark.may_block("de test blokkeert de loop met opzet, met zichzelf als de app")
+async def test_a_loop_stuck_in_a_call_outside_the_app_lists_the_busy_threads(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Eindreview: het konvooi. De loop staat in een aanroep buiten de app die de app deed (hier `Event.wait`, in de app een
+    `Path.resolve` of `Thread.start`), terwijl een andere thread rekent: de melding noemt die thread. De bewaker las de andere
+    threads alleen als de loop wachtte, en de docstring beloofde ze ook hier."""
+    monkeypatch.setattr(loop_guard, "APP_DIR", os.path.dirname(os.path.abspath(__file__)))  # deze test is hier de app
+    stalls: list[loop_guard.Stall] = []
+    stop: threading.Event = threading.Event()
+
+    def spin() -> None:
+        while not stop.is_set():
+            sum(range(1000))  # rekent in Python: de GIL wisselt tussen de bytecodes
+
+    spinner: threading.Thread = threading.Thread(target=spin, name="spinner")
+    spinner.start()
+    guard: loop_guard.LoopGuard = loop_guard.LoopGuard(asyncio.get_running_loop(), 0.05, stalls.append)
+    guard.start()
+    try:
+        threading.Event().wait(0.2)  # de binnenste regel staat in threading.py, de app riep hem aan
+        await asyncio.sleep(0.05)
+    finally:
+        guard.stop()
+        stop.set()
+        spinner.join()
+    assert len(stalls) == 1
+    assert stalls[0].in_app and os.path.basename(stalls[0].stack[-1].path) == "threading.py"
+    assert "spinner" in [thread.name for thread in stalls[0].busy_threads]
+    assert "Andere threads: " in stalls[0].describe()
+
+
 def test_a_loop_busy_in_the_app_lists_no_other_threads() -> None:
     selector: loop_guard.Frame = loop_guard.Frame(
         "/usr/lib/python3.12/selectors.py", 566, "select"
