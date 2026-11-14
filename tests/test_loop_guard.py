@@ -227,8 +227,32 @@ async def test_a_thread_holding_the_gil_is_reported_with_its_frame() -> None:
     stall: loop_guard.Stall = max(stalls, key=lambda found: found.seconds)
     assert stall.seconds >= 0.15
     holders: list[loop_guard.ThreadStack] = [thread for thread in stall.busy_threads if thread.name == "holder"]
-    assert holders and holders[0].stack[-1].function == "hold_the_gil"
-    assert "Andere threads: holder test_loop_guard.py:" in stall.describe()
+    assert len(holders) == 1
+    assert holders[0].stack[-1].function == "hold_the_gil"
+    assert " holder test_loop_guard.py:" in stall.describe()  # niet als eerste: een xdist-worker heeft ook een gateway-thread
+
+
+async def test_a_thread_that_ends_before_the_report_keeps_its_name() -> None:
+    """De naam wordt samen met de regels vastgelegd: een thread die klaar is voor de melding komt niet als id (`0x...`) in het log."""
+    guard: loop_guard.LoopGuard = loop_guard.LoopGuard(asyncio.get_running_loop(), 0.1, lambda stall: None)
+    ready: threading.Event = threading.Event()
+    leave: threading.Event = threading.Event()
+
+    def busy() -> None:
+        ready.set()
+        while not leave.is_set():
+            pass
+
+    worker: threading.Thread = threading.Thread(target=busy, name="short-lived")
+    worker.start()
+    ready.wait(5)
+    captured: tuple[loop_guard.RawThread, ...] = guard._others()  # wat de bewaker tijdens de stilstand vastlegt
+    leave.set()
+    worker.join()  # de thread is weg uit threading.enumerate(), zoals bij een melding na het einde van de thread
+    threads: tuple[loop_guard.ThreadStack, ...] = loop_guard._by_name(captured)
+    named: list[loop_guard.ThreadStack] = [thread for thread in threads if thread.name == "short-lived"]
+    assert len(named) == 1
+    assert "busy" in [frame.function for frame in named[0].stack]  # de binnenste regel kan ook `Event.is_set` zijn
 
 
 async def test_the_other_threads_are_read_when_the_loop_waits() -> None:
