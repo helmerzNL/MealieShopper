@@ -28,7 +28,7 @@ V = TypeVar("V")
 
 WORKERS: int = 2
 # Zo lang wacht `shutdown` hooguit op threads die nog bezig zijn.
-SHUTDOWN_SECONDS: float = 5.0
+SHUTDOWN_SECONDS: float = 2.5  # na `tasks.SHUTDOWN_TIMEOUT`: samen met hypercorn onder de 10 s van docker stop (tasks.py)
 PHASE: str = "compute"
 
 _Job = tuple["Future[object]", Callable[[], object]]

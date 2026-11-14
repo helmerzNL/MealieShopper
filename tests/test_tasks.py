@@ -286,8 +286,13 @@ async def test_a_failed_shielded_task_with_its_caller_waiting_is_no_warning(capl
     assert not [record for record in caplog.records if record.levelno >= logging.WARNING]
 
 
-async def test_shutdown_waits_at_most_five_seconds_for_tasks_so_docker_does_not_kill_the_app(monkeypatch: pytest.MonkeyPatch) -> None:
-    """3 seconden van hypercorn voor lopende verzoeken plus deze 5 blijft onder de 10 seconden van `docker stop`."""
+async def test_shutdown_waits_at_most_three_seconds_for_tasks_so_docker_does_not_kill_the_app(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Hypercorn wacht 3 seconden op lopende verzoeken, de tasks 3 en de rekenthreads 2,5: samen onder de 9 seconden, binnen de 10
+    van `docker stop`. Review van taak 9c: het waren er 3 plus 5 plus 5."""
+    from hypercorn.config import Config
+
+    from mealieshopper import compute
+
     seen: list[float] = []
 
     async def record(timeout: float = 10.0) -> None:
@@ -295,7 +300,44 @@ async def test_shutdown_waits_at_most_five_seconds_for_tasks_so_docker_does_not_
 
     monkeypatch.setattr(tasks, "cancel_all", record)
     await tasks._cancel_all_hook()
-    assert seen == [5.0]
+    assert seen == [3.0]
+    assert Config().graceful_timeout + tasks.SHUTDOWN_TIMEOUT + compute.SHUTDOWN_SECONDS < 9
+
+
+async def test_cancel_all_leaves_work_of_another_loop_alone() -> None:
+    """Review van taak 9c: afgeschermd werk van een gesloten loop bleef in `_shielded`, en `cancel_all` wachtte erop vanuit een
+    andere loop. Nu alleen het werk van de lopende loop."""
+    other: asyncio.AbstractEventLoop = asyncio.new_event_loop()
+    try:
+        stranger: asyncio.Future[None] = other.create_future()
+        tasks.wait_at_shutdown(stranger)
+        await asyncio.wait_for(tasks.cancel_all(timeout=5), 1)
+    finally:
+        tasks._shielded.discard(stranger)
+        other.close()
+
+
+async def test_cancel_all_calls_its_hooks_first() -> None:
+    order: list[str] = []
+
+    async def work() -> None:
+        try:
+            await asyncio.Event().wait()
+        finally:
+            order.append("geannuleerd")
+
+    tasks.spawn("werk", work())
+    await asyncio.sleep(0)
+
+    def hook() -> None:
+        order.append("haak")
+
+    tasks.on_cancel_all(hook)
+    try:
+        await tasks.cancel_all(timeout=5)
+    finally:
+        tasks._before_cancel.remove(hook)
+    assert order == ["haak", "geannuleerd"]
 
 
 async def test_after_serving_reports_that_the_app_stopped(app: Quart, caplog: pytest.LogCaptureFixture) -> None:
