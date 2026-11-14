@@ -531,6 +531,16 @@ function offerHistoryPurchasesTable(product, { limit = 0 } = {}) {
     ${more}${receipt}`;
 }
 
+// Gevolgde producten (watched.js): een product dat je volgt, krijgt de markering Los artikel (geen aanbieding); een ander product
+// kun je hier volgen. Alleen bij een winkel waar MealieShopper kan zoeken (niet Lidl en Aldi).
+function offerHistoryWatchHtml(product) {
+  if (typeof watchedIs !== "function" || offersOnlyStore(product.store)) return "";
+  if (watchedIs(product.store, product.productId)) {
+    return `<p class="ohc-watch">${watchedBadge()} <a href="/offers/watched" data-nav>${escapeHtml(t("watched.open_watched"))}</a></p>`;
+  }
+  return `<p class="ohc-watch"><button class="link-button" type="button" data-history-watch="${escapeHtml(product.productId)}" data-store="${escapeHtml(product.store)}">${escapeHtml(t("watched.follow_price"))}</button></p>`;
+}
+
 function offerHistoryDetail(product) {
   const offerRows = (product.episodes || [])
     .slice()
@@ -557,6 +567,7 @@ function offerHistoryDetail(product) {
   }).join("");
   return `
     ${offerHistoryHead(product)}
+    ${offerHistoryWatchHtml(product)}
     ${offerHistoryStats(product)}
     ${offerHistoryChartBlock(product)}
     ${offerHistoryLegend(product)}
@@ -651,7 +662,7 @@ function renderOfferHistory() {
       const meta = [product.brand, product.unitSize].filter(Boolean).join(" · ");
       const href = priceHistoryPath(product.store, offerHistory.query, product.productId);
       return `<li><a class="ohc-item${key === offerHistory.selected ? " is-active" : ""}" data-key="${escapeHtml(key)}" href="${escapeHtml(href)}" data-nav${key === offerHistory.selected ? ' aria-current="true"' : ""}>
-        <strong>${escapeHtml(product.title)}</strong>
+        <strong>${escapeHtml(product.title)}${typeof watchedIs === "function" && watchedIs(product.store, product.productId) ? ` ${watchedBadge()}` : ""}</strong>
         ${meta ? `<small>${escapeHtml(meta)}</small>` : ""}
         <small>${escapeHtml(tn("offers.history.item.times", offerHistoryTimes(product)))}${escapeHtml(line)}${escapeHtml(lowest)}${escapeHtml(bought)}${escapeHtml(observed)}${product.onOfferNow ? ` · <span class="bonus">${escapeHtml(t("offers.history.now"))}</span>` : product.upcoming ? ` · <span class="bonus">${escapeHtml(offerHistoryUpcomingText(product.upcoming))}</span>` : ""}</small>
       </a></li>`;
@@ -778,6 +789,20 @@ $("#offers-history-list").addEventListener("click", (event) => {
   offerHistory.pinned = true;
   renderOfferHistory();
   if (typeof routerSync === "function") routerSync();
+});
+// Volg prijs: het product komt bij Gevolgde producten en krijgt hier de markering.
+$("#offers-history-detail").addEventListener("click", async (event) => {
+  const button = event.target.closest("[data-history-watch]");
+  if (!button) return;
+  const product = offerHistory.products.find((item) => item.store === button.dataset.store && String(item.productId) === button.dataset.historyWatch);
+  button.disabled = true;
+  try {
+    await watchedFollow(button.dataset.store, button.dataset.historyWatch, product ? { title: product.title, brand: product.brand, unitSize: product.unitSize, image: product.image, url: product.url } : null);
+    renderOfferHistory();
+  } catch (error) {
+    button.disabled = false;
+    message("#offers-history-message", error.message);
+  }
 });
 document.querySelector('.subtab[data-subtab="offers-history"]').addEventListener("click", () => {
   priceImportShowButton();

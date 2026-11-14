@@ -51,6 +51,7 @@ SOURCES = {
     "offers_facets.js": (STATIC / "offers_facets.js").read_text(encoding="utf-8"),
     "ai_review.js": (STATIC / "ai_review.js").read_text(encoding="utf-8"),
     "offers_history.js": (STATIC / "offers_history.js").read_text(encoding="utf-8"),
+    "watched.js": (STATIC / "watched.js").read_text(encoding="utf-8"),
     "profile.js": (STATIC / "profile.js").read_text(encoding="utf-8"),
     "theme.js": (STATIC / "theme.js").read_text(encoding="utf-8"),
     "appearance.js": (STATIC / "appearance.js").read_text(encoding="utf-8"),

@@ -19,7 +19,7 @@ from typing import Any, Awaitable, Callable
 
 import aiosqlite
 
-from . import ah_orders, auth, image_cache, loose_names, offers, price_archive_sync, prices, purchase_sync, recipe_nutrition, tasks
+from . import ah_orders, auth, image_cache, loose_names, offers, price_archive_sync, prices, purchase_sync, recipe_nutrition, tasks, watched_products
 
 log = logging.getLogger(__name__)
 
@@ -100,7 +100,8 @@ async def run_all(trigger: str, now: datetime | None = None, *, wait_for_images:
     """De dagelijkse run: alle aanbiedingen, je bestellingen en kassabonnen (purchase_sync.sync_nightly), daarna de extraatjes die
     in hetzelfde rustige tempo bij de winkels langsgaan: een deel van de artikelnummers op de kassabonnen koppelen
     (ah_orders.resolve_receipt_products), de foto's bij oude koppelingen en de afbeeldingencache aanvullen (image_cache.prefetch),
-    en de gewone prijs per aankoopregel bijwerken (prices.fill_regular_prices_nightly). Elk extraatje staat alleen in de uitkomst
+    en de gewone prijs per aankoopregel bijwerken (prices.fill_regular_prices_nightly) en de gevolgde producten
+    (watched_products.refresh_nightly). Elk extraatje staat alleen in de uitkomst
     als het iets te doen had."""
     result = await offers.sync_all()
     # Alleen de dagelijkse run (die wacht ook op de foto's): de knop geeft meteen antwoord, en de bestelpagina heeft een eigen
@@ -120,6 +121,8 @@ async def run_all(trigger: str, now: datetime | None = None, *, wait_for_images:
         ("receiptProducts", lambda: ah_orders.resolve_receipt_products_nightly(linking_now)),
         ("receiptImages", lambda: ah_orders.backfill_receipt_images_nightly(linking_now)),
         ("regularPrices", prices.fill_regular_prices_nightly),
+        # De gevolgde producten: van elk de prijs, de maat, de verpakking en de afbeelding van vandaag (watched_products.py).
+        ("watchedProducts", watched_products.refresh_nightly),
     )
     for key, task in extras:
         outcome = await task()
