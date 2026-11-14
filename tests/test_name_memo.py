@@ -244,6 +244,27 @@ def test_threads_that_miss_together_keep_the_memo_bounded() -> None:
     assert memo.cache_info().currsize == size
 
 
+def test_cache_clear_waits_for_an_eviction_that_is_running() -> None:
+    """Review van taak 9c (taak 10b): `cache_clear` zette `_order` en `_next` zonder het slot, en een rekenthread midden in `_evict`
+    kon dan een cursor van de oude tuple in de lege zetten. Nu wacht `cache_clear` op het slot, zoals `_evict` zelf."""
+    memo, _ = shouting(3)
+    for text in ("a", "b", "c", "d"):
+        memo(text)
+    cleared: threading.Event = threading.Event()
+
+    def clear() -> None:
+        memo.cache_clear()
+        cleared.set()
+
+    with memo._lock:  # zoals een rekenthread in `_evict`
+        worker: threading.Thread = threading.Thread(target=clear)
+        worker.start()
+        assert not cleared.wait(0.05)
+    worker.join(5)
+    assert cleared.is_set()
+    assert (memo.cache_info().currsize, memo._order, memo._next) == (0, (), 0)
+
+
 def test_an_order_that_ran_out_starts_again_from_the_old_generation() -> None:
     """Het vangnet van `_evict`: is `_order` op terwijl de oude generatie nog namen heeft, dan begint de volgorde opnieuw. Zonder
     dat haalde de memo niets meer weg en groeide hij bij elke misser."""
