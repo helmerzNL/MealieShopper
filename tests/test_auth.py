@@ -541,6 +541,9 @@ def test_the_data_dir_follows_the_environment_and_is_resolved_once(tmp_path: Pat
         resolved.append(self)
         return original(self, strict)
 
+    # Een leeg register: na DATA_DIRS_KEPT waarden begint het opnieuw, en met wat eerdere tests in dit proces erin zetten,
+    # zocht `first` aan het eind dan nog eens op (CI, PR #332, 2026-11-14).
+    monkeypatch.setattr(auth, "_DATA_DIRS", {})
     monkeypatch.setattr(Path, "resolve", counted)
     monkeypatch.setenv("MEALIESHOPPER_DATA_DIR", str(first))
     assert [auth.data_dir() for _ in range(3)] == [original(first)] * 3

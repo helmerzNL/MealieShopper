@@ -108,8 +108,11 @@ THREAD_ONLY: frozenset[str] = frozenset(
                 "_check_start",
                 "_read_skipped",
                 "_release",
+                "remove_old_staged_files",
             )
         ),
+        "price_archive.remove_old_staged_files",
+        "uploads.remove_old_parts",
         "json_pieces.loads",
         *(f"price_archive_sync.{name}" for name in ("_claim", "_renew", "_release", "_unchanged", "_document_rows", "_import_document")),
         "thread_db.connect",

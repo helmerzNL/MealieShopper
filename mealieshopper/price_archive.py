@@ -1424,7 +1424,7 @@ async def stage(body: AsyncIterable[bytes], content_length: int | None, keep_unl
         raise ArchiveError("too_large", 413, limit=limit)
     directory: Path = auth.data_dir()
     directory.mkdir(parents=True, exist_ok=True)
-    remove_old_staged_files()
+    await asyncio.to_thread(remove_old_staged_files)  # een glob en een stat per bestand: niet op de event loop
     token: str = secrets.token_hex(16)
     upload: Path = _upload_path(token)
     received: int = 0
@@ -1445,7 +1445,7 @@ async def stage(body: AsyncIterable[bytes], content_length: int | None, keep_unl
 
 async def stage_upload(token: str, size: Any, keep_unlinked: bool = False) -> dict[str, Any]:
     """Als `stage`, voor een archief dat in stukken binnenkwam (uploads.py): het krijgt hetzelfde token."""
-    remove_old_staged_files()
+    await asyncio.to_thread(remove_old_staged_files)  # een glob en een stat per bestand: niet op de event loop
     upload: Path = _upload_path(token)
     (await uploads.take(STAGE_PREFIX, token, size)).replace(upload)
     return await _check(token, upload, keep_unlinked)
@@ -1542,7 +1542,7 @@ async def fetch_site(keep_unlinked: bool = False) -> dict[str, Any]:
     De catalogus (index.json) zegt welke documenten er zijn, met hun lengte en SHA-256. Elk document wordt opgehaald en
     gecontroleerd, en komt als `data/<winkel>/offers|prices/<naam>.json` in een ZIP, met index.json erbij voor de bron. Die ZIP
     krijgt daarna precies de controle van een geüpload archief (`_check`). Klopt er iets niet, dan blijft er niets staan."""
-    remove_old_staged_files()
+    await asyncio.to_thread(remove_old_staged_files)  # een glob en een stat per bestand: niet op de event loop
     raw_catalog: bytes = await _site_get("index.json", MAX_CATALOG_BYTES)
     try:
         catalog: Any = json.loads(raw_catalog)

@@ -153,7 +153,7 @@ async def begin(prefix: str, size: Any, limit: int) -> dict[str, Any]:
     if size > limit:
         raise UploadError("too_large", 413, limit=_megabytes(limit))
     auth.data_dir().mkdir(parents=True, exist_ok=True)
-    remove_old_parts(prefix)
+    await asyncio.to_thread(remove_old_parts, prefix)  # een glob en een stat per bestand: niet op de event loop
     token: str = secrets.token_hex(16)
     path: Path = part_path(prefix, token)
     path.touch(mode=0o600, exist_ok=False)

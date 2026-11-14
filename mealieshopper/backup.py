@@ -1087,7 +1087,7 @@ async def stage(body: AsyncIterable[bytes], content_length: int | None) -> dict[
     if content_length is not None and content_length > MAX_STAGE_BYTES:
         raise BackupError("too_large", 413, limit=MAX_STAGE_BYTES // (1024 * 1024))
     auth.data_dir().mkdir(parents=True, exist_ok=True)
-    remove_old_staged_files()
+    await asyncio.to_thread(remove_old_staged_files)  # een glob en een stat per bestand: niet op de event loop
     token: str = secrets.token_hex(16)
     path: Path = _stage_path(token)
     received: int = 0
@@ -1126,7 +1126,7 @@ async def _write_in_pieces(handle: BinaryIO, chunk: bytes) -> None:
 
 async def stage_upload(token: str, size: Any) -> dict[str, Any]:
     """Als `stage`, voor een bestand dat in stukken binnenkwam (uploads.py): het krijgt hetzelfde token."""
-    remove_old_staged_files()
+    await asyncio.to_thread(remove_old_staged_files)  # een glob en een stat per bestand: niet op de event loop
     path: Path = _stage_path(token)
     (await uploads.take(STAGE_PREFIX, token, size)).replace(path)
     summary: dict[str, Any]
