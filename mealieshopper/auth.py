@@ -281,6 +281,11 @@ async def ensure_schema(conn: aiosqlite.Connection, name: str, setup: str | Call
     _SCHEMAS_READY.add(key)
 
 
+def schema_ready(name: str) -> bool:
+    """Of `ensure_schema` het schema van `name` in dit proces al op deze database zette: dan kan een lezer (`read`) meteen."""
+    return (str(db_path()), name) in _SCHEMAS_READY
+
+
 async def fetchone(conn: aiosqlite.Connection, sql: str, params: tuple[Any, ...] = ()) -> aiosqlite.Row | None:
     """De eerste rij van `sql` op `conn`, of None. Gedeeld door elke module met een eigen tabel."""
     async with conn.execute(sql, params) as cursor:
