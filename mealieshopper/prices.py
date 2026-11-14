@@ -1087,7 +1087,12 @@ _TABLE_STORE: dict[str, str] = {
     **{table: "NEW.store" for table in ("offer_history", "offers", "price_observations", "imported_purchases", "product_links", "shared_link_rejections")},
 }
 _CATALOGUE_OPS: tuple[str, ...] = ("INSERT", "UPDATE", "DELETE")
-_CATALOGUE_TRIGGERS_SQL = "SELECT name FROM sqlite_master WHERE type = 'trigger' AND name LIKE 'catalogue!_%' ESCAPE '!' AND sql LIKE '%catalogue_versions%'"
+# De triggers heten `catalogue_store_<tabel>_<bewerking>`. Niet `catalogue_<tabel>_<bewerking>`: zo heten die van 4.21 en eerder, en
+# die code maakt een trigger niet als er een met zijn naam is. Na een terugkeer naar 4.21 maakt hij zo zijn eigen ernaast.
+_TRIGGER_PREFIX: str = "catalogue_store_"
+_CATALOGUE_TRIGGERS_SQL = (
+    "SELECT name FROM sqlite_master WHERE type = 'trigger' AND name LIKE 'catalogue!_store!_%' ESCAPE '!' AND sql LIKE '%catalogue_versions%'"
+)
 _CATALOGUE_START_SQL = "INSERT INTO catalogue_versions (store, token, products, prices) VALUES (?, lower(hex(randomblob(8))), 0, 0) ON CONFLICT (store) DO NOTHING"
 _CATALOGUE_ROW_SQL = "SELECT token, products, prices FROM catalogue_versions WHERE store = ?"
 # Een prijs voor een product dat al een prijs met dezelfde naam, hetzelfde merk en dezelfde verpakking heeft, verandert de catalogus
@@ -1104,7 +1109,11 @@ _SAME_PRODUCT_SQL: dict[str, str] = {
     ),
 }
 # Migratie: tot taak 9 had de catalogus een versie voor alle winkels (`catalogue_changes`), met triggers die naar die tabel schrijven.
-_OLD_TRIGGERS_SQL = "SELECT name FROM sqlite_master WHERE type = 'trigger' AND sql LIKE '%catalogue_changes%'"
+# Een eerdere bouw van deze versie gaf de triggers van `catalogue_versions` de namen van 4.21: die gaan ook weg.
+_OLD_TRIGGERS_SQL = (
+    "SELECT name FROM sqlite_master WHERE type = 'trigger' AND (sql LIKE '%catalogue_changes%' "
+    "OR (sql LIKE '%catalogue_versions%' AND name LIKE 'catalogue!_%' ESCAPE '!' AND name NOT LIKE 'catalogue!_store!_%' ESCAPE '!'))"
+)
 
 
 class _Catalogue(NamedTuple):
@@ -1215,6 +1224,11 @@ def _trigger_stores(table: str, op: str) -> str:
     return f"{store}, {old}" if op == "UPDATE" and old != store else store
 
 
+def _trigger_name(table: str, op: str) -> str:
+    """De naam van de trigger op een tabel bij een bewerking (`_TRIGGER_PREFIX`)."""
+    return f"{_TRIGGER_PREFIX}{table}_{op.lower()}"
+
+
 def _trigger_sql(table: str, op: str) -> str:
     """De trigger die `catalogue_versions` van de winkel van de rij ophoogt (`_TABLE_STORE`). Op `price_observations` telt elke rij
     in `prices`, en een prijs van een bekend product (`_SAME_PRODUCT_SQL`) niet in `products`."""
@@ -1222,7 +1236,7 @@ def _trigger_sql(table: str, op: str) -> str:
     products: str = f"products + (NOT {same})" if same else "products + 1"
     prices: str = ", prices = prices + 1" if table == "price_observations" else ""
     return (
-        f"CREATE TRIGGER IF NOT EXISTS catalogue_{table}_{op.lower()} AFTER {op} ON {table} BEGIN "
+        f"CREATE TRIGGER IF NOT EXISTS {_trigger_name(table, op)} AFTER {op} ON {table} BEGIN "
         f"UPDATE catalogue_versions SET products = {products}{prices} WHERE store IN ({_trigger_stores(table, op)}); END"
     )
 
@@ -1230,7 +1244,8 @@ def _trigger_sql(table: str, op: str) -> str:
 async def _setup(conn: aiosqlite.Connection) -> None:
     """Het schema van de prijzen, met de migratie van `catalogue_changes`: een keer per database en proces (`auth.ensure_schema`),
     veilig op een database die al over is en op een lege. Eerst de oude triggers, want zonder hun tabel zou elke wijziging van de
-    tabellen eronder mislukken. De nieuwe triggers maakt `_catalogue_row`, ook voor een tabel die later komt."""
+    tabellen eronder mislukken (`_OLD_TRIGGERS_SQL`, ook na een terugkeer naar 4.21). De nieuwe triggers maakt `_catalogue_row`,
+    ook voor een tabel die later komt."""
     await conn.executescript(SCHEMA)
     for row in await conn.execute_fetchall(_OLD_TRIGGERS_SQL):
         await conn.execute(f'DROP TRIGGER IF EXISTS "{row["name"]}"')
@@ -1242,7 +1257,7 @@ async def _missing_triggers(conn: aiosqlite.Connection) -> list[tuple[str, str]]
     """(tabel, bewerking) van elke trigger die er nog niet is, voor de tabellen uit `CATALOGUE_TABLES` die bestaan."""
     present: set[str] = {row["name"] for row in await conn.execute_fetchall(_CATALOGUE_TRIGGERS_SQL)}
     tables: list[str] = sorted(CATALOGUE_TABLES & await _tables(conn))
-    return [(table, op) for table in tables for op in _CATALOGUE_OPS if f"catalogue_{table}_{op.lower()}" not in present]
+    return [(table, op) for table in tables for op in _CATALOGUE_OPS if _trigger_name(table, op) not in present]
 
 
 async def _catalogue_row(conn: aiosqlite.Connection, store: str) -> aiosqlite.Row:

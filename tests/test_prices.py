@@ -1686,14 +1686,14 @@ class CatalogueTest(PricesCase):
         self.assertEqual(await self.found("pindakaas"), ["1"])
         with closing(db(ah_orders)) as conn, conn:
             for op in ("insert", "update", "delete"):
-                conn.execute(f"DROP TRIGGER IF EXISTS catalogue_ah_receipt_items_{op}")
+                conn.execute(f"DROP TRIGGER IF EXISTS catalogue_store_ah_receipt_items_{op}")
         # Zonder triggers op de bonregels: de volgende aanvraag maakt ze aan en bouwt de catalogus opnieuw.
         self.ah_receipt("R1", "2026-06-10T10:00:00", (1, "AH PINDAKAAS", 2, 2.79, 5.58))
         product = next(p for p in (await self.history(query="pindakaas"))["products"] if p["productId"] == "1")
         self.assertEqual([purchase["source"] for purchase in product["purchases"]], ["receipt"])
         with closing(db(ah_orders)) as conn:
             names = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type = 'trigger' AND name LIKE 'catalogue%'")}
-        self.assertLessEqual({f"catalogue_ah_receipt_items_{op}" for op in ("insert", "update", "delete")}, names)
+        self.assertLessEqual({f"catalogue_store_ah_receipt_items_{op}" for op in ("insert", "update", "delete")}, names)
         self.assertEqual(prices.CATALOGUE_TABLES - {"crisp_order_items", "crisp_orders", "jumbo_order_items", "jumbo_orders", "picnic_order_items", "picnic_orders"},
                          {"offer_history", "offers", "price_observations", "imported_purchases", "ah_receipts", "ah_receipt_items", "ah_receipt_products",
                           "product_links", "shared_link_rejections", "ah_orders", "ah_order_items"})
@@ -1925,12 +1925,59 @@ class CatalogueTest(PricesCase):
         self.assertNotIn("catalogue_changes", tables)
         self.assertIn("catalogue_versions", tables)
         self.assertEqual(old, [])
-        self.assertLessEqual({f"catalogue_price_observations_{op}" for op in ("insert", "update", "delete")}, new)
+        self.assertLessEqual({f"catalogue_store_price_observations_{op}" for op in ("insert", "update", "delete")}, new)
         products: int
         counted: int
         products, counted = self.counters("ah")
         await self.observe("2026-07-01", "1", "AH Pindakaas", 2.79)
         self.assertEqual(self.counters("ah"), (products, counted + 1), "de nieuwe triggers tellen")
+
+    def old_triggers(self) -> dict[str, str]:
+        """De triggers die 4.21 zoekt (`catalogue_<tabel>_<bewerking>`), met hun SQL."""
+        with closing(db()) as conn:
+            rows: list[tuple[str, str]] = conn.execute("SELECT name, sql FROM sqlite_master WHERE type = 'trigger'").fetchall()
+        wanted: set[str] = {f"catalogue_{table}_{op}" for table in prices.CATALOGUE_TABLES for op in ("insert", "update", "delete")}
+        return {name: sql for name, sql in rows if name in wanted}
+
+    async def test_a_rollback_to_4_21_makes_its_own_triggers_and_both_count(self) -> None:
+        # Een database die een eerdere bouw van deze versie al omzette: triggers met de namen van 4.21 die `catalogue_versions` ophogen.
+        await self.observe("2026-05-01", "1", "AH Pindakaas", 2.99)
+        self.assertEqual(await self.found("pindakaas"), ["1"])
+        with closing(db(prices)) as conn, conn:
+            for op in ("INSERT", "UPDATE", "DELETE"):
+                conn.execute(
+                    f"CREATE TRIGGER IF NOT EXISTS catalogue_price_observations_{op.lower()} AFTER {op} ON price_observations "
+                    "BEGIN UPDATE catalogue_versions SET products = products + 1 WHERE store IN ('ah'); END"
+                )
+        auth.forget_runtime_state()
+        self.assertEqual(await self.found("pindakaas"), ["1"])
+        self.assertEqual(self.old_triggers(), {}, "4.21 vindt geen trigger met zijn naam, dus maakt hij zijn eigen")
+        # Terug naar 4.21 (`_catalogue_version` van 1d1633b): zijn tabel, en zijn triggers naast de nieuwe.
+        with closing(db(prices)) as conn, conn:
+            conn.execute("CREATE TABLE IF NOT EXISTS catalogue_changes (id INTEGER PRIMARY KEY CHECK (id = 1), token TEXT NOT NULL, version INTEGER NOT NULL)")
+            conn.execute("INSERT INTO catalogue_changes VALUES (1, 'oud', 0)")
+            for op in ("INSERT", "UPDATE", "DELETE"):
+                conn.execute(
+                    f"CREATE TRIGGER IF NOT EXISTS catalogue_price_observations_{op.lower()} AFTER {op} ON price_observations "
+                    "BEGIN UPDATE catalogue_changes SET version = version + 1 WHERE id = 1; END"
+                )
+        products: int
+        counted: int
+        products, counted = self.counters("ah")
+        with closing(db(prices)) as conn, conn:
+            conn.execute(
+                "INSERT INTO price_observations (store, product_id, day, source, title, price, seen_at) "
+                "VALUES ('ah', 'x', '2026-06-01', 'search', 'Nieuw product', 1.0, 'nu')"
+            )
+            version: int = conn.execute("SELECT version FROM catalogue_changes").fetchone()[0]
+        self.assertEqual(version, 1, "de oude code krijgt een nieuwe versie bij een nieuw product")
+        self.assertEqual(self.counters("ah"), (products + 1, counted + 1), "de nieuwe triggers tellen ernaast door")
+        # Weer vooruit: de triggers van 4.21 en zijn tabel gaan weg, de nieuwe tellen.
+        auth.forget_runtime_state()
+        self.assertEqual(await self.found("product"), ["x"])
+        self.assertEqual(self.old_triggers(), {})
+        await self.observe("2026-07-01", "1", "AH Pindakaas", 2.79)
+        self.assertEqual(self.counters("ah"), (products + 1, counted + 2))
 
 
 class RegularPointsTest(PricesCase):
