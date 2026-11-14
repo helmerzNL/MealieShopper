@@ -32,7 +32,16 @@ import pytest
 import volume
 from quart import Quart, Response
 
-from mealieshopper import ah_price_index, gc_watch, loop_guard, offers, prices
+from mealieshopper import (
+    ah_price_index,
+    gc_watch,
+    line_offers,
+    loop_guard,
+    name_keys,
+    offer_categories,
+    offers,
+    prices,
+)
 from mealieshopper import app as app_module
 from mealieshopper.app import create_app
 
@@ -667,24 +676,44 @@ async def test_offers_stay_warm_during_a_price_index_round(
     assert built.call_count == 0, "de prijzen en de prijsgeschiedenis werken de catalogus bij, zonder hem opnieuw op te bouwen"
 
 
-# Met alle catalogi geladen. Gemeten na taak 9c, met de app en de tests erbij: 118.500 gevolgde objecten en 11 ms per volle ronde
-# (3.12), 153.500 en 25 ms (3.15). Ervoor: 644.000 en 150 ms, zes tot acht keer per koude bouw van AH (gc_watch.py).
-TRACKED_LIMIT: int = 250_000
-FULL_COLLECTION_SECONDS: float = 0.05
+# Wat alle catalogi en de memo's van hun namen aan een volle ronde van de GC toevoegen: het verschil voor en na het laden, want in
+# de hele suite leeft de rest van de tests mee (een volle ronde loopt dan ook langs hun 340.000 objecten). Gemeten na taak 9c:
+# 1.300 gevolgde objecten en 2,4 ms erbij (3.12), 17.000 en 8 ms (3.15, die ook de dicts van de bonregels volgt). Ervoor voegden
+# de catalogi 525.000 objecten en 125 ms per ronde toe, zes tot acht keer per koude bouw van AH (gc_watch.py).
+ADDED_TRACKED_LIMIT: int = 60_000
+ADDED_COLLECTION_SECONDS: float = 0.05
+NAME_MEMOS: tuple[Any, ...] = (
+    name_keys.fold,
+    name_keys.near,
+    offer_categories.categorize,
+    offer_categories.offer_category,
+    line_offers._parts,
+    line_offers._stem,
+    line_offers._significant,
+    prices._size_of,
+)
+
+
+def _full_collection() -> tuple[float, int]:
+    """De beste van drie volle rondes van de GC (een hik van de machine telt niet), en hoeveel objecten de GC daarna volgt."""
+    seconds: list[float] = []
+    for _ in range(3):
+        started: float = time.perf_counter()
+        gc.collect()
+        seconds.append(time.perf_counter() - started)
+    return min(seconds), len(gc.get_objects())
 
 
 @pytest.mark.volume
 async def test_the_catalogues_keep_a_full_collection_short(volume_client: TestClientProtocol) -> None:
+    for memo in NAME_MEMOS:
+        memo.cache_clear()
+    before_seconds, before_tracked = _full_collection()
     await prices.warm_catalogues(today=volume.TODAY)
     for store in ("ah", "jumbo"):
         await _get(volume_client, f"/api/offers?store={store}&week=2026-11-09")
         await _get(volume_client, f"/api/prices/history?store={store}")
     assert len(prices._CATALOGUES) == len(offers.STORES)
-    seconds: list[float] = []
-    for _ in range(3):  # de beste van drie: een hik van de machine telt niet
-        started: float = time.perf_counter()
-        gc.collect()
-        seconds.append(time.perf_counter() - started)
-    tracked: int = len(gc.get_objects())
-    assert tracked < TRACKED_LIMIT, tracked
-    assert min(seconds) < FULL_COLLECTION_SECONDS, seconds
+    after_seconds, after_tracked = _full_collection()
+    assert after_tracked - before_tracked < ADDED_TRACKED_LIMIT, (before_tracked, after_tracked)
+    assert after_seconds - before_seconds < ADDED_COLLECTION_SECONDS, (before_seconds, after_seconds)
