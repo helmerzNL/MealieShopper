@@ -339,7 +339,7 @@ $("#watched-detail").addEventListener("click", async (event) => {
   const button = event.target.closest("[data-watch-remove]");
   if (!button) return;
   const product = watched.products.find((item) => item.productId === button.dataset.watchRemove && item.store === button.dataset.store);
-  if (!window.confirm(t("watched.unfollow_confirm", { title: product ? product.title : "" }))) return;
+  if (!(await confirmDialog(t("watched.unfollow_confirm", { title: product ? product.title : "" }), { confirm: t("watched.unfollow"), danger: true }))) return;
   button.disabled = true;
   try {
     await watchedUnfollow(button.dataset.store, button.dataset.watchRemove);
