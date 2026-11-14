@@ -753,3 +753,30 @@ async def test_an_unfollowed_redirect_is_recorded_by_a_task_that_is_held(audit_d
 
 if __name__ == "__main__":
     unittest.main()
+
+
+async def test_outbound_calls_share_one_writer_connection(audit_dir: Path) -> None:
+    """Taak 9c: elk uitgaand verzoek opende voor zijn auditregel een eigen aiosqlite-verbinding, dus een nieuwe thread, en op
+    de event loop wacht `Thread.start` tot die draait (onder belasting een stilstand van 131 ms). Nu schrijft een schrijver per
+    loop alle regels over een verbinding: twintig verzoeken, tegelijk en na elkaar, starten hooguit een thread."""
+    url: str = "https://api.ah.nl/mobile-services/product/search/v2?query=melk"
+    started: list[threading.Thread] = []
+    original_start: Callable[[threading.Thread], None] = threading.Thread.start
+
+    def counted(thread: threading.Thread) -> None:
+        if "_connection_worker_thread" in thread.name:
+            started.append(thread)
+        original_start(thread)
+
+    await audit.record(kind="outbound", service="ah", action="opwarmen")  # het schema, een keer per database
+    try:
+        with respx.mock() as router, mock.patch.object(threading.Thread, "start", counted):
+            router.get(url).mock(return_value=httpx.Response(200, json={}))
+            client: httpx.AsyncClient = http_client.client("test")
+            await asyncio.gather(*(client.get(url) for _ in range(10)))
+            for _ in range(10):
+                await client.get(url)
+    finally:
+        await http_client.aclose_all()
+    assert len(started) <= 1, [thread.name for thread in started]
+    assert len((await audit.list_entries())["entries"]) == 21
