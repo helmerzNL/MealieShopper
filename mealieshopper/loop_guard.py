@@ -29,6 +29,11 @@ aanroepen die de GIL loslaten en vaak terugkomen, niet alleen naar lang rekenwer
 wisselinterval op 1 ms (`app.SWITCH_INTERVAL_SECONDS`, met de metingen): dat maakt elke overdracht korter, maar haalt het
 konvooi niet weg, want tien aanroepen kosten dan nog tot 10 ms.
 
+Wat de bewaker leest terwijl de loop vastzit, legt hij vast zonder bestanden te lezen: per regel het bestand, het
+regelnummer en de functie (`_raw_frames`). `traceback.extract_stack` deed per bestand een stat (`linecache.checkcache`) en las
+de regels, en met een drukke rekenthread kostte dat lezen 25 tot 45 ms binnen de stilstand die hij meet (taak 10b). Opgemaakt
+(`Frame`, `ThreadStack`, de tekst van een regel voor `ThreadStack.idle`) wordt pas bij de melding, na het antwoord van de loop.
+
 `on_stall` loopt in de bewakerthread, niet op de loop. Een fout daarin wordt gelogd en stopt de bewaker niet.
 """
 
@@ -41,10 +46,10 @@ import os
 import sys
 import threading
 import time
-import traceback
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from types import FrameType
+from typing import TypeAlias
 
 APP_DIR: str = os.path.dirname(os.path.abspath(__file__))
 EXEMPT_FUNCTIONS: frozenset[str] = frozenset(
@@ -73,6 +78,10 @@ WAITING_FRAMES: dict[tuple[str, str], str] = {
 THREAD_FRAMES: int = 4  # zoveel regels per andere thread noemt `describe`
 
 logger: logging.Logger = logging.getLogger("mealieshopper.loop_guard")
+# Een regel van de stack zoals de bewaker hem tijdens een stilstand vastlegt: het bestand, het regelnummer en de functie.
+RawFrame: TypeAlias = tuple[str, int, str]
+# Een andere thread zoals de bewaker hem tijdens een stilstand vastlegt: de naam en de regels van buiten naar binnen.
+RawThread: TypeAlias = tuple[str, tuple[RawFrame, ...]]
 
 
 @dataclass(frozen=True)
@@ -165,18 +174,31 @@ class Stall:
         return f". Andere threads: {shown}" + (f" ({idle} wachtend)" if idle else "")
 
 
-def loop_waiting(stack: tuple[Frame, ...]) -> bool:
-    """Of de loop zelf niets deed: de binnenste regel staat in de selector, of er staat geen regel van de app op de stack."""
-    if any(frame.in_app for frame in stack):
-        return os.path.basename(stack[-1].path) in SELECTOR_FILES
+def _waiting(paths: tuple[str, ...]) -> bool:
+    """`loop_waiting` op de bestanden van de stack, van buiten naar binnen."""
+    if any(path.startswith(APP_DIR + os.sep) for path in paths):
+        return os.path.basename(paths[-1]) in SELECTOR_FILES
     return True
 
 
-def _frames(frame: FrameType) -> tuple[Frame, ...]:
-    return tuple(
-        Frame(entry.filename, entry.lineno or 0, entry.name)
-        for entry in traceback.extract_stack(frame)
-    )
+def loop_waiting(stack: tuple[Frame, ...]) -> bool:
+    """Of de loop zelf niets deed: de binnenste regel staat in de selector, of er staat geen regel van de app op de stack."""
+    return _waiting(tuple(frame.path for frame in stack))
+
+
+def _raw_frames(frame: FrameType | None) -> tuple[RawFrame, ...]:
+    """De stack vanaf `frame`, van buiten naar binnen, zoals `traceback.extract_stack` hem geeft maar zonder de tekst van de regels:
+    alleen attributen van de frames, geen linecache. Dit loopt terwijl de loop vastzit (de module-docstring)."""
+    found: list[RawFrame] = []
+    while frame is not None:
+        found.append((frame.f_code.co_filename, frame.f_lineno or 0, frame.f_code.co_name))
+        frame = frame.f_back
+    found.reverse()
+    return tuple(found)
+
+
+def _frames(raw: tuple[RawFrame, ...]) -> tuple[Frame, ...]:
+    return tuple(Frame(path, line, function) for path, line, function in raw)
 
 
 def _thread_names() -> dict[int, str]:
@@ -187,34 +209,39 @@ def _thread_names() -> dict[int, str]:
     }
 
 
-def current_threads(skip: Iterable[int | None]) -> dict[int, ThreadStack]:
-    """De stack van elke levende thread nu, behalve `skip`, per id van de thread."""
+def _raw_threads(skip: Iterable[int | None]) -> dict[int, RawThread]:
+    """De naam en de stack (`_raw_frames`) van elke levende thread nu, behalve `skip`, per id van de thread."""
     names: dict[int, str] = _thread_names()
     skipped: set[int | None] = set(skip)
     return {
-        ident: ThreadStack(names.get(ident, hex(ident)), _frames(frame))
+        ident: (names.get(ident, hex(ident)), _raw_frames(frame))
         for ident, frame in sys._current_frames().items()
         if ident not in skipped
     }
 
 
-def _by_name(threads: Iterable[ThreadStack]) -> tuple[ThreadStack, ...]:
+def current_threads(skip: Iterable[int | None]) -> dict[int, ThreadStack]:
+    """De stack van elke levende thread nu, behalve `skip`, per id van de thread."""
+    return {ident: ThreadStack(name, _frames(raw)) for ident, (name, raw) in _raw_threads(skip).items()}
+
+
+def _by_name(threads: Iterable[RawThread]) -> tuple[ThreadStack, ...]:
     """De threads op naam, zonder bewakers: die van een andere loop houdt de GIL niet vast."""
     return tuple(
-        sorted(
-            (thread for thread in threads if thread.name != THREAD_NAME),
-            key=lambda thread: thread.name,
-        )
+        ThreadStack(name, _frames(raw))
+        for name, raw in sorted(threads, key=lambda thread: thread[0])
+        if name != THREAD_NAME
     )
 
 
 @dataclass
 class _Tick:
-    """Een tik die nog niet is afgehandeld: wanneer hij verstuurd is, en wat de bewaker zelf zag terwijl hij openstond."""
+    """Een tik die nog niet is afgehandeld: wanneer hij verstuurd is, en wat de bewaker zelf zag terwijl hij openstond (nog niet
+    opgemaakt: `_raw_frames`)."""
 
     sent: float
-    stack: tuple[Frame, ...] | None = None
-    threads: tuple[ThreadStack, ...] = ()
+    stack: tuple[RawFrame, ...] | None = None
+    threads: tuple[RawThread, ...] = ()
 
 
 class LoopGuard:
@@ -280,35 +307,31 @@ class LoopGuard:
             return False
         return True
 
-    def _capture(self) -> tuple[Frame, ...]:
+    def _capture(self) -> tuple[RawFrame, ...]:
         thread_id: int | None = self._loop_thread
         frame: FrameType | None = (
             sys._current_frames().get(thread_id) if thread_id else None
         )
-        if frame is None:
-            return ()
-        return _frames(frame)
+        return _raw_frames(frame)
 
-    def _others(self) -> tuple[ThreadStack, ...]:
-        """De andere threads nu, op naam, zonder de loop en de bewaker."""
-        found: dict[int, ThreadStack] = current_threads(
-            (self._loop_thread, threading.get_ident())
-        )
-        return _by_name(found.values())
+    def _others(self) -> tuple[RawThread, ...]:
+        """De andere threads nu, zonder de loop en de bewaker, nog niet opgemaakt."""
+        return tuple(_raw_threads((self._loop_thread, threading.get_ident())).values())
 
     def _look(self, tick: _Tick) -> None:
-        """De tik staat `threshold` open: lees de stack van de loop, en de andere threads als de loop zelf wachtte."""
+        """De tik staat `threshold` open: leg de stack van de loop vast, en de andere threads als de loop zelf wachtte. Zonder
+        bestanden te lezen: de loop zit nog vast (de module-docstring)."""
         tick.stack = self._capture()
-        if loop_waiting(tick.stack):
+        if _waiting(tuple(path for path, _, _ in tick.stack)):
             tick.threads = self._others()
 
     def _witnesses(self, tick: _Tick) -> tuple[tuple[Frame, ...], tuple[ThreadStack, ...]]:
-        """De stack van de loop en de andere threads voor de melding. Zag de bewaker de loop niet (hij kwam zelf niet aan de
-        beurt voor de loop antwoordde), dan is de stack leeg en leest hij de andere threads nu: eerder kon niet."""
-        stack: tuple[Frame, ...] = tick.stack if tick.stack is not None else ()
+        """De stack van de loop en de andere threads voor de melding, opgemaakt. Zag de bewaker de loop niet (hij kwam zelf niet
+        aan de beurt voor de loop antwoordde), dan is de stack leeg en leest hij de andere threads nu: eerder kon niet."""
+        stack: tuple[Frame, ...] = _frames(tick.stack or ())
         if not loop_waiting(stack):
             return stack, ()
-        return stack, tick.threads or self._others()
+        return stack, _by_name(tick.threads or self._others())
 
     def _report(
         self, seconds: float, stack: tuple[Frame, ...], threads: tuple[ThreadStack, ...]
