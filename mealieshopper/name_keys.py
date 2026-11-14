@@ -16,14 +16,17 @@ from typing import Any, Generic, NamedTuple, TypeVar
 from . import ah_lists
 
 MEMO_SIZE: int = 524_288  # hoeveel namen `TextMemo` hooguit vasthoudt als een functie niets opgeeft
+ORDER_SLACK: int = 4  # `TextMemo._evict` kort `_order` in zodra de cursor voorbij 1/ORDER_SLACK van de tuple is
 # De grootte per functie, de namen die de memo hooguit vasthoudt: 1,3 tot 1,5 keer het aantal namen dat een opbouw van de
 # catalogus van elke winkel op de volumedatabase (`tests/volume.py`, de schaal van productie) erin zet, zodat een volgende opbouw
 # alles terugvindt. Een opbouw zet erin: fold 341.326, near 68.249, categorize 65.870, offer_category 70.692, _parts 59.979,
 # _size_of 96.208. `tests/test_name_memo.py` eist dat een tweede opbouw geen enkele naam opnieuw uitrekent.
 # Het geheugen: een gewone dict kost per naam de sleutel, het antwoord en een plek in de tabel, zonder de schakel van lru_cache.
-# Het slechtste geval: de volumedatabase met alle catalogi gebouwd, en dan elke memo tot `size` gevuld met namen die niet in de
-# catalogus staan. Een testproces piekt dan op 371 MiB (3.12) of 398 MiB (3.15), gemeten in taak 9c. Met twee generaties van
-# elk `size` namen, die naast elkaar bleven staan, was dat 589 en 619 MiB.
+# Het slechtste geval: de volumedatabase met alle catalogi gebouwd, en dan elke memo vol met namen die niet in de catalogus staan
+# en daarna nog bijna `size` missers erbij, vlak voor de volgende wissel (waar `_order` het meest vasthoudt). Een testproces
+# piekt dan op 428 MiB (3.12) of 455 MiB (3.15), de app onder hypercorn op 519 en 544 MiB (gemeten in taak 9c, ronde 4). Zonder
+# het inkorten van `_order` was het testproces 475 MiB (3.12). De 371 en 398 MiB van eerder waren te laag: die memo liet bij
+# de eerste misser na een wissel bijna alles vallen. Met twee generaties van elk `size` namen naast elkaar was het 589 en 619.
 FOLD_SIZE: int = 450_560
 CATEGORY_SIZE: int = 98_304
 OFFER_CATEGORY_SIZE: int = 98_304
@@ -65,10 +68,16 @@ class TextMemo(Generic[_Result]):
 
     Zijn er na een misser samen meer dan `size` namen, dan gaat er een naam uit de oude generatie: de oudste die sinds de
     wissel niet terugkwam (`evicted` telt ze). Is de oude leeg, dan wordt eerst de nieuwe de oude. Zo houdt de memo `size` namen
-    vast en gaat bij een volle memo telkens een naam weg die het langst niet terugkwam, ongeveer zoals bij lru_cache, zonder
-    een schakel per naam. De volgorde van de oude generatie staat in een tuple van haar sleutels (`_order`): een tuple van tekst
-    volgt de GC niet, en zo kost het weghalen van de oudste geen zoektocht door de dict. Niet `dict.popitem`: dat haalt de
-    jongste weg, en na een wissel zijn dat net de namen van de opbouw die nog bezig is.
+    met hun antwoord vast en gaat bij een volle memo telkens een naam weg die het langst niet terugkwam, ongeveer zoals bij
+    lru_cache, zonder een schakel per naam. De volgorde van de oude generatie staat in een tuple van haar sleutels (`_order`): een
+    tuple van tekst volgt de GC niet, en zo kost het weghalen van de oudste geen zoektocht door de dict. Niet `dict.popitem`: dat
+    haalt de jongste weg, en na een wissel zijn dat net de namen van de opbouw die nog bezig is.
+
+    De tuple houdt de sleutels voor de cursor (`_next`) nog vast, ook als ze uit de memo zijn. Zodra de cursor voorbij een kwart
+    van de tuple is, gaat dat stuk weg (`ORDER_SLACK`): zo houdt hij hooguit een kwart van `size` aan weggehaalde sleutels vast, en
+    kost het inkorten per weggehaalde naam gemiddeld een paar verwijzingen. Een volle memo die blijft missen, kost zo hooguit
+    1,2 keer wat hij precies vol kost (de tuple en de tabel van de oude dict, die bij weghalen niet krimpt): `tests/test_name_memo.py`
+    meet het. Zonder het inkorten was dat 1,6 keer.
 
     De groottes bovenaan zijn ruim genoeg voor de namen van een opbouw van alle catalogi: `tests/test_name_memo.py` eist dat een
     tweede opbouw niets mist, ook als de memo's al vol zaten met andere namen."""
@@ -140,6 +149,8 @@ class TextMemo(Generic[_Result]):
             self._next += 1
             if self._old.pop(key, _MISSING) is not _MISSING:  # anders kwam hij terug en staat hij in de nieuwe
                 self._evicted += 1
+                if self._next * ORDER_SLACK > len(self._order):  # laat de sleutels voor de cursor los
+                    self._order, self._next = self._order[self._next :], 0
                 return
 
     def cache_info(self) -> MemoInfo:

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import gc
 import random
+import tracemalloc
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -197,6 +198,44 @@ def test_a_full_memo_stays_full_instead_of_starting_over() -> None:
         if number >= 1000:
             assert memo.cache_info().currsize == 1000, number
     assert memo.cache_info().evicted == 4000
+
+
+def test_the_order_lets_go_of_evicted_names() -> None:
+    """Review van taak 9c: `_order` hield elke weggehaalde sleutel vast tot de volgende wissel. Nu staan er voor de cursor hooguit
+    een kwart van de sleutels, en de rest is precies wat de oude generatie nog heeft (alleen missers, dus niets verhuisd)."""
+    memo, _ = shouting(1000)
+    for number in range(2000):
+        memo(f"naam {number}")
+        assert memo._next * name_keys.ORDER_SLACK <= len(memo._order), number
+        if number >= 1000:
+            assert len(memo._order) - memo._next == len(memo._old), number
+
+
+def test_a_full_memo_that_keeps_missing_stays_near_its_full_size() -> None:
+    """Review van taak 9c: een volle memo die blijft missen, kostte tot 1,6 keer zijn volle geheugen (de sleutels in `_order`).
+    tracemalloc over twee keer `size` aan missers, gemeten na elk 64e deel: hooguit 1,25 keer wat hij precies vol kost."""
+    size: int = 20_000
+    memo: name_keys.TextMemo[str] = name_keys.TextMemo(str.upper, size=size)  # niet `shouting`: die lijst houdt elke naam vast
+    number: int = 0
+
+    def miss(count: int) -> None:
+        nonlocal number
+        for _ in range(count):
+            memo(f"AH Verse kipfilet naturel {number:08d} 300 g")
+            number += 1
+
+    tracemalloc.start()
+    try:
+        start: int = tracemalloc.get_traced_memory()[0]
+        miss(size)
+        full: int = tracemalloc.get_traced_memory()[0] - start
+        worst: int = full
+        for _ in range(64):
+            miss(size // 64)
+            worst = max(worst, tracemalloc.get_traced_memory()[0] - start)
+    finally:
+        tracemalloc.stop()
+    assert worst <= 1.25 * full, (full, worst, worst / full)
 
 
 def test_a_build_after_unrelated_names_keeps_its_own_names() -> None:
