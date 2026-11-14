@@ -26,7 +26,6 @@ import asyncio
 import linecache
 import logging
 import os
-import re
 import sys
 import threading
 import time
@@ -43,10 +42,22 @@ THREAD_NAME: str = "loop-guard"
 JOIN_TIMEOUT: float = 2.0
 # Een loop met zijn binnenste regel in een van deze bestanden wacht op de selector (of op de GIL om daaruit terug te komen).
 SELECTOR_FILES: frozenset[str] = frozenset({"selectors.py", "selector_events.py"})
-# Een thread waarvan de binnenste regel zo'n aanroep doet, wacht op werk, een slot of de selector (`queue.get`,
-# `Condition.wait`, `Lock.acquire`, `kqueue.control`) en hield de GIL dus niet vast. Het gaat om de tekst van de regel, zodat
-# ook een wachtrij in C telt (aiosqlite en compute.py wachten in `SimpleQueue.get`, zonder eigen regel op de stack).
-WAITING_CALL: re.Pattern[str] = re.compile(r"\.(?:get|wait|acquire|control|select|join|sleep)\(")
+# Een thread waarvan de binnenste regel in zo'n functie staat, wacht op werk, een slot of de selector en hield de GIL dus niet
+# vast: (het einde van het pad, de functie) -> de aanroep die op die regel moet staan, of "" voor elke regel van de functie. Een
+# wachtrij in C (`SimpleQueue.get`: aiosqlite, compute.py en de threadpool van asyncio) heeft geen eigen regel op de stack, dus
+# daar telt alleen de regel met de wachtrij: dezelfde functie roept ook het werk aan, en een aanroep in C (een grote `sorted`)
+# staat dan op die andere regel. Al het andere telt als bezig, ook een `d.get(k)` of een `time.sleep` in eigen code: liever een
+# thread te veel genoemd dan de thread met de GIL verstopt.
+WAITING_FRAMES: dict[tuple[str, str], str] = {
+    ("threading.py", "wait"): "",  # Condition.wait, en zo ook Event.wait, Semaphore.acquire en queue.Queue.get
+    ("threading.py", "_wait_for_tstate_lock"): "",  # Thread.join tot en met 3.12
+    ("threading.py", "join"): "",  # Thread.join vanaf 3.13, in C
+    ("queue.py", "get"): "",
+    ("selectors.py", "select"): "",  # kqueue.control, epoll.poll: de event loop van een andere thread
+    ("concurrent/futures/thread.py", "_worker"): "work_queue.get(",
+    ("aiosqlite/core.py", "_connection_worker_thread"): "tx.get()",
+    ("mealieshopper/compute.py", "_work"): "self._jobs.get()",
+}
 THREAD_FRAMES: int = 4  # zoveel regels per andere thread noemt `describe`
 
 logger: logging.Logger = logging.getLogger("mealieshopper.loop_guard")
@@ -81,7 +92,11 @@ class ThreadStack:
         if not self.stack:
             return True
         inner: Frame = self.stack[-1]
-        return WAITING_CALL.search(linecache.getline(inner.path, inner.line)) is not None
+        path: str = inner.path.replace(os.sep, "/")
+        for (suffix, function), call in WAITING_FRAMES.items():
+            if inner.function == function and (path == suffix or path.endswith("/" + suffix)):
+                return call in linecache.getline(inner.path, inner.line)
+        return False
 
     def short(self, limit: int = THREAD_FRAMES) -> str:
         """De naam en de binnenste `limit` regels, van binnen naar buiten. Ook regels buiten de app: die liep echt."""

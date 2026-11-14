@@ -278,7 +278,7 @@ def test_a_loop_busy_in_the_app_lists_no_other_threads() -> None:
 
 
 def line_of(path: str, text: str) -> int:
-    """Het nummer van de eerste regel van `path` met `text`: wachten herkent de bewaker aan de tekst van de regel."""
+    """Het nummer van de eerste regel van `path` met `text`: bij een wachtrij in C kijkt de bewaker ook naar de regel."""
     with open(path, encoding="utf-8") as source:
         return next(number for number, line in enumerate(source, 1) if text in line)
 
@@ -311,3 +311,49 @@ def test_describe_names_the_busy_threads_and_counts_the_waiting_ones() -> None:
         == "200 ms: . Andere threads: geen bezig (1 wachtend)"
     )
     assert loop_guard.Stall(0.2, ()).describe() == "200 ms: "
+
+
+def test_a_busy_thread_on_a_lookup_line_is_not_taken_for_waiting() -> None:
+    """Review van taak 9c: de bewaker zocht `.get(` in de tekst van de binnenste regel, dus een thread die in een lus `x = d.get(k)`
+    deed, telde als wachtend en verdween uit het log. Nu telt alleen een functie die echt wacht (`WAITING_FRAMES`)."""
+    found: dict[str, int] = {"melk": 1}
+    started: threading.Event = threading.Event()
+    done: list[bool] = []
+
+    def look_up() -> None:
+        started.set()
+        while not done:
+            x = found.get("melk")  # noqa: F841 - de regel waar de thread meestal staat
+
+    worker: threading.Thread = threading.Thread(target=look_up, name="opzoeker")
+    worker.start()
+    started.wait()
+    seen: list[loop_guard.ThreadStack] = []
+    try:
+        for _ in range(200):  # de thread staat afwisselend op de regel van de lus en op die van `found.get`
+            threads: dict[int, loop_guard.ThreadStack] = loop_guard.current_threads([threading.get_ident()])
+            seen += [thread for thread in threads.values() if thread.name == "opzoeker"]
+    finally:
+        done.append(True)
+        worker.join()
+    lookup: int = look_up.__code__.co_firstlineno + 3
+    assert any(thread.stack[-1].line == lookup for thread in seen), "de thread stond nooit op de regel met `found.get`"
+    assert all(thread.stack[-1].function == "look_up" for thread in seen)
+    assert not [thread for thread in seen if thread.idle]
+    assert loop_guard.Stall(0.2, (), (seen[-1],)).busy_threads == (seen[-1],)
+
+
+def test_a_c_call_on_the_work_line_of_a_queue_loop_is_busy() -> None:
+    """compute.py wacht en werkt in dezelfde functie: op de regel met de wachtrij wacht hij, op de regel van het werk (een aanroep
+    in C zonder eigen regel op de stack, zoals een grote `sorted`) is hij bezig."""
+    compute_path: str = os.path.join(loop_guard.APP_DIR, "compute.py")
+    working: loop_guard.ThreadStack = loop_guard.ThreadStack(
+        "compute-0", (loop_guard.Frame(compute_path, line_of(compute_path, "future.set_result(call())"), "_work"),)
+    )
+    waiting: loop_guard.ThreadStack = loop_guard.ThreadStack(
+        "compute-1", (loop_guard.Frame(compute_path, line_of(compute_path, "self._jobs.get()"), "_work"),)
+    )
+    elsewhere: loop_guard.ThreadStack = loop_guard.ThreadStack(
+        "Thread-9", (loop_guard.Frame("/app/vendor/compute.py", line_of(compute_path, "self._jobs.get()"), "_work"),)
+    )
+    assert (working.idle, waiting.idle, elsewhere.idle) == (False, True, False)
