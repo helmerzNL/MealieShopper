@@ -8,6 +8,8 @@ Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar
 
 ### Nieuw in 4.26.0
 
+Pull request: [#333](https://github.com/helmerzNL/MealieShopper/pull/333).
+
 - **Gevolgde producten**, een nieuw subtab naast de Prijsgeschiedenis (`/offers/watched`, `static/watched.js`, `mealieshopper/watched_products.py`). Je volgt losse artikelen, los van de aanbiedingen, om te zien of ze over tijd duurder (of kleiner) worden.
   - **Zoeken of een link plakken.** Kies de winkel (Albert Heijn, Jumbo, Picnic of Crisp) en zoek, of plak een productlink van ah.nl (`/producten/product/wi4183/…`) of jumbo.com (`/producten/…-123456PAK`). Een link zoekt meteen dat ene product op bij de winkel van de link (`watched_products.parse_url`), ook als er een andere winkel gekozen staat; een onbekende link zegt welke links werken.
   - **Elke nacht bijgewerkt.** De dagelijkse run (`offers_schedule.run_all`) roept `watched_products.refresh_nightly` aan: AH in groepjes van 30 op product-id (`ah.get_products_by_ids`, in het tempo en met het uurbudget van de bonnen), Jumbo per artikel (`jumbo.get_product`), Picnic en Crisp met een zoekopdracht op de naam waarin hetzelfde product-id moet zitten, met een seconde rust tussen de aanvragen. **Nu bijwerken** doet hetzelfde op afroep. Een winkel of product dat faalt laat de rest doorgaan; een product dat de winkel niet meer geeft krijgt *niet gevonden bij de winkel*, tot het terug is.
