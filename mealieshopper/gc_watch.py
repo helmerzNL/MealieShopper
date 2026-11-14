@@ -10,6 +10,12 @@ de GC zo'n 650.000 objecten, en een koude bouw van de catalogus van AH gaf zes t
 de catalogus bijna niets meer vast dat de GC volgt: een product en een regel van de lijnindex zijn gewone tuples van tekst
 (`prices._Known`, `line_offers.Line`), die CPython na de eerste ronde overslaat, en de memo's van de namen zijn gewone dicts
 (`name_keys.TextMemo`). Met alle catalogi volgt de GC zo'n 120.000 objecten en duurt een volle ronde 11 ms (3.12) of 25 ms (3.15).
+Tijdens een bouw komen er tijdelijk objecten bij: de regels van de bon als `sqlite3.Row` en de tuples van de producten tot een
+ronde ze loslaat. De rest van de rijen komt als gewone tuples (`prices._plain_rows`), en een rekenthread laat de rijen los zodra
+de bouw klaar is (`compute.py`). Een koude bouw van AH heeft er bij het begin van een volle ronde hooguit zo'n 50.000 bij
+(`tests/test_volume.py` bewaakt dat), en onder dezelfde belasting duurt de langste volle ronde tijdens vijf koude bouwen 29 ms
+(3.12) of 37 ms (3.15). Onder hypercorn, waar twee rekenthreads tegelijk bouwen en het verkeer doorloopt, duurde de langste
+ronde onder dezelfde belasting 53 ms (3.12) of 59 ms (3.15).
 Bevriezen (`gc.freeze`) is geprobeerd en weer weggehaald: een verbinding die bij het bevriezen open stond, bleef na het sluiten
 voor altijd bewaard.
 
