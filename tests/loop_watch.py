@@ -7,8 +7,8 @@ na elke test leegt met `drain()`.
 
 Omgeving, gelezen bij het importeren:
 
-- `MEALIESHOPPER_LOOP_GUARD`: `report` (standaard), `enforce` of `off`. `report` somt de stilstanden aan het eind van de run op
-  en laat geen test falen, `enforce` laat de test falen, `off` zet de bewaker uit.
+- `MEALIESHOPPER_LOOP_GUARD`: `enforce` (standaard), `report` of `off`. `enforce` laat de test falen, `report` somt de
+  stilstanden aan het eind van de run op en laat geen test falen (handig om een lijst te maken), `off` zet de bewaker uit.
 - `MEALIESHOPPER_LOOP_GUARD_MS`: de limiet in milliseconden, standaard 100.
 
 Alleen een stilstand met een regel van de app op de stack telt (`Stall.in_app`): een `time.sleep` in de test zelf niet. Een test
@@ -28,7 +28,7 @@ from typing import Any
 from mealieshopper import gc_watch, loop_guard
 
 MODES: tuple[str, ...] = ("report", "enforce", "off")
-MODE: str = os.environ.get("MEALIESHOPPER_LOOP_GUARD", "report")
+MODE: str = os.environ.get("MEALIESHOPPER_LOOP_GUARD", "enforce")
 LIMIT: float = float(os.environ.get("MEALIESHOPPER_LOOP_GUARD_MS", "100")) / 1000
 if MODE not in MODES:
     raise ValueError(f"MEALIESHOPPER_LOOP_GUARD moet een van {MODES} zijn, niet {MODE!r}")

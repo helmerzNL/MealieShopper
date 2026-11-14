@@ -24,4 +24,8 @@ jobs:
       - name: Afhankelijkheden installeren
         run: pip install -r requirements.txt -r requirements-dev.txt
       - name: Tests draaien
-        run: MEALIESHOPPER_TESTING=1 python -m pytest -q
+        run: MEALIESHOPPER_TESTING=1 python -m pytest -q -m "not volume"
+      # De volumetests draaien de zware paden op een database van productieschaal (een paar minuten): een eigen stap, zodat
+      # een stilstand van de event loop daar los te zien is van een gewone fout.
+      - name: Volumetests draaien
+        run: MEALIESHOPPER_TESTING=1 python -m pytest -q -m volume
