@@ -252,8 +252,9 @@ def retire_all() -> None:
 
 
 async def close_running_loop() -> None:
-    """Sluit de pools van de lopende loop en wacht tot hun verbindingen dicht zijn, de uitgeleende ook: hooguit `RETURN_SECONDS`
-    op een lener die zijn verbinding nog niet teruggaf. Voor wie daarna het databasebestand weghaalt (de fabrieksreset). Een pool
+    """Sluit de pools van de lopende loop en wacht tot hun verbindingen dicht zijn, de uitgeleende ook: per stap hooguit `RETURN_SECONDS`
+    op een lener die zijn verbinding nog niet teruggaf. Er zijn drie stappen na elkaar (de task van de pool, het wachten op
+    `_drained` en de task die een lener intussen startte), dus samen duurt het hooguit 3 keer `RETURN_SECONDS`. Voor wie daarna het databasebestand weghaalt (de fabrieksreset). Een pool
     waarvan de eerste verbinding nog opengaat, heeft nog geen task (`_keeper`): op zijn leners wacht dit zelf (`_wait_drained`)."""
     loop: asyncio.AbstractEventLoop = asyncio.get_running_loop()
     pools: list[_Pool] = [pool for pool in _POOLS.values() if pool.loop is loop]

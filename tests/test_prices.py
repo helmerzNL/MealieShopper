@@ -774,6 +774,7 @@ class VerdictTest(PricesCase):
 
     async def test_the_price_signature_changes_with_the_catalogue(self):
         before = await prices.offers_signature("ah")
+        self.assertFalse(before.startswith("fout:"), before)  # twee verschillende foutwaarden zouden anders ook slagen
         with closing(db(prices)) as conn, conn:
             conn.execute(
                 "INSERT INTO offer_history (store, product_id, title, first_seen, last_seen, ended_at) "

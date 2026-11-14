@@ -198,8 +198,10 @@ async def cancel_all(timeout: float = 10.0) -> None:
 
 
 # Het afsluiten moet binnen de 10 seconden die Docker een container geeft tussen SIGTERM en SIGKILL. Begrensd is wat er na de
-# overdracht door hypercorn (`after_serving`) gebeurt: de tasks hooguit 3 seconden en de rekenthreads hooguit
-# `compute.SHUTDOWN_SECONDS` (2,5), samen 5,5 s (`tests/test_tasks.py` telt het na). Niet begrensd zijn verzoeken die nog lopen:
+# overdracht door hypercorn (`after_serving`) gebeurt: de tasks hooguit 3 seconden, de rekenthreads hooguit
+# `compute.SHUTDOWN_SECONDS` (2,5) en hypercorn zelf hooguit `graceful_timeout` (3) op zijn eigen taken: samen 8,5 s, en
+# `tests/test_tasks.py` eist dat die som onder de 9 blijft. Daar komt het stoppen van de bewaker van de loop bij
+# (`telemetry._stop_watching`, een `Thread.join` van hooguit `loop_guard.JOIN_TIMEOUT`, 2 s), dat de test niet meetelt. Niet begrensd zijn verzoeken die nog lopen:
 # hypercorn 0.18 wacht eerst tot hun verbindingen dicht zijn (`server.wait_closed()`) en pas daarna hooguit `graceful_timeout`
 # (3 s) op zijn eigen taken, dus een verzoek van 20 seconden hield `after_serving` 19,5 seconden op. Ook niet begrensd is werk in
 # de standaard-executor van de loop (`asyncio.to_thread`, zoals het terugzetten van een back-up): na `after_serving` sluit
