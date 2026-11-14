@@ -1062,6 +1062,8 @@ async def no_receipt_lookup(
 
     Let op: dit verbergt werk van productie. Daar schrijft de opzoeking wat AH vindt in `ah_receipt_products`, dat verhoogt
     de versie van de catalogus, en de volgende aanvraag met `q=` bouwt de catalogus dan opnieuw op. Deze stub schrijft niets,
-    dus dat opnieuw opbouwen meten de volumetests hier niet. Een latere volumetest dekt dat schrijven af."""
+    dus dat opnieuw opbouwen meet een test met deze stub niet. Dat doen twee andere volumetests in tests/test_volume.py:
+    `test_linking_receipt_lines_does_not_stall` (de koppelronde schrijft wat AH vindt in `ah_receipt_products`) en
+    `test_price_history_does_not_stall[store=ah&q=melk]` (de koude bouw van de catalogus voor een aanvraag met `q=`)."""
     del names, args, kwargs
     return {"found": 0, "missing": 0, "failed": 0, "searches": 0}
