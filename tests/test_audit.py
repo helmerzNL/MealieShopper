@@ -19,7 +19,7 @@ import httpx  # noqa: E402
 import pytest  # noqa: E402
 import respx  # noqa: E402
 
-from mealieshopper import audit, auth, http_client, mcp, oauth, tasks, telemetry  # noqa: E402
+from mealieshopper import audit, auth, factory_reset, http_client, mcp, oauth, tasks, telemetry  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
 from helpers import AppTestCase, db, settle_audit  # noqa: E402
 
@@ -856,15 +856,27 @@ async def test_an_idle_writer_lets_go_of_its_loop(audit_dir: Path, monkeypatch: 
     assert audit._WRITERS[asyncio.get_running_loop()] is not writer
 
 
-async def test_wiping_the_data_retires_the_writer(audit_dir: Path) -> None:
-    """Review van taak 9c: de fabrieksreset haalt `auth.sqlite3` weg terwijl de schrijver er een verbinding op heeft. Na
-    `auth.forget_runtime_state` stopt die schrijver, en de volgende regel komt via een nieuwe in het nieuwe bestand."""
+async def test_wiping_the_data_closes_the_writer_before_the_files_go(audit_dir: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Review van taak 9c en de eindreview: de fabrieksreset haalde `auth.sqlite3` weg terwijl de schrijver er nog een verbinding
+    op had, en stopte hem pas daarna (`auth.forget_runtime_state`). Een verbinding met het weggehaalde bestand kan bij het sluiten
+    de WAL van het nieuwe bestand wissen. Nu sluit `audit.close_writer` hem eerst, en de volgende regel komt via een nieuwe
+    schrijver in het nieuwe bestand."""
     await audit.record(kind="outbound", service="ah", action="oud")
     old: Any = audit._WRITERS[asyncio.get_running_loop()]
-    auth.forget_runtime_state()
-    await old.task
+    assert not old.task.done(), "de schrijver houdt zijn verbinding open tot hij `WRITER_IDLE_SECONDS` niets kreeg"
+    closed: list[bool] = []
+    remove: Callable[[], list[str]] = factory_reset._remove_files
+
+    def removing() -> list[str]:
+        closed.append(old.task.done())
+        return remove()
+
+    monkeypatch.setattr(factory_reset, "_remove_files", removing)
+    assert "auth.sqlite3" in await factory_reset.wipe_data()
+    assert closed == [True], "de schrijver is dicht voordat de bestanden weggaan"
     assert isinstance(await audit.record(kind="outbound", service="ah", action="nieuw"), int)
     assert audit._WRITERS[asyncio.get_running_loop()] is not old
+    assert [entry["action"] for entry in (await audit.list_entries())["entries"]] == ["nieuw"]
 
 
 if __name__ == "__main__":

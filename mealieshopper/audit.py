@@ -502,6 +502,23 @@ def _stop_writers() -> None:
         writer.stop()
 
 
+# Hoe lang `close_writer` hooguit wacht tot de schrijver geschreven heeft wat klaarstond en zijn verbinding sloot.
+CLOSE_WRITER_SECONDS: float = 2.0
+
+
+async def close_writer() -> None:
+    """Stopt de schrijver van deze loop na wat er al klaarstond en wacht tot zijn verbinding dicht is, hooguit
+    `CLOSE_WRITER_SECONDS`: voor wie daarna het databasebestand weghaalt (de fabrieksreset, naast `auth.close_readers`). Een
+    verbinding met het weggehaalde bestand zou bij het sluiten de WAL van een nieuw bestand kunnen wissen. De volgende regel
+    start een nieuwe schrijver. `asyncio.wait` annuleert de schrijver niet als de aanroeper wordt geannuleerd."""
+    writer: _Writer | None = _WRITERS.pop(asyncio.get_running_loop(), None)
+    if writer is None:
+        return
+    writer.stop()
+    if writer.task is not None:
+        await asyncio.wait({writer.task}, timeout=CLOSE_WRITER_SECONDS)
+
+
 def _retire_writers() -> None:
     """Na het wissen of terugzetten van de database (`auth.forget_cached_data`): elke schrijver sluit zijn verbinding met het oude
     bestand na wat er al klaarstond, en de volgende regel opent een nieuwe schrijver op het nieuwe bestand."""
