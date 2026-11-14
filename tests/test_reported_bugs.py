@@ -1872,6 +1872,114 @@ console.log(JSON.stringify([list.style.maxHeight, detail.style.maxHeight]));
         self.assertEqual(self.fitted(viewport=1080, wide=False), "", "op een smal scherm geldt het maximum uit styles.css")
 
 
+@unittest.skipUnless(shutil.which("node"), "Node is not installed")
+class PurchaseBoxesHaveRoomTest(unittest.TestCase):
+    """2026-11-13: "Voer een vergelijkbare verbetering door voor het bestellingen/kassabon scherm, dat is ook veel te klein." Op een
+    breed scherm kregen de tabel met aankopen, de kaarten, het overzicht en het vak met de producten of de bon van een geopende
+    aankoop alleen de hoogte tot de onderkant van de pagina, en pageFitHeight gaf niet minder dan 240 px. Boven de tabel staan de
+    kop, de uitleg, de zoekbalk, de filters, een melding en de weergavebalk, dus op een laptop was elk vak 240 px: zo'n drie rijen."""
+
+    APP: str = (ROOT / "static" / "app.js").read_text(encoding="utf-8")
+    ORDERS: str = (ROOT / "static" / "orders.js").read_text(encoding="utf-8")
+    VIEWS: str = (ROOT / "static" / "purchase_views.js").read_text(encoding="utf-8")
+
+    def fitted(self, *, viewport: int, wide: bool = True) -> dict[str, str]:
+        """De maximale hoogte die elk vak krijgt, met de echte pageFitHeight, fitPurchaseTable, fitReceiptBox en purchaseViewFit en
+        een nagebootst venster: de vakken beginnen op 900 px, zijn 500 px hoog en de pagina loopt 50 px verder (de marge eronder)."""
+        fit_start: int = self.APP.index("function pageFitHeight(")
+        fit: str = self.APP[fit_start : self.APP.index("\n}\n", fit_start) + 3]
+        orders_start: int = self.ORDERS.index("const PURCHASE_MIN_HEIGHT")
+        orders: str = self.ORDERS[orders_start : self.ORDERS.index('window.addEventListener("resize"', orders_start)]
+        views_start: int = self.VIEWS.index("function purchaseViewFit()")
+        views: str = self.VIEWS[views_start : self.VIEWS.index("\n}\n", views_start) + 3]
+        script: str = f"""
+const box = () => ({{ hidden: false, style: {{}}, offsetParent: {{}}, classList: {{ toggle() {{}} }}, getBoundingClientRect: () => ({{ top: 900, bottom: 1400 }}) }});
+const els = {{
+  "#ah-purchase-table-wrap": box(),
+  "#ah-order-items": box(),
+  "#ah-order-detail": {{ hidden: false }},
+  "#ah-purchase-cards": box(),
+  "#ah-purchase-overview": Object.assign(box(), {{ hidden: true }}),
+}};
+const $ = (selector) => els[selector];
+const orderPage = {{ purchase: {{}} }};
+const window = {{ innerHeight: {viewport}, scrollY: 0, matchMedia: () => ({{ matches: {json.dumps(wide)} }}) }};
+const document = {{ querySelector: () => ({{ getBoundingClientRect: () => ({{ bottom: 1450 }}) }}) }};
+{fit}
+{orders}
+{views}
+fitPurchaseTable();
+fitReceiptBox();
+purchaseViewFit();
+console.log(JSON.stringify(Object.fromEntries(Object.entries(els).map(([id, el]) => [id, el.style ? (el.style.maxHeight ?? "") : null]))));
+"""
+        result: subprocess.CompletedProcess = subprocess.run(["node", "-e", script], capture_output=True, text=True, check=True)
+        return json.loads(result.stdout)
+
+    def test_a_laptop_screen_gives_every_box_its_room(self) -> None:
+        heights: dict[str, str] = self.fitted(viewport=1080)
+        for box in ("#ah-purchase-table-wrap", "#ah-order-items", "#ah-purchase-cards"):
+            self.assertEqual(heights[box], "640px", f"{box}: eerst bleef hier 240 px van over")
+        self.assertEqual(heights["#ah-purchase-overview"], "", "een vak dat dicht is, blijft ongemoeid")
+
+    def test_a_tall_screen_still_fits_exactly(self) -> None:
+        heights: dict[str, str] = self.fitted(viewport=2000)
+        for box in ("#ah-purchase-table-wrap", "#ah-order-items", "#ah-purchase-cards"):
+            self.assertEqual(heights[box], "1050px", f"{box}: op een hoog scherm loopt het vak tot de onderkant van de pagina")
+
+    def test_a_narrow_screen_keeps_the_page_scroll(self) -> None:
+        heights: dict[str, str] = self.fitted(viewport=1080, wide=False)
+        for box in ("#ah-purchase-table-wrap", "#ah-order-items", "#ah-purchase-cards"):
+            self.assertEqual(heights[box], "", f"{box}: op een smal scherm scrolt de pagina")
+
+
+class ScrollListsAreUniformTest(unittest.TestCase):
+    """2026-11-13, na de melding dat het scherm Bestellingen en kassabonnen veel te klein was en de vraag welke vakken nog meer zo
+    smal waren: "Je mag ze allemaal wel gelijktrekken, dan ziet het er allemaal uniform uit." De lijsten met een eigen schuifbalk
+    hadden elk een eigen maat (220, 230, 300, 320 en 420 px, 40, 50 en 60% van het scherm); nu delen ze één maximum."""
+
+    CSS: str = (ROOT / "static" / "styles.css").read_text(encoding="utf-8")
+    ORDERS: str = (ROOT / "static" / "orders.js").read_text(encoding="utf-8")
+    HISTORY: str = (ROOT / "static" / "offers_history.js").read_text(encoding="utf-8")
+    LISTS: tuple[str, ...] = (
+        ".plan-recipe-results",  # de receptkiezer in het plandialoog
+        ".link-list",  # het koppeldialoog
+        ".audit-body",  # het verzoek en het antwoord in het logboek
+        ".ohc-list",  # de lijst in de prijsgeschiedenis op een smal scherm
+        ".offer-facet--scroll",  # de lijsten met merken, categorieën en tags in de filters
+        ".compare-list",  # verpakkingen vergelijken
+        ".import-prompt pre",  # de opdracht bij het importeren van oude aankopen
+        ".import-report",  # het rapport van dat importeren en van het bulk-importeren van recepten
+    )
+
+    def rule(self, selector: str) -> str:
+        found: re.Match[str] | None = re.search(rf"^{re.escape(selector)} \{{(.*?)\n\}}", self.CSS, re.S | re.M)
+        self.assertIsNotNone(found, f"regel {selector} niet gevonden")
+        assert found is not None
+        return found.group(1)
+
+    def test_every_list_with_its_own_scrollbar_uses_the_one_maximum(self) -> None:
+        for selector in self.LISTS:
+            self.assertIn("max-height: var(--scroll-list-max);", self.rule(selector), selector)
+
+    def test_the_maximum_is_640_px_but_never_more_than_60_percent_of_the_screen(self) -> None:
+        self.assertIn("--scroll-list-max: min(640px, 60vh);", self.CSS)
+
+    def test_the_boxes_that_fit_the_page_get_the_same_640_px(self) -> None:
+        self.assertIn("const PURCHASE_MIN_HEIGHT = 640;", self.ORDERS)
+        self.assertIn("const OFFER_HISTORY_MIN_HEIGHT = 640;", self.HISTORY)
+
+    def test_no_other_list_gets_a_size_of_its_own_again(self) -> None:
+        # Alleen het onderpaneel van de kookmodus (65%) en de productfoto in het groot (max(160px, ...), een foto en geen lijst) houden
+        # een eigen verhouding tot het scherm; elke andere vaste hoogte hoort bij het token.
+        fixed: list[str] = re.findall(r"^\s*max-height: (?!calc\(|none|var\(--scroll-list-max\))([^;]+);", self.CSS, re.M)
+        self.assertEqual(
+            fixed,
+            ["max(160px, calc(100vh - 220px))", "max(160px, calc(100dvh - 220px))", "65%"],
+            "gebruik var(--scroll-list-max) voor een lijst met een eigen schuifbalk",
+        )
+
+
 class LooseNamesSharedListTest(test_shared_links.SharedListCase):
     async def test_2026_11_10_a_loose_name_in_the_shared_list_counts_for_its_product(self):
         """Rick, 2026-11-10: "hoe lossen we dit probleem fatsoenlijk op voor de rest van de aankoopregels? kijk of er een patroon

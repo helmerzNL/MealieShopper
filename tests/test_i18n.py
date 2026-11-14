@@ -261,7 +261,7 @@ class PageTest(AppTestCase):
         dark = re.search(r':root\[data-theme="dark"\]\s*{(.*?)\n}', css, re.S).group(1)
         names = lambda block: set(re.findall(r"(--[\w-]+):", block))
         unchanged = {"--lemon", "--control-height", "--font-body", "--font-heading", "--ease"}
-        unchanged |= {name for name in names(light) if name.startswith(("--radius-", "--text-"))}  # maten, geen kleuren
+        unchanged |= {name for name in names(light) if name.startswith(("--radius-", "--text-", "--scroll-"))}  # maten, geen kleuren
         self.assertEqual(sorted(names(light) - names(dark) - unchanged), [])
 
     def test_engine_keeps_the_language_and_tells_the_server(self):

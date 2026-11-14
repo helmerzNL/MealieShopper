@@ -89,6 +89,11 @@
   --radius-lg: 16px;
   --radius-pill: 999px;
   --control-height: 44px;
+  /* Hoe hoog een lijst met een eigen schuifbalk mag worden voor hij scrolt: dezelfde maat voor elke lijst, op een pagina en in een
+     dialoog. Hooguit 640 px (de hoogte die de aankopen en de prijsgeschiedenis op een breed scherm minstens krijgen: PURCHASE_MIN_HEIGHT
+     en OFFER_HISTORY_MIN_HEIGHT), en op een laag scherm hooguit 60% ervan, zodat een dialoog met zo'n lijst niet uit beeld loopt.
+     Een korte lijst blijft kort: dit is een maximum. */
+  --scroll-list-max: min(640px, 60vh);
 
   /* Typeschaal: acht stappen. Gebruik alleen deze; een letterlijke grootte mag alleen voor wat geen lopende tekst is (de menubalk,
      een icoon, de initialen in een grote avatar) en de clamp() van de kookmodus. tests/test_brand.py houdt dat bij. */
@@ -4417,7 +4422,7 @@ html:has(#cook-mode[open]) {
 .plan-recipe-results {
   display: grid;
   gap: 4px;
-  max-height: min(320px, 40vh);
+  max-height: var(--scroll-list-max);
   margin: 0;
   padding: 0;
   overflow: auto;
@@ -6145,7 +6150,7 @@ html.is-standalone body {
   margin: 0;
   padding: 0;
   list-style: none;
-  max-height: 50vh;
+  max-height: var(--scroll-list-max);
   overflow-y: auto;
 }
 
@@ -7355,7 +7360,7 @@ html.is-standalone body {
 }
 
 .audit-body {
-  max-height: 320px;
+  max-height: var(--scroll-list-max);
   margin: 0;
   padding: 10px;
   overflow: auto;
@@ -7958,7 +7963,7 @@ html.is-standalone .user-menu__item--standalone:not([hidden]) {
   gap: 6px;
   margin: 0;
   padding: 0;
-  max-height: 420px;
+  max-height: var(--scroll-list-max);
   overflow-y: auto;
   list-style: none;
 }
@@ -9437,10 +9442,6 @@ html.is-standalone .user-menu__item--standalone:not([hidden]) {
   text-transform: uppercase;
 }
 
-.facet-panel .offer-facet--scroll {
-  max-height: 230px;
-}
-
 .facet-panel__clear {
   flex-basis: 100%;
   text-align: left;
@@ -9476,7 +9477,7 @@ html.is-standalone .user-menu__item--standalone:not([hidden]) {
 
 /* De merken: een winkel heeft er honderden, dus een eigen schuifbalk onder het zoekveld. */
 .offer-facet--scroll {
-  max-height: 300px;
+  max-height: var(--scroll-list-max);
   overflow-y: auto;
   overscroll-behavior: contain;
 }
@@ -10136,7 +10137,7 @@ html.is-standalone .user-menu__item--standalone:not([hidden]) {
   margin: 8px 0 0;
   padding: 0;
   list-style: none;
-  max-height: 60vh;
+  max-height: var(--scroll-list-max);
   overflow-y: auto;
 }
 
@@ -10295,7 +10296,7 @@ html.is-standalone .user-menu__item--standalone:not([hidden]) {
 }
 
 .import-prompt pre {
-  max-height: 220px;
+  max-height: var(--scroll-list-max);
   overflow: auto;
   margin: 8px 0 0;
   padding: 10px 12px;
@@ -10318,7 +10319,7 @@ html.is-standalone .user-menu__item--standalone:not([hidden]) {
 .import-report {
   display: grid;
   gap: 4px;
-  max-height: 220px;
+  max-height: var(--scroll-list-max);
   overflow: auto;
   margin: 0;
   padding: 0;
@@ -10461,10 +10462,6 @@ html.is-standalone .user-menu__item--standalone:not([hidden]) {
   height: 10px;
   margin-bottom: 6px;
   accent-color: var(--primary);
-}
-
-.bulk-report {
-  max-height: min(320px, 40vh);
 }
 
 .bulk-report:empty {
