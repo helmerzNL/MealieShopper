@@ -5,6 +5,7 @@ kan door de echte routes (`/api/offers`, `/api/prices/history`, `/healthz`) en d
 nieuwe versie die het gedrag terugdraait hier rood wordt. Een nieuwe melding krijgt hier een nieuwe test.
 """
 
+import gzip
 import inspect
 import io
 import json
@@ -19,13 +20,14 @@ import zipfile
 from contextlib import closing
 from datetime import date, timedelta
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 from unittest import mock
 
 import httpx
 import jsonschema
 import jwt
 import test_ah_orders  # als module: de opzet van het AH-mandje
+import test_ah_price_index  # idem: de opzet van de ronde langs de prijsindex
 import test_history_chart_js  # als module, voor de Node-opbouw van offers_history.js
 import test_history_stores_js  # als module: anders draait pytest die tests hier nog een keer
 import test_loose_names  # idem: de opzet van de losse aankoopnamen
@@ -35,13 +37,14 @@ import test_order_views  # idem: de Node-opbouw van order_views.js en de gedeeld
 import test_price_archive
 import test_price_import  # idem
 import test_shared_links  # idem: de gedeelde lijst en zijn opzet
-from helpers import AppTestCase, db, run, sent_json, served  # helpers zet ook het pad naar de app
+from helpers import AppClient, AppTestCase, ReadResponse, db, returned, run, sent_json, served  # helpers zet ook het pad naar de app
 from test_auth_password import PASSWORD, AuthPasswordTestCase
 from test_prices import PricesCase, offer
 
 from mealieshopper import (
     ah,
     ah_orders,
+    ah_price_index,
     assets,
     auth,
     deals,
@@ -2053,8 +2056,331 @@ class SameDealAFewCentsApartTest(unittest.TestCase):
         self.assertEqual(offer_ranking.year_low(0.42, cheap, self.TODAY)["status"], "above")
 
 
+class CompressedResponsesTest(AppTestCase):
+    """2026-11-12: "ik open net deze pagina, en het laden duurt lang, kan dat sneller?", bij /offers. De pagina haalde 5,3 MB op:
+    3,7 MB voor de lijst van AH (2801 aanbiedingen), 1,2 MB aan scripts en 0,3 MB aan stijlen, allemaal onverpakt. De reverse
+    proxy verpakte alleen de HTML. De app verpakt tekst nu zelf met gzip (compression.py): de lijst is dan 254 KB."""
+
+    GZIP: ClassVar[dict[str, str]] = {"Accept-Encoding": "gzip, deflate, br"}
+
+    def setUp(self) -> None:
+        patcher = mock.patch.dict(os.environ, {"PASSKEY_AUTH_ENABLED": "false"})
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.client = self.client_for(create_app())
+
+    async def test_2026_11_12_scripts_and_styles_are_sent_compressed(self) -> None:
+        for name in ("app.js", "styles.css"):
+            with self.subTest(name):
+                plain: bytes = (ROOT / "static" / name).read_bytes()
+                response = await self.client.get(f"/static/{name}?v=1", headers=self.GZIP)
+                body: bytes = response.get_data()
+                self.assertEqual((response.status_code, response.headers.get("Content-Encoding")), (200, "gzip"))
+                self.assertIn("Accept-Encoding", response.headers.get("Vary", ""))
+                self.assertEqual(int(response.headers["Content-Length"]), len(body))
+                self.assertLess(len(body), len(plain) / 3)
+                self.assertEqual(gzip.decompress(body), plain)
+
+    async def test_2026_11_12_the_offers_are_sent_compressed_and_keep_their_etag(self) -> None:
+        fetched: list[dict] = [
+            {"id": str(n), "title": f"AH Kipfilet {n}", "price": 3.0, "priceBefore": 4.0, "promoLabel": "Bonus"} for n in range(60)
+        ]
+        with mock.patch.dict(offers.FETCHERS, {"ah": lambda: returned(fetched)}):
+            await self.client.post("/api/offers/sync", json={"store": "ah"})
+        plain = await self.client.get("/api/offers?store=ah")
+        packed = await self.client.get("/api/offers?store=ah", headers=self.GZIP)
+        self.assertEqual((plain.headers.get("Content-Encoding"), packed.headers.get("Content-Encoding")), (None, "gzip"))
+        self.assertEqual(gzip.decompress(packed.get_data()), plain.get_data())
+        self.assertEqual(packed.headers["ETag"], plain.headers["ETag"], "de browser vraagt met dezelfde ETag na of de lijst veranderd is")
+        again = await self.client.get("/api/offers?store=ah", headers={**self.GZIP, "If-None-Match": packed.headers["ETag"]})
+        self.assertEqual((again.status_code, again.get_data()), (304, b""))
+        # Een tweede keer komt het verpakte antwoord uit het geheugen (dezelfde ETag): dezelfde bytes.
+        self.assertEqual((await self.client.get("/api/offers?store=ah", headers=self.GZIP)).get_data(), packed.get_data())
+
+    async def test_2026_11_12_what_does_not_gain_from_it_stays_as_it_is(self) -> None:
+        cases: dict[str, tuple[str, dict[str, str]]] = {
+            "de browser vraagt er niet om": ("/static/app.js", {}),
+            "de browser wijst gzip af": ("/static/app.js", {"Accept-Encoding": "gzip;q=0, identity"}),
+            "een deel van een bestand": ("/static/app.js", {**self.GZIP, "Range": "bytes=0-99"}),
+            "een plaatje is al verpakt": ("/favicon.ico", self.GZIP),
+            "een kort antwoord": ("/api/offers/status", self.GZIP),
+        }
+        for reason, (path, headers) in cases.items():
+            with self.subTest(reason):
+                response = await self.client.get(path, headers=headers)
+                self.assertIn(response.status_code, (200, 206))
+                self.assertIsNone(response.headers.get("Content-Encoding"))
+
+
 if __name__ == "__main__":
     unittest.main()
+
+
+class BoughtProductHasPriceHistoryTest(test_ah_price_index.RoundCase):
+    """Melding (2026-11-13), bij een schermfoto van vier broden van AH op /offers, drie met een gestippelde badge: "heel veel
+    prijzen hebben geen "vaste" historie, ik zie de stippellijntjes. [...] ieder product wat eerder gekocht is moet een fatsoenlijke
+    prijs historie hebben".
+
+    De gestippelde badge betekent dat de app geen gewone prijs van het laatste jaar kent en dus de van-prijs van de winkel toont.
+    De app kende de gewone prijs alleen van de dagen waarop ze het product zelf zag. Nu haalt een ronde de prijs per week van
+    ahprijsindex.nl voor elk product dat je kocht (`ah_price_index.py`)."""
+
+    BREAD: ClassVar[dict] = {"id": "446406", "title": "AH Les pains boulogne heel", "brand": "AH", "unitSize": "per stuk"}
+
+    async def badge(self) -> dict:
+        bread: dict = {
+            **self.BREAD,
+            "price": 2.39,
+            "priceBefore": 2.39,
+            "promoLabel": "1+1 gratis",
+            **deals.describe("1+1 gratis", price_now=2.39, price_before=2.39),
+        }
+        return (await prices.annotate("ah", [bread], today=test_ah_price_index.TODAY))[0]["badge"]
+
+    async def test_a_bread_bought_long_ago_gets_a_solid_badge_after_the_round(self) -> None:
+        await self.buy(446406, day="2025-06-02")  # langer dan een jaar geleden: te oud voor een oordeel
+        self.assertEqual((await self.badge())["source"], "store", "zonder de index: de gestippelde badge")
+        with served(test_ah_price_index.html(test_ah_price_index.FIXTURE.read_text(encoding="utf-8"))):
+            result = await ah_price_index.run_round(now=test_ah_price_index.NOW)
+        self.assertEqual((result["checked"], result["prices"]), (1, 225))
+        badge: dict = await self.badge()
+        self.assertEqual((badge["source"], badge["percent"]), ("history", 50))
+        self.assertEqual(badge["regular"]["price"], 2.39)
+
+    async def test_the_price_history_goes_back_to_2022(self) -> None:
+        await self.buy(446406)
+        with served(test_ah_price_index.html(test_ah_price_index.FIXTURE.read_text(encoding="utf-8"))):
+            await ah_price_index.run_round(now=test_ah_price_index.NOW)
+        product: dict = (await prices.history("ah", "", 50, today=test_ah_price_index.TODAY, bought=True, product="446406"))["products"][0]
+        self.assertEqual(product["regular"][0]["from"], "2022-07-25")
+        self.assertEqual([segment["price"] for segment in product["regular"]], [2.39, 2.49, 2.59, 2.75, 2.79, 1.99, 2.19, 2.29, 2.49, 2.39])
+
+
+class SlowOffersPagesTest(AppTestCase):
+    """Melding (2026-11-13): "kijk wat er mis is met de performance van https://shopper.ytm.nl/offers en de links daaronder. het
+    duurt regelmatig heel lang (e.g. 10s ofzo?) voor die pagina geladen is."
+
+    Gemeten in productie met `MEALIESHOPPER_TELEMETRY`, na de ronde langs de prijsindex (309.000 prijzen van AH) en met een
+    prijsarchief (146.000 rijen in `offer_history`):
+
+    - `/api/offers/history` las alle rijen en zette ze op de event loop om: 6,5 seconden, waarvan de hele app er 5 stilstond.
+    - `/api/offers` telde voor de ETag bij elke aanvraag alle prijzen van de winkel: 1,6 seconde, ook voor een 304.
+    - `/api/prices/history` zocht de prijzen van vijftig producten via de index op dag: 1,6 seconde.
+    - De database stond niet in WAL: een schrijver hield de lezers tegen, tot `database is locked`."""
+
+    def setUp(self) -> None:
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        patcher = mock.patch.dict(os.environ, {"MEALIESHOPPER_DATA_DIR": tmp.name, "PASSKEY_AUTH_ENABLED": "false"})
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        run(auth.init_db())
+
+    def fill_history(self, products: int) -> None:
+        """`products` producten per winkel bij AH en Jumbo, elk met drie periodes, waarvan de middelste een voortzetting is."""
+        rows: list[tuple] = []
+        for store in ("ah", "jumbo"):
+            for number in range(products):
+                for period in range(3):
+                    day: int = 1 + (number * 7 + period * 5) % 27
+                    month: str = f"2026-{period + 1:02d}"
+                    rows.append(
+                        (
+                            store,
+                            f"p{number:04d}",
+                            f"{'Kaas' if number % 3 else 'Brood'} {number}",
+                            1.0 + period,
+                            f"{month}-{day:02d}T05:00:00+00:00",
+                            f"{month}-{min(28, day + number % 4):02d}T05:00:00+00:00",
+                            None if period == 2 and number % 5 == 0 else "2026-06-01T05:00:00+00:00",
+                            period % 2,
+                        )
+                    )
+        with closing(db(offers)) as conn, conn:
+            conn.executemany(
+                "INSERT INTO offer_history (store, product_id, title, price, first_seen, last_seen, ended_at, continued) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                rows,
+            )
+
+    async def history_the_old_way(self, store: str | None, query: str, limit: int) -> dict:
+        """Zoals tot 4.25.1: alle rijen lezen, per product samenvoegen, sorteren en afkappen."""
+        stores: list[str] = [store] if store else list(offers.STORES)
+        async with offers._connect() as conn:
+            rows = await conn.execute_fetchall(
+                f"SELECT * FROM offer_history WHERE store IN ({','.join('?' * len(stores))}) AND title LIKE ? ORDER BY store, product_id, first_seen, id",
+                (*stores, f"%{query}%"),
+            )
+        ranked: list[dict] = sorted(offers._history_products(rows).values(), key=lambda p: (p["lastSeen"], p["timesOnOffer"]), reverse=True)
+        return {"products": ranked[:limit], "total": len(ranked)}
+
+    async def test_2026_11_13_the_offer_history_reads_only_the_products_on_the_page(self) -> None:
+        self.fill_history(120)
+        with mock.patch.object(offers, "_history_products", wraps=offers._history_products) as merged:
+            found: dict = await offers.history(limit=20)
+        self.assertEqual(found["total"], 240)
+        self.assertEqual(len(found["products"]), 20)
+        self.assertEqual(len(list(merged.call_args.args[0])), 20 * 3, "alleen de rijen van de twintig producten, niet alle 720")
+
+    async def test_2026_11_13_the_offer_history_is_the_same_as_before(self) -> None:
+        self.fill_history(120)
+        cases: tuple[tuple[str | None, str, int], ...] = (
+            (None, "", 50),
+            ("ah", "", 200),
+            (None, "Brood", 30),
+            ("jumbo", "Kaas 1", 10),
+            (None, "bestaat niet", 50),
+            (None, "", 1),
+        )
+        for store, query, limit in cases:
+            with self.subTest(store=store, query=query, limit=limit):
+                self.assertEqual(await offers.history(store, query, limit), await self.history_the_old_way(store, query, limit))
+
+    async def test_2026_11_13_the_price_signature_does_not_count_the_prices(self) -> None:
+        with mock.patch.object(prices, "_now", return_value="2026-11-13T12:00:00+00:00"):
+            before: str = await prices.offers_signature("ah")
+            self.assertFalse(before.startswith("fout:"), before)
+            with closing(db(prices)) as conn, conn:
+                conn.execute(
+                    "INSERT INTO price_observations (store, product_id, day, source, title, price, seen_at) "
+                    "VALUES ('ah', '1', '2026-11-13', 'search', 'Brood', 1.99, 'nu')"
+                )
+            after: str = await prices.offers_signature("ah")
+            self.assertNotEqual(after, before, "een nieuw product ververst het oordeel bij de aanbiedingen")
+            with closing(db(prices)) as conn, conn:  # dezelfde naam, een dag eerder: een prijs van een bekend product
+                conn.execute(
+                    "INSERT INTO price_observations (store, product_id, day, source, title, price, seen_at) "
+                    "VALUES ('ah', '1', '2026-11-12', 'search', 'Brood', 1.89, 'nu')"
+                )
+            self.assertEqual(await prices.offers_signature("ah"), after, "de handtekening telt niet alle prijzen van de winkel")
+
+    async def penne_on_offer(self) -> None:
+        """AH Penne in de aanbieding (0,89, van 1,19), en een gewone prijs van tien dagen terug."""
+        items: list[dict] = [offer("1", "AH Penne", 0.89, 1.19, "25% korting", unitSize="500 g")]
+        with mock.patch.dict(offers.FETCHERS, {"ah": lambda: returned(items)}):
+            await offers.sync("ah")
+        await self.price("1", "AH Penne", 1.19, days_ago=10)
+        await self.price("7", "AH Fusilli", 1.29, days_ago=10)  # gekocht, maar niet in de lijst
+
+    async def price(self, product_id: str, title: str, price: float, days_ago: int, size: str = "500 g") -> None:
+        day: str = (date.today() - timedelta(days=days_ago)).isoformat()
+        await prices.record("ah", [{"id": product_id, "title": title, "price": price, "unitSize": size, "brand": "AH"}], now=f"{day}T08:00:00+00:00")
+
+    async def test_2026_11_13_a_price_outside_the_list_keeps_the_offers_warm(self) -> None:
+        """Melding (2026-11-13): "kijk wat er mis is met de performance van https://shopper.ytm.nl/offers". De ronde langs de
+        prijsindex bewaart elke tien seconden een prijs, en elke prijs maakte de catalogus van elke winkel en de lijst koud."""
+        await self.penne_on_offer()
+        client: AppClient = self.client_for(create_app())
+        first: ReadResponse = await client.get("/api/offers?store=ah")
+        self.assertEqual(first.status_code, 200)
+        await self.price("7", "AH Fusilli", 1.19, days_ago=3)  # een prijs voor een bekend product buiten de lijst
+        with mock.patch.object(prices, "annotate", wraps=prices.annotate) as judged:
+            again: ReadResponse = await client.get("/api/offers?store=ah", headers={"If-None-Match": first.headers["ETag"]})
+            self.assertEqual(again.status_code, 304, "de lijst is niet veranderd")
+            self.assertEqual((await client.get("/api/offers?store=ah")).status_code, 200)
+            self.assertEqual(judged.call_count, 0, "de lijst uit de cache, zonder het oordeel opnieuw uit te rekenen")
+
+    async def test_2026_11_13_a_price_inside_the_list_gives_a_new_verdict(self) -> None:
+        """Melding (2026-11-13), zie hierboven: een prijs van een product in de lijst moet het oordeel wel verversen."""
+        await self.penne_on_offer()
+        client: AppClient = self.client_for(create_app())
+        first: ReadResponse = await client.get("/api/offers?store=ah")
+        self.assertEqual(first.get_json()["offers"][0]["verdict"]["regular"]["price"], 1.19)
+        await self.price("1", "AH Penne", 0.95, days_ago=1)  # een lagere gewone prijs, dezelfde naam: alleen `prices` gaat omhoog
+        again: ReadResponse = await client.get("/api/offers?store=ah", headers={"If-None-Match": first.headers["ETag"]})
+        self.assertEqual(again.status_code, 200)
+        verdict: dict = again.get_json()["offers"][0]["verdict"]
+        self.assertEqual((verdict["regular"]["price"], verdict["kind"]), (0.95, "small"))
+
+    async def test_2026_11_13_a_price_of_another_pack_gives_a_new_cheaper_pack(self) -> None:
+        """Melding (2026-11-13): "kijk wat er mis is met de performance van https://shopper.ytm.nl/offers en de links daaronder. het
+        duurt regelmatig heel lang (e.g. 10s ofzo?) voor die pagina geladen is." Sinds de fix telt de ETag alleen de prijzen die het
+        antwoord raken. Een andere verpakking van een aanbieding hoort daarbij, ook buiten de lijst: haar prijs beslist over
+        `cheaperPack` (review van taak 9)."""
+        await self.penne_on_offer()  # 500 g voor 0,89: 1,78 per kilo
+        await self.price("8", "AH Penne", 2.50, days_ago=10, size="1000 g")
+        client: AppClient = self.client_for(create_app())
+        first: ReadResponse = await client.get("/api/offers?store=ah")
+        self.assertIsNone(first.get_json()["offers"][0]["verdict"]["cheaperPack"])
+        await self.price("8", "AH Penne", 1.40, days_ago=2, size="1000 g")  # dezelfde naam en verpakking: alleen `prices` gaat omhoog
+        again: ReadResponse = await client.get("/api/offers?store=ah", headers={"If-None-Match": first.headers["ETag"]})
+        self.assertEqual(again.status_code, 200)
+        cheaper: dict = again.get_json()["offers"][0]["verdict"]["cheaperPack"]
+        self.assertEqual((cheaper["productId"], cheaper["price"]), ("8", 1.40))
+
+    async def test_2026_11_13_a_price_of_a_namesake_moves_the_receipt_and_the_bought_flag(self) -> None:
+        """Melding (2026-11-13): "kijk wat er mis is met de performance van https://shopper.ytm.nl/offers en de links daaronder. het
+        duurt regelmatig heel lang (e.g. 10s ofzo?) voor die pagina geladen is." Een bonregel op naam hoort bij het product met die
+        naam waarvan een prijs het dichtst bij de betaalde prijs ligt (`prices._nearest_priced`). Een prijs van een naamgenoot buiten
+        de lijst kan de bon dus naar dat product verplaatsen, en dan is de aanbieding niet meer eerder gekocht (review van taak 9)."""
+        items: list[dict] = [offer("10", "AH Sweet Palermo", 1.99, 2.80, "25% korting", unitSize="2 stuks")]
+        with mock.patch.dict(offers.FETCHERS, {"ah": lambda: returned(items)}):
+            await offers.sync("ah")
+        await self.price("10", "AH Sweet Palermo", 2.80, days_ago=30, size="2 stuks")
+        await self.price("11", "AH Sweet Palermo", 2.00, days_ago=30, size="500 g")
+        when: str = (date.today() - timedelta(days=20)).isoformat()
+        with closing(db(ah_orders)) as conn, conn:
+            conn.execute(
+                "INSERT INTO ah_receipts (receipt_id, date_time, total, details_synced, first_seen) VALUES ('R1', ?, 3.40, 1, ?)", (when, when)
+            )
+            conn.execute(
+                "INSERT INTO ah_receipt_items (receipt_id, position, product_id, name, quantity, price, amount) VALUES ('R1', 0, NULL, 'AH Sweet Palermo', 1, 3.40, 3.40)"
+            )
+        client: AppClient = self.client_for(create_app())
+        first: ReadResponse = await client.get("/api/offers?store=ah")
+        self.assertTrue(first.get_json()["offers"][0]["bought"], "de bon van 3,40 hoort bij de 2 stuks van 2,80")
+        await self.price("11", "AH Sweet Palermo", 3.40, days_ago=5, size="500 g")  # de naamgenoot, alleen `prices` gaat omhoog
+        again: ReadResponse = await client.get("/api/offers?store=ah", headers={"If-None-Match": first.headers["ETag"]})
+        self.assertEqual(again.status_code, 200)
+        self.assertFalse(again.get_json()["offers"][0]["bought"], "de bon hoort nu bij de zak van 500 gram")
+
+    async def test_2026_11_13_prices_of_a_few_products_are_looked_up_by_product(self) -> None:
+        with closing(db(prices)) as conn:
+            sql: str = f"EXPLAIN QUERY PLAN {prices.OBSERVATIONS_SQL.format(marks='?,?')}"
+            plan: str = " ".join(str(row[3]) for row in conn.execute(sql, ("ah", "1", "2")))
+        self.assertIn("sqlite_autoindex_price_observations_1 (store=? AND product_id=?)", plan)
+        self.assertNotIn("price_observations_day", plan)
+
+    async def test_2026_11_13_the_database_is_in_wal(self) -> None:
+        with closing(db()) as conn:
+            self.assertEqual(conn.execute("PRAGMA journal_mode").fetchone()[0], "wal")
+
+    async def test_2026_11_13_wal_can_be_turned_off(self) -> None:
+        with mock.patch.dict(os.environ, {"MEALIESHOPPER_SQLITE_WAL": "false"}):
+            await auth.init_db()
+        with closing(db()) as conn:
+            self.assertEqual(conn.execute("PRAGMA journal_mode").fetchone()[0], "delete")
+
+    async def test_2026_11_13_a_receipt_that_moves_between_namesakes_reaches_a_twin_on_offer(self) -> None:
+        """Melding (2026-11-13): "kijk wat er mis is met de performance van https://shopper.ytm.nl/offers en de links daaronder. het
+        duurt regelmatig heel lang (e.g. 10s ofzo?) voor die pagina geladen is." Een bonregel kan ook verschuiven tussen twee
+        naamgenoten die allebei buiten de lijst en buiten de familie van een aanbieding vallen. Is een van die twee de tweeling van een
+        aanbieding (`prices._twins`: zelfde naam, merk en verpakking), dan verandert `bought` van die aanbieding toch (re-review van taak 9)."""
+        items: list[dict] = [offer("20", "AH Paprika rood", 1.99, 2.80, "25% korting", unitSize="2 stuks", brand="AH")]
+        with mock.patch.dict(offers.FETCHERS, {"ah": lambda: returned(items)}):
+            await offers.sync("ah")
+        # 21 is de tweeling van 20 (in een oude aanbieding met dezelfde naam), maar zijn bewaarde prijs heet "AH Puntpaprika", net als 22.
+        with closing(db(offers)) as conn, conn:
+            conn.execute(
+                "INSERT INTO offer_history (store, product_id, title, brand, unit_size, price, first_seen, last_seen, ended_at) "
+                "VALUES ('ah', '21', 'AH Paprika rood', 'AH', '2 stuks', 1.89, '2026-01-05T00:00:00+00:00', '2026-01-11T23:59:59+00:00', '2026-01-11T23:59:59+00:00')"
+            )
+        await self.price("21", "AH Puntpaprika", 2.80, days_ago=30, size="2 stuks")
+        await self.price("22", "AH Puntpaprika", 2.00, days_ago=30, size="500 g")
+        when: str = (date.today() - timedelta(days=20)).isoformat()
+        with closing(db(ah_orders)) as conn, conn:
+            conn.execute(
+                "INSERT INTO ah_receipts (receipt_id, date_time, total, details_synced, first_seen) VALUES ('R2', ?, 3.40, 1, ?)", (when, when)
+            )
+            conn.execute(
+                "INSERT INTO ah_receipt_items (receipt_id, position, product_id, name, quantity, price, amount) VALUES ('R2', 0, NULL, 'AH Puntpaprika', 1, 3.40, 3.40)"
+            )
+        client: AppClient = self.client_for(create_app())
+        first: ReadResponse = await client.get("/api/offers?store=ah")
+        self.assertTrue(first.get_json()["offers"][0]["bought"], "de bon van 3,40 hoort bij 21, de tweeling van 20")
+        await self.price("22", "AH Puntpaprika", 3.40, days_ago=5, size="500 g")  # alleen `prices` gaat omhoog
+        again: ReadResponse = await client.get("/api/offers?store=ah", headers={"If-None-Match": first.headers["ETag"]})
+        self.assertEqual(again.status_code, 200)
+        self.assertFalse(again.get_json()["offers"][0]["bought"], "de bon hoort nu bij 22, dus 20 en 21 zijn niet meer gekocht")
 
 
 class WeeklyPriceArchiveTest(test_price_archive.ArchiveCase):
