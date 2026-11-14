@@ -2110,7 +2110,8 @@ _SIGNATURES: dict[tuple[str, str, str], tuple[tuple[Any, ...], str]] = {}
 
 
 async def _signature(conn: aiosqlite.Connection, store: str, ids: tuple[str, ...], today: str | None) -> str:
-    """`<token>:<products>|<_price_version van ids>`, en met `today` ook `_window_shape` van die dag (de ETag van /api/offers)."""
+    """`<token>:<products>|<_price_version van ids>`, en met `today` ook `_window_shape` van die dag en de dag zelf (de ETag van
+    /api/offers): het oordeel rekent met de UTC-dag, ook als het venster op twee dagen hetzelfde is."""
     row: aiosqlite.Row = await _catalogue_row(conn, store)
     state: tuple[Any, ...] = (row["token"], row["products"], row["prices"], today, ids)
     key: tuple[str, str, str] = (str(auth.db_path()), store, "ids" if today is None else "offers")
@@ -2119,7 +2120,7 @@ async def _signature(conn: aiosqlite.Connection, store: str, ids: tuple[str, ...
         return found[1]
     value: str = f"{row['token']}:{row['products']}|{await _price_version(conn, store, ids)}"
     if today is not None:
-        value += f"|{await _window_shape(conn, store, today)}"
+        value += f"|{await _window_shape(conn, store, today)}|{today}"
     _SIGNATURES[key] = (state, value)
     return value
 

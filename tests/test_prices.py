@@ -1791,6 +1791,19 @@ class CatalogueTest(PricesCase):
         ):
             self.assertTrue((await prices.offers_signature("ah")).startswith("fout:"))
 
+    async def test_the_offers_etag_carries_the_utc_day_of_the_verdict(self) -> None:
+        # Het oordeel hangt af van de dag (het venster van de pakken, de dagen sinds een prijs): dezelfde rijen op een andere
+        # UTC-dag zijn een ander antwoord, dus een andere ETag, ook als het venster op beide dagen leeg is.
+        await self.observe("2026-05-01", "1", "AH Pindakaas", 2.99)
+        found: list[str] = []
+        for day in ("2027-03-01", "2027-03-02"):
+            with mock.patch.object(prices, "_now", return_value=f"{day}T08:00:00+00:00"):
+                found.append(await prices.offers_signature("ah"))
+        self.assertFalse(any(value.startswith("fout:") for value in found), found)
+        self.assertNotEqual(found[0], found[1])
+        with mock.patch.object(prices, "_now", return_value="2027-03-01T23:00:00+00:00"):
+            self.assertEqual(await prices.offers_signature("ah"), found[0], "dezelfde dag, dezelfde ETag")
+
     async def test_a_failing_catch_up_gives_no_regular_etag(self) -> None:
         await self.observe("2026-05-01", "1", "AH Pindakaas", 2.99)
         self.assertFalse((await prices.offers_signature("ah")).startswith("fout:"))
