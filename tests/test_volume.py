@@ -563,7 +563,8 @@ async def test_startup_warming_does_not_stall(volume_dir: Path) -> None:
 @pytest.mark.volume
 async def test_two_cold_requests_build_the_catalogue_once(volume_dir: Path) -> None:
     # De versie van de catalogus staat vast voordat de twee aanvragen haar lezen.
-    await prices.signature("ah")
+    async with prices._connect() as conn:
+        await prices._catalogue_version(conn, "ah")
     with mock.patch.object(
         prices, "_build_catalogue", wraps=prices._build_catalogue
     ) as built:

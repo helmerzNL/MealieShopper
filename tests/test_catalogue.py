@@ -41,7 +41,8 @@ async def database(data_dir: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     zonder triggers maken ze allebei en lezen dan elk een andere versie."""
     monkeypatch.setenv("PASSKEY_AUTH_ENABLED", "false")
     await auth.init_db()
-    await prices.signature("ah")
+    async with prices._connect() as conn:
+        await prices._catalogue_version(conn, "ah")
     return data_dir
 
 

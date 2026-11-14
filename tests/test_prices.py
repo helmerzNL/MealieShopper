@@ -676,13 +676,13 @@ class VerdictTest(PricesCase):
         self.assertEqual([key[1] for key in prices._CATALOGUES], ["ah"])
 
     async def test_the_price_signature_changes_with_the_catalogue(self):
-        before = await prices.signature("ah")
+        before = await prices.offers_signature("ah")
         with closing(db(prices)) as conn, conn:
             conn.execute(
                 "INSERT INTO offer_history (store, product_id, title, first_seen, last_seen, ended_at) "
                 "VALUES ('ah', 'folder:b', 'Folder: Alle Ajax', '2026-01-05T00:00:00+00:00', '2026-01-11T23:59:59+00:00', '2026-01-11T23:59:59+00:00')"
             )
-        self.assertNotEqual(await prices.signature("ah"), before, "een archiefimport ververst het oordeel bij de aanbiedingen")
+        self.assertNotEqual(await prices.offers_signature("ah"), before, "een archiefimport ververst het oordeel bij de aanbiedingen")
 
     def test_the_price_label_ladder(self):
         cases = [  # (punten, effectieve prijs, verwachte trede)

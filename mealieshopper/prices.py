@@ -2109,45 +2109,28 @@ async def _window_shape(conn: aiosqlite.Connection, store: str, today: str) -> s
     return await compute.run(_shape_digest, rows)
 
 
-# Per (database, winkel, soort) de laatste uitkomst van `_signature` met de stand waarvoor hij gold. Exact: elke INSERT en UPDATE op
+# Per (database, winkel) de laatste uitkomst van `_signature` met de stand waarvoor hij gold. Exact: elke INSERT en UPDATE op
 # `price_observations` hoogt `prices` op en elke DELETE `products`, dus zolang token, `products`, `prices`, de ids en de dag gelijk
 # zijn, is ook de uitkomst gelijk. Hij wordt hooguit een keer per bewaarde prijs opnieuw uitgerekend.
-_SIGNATURES: dict[tuple[str, str, str], tuple[tuple[Any, ...], str]] = {}
+_SIGNATURES: dict[tuple[str, str], tuple[tuple[Any, ...], str]] = {}
 
 
-async def _signature(conn: aiosqlite.Connection, store: str, ids: tuple[str, ...], today: str | None) -> str:
-    """`<token>:<products>|<_price_version van ids>`, en met `today` ook `_window_shape` van die dag en de dag zelf (de ETag van
-    /api/offers): het oordeel rekent met de UTC-dag, ook als het venster op twee dagen hetzelfde is."""
+async def _signature(conn: aiosqlite.Connection, store: str, ids: tuple[str, ...], today: str) -> str:
+    """`<token>:<products>|<_price_version van ids>|<_window_shape van die dag>|<dag>`, het deel van de prijzen in de ETag van
+    /api/offers. De versie van de catalogus van de winkel (`_catalogue_version`) en `_price_version` van `ids`: een prijs van een
+    bekend product buiten `ids`, zoals de ronde langs de prijsindex er elke tien seconden een bewaart, laat hem staan. De rijen van
+    de winkel tellen (zoals tot 4.21.0) las bij elke aanvraag alle prijzen van die winkel, ook voor een 304: bij AH 1,6 seconde voor
+    309.000 prijzen. De dag staat erin omdat het oordeel met de UTC-dag rekent, ook als het venster op twee dagen hetzelfde is."""
     row: aiosqlite.Row = await _catalogue_row(conn, store)
     state: tuple[Any, ...] = (row["token"], row["products"], row["prices"], today, ids)
-    key: tuple[str, str, str] = (str(auth.db_path()), store, "ids" if today is None else "offers")
+    key: tuple[str, str] = (str(auth.db_path()), store)
     found: tuple[tuple[Any, ...], str] | None = _SIGNATURES.get(key)
     if found is not None and found[0] == state:
         return found[1]
-    value: str = f"{row['token']}:{row['products']}|{await _price_version(conn, store, ids)}"
-    if today is not None:
-        value += f"|{await _window_shape(conn, store, today)}|{today}"
+    price_version: str = await _price_version(conn, store, ids)
+    value: str = f"{row['token']}:{row['products']}|{price_version}|{await _window_shape(conn, store, today)}|{today}"
     _SIGNATURES[key] = (state, value)
     return value
-
-
-async def signature(store: Any, ids: Sequence[str] = ()) -> str:
-    """Verandert als er bij een winkel een aankoop, een aanbieding of een nieuw product is bewaard, of een prijs van een van de
-    producten `ids`: zo ververst een oordeel bij aanbiedingen (ETag). /api/offers neemt `offers_signature`, met de ids die zijn
-    antwoord raken.
-
-    De versie van de catalogus van de winkel (`_catalogue_version`) plus `_price_version` van `ids`. Een prijs van een bekend product
-    buiten `ids`, zoals de ronde langs de prijsindex er elke tien seconden een bewaart, laat hem staan. De rijen van de winkel
-    tellen (zoals tot 4.21.0) las bij elke aanvraag van de aanbiedingen alle prijzen van die winkel, ook voor een 304: bij AH 1,6
-    seconde voor 309.000 prijzen.
-    """
-    try:
-        key: str = offers._valid_store(store)
-        async with _connect() as conn:
-            return await _signature(conn, key, tuple(sorted({str(product_id) for product_id in ids})), None)
-    except Exception:  # noqa: BLE001 - de cache mag nooit de aanbiedingen tegenhouden
-        log.warning("Handtekening van de prijzen mislukt", exc_info=True)
-        return ""
 
 
 # De producten van de aanbiedingen van een winkel in de lokale kopie (elke week), en elk product met een bewaarde prijs, met hun namen.

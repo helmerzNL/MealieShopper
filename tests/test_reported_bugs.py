@@ -1852,15 +1852,22 @@ class SlowOffersPagesTest(AppTestCase):
                 self.assertEqual(await offers.history(store, query, limit), await self.history_the_old_way(store, query, limit))
 
     async def test_2026_11_13_the_price_signature_does_not_count_the_prices(self) -> None:
-        before: str = await prices.signature("ah")
-        self.assertTrue(before)
-        with closing(db(prices)) as conn, conn:
-            conn.execute(
-                "INSERT INTO price_observations (store, product_id, day, source, title, price, seen_at) "
-                "VALUES ('ah', '1', '2026-11-13', 'search', 'Brood', 1.99, 'nu')"
-            )
-        self.assertNotEqual(await prices.signature("ah"), before, "een nieuwe prijs ververst het oordeel bij de aanbiedingen")
-        self.assertNotIn("FROM price_observations", inspect.getsource(prices.signature), "de handtekening leest de prijzen zelf niet")
+        with mock.patch.object(prices, "_now", return_value="2026-11-13T12:00:00+00:00"):
+            before: str = await prices.offers_signature("ah")
+            self.assertFalse(before.startswith("fout:"), before)
+            with closing(db(prices)) as conn, conn:
+                conn.execute(
+                    "INSERT INTO price_observations (store, product_id, day, source, title, price, seen_at) "
+                    "VALUES ('ah', '1', '2026-11-13', 'search', 'Brood', 1.99, 'nu')"
+                )
+            after: str = await prices.offers_signature("ah")
+            self.assertNotEqual(after, before, "een nieuw product ververst het oordeel bij de aanbiedingen")
+            with closing(db(prices)) as conn, conn:  # dezelfde naam, een dag eerder: een prijs van een bekend product
+                conn.execute(
+                    "INSERT INTO price_observations (store, product_id, day, source, title, price, seen_at) "
+                    "VALUES ('ah', '1', '2026-11-12', 'search', 'Brood', 1.89, 'nu')"
+                )
+            self.assertEqual(await prices.offers_signature("ah"), after, "de handtekening telt niet alle prijzen van de winkel")
 
     async def penne_on_offer(self) -> None:
         """AH Penne in de aanbieding (0,89, van 1,19), en een gewone prijs van tien dagen terug."""
