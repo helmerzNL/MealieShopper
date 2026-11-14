@@ -342,9 +342,9 @@ _PRICE_CLEAR = math.log(1.15)  # zoveel dichterbij dan het eerste product met di
 
 
 def _name_sources(tables: set[str], store: str) -> list[tuple[str, tuple[Any, ...]]]:
-    """De bronnen van `_name_index`, elk met `product_id`, `title` en `price` (de gewone prijs, als de bron die kent). In volgorde:
-    de aanbiedingen, de bewaarde prijzen en de aankopen, en als laatste wat alleen een naam geeft: een bestelling die nog open
-    staat en een bonkoppeling van AH. Bij dezelfde naam wint de eerste bron (`_add_names`)."""
+    """De bronnen van de namen (`_name_groups`, `_matched_names`), elk met `product_id`, `title` en `price` (de gewone prijs,
+    als de bron die kent). In volgorde: de aanbiedingen, de bewaarde prijzen en de aankopen, en als laatste wat alleen een naam
+    geeft: een bestelling die nog open staat en een bonkoppeling van AH. Bij dezelfde naam wint de eerste bron (`_add_names`)."""
     sources: list[tuple[str, tuple[Any, ...]]] = [
         ("SELECT product_id, title, price_before AS price FROM offer_history WHERE store = ?", (store,)),
         ("SELECT product_id, title, price FROM price_observations WHERE store = ?", (store,)),
@@ -382,17 +382,20 @@ async def _name_rows(conn: aiosqlite.Connection, sources: list[tuple[str, tuple[
     return rows
 
 
-async def _name_index(conn: aiosqlite.Connection, store: str) -> dict[str, str]:
-    """Naam (gevouwen: kleine letters, zonder accenten) -> product-id, uit de bronnen van `_name_sources`."""
+def _matched_names(rows: list[tuple[Any, ...]], store: str, names: list[str]) -> dict[str, str]:
+    """Per naam het product waar hij op naam bij hoort (`_match_name`), uit de rijen van `_name_rows`: de index (naam, gevouwen:
+    kleine letters, zonder accenten -> product-id) en de kale namen (`_bare_index`). Een naam zonder product ontbreekt. Puur:
+    `link_names` laat dit in de threadpool lopen, bij AH zijn het tienduizenden namen om te vouwen."""
     index: dict[str, str] = {}
-    _add_names(index, await _name_rows(conn, _name_sources(await _tables(conn), store)))
-    return index
+    _add_names(index, rows)
+    bare: dict[str, str] = _bare_index(index, store)
+    return {name: product_id for name in names if (product_id := _match_name(index, bare, store, _fold_name(name)))}
 
 
 class _Names(NamedTuple):
     """De namen van een winkel om een aankoop zonder product-id aan een product te koppelen (`_link_receipt_rows`)."""
 
-    index: dict[str, str]  # `_name_index`: naam -> het eerste product met die naam
+    index: dict[str, str]  # `_name_groups`: naam -> het eerste product met die naam
     # Een naam waar meer dan een product bij hoort ("AH Sweet Palermo rode puntpaprika": 2 stuks en een zak van 500 gram)
     # -> per product de gewone prijzen die we ervan kennen. De prijs van de aankoop kiest dan (`_nearest_priced`).
     shared: dict[str, dict[str, tuple[float, ...]]]
@@ -411,9 +414,9 @@ async def _known_prices(conn: aiosqlite.Connection, sources: list[tuple[str, tup
 
 
 def _name_groups(rows: list[tuple[Any, ...]]) -> tuple[dict[str, str], dict[str, set[str]]]:
-    """De index van `_name_index` uit de rijen van `_name_rows`, en de namen waar meer dan een product bij hoort (naam -> de
-    producten). Puur: `_names` laat dit in de threadpool lopen, bij AH zijn het tienduizenden namen om te vouwen. De producten per
-    naam zijn tijdens het tellen een tuple en geen set: een set per naam volgt de GC (gc_watch.py)."""
+    """De index (naam -> het eerste product met die naam) uit de rijen van `_name_rows`, en de namen waar meer dan een product
+    bij hoort (naam -> de producten). Puur: `_names` laat dit in de threadpool lopen, bij AH zijn het tienduizenden namen om te
+    vouwen. De producten per naam zijn tijdens het tellen een tuple en geen set: een set per naam volgt de GC (gc_watch.py)."""
     index: dict[str, str] = {}
     _add_names(index, rows)
     products: dict[str, tuple[str, ...]] = {}
@@ -744,14 +747,11 @@ async def link_names(store: str, names: Iterable[str]) -> dict[str, dict[str, An
         own = {name: link for name in names if (link := mine.names.get(_fold_name(name)))}
         shared_all = shared_links.active(store, await shared_links.rejected(conn, store))
         shared = {name: shared_all[key] for name in names if name not in own and (key := name_keys.key(name)) in shared_all}
-        index = await _name_index(conn, store)
-        bare = _bare_index(index, store)
+        rows: list[tuple[Any, ...]] = await _name_rows(conn, _name_sources(await _tables(conn), store))
+        rest: list[str] = [name for name in names if name not in own and name not in shared]
         matched = {name: link["productId"] for name, link in own.items()}
         matched.update({name: link.product_id for name, link in shared.items()})
-        matched.update({
-            name: product_id for name in names if name not in own and name not in shared
-            and (product_id := _match_name(index, bare, store, _fold_name(name)))
-        })
+        matched.update(await compute.run(_matched_names, rows, store, rest))
         details = await _product_details(conn, store, sorted(set(matched.values())))
     found: dict[str, dict[str, Any]] = {}
     for name, product_id in matched.items():

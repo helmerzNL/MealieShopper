@@ -1039,6 +1039,8 @@ async def test_price_compare_does_not_stall(
     await quiet(compare)
 
 
+# De ingelezen bestellingen van AH (bevestigingsmails, `price_import.py`): de lijst en een bestelling.
+IMPORTED_PAGES: tuple[str, ...] = ("/api/imported-orders/ah", "/api/imported-orders/ah/mail-00000")
 PURCHASE_PAGES: tuple[str, ...] = (
     "/api/ah/orders",
     "/api/ah/orders/900000",
@@ -1053,6 +1055,7 @@ PURCHASE_PAGES: tuple[str, ...] = (
     "/api/jumbo/purchases/search?q=jumbo&limit=all",
     "/api/picnic/orders",
     "/api/crisp/orders",
+    *IMPORTED_PAGES,
 )
 
 
@@ -1077,6 +1080,24 @@ async def test_purchase_and_receipt_pages_do_not_stall(volume_client: TestClient
         return answer
 
     await quiet(page)
+
+
+async def _cold_names() -> None:
+    """Leegt de memo's van de namen (`NAME_MEMOS`): de eerste aanvraag na het starten vouwt elke naam opnieuw."""
+    for memo in NAME_MEMOS:
+        memo.cache_clear()
+
+
+@pytest.mark.volume
+@pytest.mark.parametrize("path", IMPORTED_PAGES)
+async def test_imported_orders_do_not_stall_with_cold_name_memos(volume_client: TestClientProtocol, path: str) -> None:
+    # Het koppelen op naam (`prices.link_names`) vouwt de namen van de winkel: met lege memo's 316 tot 328 ms op de loop.
+    async def page() -> Any:
+        answer: Any = await _get(volume_client, path)
+        assert _has_rows(answer), (path, str(answer)[:300])
+        return answer
+
+    await quiet(page, prepare=_cold_names)
 
 
 @pytest.mark.volume
