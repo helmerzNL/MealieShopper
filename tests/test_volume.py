@@ -554,15 +554,6 @@ async def test_building_the_catalogue_does_not_stall(volume_dir: Path) -> None:
     )
 
 
-@pytest.mark.volume
-async def test_building_the_catalogue_sets_the_heap_aside(volume_dir: Path) -> None:
-    # Zonder liep elke volle ronde van de GC tijdens een koude bouw langs alle catalogi, 100 tot 210 ms met de GIL vast (taak 9b)
-    with mock.patch.object(gc_watch, "set_aside", wraps=gc_watch.set_aside) as spy:
-        await prices.warm_catalogues(["jumbo"], today=volume.TODAY)
-    assert spy.call_count == 2  # voor de bouw (de app en de andere catalogi) en erna (de nieuwe catalogus)
-
-
-
 class _Wrapper:
     """Zoals hypercorn 0.18 `ProtocolWrapper`: zijn `send` is een gebonden methode van de server."""
 
@@ -588,7 +579,7 @@ class _Server:
 
 def _dead_cycles_in_the_old_generation(count: int) -> None:
     """`count` gesloten verbindingen als afval in generatie 2: eerst levend naar generatie 2 (een ronde over de jonge
-    generaties), dan los. Een bevroren kring ruimt de GC nooit meer op."""
+    generaties), dan los. Alleen een volle ronde ruimt zo'n kring op."""
     servers: list[_Server] = [_Server() for _ in range(count)]
     gc.collect(1)
     del servers
@@ -599,12 +590,12 @@ PRODUCT_CHANGE: str = (
     " WHERE rowid = (SELECT MIN(rowid) FROM price_observations WHERE store = 'ah')"
 )
 PLANTED: int = 500  # gesloten verbindingen per ronde, elk vijf objecten die de GC volgt
-FROZEN_SPREAD: int = 1000  # de catalogus is na elke bouw even groot, op een product na: geen 2500 objecten per ronde erbij
 
 
 @pytest.mark.volume
 async def test_rebuilds_do_not_freeze_dead_cycles(volume_client: TestClientProtocol, volume_dir: Path) -> None:
-    # Review van taak 9b: gc.collect(1) en gc.freeze() bevroren ook dode kringen uit generatie 2, voor de rest van het proces.
+    # Review van taak 9b: gc.collect(1) en gc.freeze() bij een bouw bevroren ook dode kringen uit generatie 2, voor de rest van
+    # het proces. Sinds taak 9c bevriest een bouw niets meer: dit houdt dat zo.
     # Elke ronde: dode kringen zoals gesloten verbindingen van hypercorn, dan een nieuwe catalogus (koud, of na een wijziging
     # van een product). De drempel van generatie 2 staat hoog, zodat geen volle ronde van zichzelf het afval opruimt voor de
     # bouw: zo ligt het er nog op het moment dat de catalogus opzij gaat, zoals in productie tussen twee volle rondes.
@@ -625,7 +616,7 @@ async def test_rebuilds_do_not_freeze_dead_cycles(volume_client: TestClientProto
         gc.set_threshold(*thresholds)
     gc.collect()
     assert _Server.removed - removed == 4 * PLANTED  # niets van het afval is voor altijd bevroren
-    assert max(frozen[1:]) - min(frozen[1:]) < FROZEN_SPREAD, frozen
+    assert len(set(frozen)) == 1, frozen  # er komt niets bij in de bevroren generatie
 
 
 def _bought_outside_the_list(path: Path, count: int, reached: tuple[str, ...]) -> list[ah_price_index.Series]:

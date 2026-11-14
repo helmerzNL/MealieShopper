@@ -39,7 +39,6 @@ from typing import Any, Callable, Iterable, NamedTuple
 import aiosqlite
 
 from . import ah, ah_lists, ah_orders, auth, compute, deals, line_offers, name_keys, offer_categories, offer_ranking, offers, packs, price_import, product_links, shared_links
-from . import gc_watch
 from .i18n import tr
 from .regular_price import Chosen, RegularPoint, choose
 
@@ -1296,14 +1295,11 @@ async def _new_catalogue(key: tuple[str, str], version: str, today: str) -> _Cat
     met dezelfde naam (`_PriceState`): komt er tijdens de bouw een prijs bij, dan controleert de volgende `_catch_up` opnieuw. Een
     eigen verbinding, want de bouw loopt door als de aanvraag die hem startte wegvalt (`compute.SingleFlight`), en die sluit dan haar
     verbinding. Een fout komt bij elke wachtende aanvraag terecht en blijft niet bewaard: de volgende aanvraag bouwt opnieuw."""
-    gc_watch.sweep()  # het afval in generatie 2 weg, voordat set_aside het bevriest (gc_watch.py)
     async with _connect() as conn:
         counted: int = (await _catalogue_row(conn, key[1]))["prices"]
         rows: _CatalogueRows = await _catalogue_rows(conn, key[1], today)
-    gc_watch.set_aside()  # anders loopt elke volle ronde van de GC tijdens de bouw langs alles wat er al is (gc_watch.py)
     catalogue: _Catalogue = await compute.run(_build_catalogue, key[1], today, rows)
     _CATALOGUES[key] = (version, today, catalogue, _PriceState(counted, rows.links.names.shared if rows.links is not None else {}))
-    gc_watch.set_aside()  # en daarna langs de nieuwe catalogus
     return catalogue
 
 

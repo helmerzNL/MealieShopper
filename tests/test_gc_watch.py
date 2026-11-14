@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import gc
-import weakref
 
 from mealieshopper import gc_watch
 
@@ -42,26 +41,3 @@ def test_stop_removes_the_callback() -> None:
     watch.stop()
     watch.stop()
     assert watch._callback not in gc.callbacks
-
-
-class Node:
-    """Een object dat de GC volgt en dat naar zichzelf kan wijzen (een kring)."""
-
-    me: Node | None = None
-
-
-def test_a_dead_cycle_in_the_old_generation_is_swept_before_it_is_frozen() -> None:
-    """Review van taak 9b: `set_aside` alleen (`gc.collect(1)` en `gc.freeze()`) kijkt niet in generatie 2, en bevroor een dode
-    kring daar voor de rest van het proces. De bouw roept daarom eerst `sweep` aan."""
-    before: int = gc.get_freeze_count()
-    kept: list[Node] = [Node() for _ in range(1000)]
-    cycle: Node = Node()
-    cycle.me = cycle
-    gone: weakref.ref[Node] = weakref.ref(cycle)
-    gc.collect(1)  # nog levend: de kring gaat naar generatie 2
-    del cycle  # nu afval in generatie 2, en alleen een volle ronde ruimt een kring op
-    gc_watch.sweep()
-    gc_watch.set_aside()
-    gc.collect()
-    assert gone() is None  # niet bevroren
-    assert gc.get_freeze_count() >= before + len(kept)  # wat leeft wel
