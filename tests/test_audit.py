@@ -19,7 +19,7 @@ import httpx  # noqa: E402
 import pytest  # noqa: E402
 import respx  # noqa: E402
 
-from mealieshopper import audit, auth, http_client, mcp, oauth, tasks  # noqa: E402
+from mealieshopper import audit, auth, http_client, mcp, oauth, tasks, telemetry  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
 from helpers import AppTestCase, db, settle_audit  # noqa: E402
 
@@ -751,10 +751,6 @@ async def test_an_unfollowed_redirect_is_recorded_by_a_task_that_is_held(audit_d
     assert (entry["status"], entry["url"]) == (302, "https://www.ah.nl/start")
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 async def test_outbound_calls_share_one_writer_connection(audit_dir: Path) -> None:
     """Taak 9c: elk uitgaand verzoek opende voor zijn auditregel een eigen aiosqlite-verbinding, dus een nieuwe thread, en op
     de event loop wacht `Thread.start` tot die draait (onder belasting een stilstand van 131 ms). Nu schrijft een schrijver per
@@ -780,3 +776,83 @@ async def test_outbound_calls_share_one_writer_connection(audit_dir: Path) -> No
         await http_client.aclose_all()
     assert len(started) <= 1, [thread.name for thread in started]
     assert len((await audit.list_entries())["entries"]) == 21
+
+
+def recording(target: str) -> telemetry.Recording:
+    return telemetry.Recording("GET", target)
+
+
+async def record_under(found: telemetry.Recording, action: str) -> int | None:
+    """`audit.record` in een eigen context met `found` als meting van de aanvraag, zoals de middleware van de telemetrie doet."""
+
+    async def inside() -> int | None:
+        telemetry._current.set(found)
+        return await audit.record(kind="outbound", service="ah", action=action)
+
+    return await asyncio.create_task(inside(), context=contextvars.Context())
+
+
+async def test_each_row_counts_for_the_request_that_wrote_it(audit_dir: Path) -> None:
+    """Review van taak 9c: de schrijver erfde de context van de eerste aanroeper, met diens meting. Elke volgende regel telde dan
+    bij die al klare aanvraag. Nu loopt hij in een lege context, en telt elke regel bij zijn eigen aanvraag."""
+    first: telemetry.Recording = recording("/eerste")
+    second: telemetry.Recording = recording("/tweede")
+    assert isinstance(await record_under(first, "een"), int)
+    assert isinstance(await record_under(second, "twee"), int)
+    assert (first.counts.get("db"), second.counts.get("db")) == (1, 1)
+    assert second.slowest_sql == "INSERT audit_log"
+    writer: Any = audit._WRITERS[asyncio.get_running_loop()]
+    assert writer.task is not None and writer.task.get_context().get(telemetry._current) is None
+
+
+async def test_a_row_that_arrives_as_the_wait_times_out_is_kept(audit_dir: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Review van taak 9c: kwam een regel binnen op het moment dat het wachten op de eerste afliep, dan gaf de schrijver een lege
+    lijst en stopte hij, met de regel nog in de wachtrij. Nu hoort die regel bij de laatste ronde."""
+    writer: Any = audit._Writer(asyncio.get_running_loop())
+    late: Any = audit._Pending("x", (), asyncio.get_running_loop().create_future(), None)
+
+    async def times_out(awaitable: Any, timeout: float) -> Any:
+        awaitable.close()
+        writer.queue.put_nowait(late)
+        raise TimeoutError
+
+    monkeypatch.setattr(audit.asyncio, "wait_for", times_out)
+    assert await writer._next_batch() == [late]
+
+
+async def test_cancel_all_writes_what_is_queued_and_record_writes_directly_after(audit_dir: Path) -> None:
+    """Review van taak 9c: `cancel_all` annuleerde de schrijver, en de regels in de wachtrij kregen None. Nu laat hij hem
+    leeglopen. Een regel na het afsluiten schrijft `record` zelf, zonder een schrijver te starten waar niemand op wacht."""
+    queued: list[asyncio.Future[int | None]] = [audit._writer().submit(audit._row_values(**{**AUDIT_FIELDS, "action": f"r{n}"})) for n in range(3)]
+    await tasks.cancel_all(timeout=5)
+    assert all(isinstance(future.result(), int) for future in queued)
+    assert isinstance(await audit.record(kind="outbound", service="ah", action="na"), int)
+    assert asyncio.get_running_loop() not in audit._WRITERS
+    assert [entry["action"] for entry in (await audit.list_entries())["entries"]] == ["na", "r2", "r1", "r0"]
+
+
+async def test_an_idle_writer_lets_go_of_its_loop(audit_dir: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Review van taak 9c: `_WRITERS` hield elke loop vast (de schrijver verwijst via zijn task naar de loop). Een schrijver die
+    stopt, haalt zichzelf weg, en de volgende regel start een nieuwe."""
+    monkeypatch.setattr(audit, "WRITER_IDLE_SECONDS", 0.05)
+    await audit.record(kind="outbound", service="ah", action="een")
+    writer: Any = audit._WRITERS[asyncio.get_running_loop()]
+    await writer.task
+    assert asyncio.get_running_loop() not in audit._WRITERS
+    assert isinstance(await audit.record(kind="outbound", service="ah", action="twee"), int)
+    assert audit._WRITERS[asyncio.get_running_loop()] is not writer
+
+
+async def test_wiping_the_data_retires_the_writer(audit_dir: Path) -> None:
+    """Review van taak 9c: de fabrieksreset haalt `auth.sqlite3` weg terwijl de schrijver er een verbinding op heeft. Na
+    `auth.forget_runtime_state` stopt die schrijver, en de volgende regel komt via een nieuwe in het nieuwe bestand."""
+    await audit.record(kind="outbound", service="ah", action="oud")
+    old: Any = audit._WRITERS[asyncio.get_running_loop()]
+    auth.forget_runtime_state()
+    await old.task
+    assert isinstance(await audit.record(kind="outbound", service="ah", action="nieuw"), int)
+    assert audit._WRITERS[asyncio.get_running_loop()] is not old
+
+
+if __name__ == "__main__":
+    unittest.main()
