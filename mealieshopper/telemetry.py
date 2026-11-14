@@ -351,7 +351,8 @@ class Telemetry:
 
     def gc_counts(self) -> dict[str, Any]:
         """Voor `snapshot`: de lange rondes, en hoeveel objecten bevroren zijn. De app bevriest niets (gc_watch.py), dus `frozen`
-        hoort 0 te zijn: is het dat niet, dan riep een bibliotheek `gc.freeze()` aan en volgt de GC die objecten niet meer.
+        blijft wat Python zelf bij het starten meegeeft: 375 bij 3.12 (ook een kale `python -I -S`), 0 bij 3.15. Stijgt het, dan
+        riep een bibliotheek `gc.freeze()` aan en volgt de GC die objecten niet meer.
 
         `counters` zijn de tellers van `gc.get_count()`, geen aantallen objecten: voor generatie 0 de objecten erbij sinds de
         laatste ronde, voor 1 en 2 het aantal rondes van de generatie eronder. `gc.get_freeze_count()` loopt de bevroren lijst af
