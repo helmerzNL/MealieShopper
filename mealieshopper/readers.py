@@ -152,10 +152,17 @@ class _Pool:
         finally:
             self.retired = True
             _forget(self)
-            self._stop_idle()
+            try:
+                # Na een annulering (`asyncio.Runner` bij het sluiten van de loop): netjes sluiten wat nog vrij staat. Een task die
+                # een keer geannuleerd is, kan hier gewoon wachten. Zonder te wachten (`conn.stop`) meldt de thread van aiosqlite
+                # een fout als de loop al dicht is voor hij antwoordt.
+                await self._close_idle(math.inf)
+            finally:
+                self._stop_idle()
 
     def _stop_idle(self) -> None:
-        """Na een annulering van `_keep`: wat nog vrij staat, krijgt de stop zonder erop te wachten, zodat zijn thread eindigt."""
+        """Na een tweede annulering tijdens het sluiten: wat nog vrij staat, krijgt de stop zonder erop te wachten, zodat zijn thread
+        eindigt."""
         for conn, _ in self._idle:
             self._open -= 1
             conn.stop()
