@@ -15,6 +15,7 @@ Pull request: [#334](https://github.com/helmerzNL/MealieShopper/pull/334).
 ### Tests in 4.27.1
 
 - `tests/test_reported_bugs.py` (`WatchedSizeWithoutPackagingTest`): met de echte `watchedDetailHtml` in Node staat bij een onbekende verpakking alleen de maat, zonder "verpakking onbekend", en bij een bekende verpakking de maat en de verpakking samen. De test faalt op de code van 4.27.0.
+- `tests/test_catalogue.py`: de test van een afgebroken aanvraag tijdens het bouwen van de catalogus wacht nu tot die aanvraag echt gestopt is, voordat hij dat controleert. `cancel()` vraagt het stoppen alleen aan; op een drukke CI-runner was de aanvraag nog bezig met stoppen (`Task cancelling`) en faalde de test af en toe.
 
 ## v4.27.0
 
