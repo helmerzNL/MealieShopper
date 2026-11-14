@@ -103,6 +103,7 @@ def test_the_generator_is_deterministic(tmp_path: Path) -> None:
         assert found == _rows(second / volume.DB_NAME, table), table
 
 
+@pytest.mark.volume  # bouwt de volledige volumedatabase (`volume_template`)
 def test_the_generator_reaches_the_sizes(volume_template: Path) -> None:
     counted: dict[str, int] = volume.counts(volume_template / volume.DB_NAME)
     for name, wanted in volume.SIZES.items():
