@@ -2203,7 +2203,7 @@ class SlowOffersPagesTest(AppTestCase):
             )
 
     async def history_the_old_way(self, store: str | None, query: str, limit: int) -> dict:
-        """Zoals tot 4.21.0: alle rijen lezen, per product samenvoegen, sorteren en afkappen."""
+        """Zoals tot 4.25.1: alle rijen lezen, per product samenvoegen, sorteren en afkappen."""
         stores: list[str] = [store] if store else list(offers.STORES)
         async with offers._connect() as conn:
             rows = await conn.execute_fetchall(

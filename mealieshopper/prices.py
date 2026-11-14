@@ -2323,7 +2323,7 @@ async def _signature(conn: aiosqlite.Connection, store: str, ids: tuple[str, ...
     """`<token>:<products>|<_price_version van ids>|<_window_shape van die dag>|<dag>`, het deel van de prijzen in de ETag van
     /api/offers. De versie van de catalogus van de winkel (`_catalogue_version`) en `_price_version` van `ids`: een prijs van een
     bekend product buiten `ids`, zoals de ronde langs de prijsindex er elke tien seconden een bewaart, laat hem staan. De rijen van
-    de winkel tellen (zoals tot 4.21.0) las bij elke aanvraag alle prijzen van die winkel, ook voor een 304: bij AH 1,6 seconde voor
+    de winkel tellen (zoals tot 4.25.1) las bij elke aanvraag alle prijzen van die winkel, ook voor een 304: bij AH 1,6 seconde voor
     309.000 prijzen. De dag staat erin omdat het oordeel met de UTC-dag rekent, ook als het venster op twee dagen hetzelfde is."""
     row: aiosqlite.Row = await _catalogue_row(conn, store)
     state: tuple[Any, ...] = (row["token"], row["products"], row["prices"], today, ids)

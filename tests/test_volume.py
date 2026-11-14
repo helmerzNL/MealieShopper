@@ -468,7 +468,7 @@ async def test_a_request_that_goes_away_leaves_the_whole_list(client: TestClient
         assert hashlib.sha256(await response.get_data()).hexdigest() == SMALL_BODY_SHA256
 
 
-@pytest.mark.volume  # geen xfail: sinds 4.21.1 leest de pagina alleen de rijen van zijn producten, en staat hij niet stil
+@pytest.mark.volume  # geen xfail: sinds 4.26.0 leest de pagina alleen de rijen van zijn producten, en staat hij niet stil
 async def test_offer_history_does_not_stall(volume_client: TestClientProtocol) -> None:
     answer: Any = await quiet(lambda: _get(volume_client, "/api/offers/history?limit=200"))
     assert answer["products"]
