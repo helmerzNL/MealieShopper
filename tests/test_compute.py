@@ -11,6 +11,7 @@ import contextvars
 import gc
 import threading
 import time
+import weakref
 from collections.abc import Iterator
 from typing import Any
 
@@ -65,6 +66,23 @@ async def test_run_counts_as_a_phase_in_the_telemetry() -> None:
         telemetry._current.reset(token)
     assert recording.phases["compute"] > 0
     assert recording.counts["compute"] == 1
+
+
+async def test_a_finished_job_is_let_go_before_the_next_one() -> None:
+    """Taak 9c: de rekenthread hield de laatste opdracht vast zolang hij op de volgende wachtte, en daarmee zijn argumenten (bij
+    een bouw van de catalogus de rijen: 22.000 objecten die de GC volgt)."""
+
+    class Rows:
+        pass
+
+    rows: Rows = Rows()
+    gone: weakref.ref[Rows] = weakref.ref(rows)
+    assert await compute.run(lambda given: given is not None, rows)
+    del rows
+    deadline: float = time.monotonic() + 5
+    while gone() is not None and time.monotonic() < deadline:  # de thread laat los na `set_result`, dus net na ons antwoord
+        await asyncio.sleep(0.01)
+    assert gone() is None
 
 
 async def test_at_most_two_run_at_once() -> None:

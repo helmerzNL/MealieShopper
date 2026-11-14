@@ -641,9 +641,9 @@ def _link_receipt_rows(
     alleen de bevestigde (`CONFIRMED_LINKS`, zie `_receipt_points`)."""
     bare = _bare_index(names.index, store)
     webshop: dict[str, _Linked] = {link.product_id: link for link in linked.values()}
-    titles: dict[str, list[str]] = {}
+    titles: dict[str, tuple[str, ...]] = {}  # tuples en geen lijsten: een lijst per product volgt de GC (gc_watch.py)
     for title, product_id in names.index.items():
-        titles.setdefault(product_id, []).append(title)
+        titles[product_id] = (*titles.get(product_id, ()), title)
     found: list[dict[str, Any]] = []
     for row in rows:
         own, name = row["receipt_product_id"], _fold_name(row["title"])
@@ -672,7 +672,7 @@ def _article_row(row: Any, shop: _Linked) -> dict[str, Any]:
 
 
 def _guessed_row(
-    store: str, row: Any, names: _Names, bare: dict[str, str], titles: dict[str, list[str]], webshop: dict[str, _Linked]
+    store: str, row: Any, names: _Names, bare: dict[str, str], titles: dict[str, tuple[str, ...]], webshop: dict[str, _Linked]
 ) -> dict[str, Any]:
     """Een regel zonder bevestigde koppeling (`_link_receipt_rows`), met `linked_by`: `id` (het nummer op de bon is ook het id van
     een product in de webwinkel), `name` (op naam of bijna-naam, zonder verpakking) of `fallback` (bij geen product, `bon:` of

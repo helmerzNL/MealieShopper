@@ -67,12 +67,15 @@ class _Pool:
             if job is None:
                 return
             future, call = job
-            if not future.set_running_or_notify_cancel():
-                continue  # de aanroeper is al weg
-            try:
-                future.set_result(call())
-            except BaseException as exc:  # noqa: BLE001 - de aanroeper krijgt de fout
-                future.set_exception(exc)
+            del job
+            if future.set_running_or_notify_cancel():  # anders is de aanroeper al weg
+                try:
+                    future.set_result(call())
+                except BaseException as exc:  # noqa: BLE001 - de aanroeper krijgt de fout
+                    future.set_exception(exc)
+            # Zonder dit houdt de wachtende thread de opdracht en zijn argumenten vast tot de volgende opdracht: bij een bouw van
+            # de catalogus van AH de rijen, 22.000 objecten die de GC bij elke volle ronde langsloopt (gc_watch.py).
+            del future, call
 
     def stop(self, seconds: float) -> None:
         """Annuleert wat nog wacht en wacht hooguit `seconds` op wat loopt. Een functie die dan nog loopt, kan niet gestopt worden."""

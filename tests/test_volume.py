@@ -721,9 +721,10 @@ async def test_the_catalogues_keep_a_full_collection_short(volume_client: TestCl
 
 # Hoeveel gevolgde objecten een koude bouw van AH er hooguit bij heeft op het moment dat een volle ronde van de GC begint: dan
 # loopt de ronde langs alles, met de GIL vast. Na taak 9c is de vaste stand met alle catalogi zo'n 120.000 (de app en de tests
-# erbij), dus dit houdt de piek binnen twee keer de vaste stand. Voor de review van taak 9c: 200.000 tot 300.000 erbij (de rijen als
-# sqlite3.Row, een dict en twee sets per product).
-BUILD_PEAK_ADDED_LIMIT: int = 120_000
+# erbij), dus dit houdt de piek ruim binnen twee keer de vaste stand. Gemeten (3.12): voor de review van taak 9c 363.590 erbij (de
+# rijen als sqlite3.Row, een dict en twee sets per product, een lijst per product in `_link_receipt_rows`), daarna 50.283. Wat
+# overblijft zijn vooral de regels van de bon als sqlite3.Row (17.000) en de tuples van de producten tot een ronde ze loslaat.
+BUILD_PEAK_ADDED_LIMIT: int = 80_000
 
 
 @pytest.mark.volume
