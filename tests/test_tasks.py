@@ -339,8 +339,10 @@ async def test_a_failed_shielded_task_with_its_caller_waiting_is_no_warning(capl
 
 
 async def test_shutdown_waits_at_most_three_seconds_for_tasks_so_docker_does_not_kill_the_app(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Hypercorn wacht 3 seconden op lopende verzoeken, de tasks 3 en de rekenthreads 2,5: samen onder de 9 seconden, binnen de 10
-    van `docker stop`. Review van taak 9c: het waren er 3 plus 5 plus 5."""
+    """Na de overdracht door hypercorn wachten de tasks hooguit 3 seconden en de rekenthreads 2,5, en hypercorn zelf daarvoor
+    hooguit `graceful_timeout` (3) op zijn eigen taken: samen onder de 9 seconden, binnen de 10 van `docker stop`. Review van
+    taak 9c: het waren er 3 plus 5 plus 5. Niet begrensd zijn verzoeken die nog lopen: hypercorn 0.18 wacht eerst tot hun
+    verbinding dicht is (`server.wait_closed()`), en een verzoek van 20 seconden hield `after_serving` 19,5 seconden op (eindreview)."""
     from hypercorn.config import Config
 
     from mealieshopper import compute

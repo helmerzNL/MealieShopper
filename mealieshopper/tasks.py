@@ -197,12 +197,14 @@ async def cancel_all(timeout: float = 10.0) -> None:
         await asyncio.wait(waiting, timeout=timeout)
 
 
-# Het afsluiten moet binnen de 10 seconden die Docker een container geeft tussen SIGTERM en SIGKILL. Begrensd is: hypercorn
-# wacht tot 3 seconden (`graceful_timeout`, standaard) op lopende verzoeken, dan de tasks hooguit 3 seconden en de rekenthreads
-# hooguit `compute.SHUTDOWN_SECONDS` (2,5), samen 8,5 s (`tests/test_tasks.py` telt het na). Niet begrensd is werk in de
-# standaard-executor van de loop (`asyncio.to_thread`, zoals het terugzetten van een back-up): na `after_serving` sluit hypercorn
-# de loop met `asyncio.Runner`, en die wacht tot 300 seconden (`shutdown_default_executor`) op zo'n thread. Loopt er dan nog een,
-# dan stopt Docker de container na 10 seconden alsnog hard.
+# Het afsluiten moet binnen de 10 seconden die Docker een container geeft tussen SIGTERM en SIGKILL. Begrensd is wat er na de
+# overdracht door hypercorn (`after_serving`) gebeurt: de tasks hooguit 3 seconden en de rekenthreads hooguit
+# `compute.SHUTDOWN_SECONDS` (2,5), samen 5,5 s (`tests/test_tasks.py` telt het na). Niet begrensd zijn verzoeken die nog lopen:
+# hypercorn 0.18 wacht eerst tot hun verbindingen dicht zijn (`server.wait_closed()`) en pas daarna hooguit `graceful_timeout`
+# (3 s) op zijn eigen taken, dus een verzoek van 20 seconden hield `after_serving` 19,5 seconden op. Ook niet begrensd is werk in
+# de standaard-executor van de loop (`asyncio.to_thread`, zoals het terugzetten van een back-up): na `after_serving` sluit
+# hypercorn de loop met `asyncio.Runner`, en die wacht tot 300 seconden (`shutdown_default_executor`) op zo'n thread. Duurt het
+# samen langer, dan stopt Docker de container na 10 seconden alsnog hard.
 SHUTDOWN_TIMEOUT: float = 3.0
 
 
