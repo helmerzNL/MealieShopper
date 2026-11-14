@@ -4,8 +4,8 @@ import unittest
 
 from helpers import db  # noqa: F401 - zet het pad naar de app
 
-from mealieshopper import prices
-from mealieshopper.line_offers import LineIndex, category_words, line_alternatives, per_piece
+from mealieshopper import line_offers, prices
+from mealieshopper.line_offers import LineIndex, line_alternatives, per_piece
 
 PIZZA: str = "Dr. Oetker Casa di Mama pizza salame extra piccante"
 
@@ -75,7 +75,7 @@ class LinesForTest(unittest.TestCase):
         before: dict[str, int] = {name: id(value) for name, value in vars(index).items()}
         endings: dict[str, int] = {kind: id(found) for kind, found in index._by_ending.items()}
         self.assertLessEqual({"brood", "bakkerij", "vlee"}, set(endings))
-        bread: frozenset[str] = category_words("brood_bakkerij")
+        bread: frozenset[str] = line_offers.category_words("brood_bakkerij")
         self.assertEqual(index.lines_for(["ah les pains triomphe heel ah"], (), bread), ["folder:1", "folder:3"])
         self.assertEqual(index.lines_for(["ah les pains triomphe heel ah"], (), frozenset({"onbekend"})), ["folder:3"])
         self.assertEqual({name: id(value) for name, value in vars(index).items()}, before)
