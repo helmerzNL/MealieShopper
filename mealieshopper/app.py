@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import quote_plus
 import sqlite3
+import sys
 
 import httpx
 from quart import Quart, Response, jsonify, redirect, render_template, request, send_file, send_from_directory
@@ -105,7 +106,18 @@ def _ah_proxy_cookie(headers: Iterable[str]) -> str | None:
     return "; ".join(kept) or None
 
 
+# Het wisselinterval van de GIL (`sys.setswitchinterval`), standaard 5 ms. Laat de event loop de GIL los in een
+# systeemaanroep terwijl een rekenthread of een thread van aiosqlite Python draait, dan krijgt de loop hem pas na dit interval
+# terug: het konvooi van loop_guard.py. Gemeten onder hypercorn op de volumedatabase met drie processen die elk een kern bezet
+# hielden, vijf runs per waarde (taak 9c): de langste vasthouding van de loop ging op 3.15 van 94,7 ms (5 ms) naar 64,6 ms
+# (1 ms), en de vasthoudingen van 50 ms of langer van 7,0 naar 1,2 per run. Op 3.12 van 73,6 naar 39,9 ms. Zonder belasting
+# bleven de koude aanbiedingen van AH, het opnieuw beoordelen, de prijsgeschiedenis en de bouw van de catalogi binnen 3 %.
+# 0,5 ms was op 3.15 niet beter (76,8 ms), en een rekenpool van een thread slechter.
+SWITCH_INTERVAL_SECONDS: float = 0.001
+
+
 def create_app() -> Quart:
+    sys.setswitchinterval(SWITCH_INTERVAL_SECONDS)  # hier, want run.py en hypercorn (run:app) starten allebei via create_app
     app = Quart(__name__, template_folder="../templates", static_folder="../static")
     # De versie van de statische bestanden: uit hun inhoud (assets.py), tenzij MEALIESHOPPER_ASSET_VERSION hem vastzet.
     app.config["ASSET_VERSION"] = environ.get("MEALIESHOPPER_ASSET_VERSION") or assets.asset_version(Path(app.static_folder or "static"))

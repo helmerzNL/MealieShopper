@@ -25,7 +25,9 @@ aanroepen stond onder belasting 100 tot 200 ms stil. De stack van de loop staat 
 (`Stall.threads`). Gevonden in taak 9c: `Path.resolve` in `auth.data_dir` (een lstat per deel van het pad, bij elke
 verbinding), de mislukte `import sniffio` van httpcore (een stat per map van sys.path, bij elke verbinding), en `Thread.start`
 in `aiosqlite.connect` (een thread per verbinding, ook per auditregel). Daarom zoekt de controle van taak 10 op de loop naar
-aanroepen die de GIL loslaten en vaak terugkomen, niet alleen naar lang rekenwerk.
+aanroepen die de GIL loslaten en vaak terugkomen, niet alleen naar lang rekenwerk. Sinds taak 9c zet `app.create_app` het
+wisselinterval op 1 ms (`app.SWITCH_INTERVAL_SECONDS`, met de metingen): dat maakt elke overdracht korter, maar haalt het
+konvooi niet weg, want tien aanroepen kosten dan nog tot 10 ms.
 
 `on_stall` loopt in de bewakerthread, niet op de loop. Een fout daarin wordt gelogd en stopt de bewaker niet.
 """
