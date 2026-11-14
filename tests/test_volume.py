@@ -76,6 +76,8 @@ GOLDEN_REQUESTS: dict[str, str] = {
     "offers_jumbo": "/api/offers?store=jumbo&week=2026-11-09",
     "offers_picnic": "/api/offers?store=picnic&week=2026-11-09",
     "offers_crisp": "/api/offers?store=crisp&week=2026-11-09",
+    "offers_lidl": "/api/offers?store=lidl&week=2026-11-09",
+    "offers_aldi": "/api/offers?store=aldi&week=2026-11-09",
     "offer_history": "/api/offers/history?limit=200",
     "offer_history_kaas": "/api/offers/history?q=kaas&limit=50",
     "price_history_ah": "/api/prices/history?store=ah",
@@ -676,7 +678,8 @@ async def test_offers_stay_warm_during_a_price_index_round(
     volume_client: TestClientProtocol, volume_dir: Path
 ) -> None:
     """De ronde langs de prijsindex bewaart een prijs per tien seconden. Een prijs van een product buiten de lijst laat de
-    ETag van /api/offers staan, en een prijs van een bekend product bouwt de catalogus niet opnieuw op (`_build_catalogue`)."""
+    ETag van /api/offers staan, en een prijs van een bekend product bouwt de catalogus niet opnieuw op (`_build_catalogue`).
+    Het antwoord uit de cache is daarna hetzelfde als een koud uitgerekend antwoord: de bijgewerkte catalogus mist niets."""
     path: str = "/api/offers?store=ah&week=2026-11-09"
     first: Any = await volume_client.get(path)  # de catalogus en de lijst opbouwen, buiten de meting
     assert first.status_code == 200
@@ -696,6 +699,13 @@ async def test_offers_stay_warm_during_a_price_index_round(
         history: Any = await _get(volume_client, "/api/prices/history?store=ah&bought=1")
     assert history["products"]
     assert built.call_count == 0, "de prijzen en de prijsgeschiedenis werken de catalogus bij, zonder hem opnieuw op te bouwen"
+    warm: Any = await _get(volume_client, path)  # uit de cache van de lijst, met de catalogus die de ronde bijwerkte
+    prices._CATALOGUES.clear()
+    volume_client.app.extensions["mealieshopper_offers_cache"].clear()  # anders komt hetzelfde antwoord uit de cache
+    cold_response: Any = await volume_client.get(path)
+    assert cold_response.status_code == 200
+    assert cold_response.headers["ETag"] == etag
+    assert await cold_response.get_json() == warm, "koud uitgerekend is hetzelfde antwoord als dat uit de cache"
 
 
 # Wat `_window_shape` en `_answer_ids` per winkel aan de ETag van /api/offers geven (de vorm van het venster, en een SHA-256 van
