@@ -283,3 +283,35 @@ async def test_same_price_metadata_correction_and_identical_noop(synced: Any) ->
     result = await module.sync_site()
     assert result["changed"] == 0
     assert result["documents"] == 1
+
+
+async def test_a_cancelled_sync_whose_thread_fails_is_not_reported_by_asyncio(synced: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+    """`_thread` wachtte met `asyncio.shield` op de thread. Werd de synchronisatie geannuleerd en faalde de thread daarna, dan
+    meldde Python 3.15 de fout bij de loop ("exception in shielded future"), al haalt `_thread` hem zelf op. Nu wacht `_thread`
+    met `tasks.share`, zoals uploads.append en price_archive.run_job."""
+    import threading
+
+    module, site = synced
+    errors: list[dict[str, Any]] = []
+    asyncio.get_running_loop().set_exception_handler(lambda loop, context: errors.append(context))
+    entered: threading.Event = threading.Event()
+    release: threading.Event = threading.Event()
+
+    def failing(*args: Any) -> bool:
+        entered.set()
+        release.wait(5)
+        raise sqlite3.OperationalError("database is locked")
+
+    monkeypatch.setattr(module, "_unchanged", failing)
+    task: asyncio.Task[Any] = asyncio.create_task(module.sync_site())
+    try:
+        assert await asyncio.to_thread(entered.wait, 5)
+        task.cancel()
+        await asyncio.sleep(0.05)
+    finally:
+        release.set()
+    with pytest.raises(sqlite3.OperationalError):  # de fout van de thread gaat voor de annulering, zoals `_thread` het al deed
+        await task
+    await asyncio.sleep(0.05)
+    assert errors == []
+    assert rows("shared_price_sync")[0]["owner"] is None  # de lease is vrij, ook na de fout in de thread
