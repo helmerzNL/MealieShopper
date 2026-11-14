@@ -311,8 +311,13 @@ const setBusy = (button, on) => busy.push(on);
         button = function_source(OFFERS_JS, "offerCartButton")
         self.assertIn('if (!offerCartable(offersState.store, offer)) return "";', button)
         self.assertIn('data-offer-cart="${escapeHtml(offer.id)}" title="${label}" aria-label="${label}"', button)
-        self.assertIn('${offerCartSlot(offer, "offer-card__cart")}${compare}${history}', function_source(OFFERS_JS, "offerCardFoot"))
-        self.assertIn('<div class="offer-row__links">${offerCartSlot(offer)}${compare}${chart}', function_source(OFFERS_JS, "offerProductRow"))
+        self.assertIn(
+            '${offerCartSlot(offer, "offer-card__cart")}${compare}${offerWatchButton(offer)}${history}', function_source(OFFERS_JS, "offerCardFoot")
+        )
+        self.assertIn(
+            '<div class="offer-row__links">${offerCartSlot(offer)}${compare}${offerWatchButton(offer)}${chart}',
+            function_source(OFFERS_JS, "offerProductRow"),
+        )
         self.assertIn('const cart = event.target.closest("[data-offer-cart]");\n  if (cart) addOfferToCart(cart);', OFFERS_JS)
 
     def test_a_store_with_exact_quantities_gets_the_stepper_and_jumbo_keeps_the_button(self):

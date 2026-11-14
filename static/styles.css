@@ -11047,6 +11047,12 @@ html.is-standalone .user-menu__item--standalone:not([hidden]) {
   --badge: var(--info);
 }
 
+/* Prijs volgen op een aanbieding (offers.js): een gevolgd product heeft een gekleurd oog. */
+.offer-watch.is-watched {
+  color: var(--info);
+  background: color-mix(in srgb, var(--info) 14%, transparent);
+}
+
 .watched-form {
   display: flex;
   flex-wrap: wrap;

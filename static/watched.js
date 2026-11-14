@@ -39,6 +39,29 @@ function watchedIs(store, productId) {
   return watched.keys.has(watchedKey(store, productId));
 }
 
+// Het product-id dat te volgen is, of "": alleen een echt product van een winkel met een webwinkel. Een folderactie voor een hele
+// lijn (folder:...), de Bonus Box (bonusbox-...) en Lidl en Aldi niet; AH schrijft wi4183 voor 4183 (offerCartId in offers.js, en
+// watched_products._product_id op de server).
+function watchedFollowableId(store, id) {
+  const text = String(id ?? "").trim();
+  if (!Object.hasOwn(STORES, store) || text.startsWith("folder:")) return "";
+  return offerCartId(store, { id: text });
+}
+
+// Volg een product, of laat het los als je het al volgt, met een toast. Geeft of het nu gevolgd wordt; een fout gooit hij door.
+async function watchedToggle(store, rawId, product = null) {
+  const id = watchedFollowableId(store, rawId);
+  if (!id) throw new Error(t("watched.not_followable"));
+  if (watchedIs(store, id)) {
+    await watchedUnfollow(store, id);
+    toast(t("watched.removed", { title: product?.title || id }));
+    return false;
+  }
+  const added = await watchedFollow(store, id, product);
+  toast(t("watched.added", { title: added.title }));
+  return true;
+}
+
 function watchedPackaging(kind) {
   return kind && WATCHED_PACKAGING[kind] ? t(WATCHED_PACKAGING[kind]) : t("watched.pack.unknown");
 }
@@ -238,6 +261,8 @@ async function loadWatchedKeys() {
   try {
     const data = await jsonFetch("/api/watched/keys");
     watched.keys = new Set(data.keys || []);
+    // De aanbiedingen staan er misschien al, zonder te weten wat je volgt: teken de knoppen opnieuw.
+    if (watched.keys.size && typeof offersTabActive === "function" && offersTabActive()) offersRedraw();
   } catch {
     // Zonder de lijst staat er geen markering in de Prijsgeschiedenis; verder werkt alles.
   }
