@@ -78,6 +78,7 @@ from . import (
     updates,
     urls,
     users,
+    watched_products,
 )
 from .body_limits import DEFAULT_MAX_BODY, SizedRequest
 from .forwarded import ForwardedHeaders
@@ -214,6 +215,7 @@ def create_app() -> Quart:
     backup.register_routes(app)
     price_archive.register_routes(app)
     profile.register_routes(app)
+    watched_products.register_routes(app)  # Gevolgde producten: losse artikelen met hun prijs per nacht
 
     tasks.register(app)
 

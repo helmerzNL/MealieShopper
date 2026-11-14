@@ -21,7 +21,7 @@ const PANEL_ROOTS = Object.fromEntries(Object.entries(ROUTE_PANELS).map(([root, 
 // Per scherm: het stuk na de wortel -> het subtab. Het eerste subtab heeft geen eigen stuk.
 const ROUTE_SUBTABS = {
   recipes: { "": "planner", search: "search" },
-  offers: { "": "offers-items", recipes: "offers-suggestions", history: "offers-history" },
+  offers: { "": "offers-items", recipes: "offers-suggestions", history: "offers-history", watched: "offers-watched" },
   profile: { "": "profile-general", security: "profile-security", ai: "profile-ai" },
   // Voorkeuren heette eerder Weergave: /settings/appearance opent hem nog (de eerste naam geeft het adres).
   settings: { "": "settings-link", users: "settings-users", audit: "settings-audit", system: "settings-system", preferences: "settings-appearance", appearance: "settings-appearance" },
