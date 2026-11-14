@@ -179,7 +179,9 @@ async def test_a_block_of_threshold_plus_one_and_a_half_intervals_is_always_repo
         time.sleep(0.07)  # noqa: ASYNC251
     await asyncio.sleep(0.1)
     guard.stop()
-    assert len(stalls) == 8
+    # Minstens acht: geen blok valt erdoorheen. Een tragere machine (een runner van CI) kan er een stilstand bij hebben, als een
+    # `asyncio.sleep` daar zelf langer dan de drempel uitloopt, dus niet precies acht.
+    assert len(stalls) >= 8, [round(stall.seconds, 3) for stall in stalls]
 
 
 async def test_stop_right_after_the_block_still_reports_it() -> None:
