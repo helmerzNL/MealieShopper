@@ -309,24 +309,26 @@ async def test_a_full_build_keeps_its_hits_when_the_memos_were_already_full(volu
     }
     for name, cache in caches.items():
         cache.cache_clear()
-    for name, cache in caches.items():
-        number: int = 0
-        while cache.cache_info().currsize < cache.cache_info().maxsize:
-            FILLERS[name](f"Zzz ander product {number:07d} 250 g")
-            number += 1
-    before: dict[str, int] = {}
-    for round_ in range(2):
-        prices._CATALOGUES.clear()
-        async with auth.connect() as conn:
-            for store in offers.STORES:
-                await prices._catalogue(conn, store, volume.TODAY)
+    try:  # de volle memo's mogen niet naar de volgende test lekken, ook niet als deze faalt
         for name, cache in caches.items():
-            misses: int = cache.cache_info().misses
-            if round_ == 1:
-                assert misses == before[name], (name, cache.cache_info())
-            before[name] = misses
-    for cache in caches.values():
-        cache.cache_clear()
+            number: int = 0
+            while cache.cache_info().currsize < cache.cache_info().maxsize:
+                FILLERS[name](f"Zzz ander product {number:07d} 250 g")
+                number += 1
+        before: dict[str, int] = {}
+        for round_ in range(2):
+            prices._CATALOGUES.clear()
+            async with auth.connect() as conn:
+                for store in offers.STORES:
+                    await prices._catalogue(conn, store, volume.TODAY)
+            for name, cache in caches.items():
+                misses: int = cache.cache_info().misses
+                if round_ == 1:
+                    assert misses == before[name], (name, cache.cache_info())
+                before[name] = misses
+    finally:
+        for cache in caches.values():
+            cache.cache_clear()
 
 
 def test_the_memory_is_plain_dicts_the_collector_skips() -> None:
