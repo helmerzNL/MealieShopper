@@ -83,7 +83,9 @@ GOLDEN_REQUESTS: dict[str, str] = {
     "price_history_ah_bought": "/api/prices/history?store=ah&bought=1",
     "price_history_jumbo": "/api/prices/history?store=jumbo",
 }
-SETTLE_SECONDS: float = 0.05  # zo lang krijgt de bewakerthread om een stilstand te melden, zoals in test_loop_watch.py
+# Zo lang krijgt de bewakerthread om een stilstand te melden. Ruimer dan in test_loop_watch.py: na een zware aanvraag moet de
+# bewaker eerst de GIL terugkrijgen, en een melding die na `settle` komt, ziet `quiet` niet.
+SETTLE_SECONDS: float = 0.15
 
 
 def _rows(path: Path, table: str) -> list[tuple[object, ...]]:
