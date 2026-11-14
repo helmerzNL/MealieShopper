@@ -217,6 +217,44 @@ async def test_close_running_loop_waits_for_a_borrowed_connection(
     assert stopped(started)
 
 
+async def test_close_running_loop_waits_for_a_first_connection_that_is_still_opening(
+    tmp_path: Path,
+) -> None:
+    """Eindreview: een pool waarvan de eerste verbinding nog opengaat, heeft nog geen task (`_keeper`), en `close_running_loop`
+    wachtte er niet op. De fabrieksreset haalde dan het bestand weg terwijl de lener het nog ging openen. Nu wacht hij ook op
+    zo'n lener, hooguit `RETURN_SECONDS`."""
+    path: str = str(tmp_path / "lees.sqlite3")
+    async with aiosqlite.connect(path) as conn:
+        await conn.execute("CREATE TABLE t (x)")
+    opening: asyncio.Event = asyncio.Event()
+    events: list[str] = []
+
+    async def slow_opener(target: str) -> aiosqlite.Connection:
+        opening.set()
+        await asyncio.sleep(0.2)
+        conn: aiosqlite.Connection = await aiosqlite.connect(target)
+        events.append("opened")
+        return conn
+
+    async def borrower() -> None:
+        async with readers.borrow(path, slow_opener) as reader:
+            await reader.fetchall("SELECT * FROM t")
+            events.append("read")
+        events.append("returned")
+
+    async with reader_threads() as started:
+        task: asyncio.Task[None] = asyncio.create_task(borrower())
+        await opening.wait()
+        pool: Any = pool_of(path)
+        assert pool._keeper is None, "de eerste verbinding gaat nog open"
+        await readers.close_running_loop()
+        events.append("close_running_loop returned")
+        assert pool._open == 0
+        await task
+    assert events == ["opened", "read", "returned", "close_running_loop returned"]
+    assert stopped(started)
+
+
 async def test_a_borrow_inside_a_borrow_fails_instead_of_waiting_forever(
     tmp_path: Path,
 ) -> None:

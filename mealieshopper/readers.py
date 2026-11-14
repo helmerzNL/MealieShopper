@@ -253,12 +253,29 @@ def retire_all() -> None:
 
 async def close_running_loop() -> None:
     """Sluit de pools van de lopende loop en wacht tot hun verbindingen dicht zijn, de uitgeleende ook: hooguit `RETURN_SECONDS`
-    op een lener die zijn verbinding nog niet teruggaf. Voor wie daarna het databasebestand weghaalt (de fabrieksreset)."""
+    op een lener die zijn verbinding nog niet teruggaf. Voor wie daarna het databasebestand weghaalt (de fabrieksreset). Een pool
+    waarvan de eerste verbinding nog opengaat, heeft nog geen task (`_keeper`): op zijn leners wacht dit zelf (`_wait_drained`)."""
     loop: asyncio.AbstractEventLoop = asyncio.get_running_loop()
-    keepers: list[asyncio.Task[None]] = []
-    for pool in [pool for pool in _POOLS.values() if pool.loop is loop]:
+    pools: list[_Pool] = [pool for pool in _POOLS.values() if pool.loop is loop]
+    for pool in pools:
         pool.retire()
-        if pool._keeper is not None:
-            keepers.append(pool._keeper)
+    opening: list[_Pool] = [pool for pool in pools if pool._keeper is None and pool._busy]
+    keepers: list[asyncio.Task[None]] = [pool._keeper for pool in pools if pool._keeper is not None]
     if keepers:
         await asyncio.wait(keepers)
+    if opening:
+        await _wait_drained(opening)
+
+
+async def _wait_drained(pools: list[_Pool]) -> None:
+    """Wacht tot elke pool geen lener en geen open verbinding meer heeft (`_drained`), samen hooguit `RETURN_SECONDS`, en dan op de
+    task die een lener intussen startte (`_take`): die sluit wat er nog vrij staat."""
+    waiters: list[asyncio.Task[bool]] = [asyncio.ensure_future(pool._drained.wait()) for pool in pools]
+    try:
+        await asyncio.wait(waiters, timeout=RETURN_SECONDS)
+    finally:
+        for waiter in waiters:
+            waiter.cancel()
+    started: list[asyncio.Task[None]] = [pool._keeper for pool in pools if pool._keeper is not None]
+    if started:
+        await asyncio.wait(started, timeout=RETURN_SECONDS)
