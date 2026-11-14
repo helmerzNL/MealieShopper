@@ -42,8 +42,10 @@ RETURN_SECONDS: float = 2.0
 
 Opener: TypeAlias = Callable[[str], Awaitable[aiosqlite.Connection]]
 
-# De loop van de lening waarin de huidige code staat, of None: zo valt een lening binnen een lening op (`borrow`).
-_borrowing: contextvars.ContextVar[asyncio.AbstractEventLoop | None] = contextvars.ContextVar("readers_borrowing", default=None)
+# De loop en de task van de lening waarin de huidige code staat, of None: zo valt een lening binnen een lening op (`borrow`). Met
+# de task erbij: een task die binnen een lening start, krijgt een kopie van de context, en mag zelf lenen.
+_Holder: TypeAlias = tuple[asyncio.AbstractEventLoop, "asyncio.Task[Any] | None"]
+_borrowing: contextvars.ContextVar[_Holder | None] = contextvars.ContextVar("readers_borrowing", default=None)
 
 
 class Reader:
@@ -73,14 +75,27 @@ class _Pool:
         self._slots: asyncio.Semaphore = asyncio.Semaphore(READERS_KEPT)
         self._idle: list[tuple[aiosqlite.Connection, float]] = []  # vrij, met het moment waarop ze vrijkwam, oudste eerst
         self._open: int = 0  # vrij en uitgeleend samen
+        self._busy: int = 0  # leners met een plek, ook als hun verbinding nog opengaat
         self._wake: asyncio.Event = asyncio.Event()  # `retire`: de task stopt meteen in plaats van na zijn wachttijd
-        self._drained: asyncio.Event = asyncio.Event()  # er staat niets meer open
+        self._drained: asyncio.Event = asyncio.Event()  # geen lener en geen open verbinding meer
         self._keeper: asyncio.Task[None] | None = None
         self.retired: bool = False
 
+    async def enter(self) -> bool:
+        """Wacht op een plek. False als de pool intussen dicht ging (`retire`): dan opent hij niets meer, want na
+        `close_running_loop` kan het bestand weg zijn, en de lener gaat naar een nieuwe pool (`borrow`)."""
+        await self._slots.acquire()
+        if self.retired:
+            self._slots.release()
+            return False
+        self._busy += 1
+        self._drained.clear()
+        return True
+
     @asynccontextmanager
-    async def borrow(self) -> AsyncIterator[Reader]:
-        async with self._slots:
+    async def lend(self) -> AsyncIterator[Reader]:
+        """Een verbinding voor wie een plek heeft (`enter`). Geeft de plek bij het verlaten terug."""
+        try:
             conn: aiosqlite.Connection = await self._take()
             try:
                 yield Reader(conn)
@@ -88,6 +103,14 @@ class _Pool:
                 await self._close(conn)  # een fout of annulering halverwege: niet terug in de pool
                 raise
             await self._give(conn)
+        finally:
+            self._busy -= 1
+            self._settled()
+            self._slots.release()
+
+    def _settled(self) -> None:
+        if not self._busy and not self._open:
+            self._drained.set()
 
     async def _take(self) -> aiosqlite.Connection:
         if self._idle:
@@ -115,8 +138,7 @@ class _Pool:
         try:
             await conn.close()  # ook bij een annulering halverwege stopt de thread: `close` zet de stop in zijn `finally`
         finally:
-            if not self._open:
-                self._drained.set()
+            self._settled()
 
     async def _close_idle(self, before: float) -> None:
         """Sluit de vrije verbindingen die voor `before` vrijkwamen, een voor een: elke verbinding gaat pas uit `_idle` als hij
@@ -144,7 +166,7 @@ class _Pool:
             self.retired = True
             _forget(self)
             await self._close_idle(math.inf)
-            if self._open:
+            if self._open or self._busy:
                 try:
                     await asyncio.wait_for(self._drained.wait(), RETURN_SECONDS)
                 except TimeoutError:
@@ -183,17 +205,26 @@ async def borrow(path: str, opener: Opener) -> AsyncIterator[Reader]:
     """Een leesverbinding op `path` voor de lopende event loop, met `opener` als er een bij moet. Een lening binnen een lening op
     dezelfde loop geeft een `RuntimeError` (de module-docstring)."""
     loop: asyncio.AbstractEventLoop = asyncio.get_running_loop()
-    if _borrowing.get() is loop:
+    holder: _Holder = (loop, asyncio.current_task())
+    if _borrowing.get() == holder:
         raise RuntimeError("readers.borrow binnen een lening: lees alles in de eerste lening, anders wacht hij onder belasting eeuwig")
-    pool: _Pool | None = _POOLS.get((loop, path))
-    if pool is None or pool.retired:
-        pool = _POOLS[(loop, path)] = _Pool(loop, path, opener)
-    token: contextvars.Token[asyncio.AbstractEventLoop | None] = _borrowing.set(loop)
+    token: contextvars.Token[_Holder | None] = _borrowing.set(holder)
     try:
-        async with pool.borrow() as reader:
+        pool: _Pool = await _entered(loop, path, opener)
+        async with pool.lend() as reader:
             yield reader
     finally:
         _borrowing.reset(token)
+
+
+async def _entered(loop: asyncio.AbstractEventLoop, path: str, opener: Opener) -> _Pool:
+    """De pool van (`loop`, `path`) met een plek voor deze lener. Ging de pool dicht terwijl hij wachtte, dan de volgende."""
+    while True:
+        pool: _Pool | None = _POOLS.get((loop, path))
+        if pool is None or pool.retired:
+            pool = _POOLS[(loop, path)] = _Pool(loop, path, opener)
+        if await pool.enter():
+            return pool
 
 
 def _retire_running_loop() -> None:

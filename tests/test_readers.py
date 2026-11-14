@@ -247,3 +247,53 @@ async def test_a_reader_offers_only_queries_that_close_their_cursor(
             tuple(row) for row in await reader.fetchall("SELECT 1 UNION ALL SELECT 2")
         ] == [(1,), (2,)]
     readers.retire_all()
+
+
+async def test_a_waiter_on_a_closed_pool_moves_to_a_new_one(tmp_path: Path) -> None:
+    """Review van taak 10b: vier leners en een wachter, dan `close_running_loop`. De leners geven terug, `close_running_loop` komt
+    terug, en de wachter opende daarna nog een verbinding op de gesloten pool, terwijl de fabrieksreset het bestand weghaalde.
+    Nu opent een gesloten pool niets meer: de wachter gaat naar een nieuwe pool."""
+    path: str = str(tmp_path / "lees.sqlite3")
+    release: asyncio.Event = asyncio.Event()
+    holding: asyncio.Barrier = asyncio.Barrier(readers.READERS_KEPT + 1)
+    after_close: list[int] = []
+
+    async def hold() -> None:
+        async with readers.borrow(path, opener):
+            await holding.wait()
+            await release.wait()
+
+    async def wait_in_line() -> Any:
+        async with readers.borrow(path, opener) as reader:
+            assert (await reader.fetchone("SELECT 4"))[0] == 4
+            return pool_of(path)
+
+    holders: list[asyncio.Task[None]] = [asyncio.create_task(hold()) for _ in range(readers.READERS_KEPT)]
+    await holding.wait()
+    old: Any = pool_of(path)
+    waiter: asyncio.Task[Any] = asyncio.create_task(wait_in_line())
+    await asyncio.sleep(0.05)
+    asyncio.get_running_loop().call_later(0.05, release.set)
+    await readers.close_running_loop()
+    after_close.append(old._open)
+    await asyncio.gather(*holders)
+    new: Any = await waiter
+    assert after_close == [0]
+    assert old._open == 0 and old._busy == 0
+    assert new is not old
+    readers.retire_all()
+
+
+async def test_a_task_started_inside_a_borrow_may_borrow_itself(tmp_path: Path) -> None:
+    """Review van taak 10b: een task die binnen een lening start, krijgt een kopie van de context, en zijn eigen lening gaf dan de
+    fout van een lening binnen een lening. De vlag hoort bij de task: een andere task mag lenen."""
+    path: str = str(tmp_path / "lees.sqlite3")
+
+    async def own() -> int:
+        async with readers.borrow(path, opener) as reader:
+            return (await reader.fetchone("SELECT 5"))[0]
+
+    async with readers.borrow(path, opener):
+        child: asyncio.Task[int] = asyncio.create_task(own())
+    assert await child == 5
+    readers.retire_all()

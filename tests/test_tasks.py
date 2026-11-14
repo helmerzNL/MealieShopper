@@ -356,6 +356,14 @@ async def test_shutdown_waits_at_most_three_seconds_for_tasks_so_docker_does_not
     assert Config().graceful_timeout + tasks.SHUTDOWN_TIMEOUT + compute.SHUTDOWN_SECONDS < 9
 
 
+def test_the_read_connections_close_within_the_wait_of_cancel_all() -> None:
+    """Taak 10b: bij `cancel_all` wacht de task van readers.py hooguit `RETURN_SECONDS` op uitgeleende leesverbindingen, en
+    `cancel_all` wacht `SHUTDOWN_TIMEOUT` op die task: anders sluit de loop voor de verbindingen dicht zijn."""
+    from mealieshopper import readers
+
+    assert readers.RETURN_SECONDS < tasks.SHUTDOWN_TIMEOUT
+
+
 async def test_cancel_all_leaves_work_of_another_loop_alone() -> None:
     """Review van taak 9c: afgeschermd werk van een gesloten loop bleef in `_shielded`, en `cancel_all` wachtte erop vanuit een
     andere loop. Nu alleen het werk van de lopende loop."""
