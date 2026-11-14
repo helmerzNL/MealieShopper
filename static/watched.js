@@ -148,7 +148,7 @@ function watchedTableHtml(product) {
         <td>${escapeHtml(watchedPrice(point.regular))}</td>
         <td>${point.onOffer ? `<span class="bonus">${escapeHtml(watchedPrice(point.price))}</span>${point.offerLabel ? ` <small>${escapeHtml(point.offerLabel)}</small>` : ""}` : "–"}</td>
         <td>${escapeHtml(point.unitSize || "–")}</td>
-        <td>${escapeHtml(watchedPackaging(point.packaging))}</td>
+        <td>${escapeHtml(point.packaging ? watchedPackaging(point.packaging) : "–")}</td>
       </tr>`)
     .join("");
   return `<details class="watched-table"><summary>${escapeHtml(tn("watched.table_title", (product.points || []).length))}</summary>
@@ -180,7 +180,11 @@ function watchedDetailHtml(product, width) {
     [t("watched.stat.first"), product.firstRegular ? `${watchedPrice(product.firstRegular.price)} (${offerHistoryDayText(offerHistoryDay(product.firstRegular.day), true)})` : "–"],
     [t("watched.stat.range"), typeof product.lowest === "number" ? `${watchedPrice(product.lowest)} – ${watchedPrice(product.highest)}` : "–"],
     [t("watched.stat.unit"), unit],
-    [t("watched.stat.packaging"), `${product.unitSize || "–"} · ${watchedPackaging(product.packaging)}`],
+    // Het soort verpakking volgt uit de naam of de maat (watched_products.packaging_type). Is het onbekend, dan alleen de maat: "750 g ·
+    // verpakking onbekend" leest alsof de maat ontbreekt (gemeld op 2026-11-14).
+    product.packaging
+      ? [t("watched.stat.packaging"), [product.unitSize, watchedPackaging(product.packaging)].filter(Boolean).join(" · ")]
+      : [t("watched.stat.size"), product.unitSize || "–"],
   ]
     .map(([label, value]) => offerHistoryStat(label, value))
     .join("");

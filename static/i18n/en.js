@@ -2170,4 +2170,5 @@ I18N.add("en", {
   "watched.pack.piece": "per piece",
   "watched.pack.weighed": "by weight",
   "backup.part.watchedProducts": "Followed products and their prices",
+  "watched.stat.size": "Size",
 });

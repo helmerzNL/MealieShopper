@@ -2170,4 +2170,5 @@ I18N.add("nl", {
   "watched.pack.piece": "per stuk",
   "watched.pack.weighed": "per gewicht",
   "backup.part.watchedProducts": "Gevolgde producten en hun prijzen",
+  "watched.stat.size": "Maat",
 });

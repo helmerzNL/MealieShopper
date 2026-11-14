@@ -2,6 +2,21 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub; een stabiele release krijgt de teksten van alle versies sinds de vorige stabiele release.
 
+## v4.27.1
+
+*English summary: Followed products no longer show "packaging unknown" next to a known size. When the kind of packaging cannot be derived from the name or the size (for example Aviko Oma's smulfriet, 750 g), the product shows just **Size: 750 g**; when it is known, size and packaging stay together ("Size and packaging: 1 l · bottle"). In the table of all days an unknown packaging is a dash.*
+
+### Verbeterd in 4.27.1
+
+Pull request: [#334](https://github.com/helmerzNL/MealieShopper/pull/334).
+
+- **Gevolgde producten: een bekende maat leest niet meer als "verpakking onbekend".** Na de melding dat er bij een test "verpakking onbekend" stond terwijl de verpakkingsgrootte er wel bij stond. De maat (750 g) haalt de app bij de winkel; het soort verpakking (zak, fles, pot, ...) leidt hij af uit de naam en de maat, en bij "Aviko Oma's smulfriet · 750 g" staat daar geen verpakkingswoord in. Het kerngetal heette dan *Maat en verpakking: 750 g · verpakking onbekend*. Nu staat er alleen *Maat: 750 g*; is het soort verpakking bekend, dan blijft het *Maat en verpakking: 1 l · fles*. In de tabel met alle dagen staat een onbekende verpakking als streepje. In de lijst en de zoekresultaten stond een onbekende verpakking al niet.
+
+### Tests in 4.27.1
+
+- `tests/test_reported_bugs.py` (`WatchedSizeWithoutPackagingTest`): met de echte `watchedDetailHtml` in Node staat bij een onbekende verpakking alleen de maat, zonder "verpakking onbekend", en bij een bekende verpakking de maat en de verpakking samen. De test faalt op de code van 4.27.0.
+- `tests/test_catalogue.py`: de test van een afgebroken aanvraag tijdens het bouwen van de catalogus wacht nu tot die aanvraag echt gestopt is, voordat hij dat controleert. `cancel()` vraagt het stoppen alleen aan; op een drukke CI-runner was de aanvraag nog bezig met stoppen (`Task cancelling`) en faalde de test af en toe.
+
 ## v4.27.0
 
 *English summary: New subtab **Followed products** next to the Price history. Follow single products at Albert Heijn, Jumbo, Picnic or Crisp: search for them, or paste a product link from ah.nl or jumbo.com and MealieShopper looks up that product. Every night, with the offers, the app saves for each followed product the regular price, the price at that moment, the size, the kind of packaging and the image, apart from the offers. Per product you see a line of the regular price (an offer is a dot and does not count as a price change), how much more expensive or cheaper it got since the first measurement, the price per unit, what changed (price, size, packaging, name, image), the saved images and a table of all days. In the Price history a followed product carries the marker **Single product**, and you can follow a product there with **Follow the price**; on Loose purchases you tick **Also follow the price** when linking. The followed products are a new part of the backup.*
