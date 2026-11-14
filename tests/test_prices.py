@@ -1113,6 +1113,65 @@ class RegularPricesTest(PricesCase):
         self.assertEqual({key: [(p.price, p.source) for p in value] for key, value in found.items()},
                          {"1": [(1.19, "search")], "2": [(1.29, "order")], "3": [(2.49, "offer")]})
 
+    async def test_the_verdict_reads_only_the_search_prices_choose_can_pick(self) -> None:
+        # Taak 9d: het oordeel leest van tien jaar bewaarde prijzen alleen die van de laatste dertig dagen, en zonder die de nieuwste
+        # dag met een bruikbare prijs. Een prijs van nul op de nieuwste dag telt niet, zoals bij `_point`. De keuze blijft dezelfde.
+        # Vers is vanaf 2026-08-22 (dertig dagen voor 2026-09-21): die dag telt mee, de dag ervoor niet. Product 2 heeft een
+        # bestelling die nieuwer is dan zijn nieuwste bewaarde prijs: de bestelling blijft, en de bewaarde prijs van die dag ook.
+        for day, product_id, price in (
+            ("2026-05-01", "1", 1.09), ("2026-09-01", "1", 1.19), ("2026-09-15", "1", 1.29), ("2026-09-18", "1", 1.25),
+            ("2026-03-01", "2", 2.49), ("2026-04-01", "2", 2.59), ("2026-04-02", "2", 2.69),
+            ("2026-08-21", "3", 1.39), ("2026-08-22", "3", 1.49), ("2026-09-10", "3", 1.59),
+        ):
+            await self.observe(day, product_id, "AH Penne", price)
+        with closing(db(ah_orders)) as conn, conn:
+            conn.execute("UPDATE price_observations SET price = 0 WHERE product_id = '2' AND day = '2026-04-02'")
+        await store_order(1, "2026-05-01", [line("2", price=2.79)])
+        ids: list[str] = ["1", "2", "3", "4"]
+
+        async def full(conn):
+            return await prices._regular_points(conn, "ah", "2016-09-21", "2026-09-21", receipts=[], ids=ids)
+
+        async def choosable(conn):
+            return await prices._regular_points(conn, "ah", "2016-09-21", "2026-09-21", receipts=[], ids=ids, choosable=True)
+
+        everything, picked = await in_db(prices._connect, full, choosable)
+        self.assertEqual({key: sorted((p.day, p.price, p.source) for p in value) for key, value in picked.items()}, {
+            "1": [("2026-09-01", 1.19, "search"), ("2026-09-15", 1.29, "search"), ("2026-09-18", 1.25, "search")],
+            "2": [("2026-04-01", 2.59, "search"), ("2026-05-01", 2.79, "order")],
+            "3": [("2026-08-22", 1.49, "search"), ("2026-09-10", 1.59, "search")],
+        })
+        self.assertEqual(sum(len(value) for value in everything.values()), 10)
+        self.assertEqual(prices._regular_for_verdict(picked["3"], "2026-09-21").price, 1.49)  # de eerste verse dag is de laagste
+        self.assertEqual(prices._regular_for_verdict(picked["2"], "2026-09-21").source, "order")  # de nieuwste dag, uit een bestelling
+        for product_id in ids:
+            self.assertEqual(prices._regular_for_verdict(picked.get(product_id, []), "2026-09-21"),
+                             prices._regular_for_verdict(everything.get(product_id, []), "2026-09-21"))
+
+    def test_brands_behind_a_name_are_found_by_their_last_word(self) -> None:
+        # Taak 9d: `_known_pack_titles` zoekt de merken achter een naam op het laatste woord (`_by_last_word`). Een merk van meer
+        # woorden dat op het huismerk eindigt ("x ah" en "ah") geeft dezelfde kandidaten in dezelfde volgorde als `endswith` met elk merk.
+        suffixes: set[str] = {"x ah", "ah", "dr  oetker", "oetker", "x"}
+        by_last: dict[str, list[str]] = prices._by_last_word(suffixes)
+        self.assertEqual(sorted(by_last["ah"]), ["ah", "x ah"])
+        for name in ("melk x ah", "melk ah", "x ah", "kaas ah x ah", "pizza dr  oetker", "pizza oetker", "melk x", "melk", "", " ah"):
+            old: list[str] = [name[: -len(suffix) - 1] for suffix in suffixes if name.endswith(f" {suffix}")]
+            new: list[str] = [name[: -len(suffix) - 1] for suffix in by_last.get(name.rsplit(" ", 1)[-1], []) if name.endswith(f" {suffix}")]
+            self.assertEqual(new, old, name)
+        melk: str = "melk x ah"
+        self.assertEqual(sorted(melk[: -len(suffix) - 1] for suffix in by_last["ah"] if melk.endswith(f" {suffix}")), ["melk", "melk x"])
+
+    def test_known_pack_titles_strip_a_brand_of_two_words(self) -> None:
+        # Taak 9d: het merk "Boer AH" naast het huismerk "ah". De naam zelf gaat voor, en anders wordt "melk boer ah" zonder merk "melk", niet "melk boer".
+        catalogue: prices._Catalogue = prices._Catalogue(
+            [], {"1": prices._known("", ["melk boer ah"], []), "2": prices._known("", ["kaas ah"], []), "3": prices._known("", ["brood"], [])},
+            None, {},  # type: ignore[arg-type]
+        )
+        found: dict[str, str] = prices._known_pack_titles("ah", catalogue, [{"brand": "Boer AH"}], {"melk", "kaas", "melk boer ah"})
+        self.assertEqual(found, {"1": "melk boer ah", "2": "kaas"})
+        found = prices._known_pack_titles("ah", catalogue, [{"brand": "Boer AH"}], {"melk", "kaas"})
+        self.assertEqual(found, {"1": "melk", "2": "kaas"})
+
     async def test_fill_keeps_a_stored_price_when_only_an_old_source_remains(self) -> None:
         await store_order(1, "2026-09-21", [line("1", price=0.89)])
         with closing(db(ah_orders)) as conn, conn:
