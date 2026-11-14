@@ -8732,6 +8732,41 @@ html.is-standalone .user-menu__item--standalone:not([hidden]) {
   padding-left: 20px;
 }
 
+/* De onderdelen van een back-up: bij maken en bij terugzetten dezelfde lijst vinkjes, in kolommen waar het scherm breed genoeg is. */
+.backup-parts {
+  min-width: 0;
+  margin: 16px 0 0;
+  padding: 0;
+  border: 0;
+}
+
+.backup-parts legend {
+  padding: 0;
+  font-weight: 600;
+}
+
+.backup-parts__tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.backup-parts__list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 280px), 1fr));
+  column-gap: 20px;
+}
+
+#backup-box .backup-parts__list .check {
+  margin-top: 8px;
+}
+
+/* Een onderdeel dat niet in het bestand zit: er valt niets te kiezen. */
+.backup-parts__list .check.is-absent {
+  color: var(--muted);
+}
+
 /* Prijsarchief: per winkel een regel met de periode en daaronder wat erbij komt. */
 .price-archive-stores li + li {
   margin-top: 8px;

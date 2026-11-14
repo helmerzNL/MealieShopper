@@ -2180,12 +2180,13 @@
         </div>
         <div class="box" id="backup-box">
           <h2 data-i18n="backup.title">Back-up en terugzetten</h2>
-          <p class="muted" data-i18n="backup.intro">Neem alle gegevens van deze installatie mee in één bestand en zet ze later terug, bijvoorbeeld op een nieuwe server.</p>
+          <p class="muted" data-i18n="backup.intro">Neem alle gegevens van deze installatie mee in één gecomprimeerd bestand en zet ze later terug, bijvoorbeeld op een nieuwe server.</p>
           <details class="help">
             <summary data-i18n="common.help">Hoe werkt dit?</summary>
             <p class="muted" data-i18n="backup.intro_more">Daarin staan de koppelingen met Mealie, Albert Heijn, Jumbo, Picnic en Crisp, je lijstjes, bestellingen en kassabonnen en de hele historie van de aanbiedingen. Dit is jouw eigen kopie; het vervangt geen back-up van de hele data-map.</p>
             <p class="muted" data-i18n="backup.never">Wat inlogt op MealieShopper zit er nooit in: passkeys, wachtwoorden, tweestapsverificatie, herstelcodes, uitnodigingen en de toegang van AI-assistenten (MCP). Het auditlog en de bewaarde receptafbeeldingen ook niet; die bouwen zich vanzelf weer op.</p>
-            <p class="muted" data-i18n="backup.parts_hint">Zonder de aanbiedingen wordt het bestand kleiner. Bij het terugzetten blijven de aanbiedingen die er dan staan zoals ze zijn. De aanbiedingen van nu haalt de app bij de volgende synchronisatie weer op, de historie niet.</p>
+            <p class="muted" data-i18n="backup.packed_hint">Het bestand is met gzip ingepakt (.json.gz) en dus een stuk kleiner dan de gegevens zelf. Bij het terugzetten herkent de app ook een gewoon .json-bestand van een oudere versie.</p>
+            <p class="muted" data-i18n="backup.parts_hint">Wat je uitvinkt, komt niet in het bestand en blijft bij het terugzetten zoals het op die installatie is. De aanbiedingen van nu haalt de app zelf weer op, de rest niet.</p>
           </details>
           <h3 data-i18n="backup.make_title">Back-up maken</h3>
           <label class="check">
@@ -2204,29 +2205,28 @@
             </label>
             <p class="muted" data-i18n="backup.links_hint">Zonder koppelingen moet je na het terugzetten alles opnieuw koppelen. Het wachtwoord wordt nergens bewaard: raak je het kwijt, dan zijn de koppelingen in dit bestand niet meer te lezen.</p>
           </div>
-          <label class="check">
-            <input type="checkbox" id="backup-offers" checked>
-            <span data-i18n="backup.offers_label">Neem de aanbiedingen van nu mee</span>
-          </label>
-          <label class="check">
-            <input type="checkbox" id="backup-offer-history" checked>
-            <span data-i18n="backup.offer_history_label">Neem de historie van aanbiedingen mee</span>
-          </label>
+          <fieldset class="backup-parts">
+            <legend data-i18n="backup.parts_title">Welke onderdelen neem je mee?</legend>
+            <div class="backup-parts__tools">
+              <button class="button button--secondary" type="button" id="backup-parts-all" data-i18n="backup.select_all">Alles</button>
+              <button class="button button--secondary" type="button" id="backup-parts-none" data-i18n="backup.select_none">Niets</button>
+            </div>
+            <div class="backup-parts__list" id="backup-parts"></div>
+          </fieldset>
           <div class="security-actions">
             <button class="button" type="button" id="backup-make" data-i18n="backup.make">Back-up maken</button>
           </div>
           <h3 data-i18n="backup.restore_title">Back-up terugzetten</h3>
-          <p class="muted" data-i18n="backup.restore_text">Kies een back-up van MealieShopper. Je ziet eerst wat erin zit; pas na je bevestiging worden de huidige gegevens vervangen.</p>
+          <p class="muted" data-i18n="backup.restore_text">Kies een back-up van MealieShopper (.json.gz, of een gewoon .json-bestand van een oudere versie). Je ziet eerst wat erin zit; pas na je bevestiging worden de huidige gegevens vervangen.</p>
           <label class="field">
             <span data-i18n="backup.file_label">Back-upbestand</span>
-            <input class="input" id="backup-file" type="file" accept=".json,application/json">
+            <input class="input" id="backup-file" type="file" accept=".gz,.json,application/gzip,application/x-gzip,application/json">
           </label>
           <div class="backup-confirm" id="backup-confirm" hidden>
             <h4 data-i18n="backup.confirm_title">Dit staat in de back-up</h4>
             <p class="muted" id="backup-made"></p>
-            <ul id="backup-summary"></ul>
             <p id="backup-links-line"></p>
-            <h4 data-i18n="backup.restore_choose">Wat zet je terug?</h4>
+            <h4 id="backup-restore-choose" data-i18n="backup.restore_choose">Wat zet je terug?</h4>
             <label class="check" id="backup-restore-links-field" hidden>
               <input type="checkbox" id="backup-restore-links" checked>
               <span data-i18n="backup.restore_links">Zet de koppelingen terug</span>
@@ -2236,17 +2236,14 @@
               <span data-i18n="backup.restore_passphrase_label">Wachtwoord van dit bestand</span>
               <input class="input" id="backup-restore-passphrase" type="password" autocomplete="off">
             </label>
-            <label class="check" id="backup-restore-offers-field" hidden>
-              <input type="checkbox" id="backup-restore-offers" checked>
-              <span id="backup-restore-offers-text"></span>
-            </label>
-            <label class="check" id="backup-restore-offer-history-field" hidden>
-              <input type="checkbox" id="backup-restore-offer-history" checked>
-              <span id="backup-restore-offer-history-text"></span>
-            </label>
+            <div class="backup-parts__tools">
+              <button class="button button--secondary" type="button" id="backup-restore-parts-all" data-i18n="backup.select_all">Alles</button>
+              <button class="button button--secondary" type="button" id="backup-restore-parts-none" data-i18n="backup.select_none">Niets</button>
+            </div>
+            <div class="backup-parts__list" id="backup-restore-parts" role="group" aria-labelledby="backup-restore-choose"></div>
             <p class="muted" data-i18n="backup.restore_choices_hint">Wat je uitvinkt, blijft zoals het nu is.</p>
             <div class="message error" role="alert">
-              <strong data-i18n="backup.confirm_warning">Let op: wat er nu staat aan lijstjes, bestellingen, kassabonnen, aanbiedingen en instellingen wordt vervangen door de inhoud van dit bestand. Dat kan niet ongedaan worden gemaakt.</strong>
+              <strong data-i18n="backup.confirm_warning">Let op: wat er nu staat bij de onderdelen die je terugzet, wordt vervangen door de inhoud van dit bestand. Dat kan niet ongedaan worden gemaakt.</strong>
             </div>
             <p class="muted" data-i18n="backup.keeps">Wat blijft staan: je gebruikers, wachtwoorden, passkeys en tweestapsverificatie, het auditlog en het webadres van deze server. Verlaat je de pagina, dan gaat het terugzetten door op de server.</p>
             <div class="security-actions">
