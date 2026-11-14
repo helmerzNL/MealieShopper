@@ -26,6 +26,7 @@ De Prijsgeschiedenis toont zo'n actie apart van de eigen aanbiedingen van het pr
 
 from __future__ import annotations
 
+import heapq
 import re
 from collections.abc import Iterable
 from itertools import combinations
@@ -406,11 +407,13 @@ def _median(values: list[float]) -> float | None:
     return ordered[middle] if len(ordered) % 2 else (ordered[middle - 1] + ordered[middle]) / 2
 
 
-def _local_regular(regulars: list[tuple[str, float]], day: str) -> float | None:
-    """De gewone prijs rond een dag: de mediaan van de `NEIGHBOURS` lijnacties met een gewone prijs die er het dichtst bij liggen."""
+def _local_regular(regulars: list[tuple[int, float]], day: int) -> float | None:
+    """De gewone prijs rond een dag: de mediaan van de `NEIGHBOURS` lijnacties met een gewone prijs die er het dichtst bij liggen.
+    De dagen zijn al getallen (`_days`): `per_piece` rekent ze een keer uit en niet bij elke vergelijking. `heapq.nsmallest` geeft
+    dezelfde buren als `sorted(...)[:NEIGHBOURS]`, bij een gelijke afstand ook de eerste in de lijst."""
     if not regulars:
         return None
-    nearest = sorted(regulars, key=lambda item: abs(_days(item[0]) - _days(day)))[:NEIGHBOURS]
+    nearest: list[tuple[int, float]] = heapq.nsmallest(NEIGHBOURS, regulars, key=lambda item: abs(item[0] - day))
     return _median([value for _, value in nearest])
 
 
@@ -446,10 +449,10 @@ def per_piece(lines: list[dict]) -> list[dict]:
         first.append(({**line, "priceSource": source}, price, regular, free, factor))
     plain = [(str(line["start"]), regular) for line, _, regular, _, _ in first if regular is not None]
     typical_all = _median([value for _, value in plain])
-    corrected = [(day, _as_pieces(value, typical_all)[0]) for day, value in plain]
+    corrected: list[tuple[int, float]] = [(_days(day), _as_pieces(value, typical_all)[0]) for day, value in plain]
     result: list[dict] = []
     for line, price, regular, free, factor in first:
-        typical = _local_regular(corrected, str(line["start"]))
+        typical = _local_regular(corrected, _days(str(line["start"])))
         regular, pieces = _as_pieces(regular, typical)
         if price is not None and pieces > 1 and line["priceSource"] == "total":
             price = price / pieces
