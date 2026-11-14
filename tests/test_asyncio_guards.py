@@ -85,9 +85,9 @@ THREAD_ONLY: frozenset[str] = frozenset(
     {
         *(f"backup.{name}" for name in (
             "_jobs_connect", "_job_update", "write_backup", "check_rows", "replace_everything", "read_plan",
-            "read_file", "_schema_copy", "unseal", "_check_staged",
+            "read_file", "_read_file", "_schema_copy", "unseal", "_check_staged",
         )),
-        "thread_db.connect", "price_archive.apply", "price_archive._check_upload",
+        "json_pieces.loads", "thread_db.connect", "price_archive.apply", "price_archive._check_upload",
         "price_archive_export.write_export", "price_archive_export.write_site_export", "uploads._write_chunk",
     }
 )

@@ -165,6 +165,7 @@ def start_refresh() -> asyncio.Task[Any]:
     if running is not None:
         return running
     _refresh.update(done=0, total=0, error="")
+    # Niet zwaar: de lijst van Mealie (hooguit MAX_RECIPES samenvattingen), per nieuw recept een verzoek en een rij (taak 10).
     _refresh_task = tasks.spawn("recipe-nutrition", _run_refresh())
     return _refresh_task
 
@@ -369,6 +370,7 @@ def start_backfill() -> dict[str, Any]:
     _backfill.clear()
     _backfill.update(state="running", startedAt=_now(), total=0, checked=0, updated=0, skipped=0, failed=0, error="")
     _backfill_cancel = asyncio.Event()  # een nieuwe per keer: een Event hoort bij de event loop waarop hij wacht
+    # Niet zwaar: per recept van Allerhande een verzoek aan Mealie en aan AH, met een pauze ertussen (taak 10).
     tasks.spawn("recipe-nutrition-backfill", _run_backfill())
     return backfill_progress()
 

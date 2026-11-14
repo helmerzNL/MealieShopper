@@ -19,6 +19,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import io
+import json
 import logging
 from datetime import datetime, timezone
 from typing import Any, Iterable
@@ -28,7 +29,7 @@ import aiosqlite
 import httpx
 from PIL import Image, ImageOps, UnidentifiedImageError, features
 
-from . import crisp, http_client, offers, picnic, prices, profile
+from . import compute, crisp, http_client, offers, picnic, prices, profile
 
 log = logging.getLogger(__name__)
 
@@ -165,24 +166,32 @@ async def _fetch(store: str, url: str) -> tuple[bytes, str, int, int]:
     raise error or ValueError("geen adres")
 
 
+# De geschiedenis met een afbeelding van de gekochte producten (de ids als JSON), de nieuwste eerst. Zonder de lijst van gekochte
+# producten waren dat bij AH ruim 40.000 rijen per synchronisatie, die de event loop allemaal langsliep (taak 10).
+_HISTORY_IMAGES_SQL: str = (
+    "SELECT product_id, title, image FROM offer_history WHERE store = ? AND COALESCE(image, '') != '' "
+    "AND product_id IN (SELECT value FROM json_each(?)) ORDER BY last_seen DESC, id DESC"
+)
+
+
 async def _wanted(conn: aiosqlite.Connection, store: str, items: Iterable[dict[str, Any]], bought: set[str]) -> list[tuple[str, str, str]]:
     """(product-id, naam, adres) van de afbeeldingen die we nog niet hebben: eerst de aanbiedingen van nu, dan die uit de geschiedenis
     (per product de nieuwste). Per product één afbeelding per keer."""
-    have = {
-        (row["product_id"], row["source_url"])
-        for row in await conn.execute_fetchall("SELECT product_id, source_url FROM product_images WHERE store = ?", (store,))
-    }
-    history = await conn.execute_fetchall(
-        "SELECT product_id, title, image FROM offer_history WHERE store = ? AND COALESCE(image, '') != '' ORDER BY last_seen DESC, id DESC",
-        (store,),
-    )
+    have: list[Any] = list(await conn.execute_fetchall("SELECT product_id, source_url FROM product_images WHERE store = ?", (store,)))
+    history: list[Any] = list(await conn.execute_fetchall(_HISTORY_IMAGES_SQL, (store, json.dumps(sorted(bought)))))
+    return await compute.run(_wanted_from, list(items), history, bought, have)
+
+
+def _wanted_from(items: list[dict[str, Any]], history: list[Any], bought: set[str], have: list[Any]) -> list[tuple[str, str, str]]:
+    """Het rekenwerk van `_wanted`. Puur, voor `compute.run`: duizenden aanbiedingen en rijen van de geschiedenis."""
+    stored: set[tuple[Any, Any]] = {(row["product_id"], row["source_url"]) for row in have}
     found: dict[str, tuple[str, str, str]] = {}
     for product_id, title, url in [(str(i.get("id") or ""), str(i.get("title") or ""), i.get("image")) for i in items] + [
         (row["product_id"], row["title"], row["image"]) for row in history
     ]:
         if product_id in bought and product_id not in found and title and _web_url(url):
             found[product_id] = (product_id, title, url)
-    return [entry for entry in found.values() if (entry[0], entry[2]) not in have][:MAX_PER_SYNC]
+    return [entry for entry in found.values() if (entry[0], entry[2]) not in stored][:MAX_PER_SYNC]
 
 
 async def _store(conn: aiosqlite.Connection, store: str, product_id: str, title: str, url: str, image: tuple[bytes, str, int, int], now: str) -> bool:

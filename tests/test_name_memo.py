@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import gc
 import random
 import sys
@@ -339,6 +340,15 @@ FILLERS: dict[str, Callable[[str], Any]] = {
 }
 
 
+def _fill_memos(caches: dict[str, Any]) -> None:
+    """Vult elke memo tot hij vol is met namen die niet in de catalogus staan (`FILLERS`)."""
+    for name, cache in caches.items():
+        number: int = 0
+        while cache.cache_info().currsize < cache.cache_info().maxsize:
+            FILLERS[name](f"Zzz ander product {number:07d} 250 g")
+            number += 1
+
+
 @pytest.mark.volume
 async def test_a_full_build_keeps_its_hits_when_the_memos_were_already_full(volume_dir: Path) -> None:
     """Review van taak 9c: in een proces dat dagen draait, zijn de memo's vol met namen van eerder. Dan moet een opbouw nog steeds
@@ -355,11 +365,8 @@ async def test_a_full_build_keeps_its_hits_when_the_memos_were_already_full(volu
     for name, cache in caches.items():
         cache.cache_clear()
     try:  # de volle memo's mogen niet naar de volgende test lekken, ook niet als deze faalt
-        for name, cache in caches.items():
-            number: int = 0
-            while cache.cache_info().currsize < cache.cache_info().maxsize:
-                FILLERS[name](f"Zzz ander product {number:07d} 250 g")
-                number += 1
+        # In een thread, zoals de catalogus ze vult: op de event loop hield het vullen hem vijf seconden vast (taak 10).
+        await asyncio.to_thread(_fill_memos, caches)
         before: dict[str, int] = {}
         for round_ in range(2):
             prices._CATALOGUES.clear()
