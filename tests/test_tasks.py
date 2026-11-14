@@ -1,5 +1,6 @@
 """Tests voor mealieshopper/tasks.py en de levenscyclus van de app."""
 
+import ast
 import asyncio
 import logging
 import threading
@@ -272,6 +273,57 @@ async def test_a_failed_shielded_task_without_a_caller_is_logged_as_a_warning(ca
         release.set()
         await tasks.cancel_all()
     assert any(record.levelno == logging.WARNING and "niet bewaard" in str(record.exc_info[1]) for record in caplog.records if record.exc_info)
+
+
+def _loop_errors() -> list[dict[str, Any]]:
+    """Wat de event loop zelf meldt (`call_exception_handler`), zoals "exception in shielded future" van `asyncio.shield`."""
+    found: list[dict[str, Any]] = []
+    asyncio.get_running_loop().set_exception_handler(lambda loop, context: found.append(context))
+    return found
+
+
+async def test_a_failed_shielded_task_without_a_caller_is_logged_once(caplog: pytest.LogCaptureFixture) -> None:
+    """Taak 10b: `shielded` wachtte met `asyncio.shield`, en vanaf Python 3.15 meldt die een fout van de task ook zelf bij de loop
+    ("exception in shielded future") zodra de aanroeper geannuleerd is. De fout stond dan twee keer in het logboek, naast de
+    waarschuwing van `_orphan_done`. Nu wacht `shielded` met `share`: een melding, de waarschuwing."""
+    errors: list[dict[str, Any]] = _loop_errors()
+    release: asyncio.Event = asyncio.Event()
+
+    async def store() -> None:
+        await release.wait()
+        raise RuntimeError("niet bewaard")
+
+    caller: asyncio.Task = asyncio.create_task(tasks.shielded(store()))
+    await _yield(2)
+    caller.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await caller
+    with caplog.at_level(logging.WARNING, logger=tasks.log.name):
+        release.set()
+        await tasks.cancel_all()
+        await _yield(2)
+    assert errors == []
+    warned: list[logging.LogRecord] = [record for record in caplog.records if record.levelno >= logging.WARNING]
+    assert len(warned) == 1 and "niet bewaard" in str(warned[0].exc_info[1] if warned[0].exc_info else "")
+
+
+def _shield_calls(path: Path) -> list[int]:
+    """De regels waar `path` `asyncio.shield(...)` aanroept."""
+    found: list[int] = []
+    for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+        function: ast.expr | None = node.func if isinstance(node, ast.Call) else None
+        if isinstance(function, ast.Attribute) and function.attr == "shield" and isinstance(function.value, ast.Name) and function.value.id == "asyncio":
+            found.append(node.lineno)
+    return found
+
+
+def test_no_module_waits_with_asyncio_shield() -> None:
+    """Taak 10b: vanaf Python 3.15 meldt `asyncio.shield` een fout van wat hij afschermt bij de loop zodra de aanroeper geannuleerd
+    is, ook als een ander de fout gewoon ophaalt (de upload die wacht op zijn thread, de import van een prijsarchief, de ronde
+    van de calorieën). Wachten zonder te annuleren gaat met `tasks.share`, afschermen met `tasks.shielded`."""
+    package: Path = Path(tasks.__file__).parent
+    found: dict[str, list[int]] = {path.name: _shield_calls(path) for path in sorted(package.glob("*.py"))}
+    assert {name: lines for name, lines in found.items() if lines} == {}
 
 
 async def test_a_failed_shielded_task_with_its_caller_waiting_is_no_warning(caplog: pytest.LogCaptureFixture) -> None:

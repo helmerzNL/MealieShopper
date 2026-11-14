@@ -40,7 +40,7 @@ from typing import Any
 from quart import Quart, Response, jsonify, request
 from werkzeug.exceptions import RequestTimeout
 
-from . import auth
+from . import auth, tasks
 from .i18n import tr
 
 CHUNK_BYTES: int = 4 * 1024 * 1024  # wat het scherm per verzoek stuurt: ver onder de grens van elke gangbare proxy
@@ -176,7 +176,7 @@ async def append(prefix: str, token: str, offset: Any, body: AsyncIterable[bytes
     async with _lock():
         writing: asyncio.Future[int] = asyncio.ensure_future(asyncio.to_thread(_write_chunk, path, offset, data, limit))
         try:
-            received: int = await asyncio.shield(writing)
+            received: int = await tasks.share(writing)  # niet `asyncio.shield`: die meldt een fout na de annulering ook zelf (3.15)
         except asyncio.CancelledError:
             # Een thread is niet te annuleren: hij schrijft door. Het slot blijft tot hij klaar is, zodat geen volgend stuk
             # tegelijk in hetzelfde bestand schrijft.

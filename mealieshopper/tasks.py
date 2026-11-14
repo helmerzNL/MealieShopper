@@ -104,8 +104,8 @@ async def _stop(started: list[asyncio.Task[Any]]) -> None:
 
 
 def _shielded_done(task: asyncio.Future[Any]) -> None:
-    """Vergeet afgeschermd werk dat klaar is. Een fout is dan opgehaald: wie wachtte, kreeg hem al via `asyncio.shield` (`shielded`)
-    of `share` (`wait_at_shutdown`)."""
+    """Vergeet afgeschermd werk dat klaar is. Een fout is dan opgehaald: wie wachtte, kreeg hem al via `share` (`shielded`,
+    `wait_at_shutdown`)."""
     _shielded.discard(task)
     if not task.cancelled() and task.exception() is not None:
         log.debug("Afgeschermd werk mislukt", exc_info=task.exception())
@@ -125,13 +125,14 @@ async def shielded(coro: Coroutine[Any, Any, T]) -> T:
     heeft het oude dan misschien al vervangen. Quart annuleert een verzoek als de browser weggaat terwijl het lichaam nog
     binnenkomt of het antwoord al loopt (daartussen houdt `keep_running` de melding weg), `cancel_all` bij het afsluiten,
     `map_bounded` de andere items bij een fout. De aanroeper krijgt dan zelf een `CancelledError`, de task loopt door.
-    `cancel_all` wacht er ook op.
+    `cancel_all` wacht er ook op. Een fout van de task na de annulering komt een keer in het logboek (`_orphan_done`): de aanroeper
+    wacht met `share`, niet met `asyncio.shield`, dat hem vanaf Python 3.15 ook zelf bij de loop meldt.
     """
     task: asyncio.Task[T] = asyncio.create_task(coro)
     _shielded.add(task)
     task.add_done_callback(_shielded_done)
     try:
-        return await asyncio.shield(task)
+        return await share(task)
     except asyncio.CancelledError:
         task.add_done_callback(_orphan_done)
         raise

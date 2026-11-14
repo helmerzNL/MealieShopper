@@ -1737,7 +1737,9 @@ async def run_job(job_id: str, staged: Path, actor: str = "system", replace: boo
         try:
             await ensure_schema()
             work = asyncio.ensure_future(asyncio.to_thread(apply, staged, replace, done))
-            summary: dict[str, Any] = await asyncio.shield(work)  # een annulering stopt de thread niet: we zien hem afkomen
+            # Een annulering stopt de thread niet: we zien hem afkomen (`_record_when_committed`). Niet `asyncio.shield`: die meldt
+            # een fout van `work` na de annulering vanaf Python 3.15 ook zelf bij de loop, en hier halen we hem al op.
+            summary: dict[str, Any] = await tasks.share(work)
             auditing = True
             await _record_import(summary, actor, started)
         except Exception:  # noqa: BLE001 - de beheerder krijgt een algemene zin, het logboek de hele fout

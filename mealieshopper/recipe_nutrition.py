@@ -240,10 +240,12 @@ async def _fresh(wait: float) -> dict[str, int] | None:
         task = start_refresh()
     if task is None:
         return None
-    try:
-        await asyncio.wait_for(asyncio.shield(task), wait)
-    except asyncio.TimeoutError:
+    # Wachten zonder de ronde te annuleren als de tijd op is. Niet `asyncio.wait_for(asyncio.shield(task))`: vanaf Python 3.15
+    # meldt shield een fout van de ronde na de time-out ook zelf bij de loop, naast de melding van `tasks.spawn`.
+    done, _ = await asyncio.wait((task,), timeout=wait)
+    if not done:
         return refresh_progress()
+    task.result()  # een fout van de ronde komt bij de zoekopdracht, zoals voorheen
     return None
 
 
