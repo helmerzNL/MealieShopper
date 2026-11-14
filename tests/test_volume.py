@@ -18,6 +18,7 @@ import gc
 import hashlib
 import json
 import os
+import re
 import sqlite3
 import threading
 import time
@@ -717,3 +718,54 @@ async def test_the_catalogues_keep_a_full_collection_short(volume_client: TestCl
     after_seconds, after_tracked = _full_collection()
     assert after_tracked - before_tracked < ADDED_TRACKED_LIMIT, (before_tracked, after_tracked)
     assert after_seconds - before_seconds < ADDED_COLLECTION_SECONDS, (before_seconds, after_seconds)
+
+
+# --- doeltijden -------------------------------------------------------------------------------------------------------
+#
+# Het ontwerp van taak 9 zet doeltijden voor /api/offers?store=ah, als `total` van Server-Timing (MEALIESHOPPER_TELEMETRY): opnieuw
+# oordelen met de catalogus in het geheugen onder 1 s, koud onder 1,5 s. De grenzen hieronder hebben marge voor een tragere
+# CI-machine, zodat een test pas faalt bij een echte terugval. Gemeten na taak 9d op de volumedatabase (beste van drie, Python 3.12,
+# met andere agents op de machine): opnieuw oordelen 957 ms, koud 2.618 ms. Het grootste deel van koud is de bouw van de
+# catalogus, die taak 9c kleiner maakt.
+OFFERS_AH: str = "/api/offers?store=ah&week=2026-11-09"
+REJUDGE_LIMIT_MS: float = 1500.0
+COLD_LIMIT_MS: float = 2500.0
+_TOTAL: re.Pattern[str] = re.compile(r"\btotal;dur=([0-9.]+)")
+
+
+def server_total(response: Response) -> float:
+    """De `total` van de header Server-Timing, in milliseconden."""
+    found: re.Match[str] | None = _TOTAL.search(response.headers.get("Server-Timing", ""))
+    assert found is not None, response.headers.get("Server-Timing")
+    return float(found.group(1))
+
+
+async def best_total(
+    volume_dir: Path, monkeypatch: pytest.MonkeyPatch, prepare: Callable[[], Awaitable[None]], attempts: int = 3
+) -> float:
+    """De beste `total` van `attempts` aanvragen van `OFFERS_AH`, elk na `prepare`, op een app met de telemetrie aan. De eerste
+    aanvraag bouwt de catalogus en vult de caches van de namen (buiten de meting), zoals een app die al even draait."""
+    monkeypatch.setenv("MEALIESHOPPER_TELEMETRY", "true")
+    app: Quart = create_app()
+    totals: list[float] = []
+    async with app.test_app() as test_app:
+        client: TestClientProtocol = test_app.test_client()
+        assert (await client.get(OFFERS_AH)).status_code == 200
+        for _ in range(attempts):
+            await prepare()
+            response: Response = await client.get(OFFERS_AH)
+            assert response.status_code == 200
+            totals.append(server_total(response))
+    return min(totals)
+
+
+@pytest.mark.volume
+async def test_judging_with_a_built_catalogue_is_fast_enough(volume_dir: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    best: float = await best_total(volume_dir, monkeypatch, built(volume_dir, "ah"))
+    assert best < REJUDGE_LIMIT_MS, f"opnieuw oordelen duurde {best:.0f} ms (grens {REJUDGE_LIMIT_MS:.0f} ms)"
+
+
+@pytest.mark.volume
+async def test_cold_offers_are_fast_enough(volume_dir: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    best: float = await best_total(volume_dir, monkeypatch, cold(volume_dir))
+    assert best < COLD_LIMIT_MS, f"koud duurde {best:.0f} ms (grens {COLD_LIMIT_MS:.0f} ms)"
