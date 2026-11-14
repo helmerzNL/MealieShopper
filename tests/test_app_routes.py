@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -259,3 +260,18 @@ def test_ah_proxy_cookie_keeps_only_the_cookies_of_ah(headers: list[str], expect
     from mealieshopper.app import _ah_proxy_cookie
 
     assert _ah_proxy_cookie(headers) == expected
+
+
+def test_the_app_sets_a_switch_interval_of_one_millisecond(data_dir: Path) -> None:
+    """Taak 9c: een loop die de GIL loslaat in een systeemaanroep, krijgt hem pas na het wisselinterval terug als een andere
+    thread rekent (het konvooi van loop_guard.py). `create_app` zet het op 1 ms, voor run.py en hypercorn allebei."""
+    from mealieshopper.app import SWITCH_INTERVAL_SECONDS, create_app
+
+    before: float = sys.getswitchinterval()
+    sys.setswitchinterval(0.005)
+    try:
+        create_app()
+        assert SWITCH_INTERVAL_SECONDS == 0.001
+        assert sys.getswitchinterval() == pytest.approx(0.001)
+    finally:
+        sys.setswitchinterval(before)

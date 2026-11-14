@@ -8,14 +8,208 @@ het woord "online" weg, en `key` is beide achter elkaar. Het gedeelde bestand pe
 
 from __future__ import annotations
 
-from typing import Any
+import inspect
+import threading
+from collections.abc import Callable
+from functools import update_wrapper
+from typing import Any, Generic, NamedTuple, TypeVar
 
 from . import ah_lists
+
+MEMO_SIZE: int = 524_288  # hoeveel namen `TextMemo` hooguit vasthoudt als een functie niets opgeeft
+ORDER_SLACK: int = 4  # `TextMemo._evict` kort `_order` in zodra de cursor voorbij 1/ORDER_SLACK van de tuple is
+# De grootte per functie, de namen die de memo hooguit vasthoudt: 1,32 tot 1,53 keer het aantal namen dat een opbouw van de
+# catalogus van elke winkel op de volumedatabase (`tests/volume.py`, de schaal van productie) erin zet, zodat een volgende opbouw
+# alles terugvindt. Een opbouw zet erin: fold 341.326, near 68.249, categorize 65.870, offer_category 70.692, _parts 59.979,
+# _size_of 96.208. `tests/test_name_memo.py` eist dat een tweede opbouw geen enkele naam opnieuw uitrekent.
+# Het geheugen: een gewone dict kost per naam de sleutel, het antwoord en een plek in de tabel, zonder de schakel van lru_cache.
+# Het slechtste geval: de volumedatabase met alle catalogi gebouwd, en dan elke memo vol met namen die niet in de catalogus staan
+# en daarna nog bijna `size` missers erbij, vlak voor de volgende wissel (waar `_order` het meest vasthoudt). Een testproces
+# piekt dan op 428 MiB (3.12) of 455 MiB (3.15), de app onder hypercorn op 519 en 544 MiB (gemeten in taak 9c, ronde 4). Zonder
+# het inkorten van `_order` was het testproces 475 MiB (3.12). De 371 en 398 MiB van eerder waren te laag: die memo liet bij
+# de eerste misser na een wissel bijna alles vallen. Met twee generaties van elk `size` namen naast elkaar was het 589 en 619.
+FOLD_SIZE: int = 450_560
+CATEGORY_SIZE: int = 98_304
+OFFER_CATEGORY_SIZE: int = 98_304
+NEAR_SIZE: int = 102_400
+PARTS_SIZE: int = 81_920
+SIZE_OF_SIZE: int = 147_456
+STEM_SIZE: int = 32_768  # de woorden van alle namen: een paar duizend verschillende, elk kort
+LOCAL_SIZE: int = 8_192  # voor wat alleen binnen een aanroep van een andere onthouden functie terugkomt (`_significant`)
+_Result = TypeVar("_Result")
+_MISSING: object = object()  # voor `dict.get`: None kan een antwoord zijn
+
+
+class MemoInfo(NamedTuple):
+    """Wat `TextMemo.cache_info` geeft: de velden van `functools.lru_cache` en `evicted`."""
+
+    hits: int
+    misses: int
+    maxsize: int
+    currsize: int  # de namen in beide generaties samen: een naam staat in een van de twee
+    evicted: int  # hoeveel namen eruit gingen omdat de memo vol was (`TextMemo`): binnen een opbouw hoort dat 0 te zijn
+
+
+def memo(size: int) -> Callable[[Callable[..., _Result]], "TextMemo[_Result]"]:
+    """`@memo(size)`: `TextMemo` met een eigen grootte."""
+    return lambda function: TextMemo(function, size)
+
+
+class TextMemo(Generic[_Result]):
+    """Een functie van namen die haar antwoord per naam onthoudt. De argumenten worden eerst tekst (zoals de functie zelf al deed
+    met `str(value or "")`), dus `None` en getallen kunnen erdoor, en de sleutel is altijd hashbaar. Het antwoord is een
+    onveranderlijke waarde (str, tuple of frozenset): een aanroeper kan het gedeelde antwoord niet aanpassen. De functie zelf blijft
+    in `__wrapped__`, voor een vergelijking zonder geheugen.
+
+    Het geheugen is een gewone dict en geen `functools.lru_cache`: die houdt per naam een schakel bij die de garbage collector bij
+    elke volle ronde langsloopt (770.000 namen op de volumedatabase: 55 ms per ronde, gemeten), en zo'n ronde houdt de GIL vast
+    (gc_watch.py). Een dict met tekst als sleutel en tekst of tuples van tekst als waarde slaat de GC over (3.12) of loopt hij snel
+    door. Er zijn twee generaties: een naam wordt eerst in de nieuwe gezocht en dan in de oude, en een treffer in de oude verhuist
+    naar de nieuwe. Een naam staat dus in een van de twee, en de nieuwe heeft alles wat sinds de laatste wissel terugkwam.
+
+    Zijn er na een misser samen meer dan `size` namen, dan gaat er een naam uit de oude generatie: de oudste die sinds de
+    wissel niet terugkwam (`evicted` telt ze). Is de oude leeg, dan wordt eerst de nieuwe de oude. Zo houdt de memo `size` namen
+    met hun antwoord vast en gaat bij een volle memo telkens een naam weg die het langst niet terugkwam, ongeveer zoals bij
+    lru_cache, zonder een schakel per naam. Met rekenthreads die tegelijk missen of een treffer verhuizen, kan er tot de volgende
+    misser een naam per thread meer in staan: een treffer neemt het slot niet, en verhuist hij net tijdens een wissel, dan komt
+    zijn naam in de nieuwe generatie zonder dat er een uit gaat.
+
+    De volgorde van de oude generatie staat in een tuple van haar sleutels (`_order`): een tuple van tekst volgt de GC niet, en zo
+    kost het weghalen van de oudste geen zoektocht door de dict. Niet `dict.popitem`: dat haalt de jongste weg, en na een wissel
+    zijn dat net de namen van de opbouw die nog bezig is.
+
+    De tuple houdt de sleutels voor de cursor (`_next`) nog vast, ook als ze uit de memo zijn. Zodra de cursor voorbij een kwart
+    van de tuple is, gaat dat stuk weg (`ORDER_SLACK`): zo houdt hij hooguit een kwart van `size` aan weggehaalde sleutels vast, en
+    kost het inkorten per weggehaalde naam gemiddeld een paar verwijzingen. Een volle memo die blijft missen, kost zo hooguit
+    1,2 keer wat hij precies vol kost (de tuple en de tabel van de oude dict, die bij weghalen niet krimpt): `tests/test_name_memo.py`
+    meet het. Zonder het inkorten was dat 1,6 keer.
+
+    De groottes bovenaan zijn ruim genoeg voor de namen van een opbouw van alle catalogi: `tests/test_name_memo.py` eist dat een
+    tweede opbouw niets mist, ook als de memo's al vol zaten met andere namen.
+
+    Zonder slot, en dat mag alleen met de GIL: een treffer (`dict.get`, `dict.pop` en een toewijzing zijn elk een stap in C), en
+    `tuple(full)` en `tuple(self._old)` in `_evict`, die een dict kopiëren terwijl een andere thread er een treffer uit haalt. De
+    GIL laat zo'n kopie in een keer lopen. Op een Python zonder GIL (free-threaded) kan een kopie dan halverwege een gewijzigde
+    dict zien: daar is deze memo niet op gemaakt."""
+
+    def __init__(self, function: Callable[..., _Result], size: int = MEMO_SIZE) -> None:
+        update_wrapper(self, function)
+        self._signature: inspect.Signature = inspect.signature(function)
+        self._defaults: tuple[Any, ...] = self._positional_defaults(self._signature)
+        self.size: int = size
+        self._function: Callable[..., _Result] = function
+        self._new: dict[Any, _Result] = {}
+        self._old: dict[Any, _Result] = {}
+        self._order: tuple[Any, ...] = ()  # de sleutels van de oude generatie op volgorde van binnenkomst, bij de wissel vastgelegd
+        self._next: int = 0  # waar `_evict` in `_order` verder zoekt
+        self._lock: threading.Lock = threading.Lock()  # voor `_evict`: de rekenthreads missen tegelijk, een treffer wacht er niet op
+        # Tellers voor `cache_info`, zonder slot: `+= 1` uit twee threads tegelijk kan een tel verliezen. Alleen statistiek, geen
+        # beslissing hangt ervan af.
+        self._hits: int = 0
+        self._misses: int = 0
+        self._evicted: int = 0
+
+    @staticmethod
+    def _positional_defaults(signature: inspect.Signature) -> tuple[Any, ...]:
+        """De standaardwaarde per plek (`inspect.Parameter.empty` zonder). Een functie met `*args`, `**kwargs` of een parameter die
+        alleen met een keyword kan, past niet: de sleutel is de rij argumenten op volgorde."""
+        for parameter in signature.parameters.values():
+            if parameter.kind not in (parameter.POSITIONAL_ONLY, parameter.POSITIONAL_OR_KEYWORD):
+                raise TypeError(f"TextMemo kan geen {parameter.kind.description} parameter aan: {parameter.name}")
+        return tuple(parameter.default for parameter in signature.parameters.values())
+
+    def __call__(self, *args: Any, **kwargs: Any) -> _Result:
+        if kwargs:
+            bound: inspect.BoundArguments = self._signature.bind(*args, **kwargs)
+            bound.apply_defaults()  # anders houdt `args` op bij de eerste weggelaten parameter
+            args = bound.args
+        if len(args) < len(self._defaults):  # `categorize(title)`, `categorize(title, "")` en `categorize(title=title)`: een sleutel
+            missing: list[Any] = []
+            for default in self._defaults[len(args) :]:
+                if default is inspect.Parameter.empty:
+                    break  # een verplichte parameter ontbreekt: de functie zelf geeft de fout
+                missing.append(default)
+            args = (*args, *missing)
+        texts: tuple[str, ...] = tuple(arg if isinstance(arg, str) else str(arg or "") for arg in args)
+        key: Any = texts[0] if len(texts) == 1 else texts  # zoals lru_cache: een enkele tekst is zelf de sleutel
+        found: Any = self._new.get(key, _MISSING)
+        if found is not _MISSING:
+            self._hits += 1
+            return found
+        found = self._old.pop(key, _MISSING)
+        if found is not _MISSING:  # verhuist naar de nieuwe generatie: samen blijven het evenveel namen
+            self._hits += 1
+            self._new[key] = found
+            return found
+        self._misses += 1
+        result: _Result = self._function(*texts)
+        self._keep(key, result)
+        return result
+
+    def _keep(self, key: Any, value: _Result) -> None:
+        """Bewaart een nieuw antwoord. Zijn er dan samen meer dan `size` namen, dan gaat er een naam uit (`_evict`)."""
+        self._new[key] = value
+        if len(self._new) + len(self._old) > self.size:
+            self._evict()
+
+    def _evict(self) -> None:
+        """Haalt de oudste naam uit de oude generatie die er nog in staat. Is de oude leeg, dan wordt eerst de nieuwe de oude.
+
+        Onder `_lock`: `self._next += 1` en het inkorten van `_order` zijn elk meer dan een stap, en twee rekenthreads die tegelijk
+        missen, konden zo de cursor van de oude tuple in de nieuwe zetten. Dan sloeg hij namen over die in de oude generatie
+        bleven, en als de cursor op was, haalde de memo niets meer weg en wisselde hij nooit meer: hij groeide zonder grens. Een
+        treffer komt hier niet. Is `_order` toch op terwijl de oude nog namen heeft (een naam die een andere thread net in de
+        nieuwe zette toen die de oude werd), dan begint de volgorde opnieuw bij wat de oude nu heeft."""
+        with self._lock:
+            if len(self._new) + len(self._old) <= self.size:  # een andere thread was ons voor
+                return
+            if not self._old:
+                # eerst een lege nieuwe, dan de oude: een andere thread ziet zo even te weinig namen (een treffer wordt een
+                # misser), nooit de volle generatie twee keer (`self._old, self._new = self._new, {}` zet ze een moment gelijk)
+                full: dict[Any, _Result] = self._new
+                self._new = {}
+                self._old = full
+                self._order, self._next = tuple(full), 0
+            if not self._evict_oldest() and self._old:
+                self._order, self._next = tuple(self._old), 0
+                self._evict_oldest()
+
+    def _evict_oldest(self) -> bool:
+        """`_evict` zonder de wissel, onder `_lock`. False als `_order` op is zonder dat er een naam uit kon."""
+        while self._next < len(self._order):
+            key: Any = self._order[self._next]
+            self._next += 1
+            if self._old.pop(key, _MISSING) is not _MISSING:  # anders kwam hij terug en staat hij in de nieuwe
+                self._evicted += 1
+                if self._next * ORDER_SLACK > len(self._order):  # laat de sleutels voor de cursor los
+                    self._order, self._next = self._order[self._next :], 0
+                return True
+        return False
+
+    def cache_info(self) -> MemoInfo:
+        """De tellers, met `currsize` onder `_lock`: zo valt de telling niet midden in een wissel, waar een thread die `_new`
+        voor de wissel en `_old` erna leest dezelfde generatie twee keer telt."""
+        with self._lock:
+            current: int = len(self._old) + len(self._new)
+        return MemoInfo(self._hits, self._misses, self.size, current, self._evicted)
+
+    def cache_clear(self) -> None:
+        """Leegt de memo, onder `_lock`: anders kan een rekenthread in `_evict` de cursor van de oude tuple in de lege zetten."""
+        with self._lock:
+            self._new = {}
+            self._old = {}
+            self._order = ()
+            self._next = 0
+        self._hits = 0
+        self._misses = 0
+        self._evicted = 0
+
 
 NEAR_MARK: str = "~"  # voor een sleutel van `near`: geen gevouwen naam begint zo
 NEAR_NOISE: frozenset[str] = frozenset({"online"})  # "AH Les pain triomphe heel online" in een oude bevestigingsmail
 
 
+@memo(FOLD_SIZE)
 def fold(value: Any) -> str:
     """Een naam om op te vergelijken: kleine letters, zonder accenten en met enkele spaties. "AH Ah zachte spinazie" in een
     bevestigingsmail heeft het merk twee keer, en dat telt als een keer."""
@@ -25,6 +219,7 @@ def fold(value: Any) -> str:
     return " ".join(words)
 
 
+@memo(NEAR_SIZE)
 def near(name: str) -> str:
     """Een naam om bijna-gelijke namen te herkennen: de woorden in enkelvoud, op volgorde van het alfabet. AH noemde het brood
     in de mails van 2022 "AH Les pain triomphe heel" en nu "AH Les pains triomphe heel": hetzelfde product."""
