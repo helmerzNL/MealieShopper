@@ -40,7 +40,7 @@ import aiosqlite
 
 from . import ah, ah_lists, ah_orders, auth, compute, deals, line_offers, name_keys, offer_categories, offer_ranking, offers, packs, price_import, product_links, shared_links
 from .i18n import tr
-from .regular_price import Chosen, RegularPoint, choose
+from .regular_price import FRESH_DAYS, Chosen, RegularPoint, choose
 
 log = logging.getLogger(__name__)
 
@@ -2309,6 +2309,36 @@ async def _search_points(
     ))
 
 
+# Van de bewaarde prijzen in het venster alleen die `regular_price.choose` op `until` kan kiezen (`_choosable_points`). Een prijs
+# telt daar alleen als hij een getal boven nul is (`_point`), en choose neemt de laagste van de laatste `FRESH_DAYS` dagen, of zonder
+# zo'n prijs de nieuwste dag. Een bewaarde prijs van een andere dag wordt het dus nooit, wat de andere bronnen ook geven. Eerst per
+# product de nieuwste dag met een bruikbare prijs (via de primaire sleutel, van achteren), dan per product de rijen vanaf die dag
+# of vanaf `fresh_from`. De dag telt zoals `_point` hem leest: de eerste tien tekens. CROSS JOIN houdt de producten in de buitenste
+# lus: anders kiest SQLite de index op dag en loopt hij langs alle prijzen van de winkel. Parameters: winkel, begin, `until`, bron, de ids als
+# JSON, winkel, `fresh_from`, begin, `until`, bron, `fresh_from`.
+_USABLE_PRICE_SQL: str = "typeof({column}) IN ('integer', 'real') AND {column} > 0"
+_CHOOSABLE_SQL: str = (
+    "WITH newest AS MATERIALIZED (SELECT w.value AS product_id, (SELECT substr(p.day, 1, 10) FROM price_observations p "
+    "WHERE p.store = ? AND p.product_id = w.value AND p.day >= ? AND p.day <= ? AND p.source != ? "
+    f"AND {_USABLE_PRICE_SQL.format(column='p.price')} ORDER BY p.day DESC LIMIT 1) AS day "
+    "FROM (SELECT DISTINCT value FROM json_each(?)) w) "
+    "SELECT o.product_id, o.day, o.price FROM newest n CROSS JOIN price_observations o "
+    "ON o.store = ? AND o.product_id = n.product_id AND o.day >= min(n.day, ?) "
+    f"WHERE o.day >= ? AND o.day <= ? AND o.source != ? AND {_USABLE_PRICE_SQL.format(column='o.price')} "
+    "AND (o.day >= ? OR substr(o.day, 1, 10) = n.day)"
+)
+
+
+async def _choosable_points(
+    conn: aiosqlite.Connection, store: str, since: str, until: str, ids: list[str], fresh_from: str
+) -> list[Any]:
+    """De rijen van `_search_points` die `regular_price.choose` op `until` kan kiezen (`_CHOOSABLE_SQL`), met `fresh_from` de eerste
+    dag die choose vers noemt. Bij de aanbiedingen van AH op de volumedatabase 4.300 rijen in plaats van 181.000 (tien jaar)."""
+    args: tuple[Any, ...] = (store, since, until, PUBLIC_OBSERVED_UNKNOWN, json.dumps(ids), store, fresh_from, since, until,
+                             PUBLIC_OBSERVED_UNKNOWN, fresh_from)
+    return list(await conn.execute_fetchall(_CHOOSABLE_SQL, args))
+
+
 async def _order_points(
     conn: aiosqlite.Connection, store: str, since: str, until: str, before_until: bool, ids: list[str] | None
 ) -> list[Any]:
@@ -2393,16 +2423,20 @@ def _offer_points(rows: list[Any], since: str, until: str) -> list[tuple[Any, An
 
 async def _regular_points(
     conn: aiosqlite.Connection, store: str, since: str, until: str, *, receipts: list[dict[str, Any]],
-    purchases_before_until: bool = False, ids: list[str] | None = None,
+    purchases_before_until: bool = False, ids: list[str] | None = None, choosable: bool = False,
 ) -> dict[str, list[RegularPoint]]:
     """De gedateerde gewone prijzen per product tussen `since` en `until` (ISO-dagen, beide meegerekend), uit elke bron.
 
     Bronnen (de naam is `RegularPoint.source`): `search` (bewaarde prijzen), `order` (de gewone prijs in je bestellingen),
     `import` (ingelezen aankopen met een gewone prijs), `receipt` (de betaalde prijs op een bon, alleen bij een geheel aantal)
     en `offer` (de prijs vóór de actie, op de dag dat de periode eindigde). `receipts` is `_Catalogue.receipts`.
-    `purchases_before_until` laat de aankopen van de dag `until` zelf weg. `ids` beperkt het tot die producten."""
+    `purchases_before_until` laat de aankopen van de dag `until` zelf weg. `ids` beperkt het tot die producten. `choosable` (met `ids`)
+    laat van de bewaarde prijzen alleen die staan die `regular_price.choose` op `until` kan kiezen (`_choosable_points`): genoeg voor
+    het oordeel, niet voor een lijst van alle punten."""
+    fresh_from: str | None = (date.fromisoformat(until) - timedelta(days=FRESH_DAYS)).isoformat() if choosable else None
     rows: _RegularRows = _RegularRows(
-        await _search_points(conn, store, since, until, ids),
+        await (_choosable_points(conn, store, since, until, ids, fresh_from) if fresh_from is not None and ids is not None
+               else _search_points(conn, store, since, until, ids)),
         await _order_points(conn, store, since, until, purchases_before_until, ids),
         await _offer_rows(conn, store, since, ids),
     )
@@ -2552,7 +2586,8 @@ async def _verdict_facts(store: str, items: list[dict[str, Any]], today: str) ->
     async with _connect() as conn:
         catalogue: _Catalogue | None = await _catalogue_or_none(conn, store, today)
         regulars: dict[str, list[RegularPoint]] = await _regular_points(
-            conn, store, _days_ago(today, REGULAR_HISTORY_DAYS), today, receipts=catalogue.receipts if catalogue else [], ids=ids
+            conn, store, _days_ago(today, REGULAR_HISTORY_DAYS), today, receipts=catalogue.receipts if catalogue else [], ids=ids,
+            choosable=True,  # alleen voor `_regular_for_verdict`: choose op vandaag
         )
         recent: list[Any] = list(await conn.execute_fetchall(
             "SELECT * FROM price_observations WHERE store = ? AND day >= ? AND day <= ? AND source != ? ORDER BY day",

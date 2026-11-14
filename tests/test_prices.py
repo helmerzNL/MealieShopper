@@ -1113,6 +1113,32 @@ class RegularPricesTest(PricesCase):
         self.assertEqual({key: [(p.price, p.source) for p in value] for key, value in found.items()},
                          {"1": [(1.19, "search")], "2": [(1.29, "order")], "3": [(2.49, "offer")]})
 
+    async def test_the_verdict_reads_only_the_search_prices_choose_can_pick(self) -> None:
+        # Taak 9d: het oordeel leest van tien jaar bewaarde prijzen alleen die van de laatste dertig dagen, en zonder die de nieuwste
+        # dag met een bruikbare prijs. Een prijs van nul op de nieuwste dag telt niet, zoals bij `_point`. De keuze blijft dezelfde.
+        for day, product_id, price in (
+            ("2026-05-01", "1", 1.09), ("2026-09-01", "1", 1.19), ("2026-09-15", "1", 1.29), ("2026-09-18", "1", 1.25),
+            ("2026-03-01", "2", 2.49), ("2026-04-01", "2", 2.59), ("2026-04-02", "2", 2.69),
+        ):
+            await self.observe(day, product_id, "AH Penne", price)
+        with closing(db(ah_orders)) as conn, conn:
+            conn.execute("UPDATE price_observations SET price = 0 WHERE product_id = '2' AND day = '2026-04-02'")
+        ids: list[str] = ["1", "2", "3"]
+
+        async def full(conn):
+            return await prices._regular_points(conn, "ah", "2016-09-21", "2026-09-21", receipts=[], ids=ids)
+
+        async def choosable(conn):
+            return await prices._regular_points(conn, "ah", "2016-09-21", "2026-09-21", receipts=[], ids=ids, choosable=True)
+
+        everything, picked = await in_db(prices._connect, full, choosable)
+        self.assertEqual({key: sorted((p.day, p.price) for p in value) for key, value in picked.items()},
+                         {"1": [("2026-09-01", 1.19), ("2026-09-15", 1.29), ("2026-09-18", 1.25)], "2": [("2026-04-01", 2.59)]})
+        self.assertEqual(len(everything["1"]) + len(everything["2"]), 6)
+        for product_id in ids:
+            self.assertEqual(prices._regular_for_verdict(picked.get(product_id, []), "2026-09-21"),
+                             prices._regular_for_verdict(everything.get(product_id, []), "2026-09-21"))
+
     async def test_fill_keeps_a_stored_price_when_only_an_old_source_remains(self) -> None:
         await store_order(1, "2026-09-21", [line("1", price=0.89)])
         with closing(db(ah_orders)) as conn, conn:
