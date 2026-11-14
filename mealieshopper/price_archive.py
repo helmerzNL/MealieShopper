@@ -1391,7 +1391,7 @@ def summarize(archive: Archive, plan: Plan, corrections: dict[str, int], lines: 
 
 
 def _stage_path(token: str) -> Path:
-    if not TOKEN_PATTERN.match(str(token or "")):
+    if not TOKEN_PATTERN.fullmatch(str(token or "")):  # niet `match`: "$" past ook voor een laatste regeleinde
         raise ArchiveError("stage_missing", 404)
     return auth.data_dir() / f"{STAGE_PREFIX}{token}.rows"
 
@@ -1424,7 +1424,7 @@ async def stage(body: AsyncIterable[bytes], content_length: int | None, keep_unl
         raise ArchiveError("too_large", 413, limit=limit)
     directory: Path = auth.data_dir()
     directory.mkdir(parents=True, exist_ok=True)
-    remove_old_staged_files()
+    await asyncio.to_thread(remove_old_staged_files)  # een glob en een stat per bestand: niet op de event loop
     token: str = secrets.token_hex(16)
     upload: Path = _upload_path(token)
     received: int = 0
@@ -1445,7 +1445,7 @@ async def stage(body: AsyncIterable[bytes], content_length: int | None, keep_unl
 
 async def stage_upload(token: str, size: Any, keep_unlinked: bool = False) -> dict[str, Any]:
     """Als `stage`, voor een archief dat in stukken binnenkwam (uploads.py): het krijgt hetzelfde token."""
-    remove_old_staged_files()
+    await asyncio.to_thread(remove_old_staged_files)  # een glob en een stat per bestand: niet op de event loop
     upload: Path = _upload_path(token)
     (await uploads.take(STAGE_PREFIX, token, size)).replace(upload)
     return await _check(token, upload, keep_unlinked)
@@ -1542,7 +1542,7 @@ async def fetch_site(keep_unlinked: bool = False) -> dict[str, Any]:
     De catalogus (index.json) zegt welke documenten er zijn, met hun lengte en SHA-256. Elk document wordt opgehaald en
     gecontroleerd, en komt als `data/<winkel>/offers|prices/<naam>.json` in een ZIP, met index.json erbij voor de bron. Die ZIP
     krijgt daarna precies de controle van een geüpload archief (`_check`). Klopt er iets niet, dan blijft er niets staan."""
-    remove_old_staged_files()
+    await asyncio.to_thread(remove_old_staged_files)  # een glob en een stat per bestand: niet op de event loop
     raw_catalog: bytes = await _site_get("index.json", MAX_CATALOG_BYTES)
     try:
         catalog: Any = json.loads(raw_catalog)
@@ -1618,11 +1618,29 @@ async def discard(token: str) -> None:
 # --- importeren ---------------------------------------------------------------------------------------------------
 
 
-def _staged_rows(path: Path) -> Iterator[tuple[str, tuple[Any, ...]]]:
+# Zo groot is een blok van het klaargezette bestand (`_staged_lines`).
+STAGED_BLOCK: int = 1024 * 1024
+
+
+def _staged_lines(path: Path) -> Iterator[str]:
+    """De regels van een tekstbestand, in blokken van `STAGED_BLOCK` gelezen. Regel voor regel lezen (`for line in handle`) hield
+    in de thread van `apply` een andere thread tot 140 ms van de GIL af, ook de event loop (taak 10, gemeten op het klaargezette
+    bestand van de volumedatabase: 18 MB): het bestand vult zijn buffer in kleine stukken, geeft de GIL daarbij steeds even vrij en
+    pakt hem meteen terug. Met blokken van een MB wacht een andere thread hooguit een paar milliseconden."""
+    rest: str = ""
     with path.open(encoding="utf-8") as handle:
-        for line in handle:
-            kind, values = json.loads(line)
-            yield kind, tuple(values)
+        while block := handle.read(STAGED_BLOCK):
+            lines: list[str] = (rest + block).split("\n")
+            rest = lines.pop()
+            yield from lines
+    if rest:
+        yield rest
+
+
+def _staged_rows(path: Path) -> Iterator[tuple[str, tuple[Any, ...]]]:
+    for line in _staged_lines(path):
+        kind, values = json.loads(line)
+        yield kind, tuple(values)
 
 
 def apply(path: Path, replace: bool = False, on_commit: Callable[[sqlite3.Connection, dict[str, Any]], None] | None = None) -> dict[str, Any]:
@@ -1819,7 +1837,9 @@ async def run_job(job_id: str, staged: Path, actor: str = "system", replace: boo
         try:
             await ensure_schema()
             work = asyncio.ensure_future(asyncio.to_thread(apply, staged, replace, done))
-            summary: dict[str, Any] = await asyncio.shield(work)  # een annulering stopt de thread niet: we zien hem afkomen
+            # Een annulering stopt de thread niet: we zien hem afkomen (`_record_when_committed`). Niet `asyncio.shield`: die meldt
+            # een fout van `work` na de annulering vanaf Python 3.15 ook zelf bij de loop, en hier halen we hem al op.
+            summary: dict[str, Any] = await tasks.share(work)
             auditing = True
             await _record_import(summary, actor, started)
         except Exception:  # noqa: BLE001 - de beheerder krijgt een algemene zin, het logboek de hele fout

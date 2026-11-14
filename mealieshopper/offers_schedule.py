@@ -19,7 +19,20 @@ from typing import Any, Awaitable, Callable
 
 import aiosqlite
 
-from . import ah_orders, auth, image_cache, loose_names, offers, price_archive_sync, prices, purchase_sync, recipe_nutrition, tasks
+from . import (
+    ah_orders,
+    ah_price_index,
+    auth,
+    image_cache,
+    loose_names,
+    offers,
+    price_archive_sync,
+    prices,
+    purchase_sync,
+    recipe_nutrition,
+    tasks,
+    watched_products,
+)
 
 log = logging.getLogger(__name__)
 
@@ -100,8 +113,9 @@ async def run_all(trigger: str, now: datetime | None = None, *, wait_for_images:
     """De dagelijkse run: alle aanbiedingen, je bestellingen en kassabonnen (purchase_sync.sync_nightly), daarna de extraatjes die
     in hetzelfde rustige tempo bij de winkels langsgaan: een deel van de artikelnummers op de kassabonnen koppelen
     (ah_orders.resolve_receipt_products), de foto's bij oude koppelingen en de afbeeldingencache aanvullen (image_cache.prefetch),
-    en de gewone prijs per aankoopregel bijwerken (prices.fill_regular_prices_nightly). Elk extraatje staat alleen in de uitkomst
-    als het iets te doen had."""
+    en de gewone prijs per aankoopregel bijwerken (prices.fill_regular_prices_nightly) en de gevolgde producten
+    (watched_products.refresh_nightly). Elk extraatje staat alleen in de uitkomst als het iets te doen had. De weekprijzen van je
+    gekochte AH-producten (ah_price_index.start) gaan in een eigen task: die ronde wacht tien seconden tussen twee verzoeken."""
     result = await offers.sync_all()
     # Alleen de dagelijkse run (die wacht ook op de foto's): de knop geeft meteen antwoord, en de bestelpagina heeft een eigen
     # knop. Voor de catalogus en de extraatjes: die rekenen met de nieuwe aankopen.
@@ -120,6 +134,8 @@ async def run_all(trigger: str, now: datetime | None = None, *, wait_for_images:
         ("receiptProducts", lambda: ah_orders.resolve_receipt_products_nightly(linking_now)),
         ("receiptImages", lambda: ah_orders.backfill_receipt_images_nightly(linking_now)),
         ("regularPrices", prices.fill_regular_prices_nightly),
+        # De gevolgde producten: van elk de prijs, de maat, de verpakking en de afbeelding van vandaag (watched_products.py).
+        ("watchedProducts", watched_products.refresh_nightly),
     )
     for key, task in extras:
         outcome = await task()
@@ -127,6 +143,7 @@ async def run_all(trigger: str, now: datetime | None = None, *, wait_for_images:
             result = {**result, key: outcome}
     if wait_for_images:
         _start_loose_names()
+        _start_price_index()
         await _start_recipe_index()
         images = await image_cache.prefetch_nightly()
         if images is not None:
@@ -150,6 +167,14 @@ def _start_loose_names() -> None:
         loose_names.start(None, "nightly")
     except Exception:  # noqa: BLE001 - een extraatje: een fout bij het starten mag de nachtelijke run niet vertragen of laten falen
         log.warning("Ronde voor losse namen starten mislukt", exc_info=True)
+
+
+def _start_price_index() -> None:
+    """Start de ronde langs de prijsindex van AH in een eigen task: de run wacht er niet op."""
+    try:
+        ah_price_index.start()
+    except Exception:  # noqa: BLE001 - een extraatje: een fout bij het starten mag de nachtelijke run niet laten falen
+        log.warning("Ronde langs de prijsindex starten mislukt", exc_info=True)
 
 
 async def _start_recipe_index() -> None:
@@ -236,4 +261,5 @@ def start() -> None:
     global _task
     if (_task is not None and not _task.done()) or not (enabled() or price_archive_sync.enabled()):
         return
+    # Elk kwartier een controle. De run zelf (`run_all`) heeft een volumetest: test_the_nightly_tasks_do_not_stall (taak 10).
     _task = tasks.spawn("offers-schedule", _loop())

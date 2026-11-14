@@ -26,8 +26,10 @@ clients bij het afsluiten. Elke losse `asyncio.run(...)` die een client gebruikt
 from __future__ import annotations
 
 import asyncio
+import importlib.util
 import logging
 import ssl
+import sys
 import weakref
 from collections.abc import AsyncIterator, Mapping
 from contextlib import asynccontextmanager
@@ -37,6 +39,14 @@ from pathlib import Path
 import httpx
 
 from . import audit
+
+# httpcore vraagt bij elk slot en elke verbinding `import sniffio` (`httpcore._synchronization.current_async_library`), en valt
+# zonder sniffio terug op asyncio. Die import faalt dan elke keer opnieuw, en een mislukte import zoekt heel sys.path af, met
+# een stat per map. Op de event loop laat elke stat de GIL los, en terwijl een andere thread rekent krijgt de loop hem pas na
+# het wisselinterval terug: onder belasting een stilstand van 108 tot 145 ms (taak 9c). None in sys.modules laat de import
+# meteen falen, zonder te zoeken (de taalreferentie, "The module cache"). Alleen als sniffio er echt niet is.
+if "sniffio" not in sys.modules and importlib.util.find_spec("sniffio") is None:
+    sys.modules["sniffio"] = None  # type: ignore[assignment]
 
 logger: logging.Logger = logging.getLogger(__name__)
 

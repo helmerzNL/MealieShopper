@@ -24,6 +24,7 @@ os.environ["PASSKEY_AUTH_ENABLED"] = "false"
 from helpers import AppClient, ReadResponse, db, run_aside  # noqa: E402
 
 from mealieshopper import (  # noqa: E402
+    ah_price_index,
     audit,
     auth,
     auth_password,
@@ -44,6 +45,7 @@ from mealieshopper import (  # noqa: E402
     uploads,
 )
 from mealieshopper.app import create_app  # noqa: E402
+from mealieshopper.response_cache import ResponseCache
 
 if TYPE_CHECKING:  # niet bij de import: pytest zou TestAppProtocol voor een testklasse aanzien
     from quart.typing import TestAppProtocol
@@ -252,6 +254,15 @@ class BackupCase(unittest.IsolatedAsyncioTestCase):
     def staged_files(self) -> list[str]:
         return sorted(path.name for path in self.data.glob(".restore-*"))
 
+    async def wait_until_staged(self, size: int, timeout: float = 5) -> None:
+        """Wacht tot er een bestand van een upload naar /api/backup/stage staat met minstens `size` bytes op schijf."""
+        deadline: float = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            if any(path.stat().st_size >= size for path in self.data.glob(".restore-*")):
+                return
+            await asyncio.sleep(0.001)
+        self.fail(f"na {timeout} s staan er nog geen {size} bytes van de upload op schijf")
+
     def gate_after_checking(self) -> tuple[threading.Event, threading.Event]:
         """Houdt de klus vast na de controle van de rijen (in zijn thread), tot de test `release` zet.
 
@@ -298,6 +309,8 @@ class ClassificationTest(BackupCase):
             pass
         await self.oauth_schema()
         async with price_archive._ajobs_connect():
+            pass
+        async with ah_price_index._connect():  # de stand van de ronde langs de prijsindex: bewust niet in de back-up
             pass
         with closing(self.connect()) as conn:
             tables = {row["name"] for row in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
@@ -390,6 +403,29 @@ class RoundTripTest(BackupCase):
         self.assertEqual((await self.restore(data))["status"], "done")
         self.assertFalse(await loose_names.reject("jumbo", "~kersen"), "de afwijzing was er al")
         self.assertTrue(await loose_names.restore("jumbo", "~kersen"))
+
+    async def test_restoring_a_backup_drops_the_cached_catalogue_and_list(self) -> None:
+        # Review Focus 4 van taak 9: na het terugzetten staat er niets van de oude database meer in het geheugen.
+        self.assertIn("catalogue_versions", backup.EXCLUDED_TABLES)
+        listed: ReadResponse = await self.admin.get("/api/offers?store=ah")
+        self.assertEqual(listed.status_code, 200)
+        await prices.warm_catalogues(["ah"])
+        cache: ResponseCache = self.app.extensions["mealieshopper_offers_cache"]
+        self.assertTrue(prices._CATALOGUES)
+        self.assertTrue(cache._entries)
+        with closing(self.connect()) as conn:
+            token: str = conn.execute("SELECT token FROM catalogue_versions WHERE store = 'ah'").fetchone()[0]
+        response: ReadResponse
+        data: bytes
+        response, data = await self.make()
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual((await self.restore(data))["status"], "done")
+        self.assertEqual(prices._CATALOGUES, {})
+        self.assertEqual(dict(cache._entries), {})
+        again: ReadResponse = await self.admin.get("/api/offers?store=ah", headers={"If-None-Match": listed.headers["ETag"]})
+        self.assertEqual(again.status_code, 200, "een nieuwe ETag na het terugzetten")
+        with closing(self.connect()) as conn:
+            self.assertNotEqual(conn.execute("SELECT token FROM catalogue_versions WHERE store = 'ah'").fetchone()[0], token)
 
     async def test_everything_comes_back_with_its_links(self) -> None:
         self.seed()
@@ -1994,10 +2030,58 @@ class BodyLimitTest(BackupCase):
     async def test_restore_upload_up_to_the_backup_limit_is_accepted(self) -> None:
         # Quart weigert standaard alles boven 16 MiB met 413. Een bestand van precies de back-upgrens moet erdoor: het is geen
         # geldige back-up, dus de validator mag 400 geven, maar de aanvraag mag niet al bij de lichaamsgrens stranden.
-        body = bytes(backup.MAX_STAGE_BYTES)
-        response = await self.stage(body)
-        self.assertNotEqual(response.status_code, 413, response.get_data()[:200])
+        # Het lichaam komt in stukken van 1 MiB, zoals een server het aflevert (hypercorn: hooguit 64 KB per keer), en elk stuk
+        # staat op schijf voor het volgende komt. In een keer (`self.stage`) kopieert Quart de hele 200 MB op de event loop
+        # (`bytes(self._data)` in `Body.__anext__`): dat hield hem op een runner van GitHub langer dan 100 ms vast (2026-11-14).
+        piece: bytes = bytes(1024 * 1024)
+        total: int = backup.MAX_STAGE_BYTES
+        headers: dict[str, str] = {"Content-Type": "application/octet-stream", "Content-Length": str(total)}
+        async with self.admin.stream("/api/backup/stage", headers) as connection:
+            sent: int = 0
+            while sent < total:
+                await connection.send(piece[: total - sent])
+                sent = min(total, sent + len(piece))
+                await self.wait_until_staged(sent)
+            await connection.send_complete()
+        response = await connection.as_response()
+        self.assertNotEqual(response.status_code, 413, (await response.get_data())[:200])
         self.assertLess(response.status_code, 500)
+
+    async def test_a_large_chunk_is_written_in_pieces_with_a_turn_for_the_loop_between(self) -> None:
+        # De testclient levert een back-up van 200 MB als een stuk: in een keer geschreven hield dat de loop 469 ms vast
+        # (volledige run op 3.15, 2026-11-14). Elk deel is hoogstens STAGE_PIECE_BYTES, tussen de delen draait de loop door.
+        chunk: bytes = bytes(range(256)) * (3 * backup.STAGE_PIECE_BYTES // 256) + b"x"
+        turns: list[int] = [0]
+
+        async def count_turns() -> None:
+            while True:
+                turns[0] += 1
+                await asyncio.sleep(0)
+
+        handle: TurnRecordingFile = TurnRecordingFile(turns)
+        counter: asyncio.Task[None] = asyncio.create_task(count_turns())
+        try:
+            await asyncio.sleep(0)
+            await backup._write_in_pieces(handle, chunk)
+        finally:
+            counter.cancel()
+        self.assertEqual(handle.getvalue(), chunk)
+        self.assertEqual([size for size, _ in handle.pieces], [backup.STAGE_PIECE_BYTES] * 3 + [1])
+        seen: list[int] = [turn for _, turn in handle.pieces]
+        self.assertEqual(seen, sorted(set(seen)), "de loop kreeg geen beurt tussen twee delen")
+
+
+class TurnRecordingFile(io.BytesIO):
+    """Een bestand in het geheugen dat per `write` de grootte en de beurt van de loop op dat moment onthoudt."""
+
+    def __init__(self, turns: list[int]) -> None:
+        super().__init__()
+        self.turns: list[int] = turns
+        self.pieces: list[tuple[int, int]] = []
+
+    def write(self, data: Any) -> int:
+        self.pieces.append((len(data), self.turns[0]))
+        return super().write(data)
 
 
 class PageTest(unittest.TestCase):

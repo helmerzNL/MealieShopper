@@ -2,7 +2,9 @@
 
 import ipaddress
 import os
+import shutil
 import socket
+import sys
 import threading
 from collections.abc import AsyncIterator, Callable, Iterator
 from pathlib import Path
@@ -16,11 +18,23 @@ from quart.typing import TestClientProtocol
 # Ook zonder de fixture `data_dir` (een kale `pytest`-run, unittest-tests) mag `before_serving` de dagelijkse
 # aanbiedingen-thread niet starten. Dit moet vooraf, voor de eerste import van mealieshopper.
 os.environ.setdefault("MEALIESHOPPER_TESTING", "1")
-
+# De ronde langs ahprijsindex.nl (ah_price_index.py) hoort bij de dagelijkse run. In de tests staat ze uit, tenzij een test
+# haar zelf aanzet: zo start een test van de dagelijkse run geen task die na de test nog in de database leest.
+os.environ.setdefault("MEALIESHOPPER_PRICE_INDEX", "false")
 os.environ.setdefault("MEALIESHOPPER_SHARED_PRICES", "false")
 
-from mealieshopper import auth  # noqa: E402
-from mealieshopper.app import create_app  # noqa: E402
+import loop_watch
+import volume
+
+from mealieshopper import ah_orders, auth, prices
+from mealieshopper import app as app_module
+from mealieshopper.app import create_app
+
+loop_watch.install()  # elke event loop in de tests draait onder de bewaker van de event loop
+# Het wisselinterval van de app (`app.create_app`, het konvooi van loop_guard.py) geldt vanaf de eerste test, ook voor een test
+# die geen app maakt: anders hangt de grens van 100 ms van `loop_watch` af van de volgorde van de tests.
+sys.setswitchinterval(app_module.SWITCH_INTERVAL_SECONDS)
+
 
 # Hosts die een test mag bereiken: alleen deze machine. De back-up- en TLS-tests draaien een lokale server, respx en de
 # testclient van Quart openen geen socket.
@@ -159,3 +173,76 @@ async def client(app: Quart) -> AsyncIterator[TestClientProtocol]:
     """Async testclient van de app: `before_serving` en `after_serving` lopen een keer per test."""
     async with app.test_app() as test_app:
         yield test_app.test_client()
+
+
+@pytest.fixture(scope="session")
+def volume_template(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
+    """De volumedatabase (`tests/volume.py`), een keer per run gebouwd. Een test werkt op een kopie: `volume_dir`.
+
+    Aan het eind van de sessie gaat de map weg: pytest bewaart de tijdelijke mappen van de laatste drie runs, en de database
+    is ruim 100 MB."""
+    folder: Path = tmp_path_factory.mktemp("volume")
+    volume.build(folder)
+    yield folder
+    shutil.rmtree(folder, ignore_errors=True)
+
+
+def _remove_database(folder: Path) -> None:
+    """De kopie van de volumedatabase met haar WAL-bestanden weg, zodat de tijdelijke map van een test klein blijft."""
+    for name in (volume.DB_NAME, f"{volume.DB_NAME}-wal", f"{volume.DB_NAME}-shm"):
+        (folder / name).unlink(missing_ok=True)
+
+
+@pytest.fixture
+def volume_dir(volume_template: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Path]:
+    """Een kopie van de volumedatabase als datamap, met de klok op `volume.TODAY`, zonder inloggen en zonder AH.
+
+    `prices._CATALOGUES` gaat ervoor en erna leeg: de catalogus van AH is op deze schaal groot, en de sleutel is het pad van
+    de database, dus elke kopie zou er anders een laten staan. Na de test gaat de kopie weg (ruim 100 MB per test).
+    """
+    shutil.copyfile(volume_template / volume.DB_NAME, tmp_path / volume.DB_NAME)
+    monkeypatch.setenv("MEALIESHOPPER_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("MEALIESHOPPER_TESTING", "1")
+    monkeypatch.setenv("PASSKEY_AUTH_ENABLED", "false")  # zoals de tests van de aanbiedingen
+    volume.freeze_clock(monkeypatch)
+    monkeypatch.setattr(ah_orders, "resolve_receipt_names", volume.no_receipt_lookup)
+    prices._CATALOGUES.clear()
+    yield tmp_path
+    prices._CATALOGUES.clear()
+    _remove_database(tmp_path)
+
+
+@pytest.fixture
+async def volume_client(volume_dir: Path) -> AsyncIterator[TestClientProtocol]:
+    """Async testclient van een app op de volumedatabase."""
+    app: Quart = create_app()
+    async with app.test_app() as test_app:
+        yield test_app.test_client()
+
+
+@pytest.fixture(autouse=True)
+def loop_watch_check(request: pytest.FixtureRequest) -> Iterator[None]:
+    """Na elke test: de stilstanden van de event loop die de app veroorzaakte, in `enforce` een fout, in `report` genoteerd.
+
+    Een stilstand zonder regel van de app (een `time.sleep` in de test zelf) telt niet, en `@pytest.mark.may_block("reden")`
+    stelt een test vrij.
+    """
+    marker: Any = request.node.get_closest_marker("may_block")
+    try:
+        loop_watch.exemption_reason(marker)  # een markering zonder reden faalt voor de test, niet erna
+    except ValueError as error:
+        pytest.fail(str(error), pytrace=False)
+    loop_watch.drain()  # wat een vorige loop nog meldde, hoort niet bij deze test
+    yield
+    message: str | None = loop_watch.check(request.node.nodeid, marker, loop_watch.MODE, loop_watch.drain())
+    if message:
+        pytest.fail(message, pytrace=False)
+
+
+def pytest_terminal_summary(terminalreporter: Any) -> None:
+    lines: list[str] = loop_watch.summary_lines()
+    if not lines:
+        return
+    terminalreporter.section(f"stilstanden van de event loop (> {round(loop_watch.LIMIT * 1000)} ms, binnenste regel van de app)")
+    for line in lines:
+        terminalreporter.write_line(line)

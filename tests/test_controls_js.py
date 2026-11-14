@@ -100,7 +100,7 @@ class ConfirmDialogTest(unittest.TestCase):
         for name, source in ALL_JS.items():
             code = re.sub(r"//[^\n]*", "", source)
             self.assertNotRegex(code, r"window\.(confirm|alert)\(|(?<![\w.])(confirm|alert)\(", name)
-        self.assertEqual(sum(source.count("confirmDialog(") for source in ALL_JS.values()), 15, "veertien vragen en de functie zelf")
+        self.assertEqual(sum(source.count("confirmDialog(") for source in ALL_JS.values()), 16, "vijftien vragen en de functie zelf")
         self.assertIn(
             '<dialog id="confirm-dialog" class="product-dialog confirm-dialog" role="alertdialog" aria-labelledby="confirm-dialog-text">', INDEX_HTML
         )

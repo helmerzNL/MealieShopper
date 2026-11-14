@@ -40,7 +40,7 @@ import aiosqlite
 import httpx
 from PIL import Image, UnidentifiedImageError
 
-from . import ah, audit, auth, http_client, tasks
+from . import ah, audit, auth, compute, http_client, readers, tasks
 
 log = logging.getLogger(__name__)
 
@@ -83,6 +83,7 @@ GIVE_UP_AFTER = 10
 NOT_FOUND_COUNTS = 3
 SETTING_PAUSED = "image_cache_paused_until:"  # plus de host
 PREFETCH_LIMIT = 300  # per nachtelijke ronde
+INSERT_BATCH = 500  # adressen per INSERT-ronde in `collect_known`
 PREFETCH_DEADLINE_SECONDS = 600
 PREFETCH_AFTER_SYNC = 40  # de kleine ronde na een synchronisatie van bestellingen of bonnen
 PREFETCH_AFTER_SYNC_SECONDS = 120
@@ -173,6 +174,18 @@ async def _connect() -> AsyncIterator[aiosqlite.Connection]:
     async with auth.connect() as conn:
         await auth.ensure_schema(conn, "image_cache", SCHEMA)
         yield conn
+
+
+@asynccontextmanager
+async def _read() -> AsyncIterator[readers.Reader]:
+    """Een leesverbinding (`auth.read`) voor de SELECT van `lookup`: een pagina met aanbiedingen vraagt honderden foto's, en een
+    eigen `auth.connect` per foto start een thread per verzoek (het konvooi van loop_guard.py). Het schema eerst een keer via
+    `_connect`: een leesverbinding kan geen tabel maken."""
+    if not auth.schema_ready("image_cache"):
+        async with _connect():
+            pass
+    async with auth.read() as reader:
+        yield reader
 
 
 def images_dir() -> Path:
@@ -312,14 +325,19 @@ async def register(url: str, now: str | None = None) -> int:
 
 async def lookup(url: str) -> dict[str, Any] | None:
     """De rij van een adres als dict, of None."""
-    async with _connect() as conn, conn.execute("SELECT * FROM image_cache WHERE url = ?", (url,)) as cursor:
-        row: aiosqlite.Row | None = await cursor.fetchone()
+    async with _read() as reader:
+        row: aiosqlite.Row | None = await reader.fetchone("SELECT * FROM image_cache WHERE url = ?", (url,))
     return dict(row) if row else None
+
+
+def _as_dicts(rows: list[aiosqlite.Row]) -> list[dict[str, Any]]:
+    """Pure functie voor `compute.run`: duizenden rijen naar dicts hoort niet op de event loop."""
+    return [dict(row) for row in rows]
 
 
 async def _rows() -> list[dict[str, Any]]:
     async with _connect() as conn, conn.execute("SELECT * FROM image_cache ORDER BY id") as cursor:
-        return [dict(row) for row in await cursor.fetchall()]
+        return await compute.run(_as_dicts, list(await cursor.fetchall()))
 
 
 async def stats(now: str | None = None) -> dict[str, Any]:
@@ -640,6 +658,17 @@ def enabled() -> bool:
     return environ.get("MEALIESHOPPER_IMAGE_PREFETCH", "true").strip().lower() not in {"0", "false", "no", "off"}
 
 
+def _safe_hosts(values: list[aiosqlite.Row]) -> list[tuple[str, str]]:
+    """Pure functie voor `compute.run`: de unieke adressen uit een kolom die `safe_url` doorlaten, met hun host. De volgorde is
+    die van de rijen (de eerste keer dat een adres voorkomt)."""
+    found: dict[str, str] = {}
+    for row in values:
+        url: Any = row[0]
+        if url not in found and safe_url(url):
+            found[url] = urlsplit(url).hostname or ""
+    return list(found.items())
+
+
 async def collect_known(now: str | None = None) -> int:
     """Zet elk winkeladres uit de tabellen van de interface in `image_cache` en geef het aantal nieuwe adressen."""
     now = now or _now()
@@ -655,15 +684,14 @@ async def collect_known(now: str | None = None) -> int:
             if column not in columns:
                 continue  # een database van vóór die kolom (de migratie volgt bij het eerste gebruik van die module)
             async with conn.execute(f"SELECT DISTINCT {column} FROM {table} WHERE {column} IS NOT NULL AND {column} != ''") as cursor:
-                urls: set[str] = {row[0] for row in await cursor.fetchall()}
-            for url in urls:
-                if not safe_url(url):
-                    continue
-                cursor = await conn.execute(
+                values: list[aiosqlite.Row] = list(await cursor.fetchall())
+            known: list[tuple[str, str]] = await compute.run(_safe_hosts, values)
+            for start in range(0, len(known), INSERT_BATCH):  # een stuk per keer: de loop krijgt er tussendoor ruimte
+                cursor = await conn.executemany(
                     "INSERT INTO image_cache (url, host, seen_at) VALUES (?, ?, ?) ON CONFLICT(url) DO NOTHING",
-                    (url, urlsplit(url).hostname or "", now),
+                    [(url, host, now) for url, host in known[start : start + INSERT_BATCH]],
                 )
-                added += cursor.rowcount
+                added += max(cursor.rowcount, 0)
         await conn.commit()
     return added
 
@@ -680,7 +708,7 @@ async def prefetch(*, limit: int = PREFETCH_LIMIT, deadline_seconds: float = PRE
     async with lock:  # een vrij slot pakken heeft geen wachtmoment: niemand komt tussen de controle en het pakken
         await collect_known(now)
         async with _connect() as conn, conn.execute("SELECT * FROM image_cache WHERE path IS NULL ORDER BY seen_at DESC, id DESC") as cursor:
-            rows: list[dict[str, Any]] = [dict(row) for row in await cursor.fetchall()]
+            rows: list[dict[str, Any]] = await compute.run(_as_dicts, list(await cursor.fetchall()))
         paused_hosts: set[str] = set()
         deadline: float = _monotonic() + deadline_seconds
         for row in rows:

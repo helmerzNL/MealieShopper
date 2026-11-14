@@ -520,6 +520,17 @@ class OffersWeekTest(TempDataDirTest):
         self.assertEqual((await client.get("/api/offers/recipes?store=ah&week=morgen")).status_code, 400)
         self.assertEqual((await client.get(f"/api/offers/recipes?store=ah&week={self.next_monday.isoformat()}")).status_code, 200)
 
+    async def test_an_unknown_week_is_reported_in_the_language_of_the_browser(self):
+        # offers.load rekent buiten de event loop (compute.run), waar de taal van de aanvraag (een ContextVar) niet is: de week
+        # wordt daarom op de loop gecontroleerd. Review van taak 8, 2026-11-13.
+        client = self.client_for(create_app())
+        for path in ("/api/offers/recipes?store=ah&week=foo", "/api/offers?store=ah&week=foo"):
+            english = await client.get(path, headers={"Cookie": "ms_lang=en"})
+            self.assertEqual(english.status_code, 400, path)
+            self.assertTrue(english.get_json()["error"].startswith("Unknown week"), path)
+            dutch = await client.get(path)
+            self.assertTrue(dutch.get_json()["error"].startswith("Onbekende week"), path)
+
 
 class SyncWarmTest(AppTestCase):
     """De knop `Aanbiedingen synchroniseren` per winkel verandert de ETag: daarna warmt de app de lijst met oordeel alvast op."""
@@ -1299,11 +1310,13 @@ class OffersTabMarkupTest(AppTestCase):
         self.assertIn('<div class="subtab-menu" id="offers-store-menu" hidden>', section)
         self.assertLess(section.index("offers-store-menu"), section.index('data-subtab="offers-items"'))
         self.assertEqual(
-            re.findall(r'<a class="subtab[^"]*" data-subtab="([\w-]+)"', section), ["offers-items", "offers-suggestions", "offers-history"]
+            re.findall(r'<a class="subtab[^"]*" data-subtab="([\w-]+)"', section),
+            ["offers-items", "offers-suggestions", "offers-history", "offers-watched"],
         )
         self.assertIn('<div id="offers-items" class="subpanel is-active">', section)
         self.assertIn('<div id="offers-suggestions" class="subpanel">', section)
         self.assertIn('<div id="offers-history" class="subpanel">', section)
+        self.assertIn('<div id="offers-watched" class="subpanel">', section)  # Gevolgde producten (4.27.0)
         self.assertNotIn("offers-store-slot", section)
 
     def test_the_price_history_tab_is_wired_to_the_history_route(self):
