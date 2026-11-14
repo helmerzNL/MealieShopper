@@ -15,7 +15,7 @@ from typing import Any
 import pytest
 from quart import Quart
 
-from mealieshopper import backup, uploads
+from mealieshopper import backup, price_archive, uploads
 from mealieshopper.app import create_app
 
 Message = dict[str, Any]
@@ -42,6 +42,28 @@ def half_then_gone(part: bytes) -> Callable[[], Awaitable[Message]]:
         raise AssertionError("onbereikbaar")
 
     return receive
+
+
+# Elke plek die een token van een upload of een klaargezet bestand tot een pad maakt, met de fout die hij geeft.
+TOKEN_SITES: dict[str, tuple[Callable[[str], Path], type[Exception]]] = {
+    "uploads.part_path": (lambda token: uploads.part_path(".upload-", token), uploads.UploadError),
+    "backup._stage_path": (backup._stage_path, backup.BackupError),
+    "price_archive._stage_path": (price_archive._stage_path, price_archive.ArchiveError),
+}
+
+
+@pytest.mark.parametrize("site", sorted(TOKEN_SITES))
+def test_a_token_with_a_trailing_newline_is_not_a_token(data_dir: Path, site: str) -> None:
+    """Eindreview: `TOKEN_PATTERN.match` met `$` liet een token met een regeleinde erachter door ("$" past ook voor een laatste
+    "\\n"). Nu `fullmatch`: alleen 32 tekens 0-9a-f, verder niets."""
+    path_of: Callable[[str], Path]
+    error: type[Exception]
+    path_of, error = TOKEN_SITES[site]
+    token: str = "0" * 32
+    assert token in path_of(token).name
+    for wrong in (f"{token}\n", f"{token}\r\n", f"\n{token}", f"{token} "):
+        with pytest.raises(error):
+            path_of(wrong)
 
 
 async def test_a_client_that_goes_away_halfway_a_part_leaves_nothing_written(data_dir: Path, monkeypatch: pytest.MonkeyPatch) -> None:

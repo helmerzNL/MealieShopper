@@ -110,7 +110,7 @@ def _megabytes(limit: int) -> int:
 
 
 def part_path(prefix: str, token: str) -> Path:
-    if not TOKEN_PATTERN.match(str(token or "")):
+    if not TOKEN_PATTERN.fullmatch(str(token or "")):  # niet `match`: "$" past ook voor een laatste regeleinde
         raise UploadError("missing", 404)
     return auth.data_dir() / f"{prefix}{token}{PART_SUFFIX}"
 

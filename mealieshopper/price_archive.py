@@ -1306,7 +1306,7 @@ def summarize(archive: Archive, plan: Plan, corrections: dict[str, int], lines: 
 
 
 def _stage_path(token: str) -> Path:
-    if not TOKEN_PATTERN.match(str(token or "")):
+    if not TOKEN_PATTERN.fullmatch(str(token or "")):  # niet `match`: "$" past ook voor een laatste regeleinde
         raise ArchiveError("stage_missing", 404)
     return auth.data_dir() / f"{STAGE_PREFIX}{token}.rows"
 
