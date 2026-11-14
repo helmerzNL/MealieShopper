@@ -712,14 +712,25 @@ NAME_MEMOS: tuple[Any, ...] = (
 )
 
 
-def _full_collection() -> tuple[float, int]:
-    """De beste van drie volle rondes van de GC (een hik van de machine telt niet), en hoeveel objecten de GC daarna volgt."""
+def _full_collection() -> tuple[float, float, int]:
+    """De beste van drie volle rondes van de GC (een hik van de machine telt niet): de rekentijd en de wandtijd, en hoeveel
+    objecten de GC daarna volgt.
+
+    De test toetst de rekentijd van deze thread (`time.thread_time`): dat is de ronde zelf. De wandtijd telt ook mee hoe lang de
+    thread op de GIL wacht en hoe lang de machine een ander proces laat draaien. In de volledige suite op 3.15 kwam er zo 68 ms
+    wandtijd bij, terwijl de ronde in de volumetests met de catalogi 12 ms rekentijd erbij krijgt, met de wandtijd gelijk aan de
+    rekentijd, ook met de gc-callbacks van de suite eruit of met 1,2 miljoen objecten extra (2026-11-14). De wandtijd staat in
+    de melding, zodat te zien is of een verschil van buiten de ronde komt.
+    """
     seconds: list[float] = []
+    walls: list[float] = []
     for _ in range(3):
-        started: float = time.perf_counter()
+        started: float = time.thread_time()
+        started_wall: float = time.perf_counter()
         gc.collect()
-        seconds.append(time.perf_counter() - started)
-    return min(seconds), len(gc.get_objects())
+        walls.append(time.perf_counter() - started_wall)
+        seconds.append(time.thread_time() - started)
+    return min(seconds), min(walls), len(gc.get_objects())
 
 
 @pytest.mark.volume
@@ -728,15 +739,15 @@ async def test_the_catalogues_keep_a_full_collection_short(volume_client: TestCl
         memo.cache_clear()
     # In een thread: een volle ronde op de loop telde bij de bewaker als stilstand van de app (de callback van gc_watch is de
     # eerste regel van de app na de ronde), met de hele suite erbij 270 ms op 3.15. De ronde zelf is hier wat de test meet.
-    before_seconds, before_tracked = await asyncio.to_thread(_full_collection)
+    before_seconds, before_wall, before_tracked = await asyncio.to_thread(_full_collection)
     await prices.warm_catalogues(today=volume.TODAY)
     for store in ("ah", "jumbo"):
         await _get(volume_client, f"/api/offers?store={store}&week=2026-11-09")
         await _get(volume_client, f"/api/prices/history?store={store}")
     assert len(prices._CATALOGUES) == len(offers.STORES)
-    after_seconds, after_tracked = await asyncio.to_thread(_full_collection)
+    after_seconds, after_wall, after_tracked = await asyncio.to_thread(_full_collection)
     assert after_tracked - before_tracked < ADDED_TRACKED_LIMIT, (before_tracked, after_tracked)
-    assert after_seconds - before_seconds < ADDED_COLLECTION_SECONDS, (before_seconds, after_seconds)
+    assert after_seconds - before_seconds < ADDED_COLLECTION_SECONDS, {"rekentijd": (before_seconds, after_seconds), "wandtijd": (before_wall, after_wall)}
 
 
 # Hoeveel gevolgde objecten een koude bouw van AH er hooguit bij heeft op het moment dat een volle ronde van de GC begint: dan
