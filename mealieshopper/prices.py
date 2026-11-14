@@ -1529,7 +1529,7 @@ def _known_pack_titles(store: str, catalogue: "_Catalogue | None", packs_known: 
     for product_id, known in catalogue.products.items():
         for name in known[_NAMES]:
             endings: list[str] = by_last.get(name.rsplit(" ", 1)[-1], [])
-            candidates = [name] + [name[: -len(suffix) - 1] for suffix in endings if name.endswith(f" {suffix}")]
+            candidates: list[str] = [name] + [name[: -len(suffix) - 1] for suffix in endings if name.endswith(f" {suffix}")]
             title = next((candidate for candidate in candidates if base_title(candidate) in bases), None)
             if title:
                 found[product_id] = title

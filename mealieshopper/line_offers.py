@@ -289,7 +289,8 @@ class LineIndex:
 
     def _pairs_of(self, have: frozenset[str]) -> list[Pair]:
         """De paren van woorden van een naam die een sleutel van `_pairs` of `_ending` kunnen zijn: alleen woorden die in een
-        regel voorkomen, en op de volgorde van `_rank`, zoals `_top_two` ze zet."""
+        regel voorkomen (`_vocabulary`, dat `_pairs` uitzoekt), en op de volgorde van `_rank`, zoals `_top_two` ze zet."""
+        self._pairs()
         ranked: list[str] = sorted(have & self._vocabulary, key=_rank, reverse=True)
         return list(combinations(ranked, 2))
 
