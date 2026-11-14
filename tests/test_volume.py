@@ -31,8 +31,8 @@ import pytest
 import volume
 from quart import Quart, Response
 
+from mealieshopper import ah_price_index, gc_watch, loop_guard, offers, prices
 from mealieshopper import app as app_module
-from mealieshopper import gc_watch, loop_guard, offers, prices
 from mealieshopper.app import create_app
 
 if (
@@ -207,7 +207,7 @@ def cold(data_dir: Path) -> Callable[[], Awaitable[None]]:
         await asyncio.to_thread(
             _execute,
             data_dir / volume.DB_NAME,
-            "UPDATE catalogue_changes SET version = version + 1 WHERE id = 1",
+            "UPDATE catalogue_versions SET products = products + 1",
         )
 
     return prepare
@@ -626,3 +626,50 @@ async def test_rebuilds_do_not_freeze_dead_cycles(volume_client: TestClientProto
     gc.collect()
     assert _Server.removed - removed == 4 * PLANTED  # niets van het afval is voor altijd bevroren
     assert max(frozen[1:]) - min(frozen[1:]) < FROZEN_SPREAD, frozen
+
+
+def _bought_outside_the_list(path: Path, count: int, reached: tuple[str, ...]) -> list[ah_price_index.Series]:
+    """`count` producten van AH uit de prijsindex (dus gekocht) die het antwoord van /api/offers niet raken (niet in `reached`,
+    `prices._answer_ids`: niet in de aanbiedingen, geen andere verpakking en geen naamgenoot), elk met een prijs voor vandaag. Zoals
+    de ronde meestal schrijft: de naam, het merk, de verpakking en de prijs van de laatste week die al in `price_observations`
+    staat, op een nieuwe dag. Een nieuwe prijswaarde kan een bonregel naar een ander product met dezelfde naam verschuiven, en
+    dan bouwt de prijsgeschiedenis de catalogus terecht opnieuw op (`prices._catch_up`)."""
+    with contextlib.closing(sqlite3.connect(path)) as conn:
+        rows: list[tuple[Any, ...]] = conn.execute(
+            "SELECT o.product_id, o.title, o.brand, o.unit_size, o.image, o.price FROM price_observations o "
+            "WHERE o.store = 'ah' AND o.source = ? AND o.product_id NOT IN (SELECT value FROM json_each(?)) "
+            "AND o.day = (SELECT MAX(day) FROM price_observations p WHERE p.store = 'ah' AND p.product_id = o.product_id) "
+            "ORDER BY o.product_id LIMIT ?",
+            (prices.PRICE_INDEX, json.dumps(list(reached)), count),
+        ).fetchall()
+    return [
+        ah_price_index.Series(product_id, title, brand, unit_size, image, ((volume.TODAY, price),))
+        for product_id, title, brand, unit_size, image, price in rows
+    ]
+
+
+@pytest.mark.volume
+async def test_offers_stay_warm_during_a_price_index_round(
+    volume_client: TestClientProtocol, volume_dir: Path
+) -> None:
+    """De ronde langs de prijsindex bewaart een prijs per tien seconden. Een prijs van een product buiten de lijst laat de
+    ETag van /api/offers staan, en een prijs van een bekend product bouwt de catalogus niet opnieuw op (`_build_catalogue`)."""
+    path: str = "/api/offers?store=ah&week=2026-11-09"
+    first: Any = await volume_client.get(path)  # de catalogus en de lijst opbouwen, buiten de meting
+    assert first.status_code == 200
+    etag: str = first.headers["ETag"]
+    async with prices._connect() as conn:
+        version: str = await prices._catalogue_version(conn, "ah")
+        reached: tuple[str, ...] = await prices._answer_ids(conn, "ah", version, volume.TODAY)
+    assert len(reached) > 2000, len(reached)  # de aanbiedingen van AH en wat erbij hoort
+    series: list[ah_price_index.Series] = _bought_outside_the_list(volume_dir / volume.DB_NAME, 50, reached)
+    assert len(series) == 50
+    stamp: str = volume.NOW.isoformat(timespec="seconds")
+    with mock.patch.object(prices, "_build_catalogue", wraps=prices._build_catalogue) as built:
+        for found in series:
+            await ah_price_index._mark(found.product_id, "ok", stamp, found)
+            again: Any = await quiet(lambda: volume_client.get(path, headers={"If-None-Match": etag}))
+            assert again.status_code == 304, found.product_id
+        history: Any = await _get(volume_client, "/api/prices/history?store=ah&bought=1")
+    assert history["products"]
+    assert built.call_count == 0, "de prijzen en de prijsgeschiedenis werken de catalogus bij, zonder hem opnieuw op te bouwen"

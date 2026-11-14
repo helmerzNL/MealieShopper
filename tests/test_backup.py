@@ -22,6 +22,7 @@ os.environ["PASSKEY_AUTH_ENABLED"] = "false"
 
 from mealieshopper import ah_price_index, audit, auth, auth_password, backup, factory_reset, image_cache, loose_names, mealie, mealie_images, oauth, price_archive, prices, profile, push, recipe_nutrition, shared_links, tasks, uploads  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
+from mealieshopper.response_cache import ResponseCache
 from helpers import AppClient, db, ReadResponse, run_aside  # noqa: E402
 
 if TYPE_CHECKING:  # niet bij de import: pytest zou TestAppProtocol voor een testklasse aanzien
@@ -340,6 +341,29 @@ class RoundTripTest(BackupCase):
         self.assertEqual((await self.restore(data))["status"], "done")
         self.assertFalse(await loose_names.reject("jumbo", "~kersen"), "de afwijzing was er al")
         self.assertTrue(await loose_names.restore("jumbo", "~kersen"))
+
+    async def test_restoring_a_backup_drops_the_cached_catalogue_and_list(self) -> None:
+        # Review Focus 4 van taak 9: na het terugzetten staat er niets van de oude database meer in het geheugen.
+        self.assertIn("catalogue_versions", backup.EXCLUDED_TABLES)
+        listed: ReadResponse = await self.admin.get("/api/offers?store=ah")
+        self.assertEqual(listed.status_code, 200)
+        await prices.warm_catalogues(["ah"])
+        cache: ResponseCache = self.app.extensions["mealieshopper_offers_cache"]
+        self.assertTrue(prices._CATALOGUES)
+        self.assertTrue(cache._entries)
+        with closing(self.connect()) as conn:
+            token: str = conn.execute("SELECT token FROM catalogue_versions WHERE store = 'ah'").fetchone()[0]
+        response: ReadResponse
+        data: bytes
+        response, data = await self.make()
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual((await self.restore(data))["status"], "done")
+        self.assertEqual(prices._CATALOGUES, {})
+        self.assertEqual(dict(cache._entries), {})
+        again: ReadResponse = await self.admin.get("/api/offers?store=ah", headers={"If-None-Match": listed.headers["ETag"]})
+        self.assertEqual(again.status_code, 200, "een nieuwe ETag na het terugzetten")
+        with closing(self.connect()) as conn:
+            self.assertNotEqual(conn.execute("SELECT token FROM catalogue_versions WHERE store = 'ah'").fetchone()[0], token)
 
     async def test_everything_comes_back_with_its_links(self) -> None:
         self.seed()

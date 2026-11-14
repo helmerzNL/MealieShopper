@@ -42,6 +42,9 @@ log: logging.Logger = logging.getLogger(__name__)
 # weer krijgt. Twee coroutines die tegelijk de eerste zijn, draaien de opzet allebei: die is `IF NOT EXISTS` en de migraties
 # controleren zelf nog eens achter een schrijfslot.
 _SCHEMAS_READY: set[tuple[str, str]] = set()
+# Wat andere modules uit de gegevens afleiden en in het geheugen bewaren (de catalogus van de prijzen, de lijst van /api/offers),
+# als functie die het wist. `forget_cached_data` roept ze aan na het terugzetten van een back-up en na een fabrieksreset.
+_DATA_CACHES: list[Callable[[], None]] = []
 
 
 def auth_enabled() -> bool:
@@ -735,6 +738,24 @@ def forget_runtime_state() -> None:
     _INITIALIZED = False
     _SCHEMAS_READY.clear()
     _master_secrets.clear()
+    forget_cached_data()
+
+
+def remember_cache(clear: Callable[[], None]) -> Callable[[], None]:
+    """Laat `clear` lopen bij `forget_cached_data`. Geeft de functie die hem weer loslaat (een app die stopt)."""
+    _DATA_CACHES.append(clear)
+
+    def release() -> None:
+        if clear in _DATA_CACHES:
+            _DATA_CACHES.remove(clear)
+
+    return release
+
+
+def forget_cached_data() -> None:
+    """Wist wat de modules uit de gegevens van de database afleidden (`remember_cache`): de gegevens zijn veranderd, het schema niet."""
+    for clear in _DATA_CACHES[:]:
+        clear()
 
 
 def set_session_cookie(response: Any, token: str) -> None:
