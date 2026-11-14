@@ -20,6 +20,8 @@ from collections import OrderedDict
 from collections.abc import Awaitable, Callable, Hashable
 from typing import Any
 
+from . import tasks
+
 
 class ResponseCache:
     def __init__(self, size: int = 16) -> None:
@@ -38,6 +40,7 @@ class ResponseCache:
         running: asyncio.Task[Any] | None = self._running.get((key, etag))
         if running is None:
             running = asyncio.ensure_future(self._load(key, etag, load))
+            tasks.wait_at_shutdown(running)  # een lading zonder aanroeper loopt door: het afsluiten wacht erop
             self._running[(key, etag)] = running
             running.add_done_callback(lambda _: self._running.pop((key, etag), None))
         # shield: gaat een van de wachtende aanvragen weg (de browser sluit), dan rekent de taak door voor de andere.

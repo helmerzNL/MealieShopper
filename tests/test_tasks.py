@@ -10,7 +10,7 @@ from typing import Any
 import pytest
 from quart import Quart
 
-from mealieshopper import tasks
+from mealieshopper import compute, response_cache, tasks
 
 
 @pytest.fixture(autouse=True)
@@ -303,3 +303,28 @@ async def test_after_serving_reports_that_the_app_stopped(app: Quart, caplog: py
         async with app.test_app():
             assert "afgesloten" not in caplog.text
     assert "MealieShopper afgesloten" in caplog.text
+
+
+async def test_cancel_all_waits_for_a_build_whose_callers_are_gone() -> None:
+    """Een bouw van `compute.SingleFlight` en een lading van `response_cache.ResponseCache` lopen door als hun aanroeper wordt
+    geannuleerd. `cancel_all` wacht er nu op, zoals op `shielded`: anders las zo'n bouw nog in de database als de app dicht was,
+    of als een test zijn map al weggooide (taak 9c: "Directory not empty")."""
+    release: asyncio.Event = asyncio.Event()
+    finished: list[str] = []
+
+    async def build(name: str) -> str:
+        await release.wait()
+        finished.append(name)
+        return name
+
+    flights: compute.SingleFlight[str, str] = compute.SingleFlight()
+    cache: response_cache.ResponseCache = response_cache.ResponseCache()
+    callers: list[asyncio.Task[Any]] = [
+        tasks.spawn("catalogus", flights.get("ah", lambda: build("bouw"))),
+        tasks.spawn("aanbiedingen", cache.get("ah", "etag", lambda: build("lading"))),
+    ]
+    await asyncio.sleep(0)
+    asyncio.get_running_loop().call_later(0.05, release.set)
+    await tasks.cancel_all(timeout=5)
+    assert all(caller.cancelled() for caller in callers)
+    assert sorted(finished) == ["bouw", "lading"]

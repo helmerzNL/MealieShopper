@@ -19,7 +19,7 @@ from collections.abc import Awaitable, Callable, Hashable
 from concurrent.futures import Future
 from typing import Generic, ParamSpec, TypeVar
 
-from mealieshopper import telemetry
+from mealieshopper import tasks, telemetry
 
 P = ParamSpec("P")
 T = TypeVar("T")
@@ -186,6 +186,7 @@ class SingleFlight(Generic[K, V]):
         if flight is None or flight.done() or flight.get_loop() is not asyncio.get_running_loop():
             # Een bouw die klaar is maar waarvan `_finished` nog niet liep, of van een andere (gesloten) loop, telt niet mee.
             flight = asyncio.ensure_future(build())
+            tasks.wait_at_shutdown(flight)  # een bouw zonder aanroeper loopt door: het afsluiten wacht erop
             self._flights[key] = flight
             flight.add_done_callback(functools.partial(self._finished, key))
         return await asyncio.shield(flight)

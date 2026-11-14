@@ -131,6 +131,14 @@ async def shielded(coro: Coroutine[Any, Any, T]) -> T:
         raise
 
 
+def wait_at_shutdown(task: asyncio.Task[Any]) -> None:
+    """Laat `cancel_all` op `task` wachten zoals op het werk van `shielded`, zonder hem te annuleren. Voor een bouw of een lading
+    die achter `asyncio.shield` doorloopt als zijn aanroeper weggaat (`compute.SingleFlight`, `response_cache.ResponseCache`):
+    zo leest hij niet nog in de database als de app al dicht is."""
+    _shielded.add(task)
+    task.add_done_callback(_shielded_done)
+
+
 def running() -> dict[str, asyncio.Task[Any]]:
     """Een kopie van de register: naam (zoals `Task.get_name()`) naar de nog lopende task."""
     return dict(_tasks)
