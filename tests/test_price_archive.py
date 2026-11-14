@@ -1197,5 +1197,21 @@ class InterruptTest(ArchiveCase):
         await self.check_done_and_free(job_id, job)
 
 
+class StagedLinesTest(unittest.TestCase):
+    """Taak 10: het klaargezette bestand wordt in blokken gelezen (`price_archive._staged_lines`), met dezelfde regels als `for line in handle`."""
+
+    def test_the_lines_are_those_of_the_file_whatever_the_block(self) -> None:
+        texts: tuple[str, ...] = ('["o", [1]]\n["p", [2]]\n', '["o", [1]]\r\n["p", [2]]', "", '["c", []]\n' * 50)
+        with tempfile.TemporaryDirectory() as folder:
+            path: Path = Path(folder) / "staged.rows"
+            for text in texts:
+                path.write_text(text, encoding="utf-8", newline="")
+                with path.open(encoding="utf-8") as handle:
+                    expected: list[str] = [line.rstrip("\n") for line in handle]
+                for block in (1, 7, price_archive.STAGED_BLOCK):
+                    with mock.patch.object(price_archive, "STAGED_BLOCK", block):
+                        self.assertEqual(list(price_archive._staged_lines(path)), expected, (text, block))
+
+
 if __name__ == "__main__":
     unittest.main()

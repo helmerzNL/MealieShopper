@@ -1535,11 +1535,29 @@ async def discard(token: str) -> None:
 # --- importeren ---------------------------------------------------------------------------------------------------
 
 
-def _staged_rows(path: Path) -> Iterator[tuple[str, tuple[Any, ...]]]:
+# Zo groot is een blok van het klaargezette bestand (`_staged_lines`).
+STAGED_BLOCK: int = 1024 * 1024
+
+
+def _staged_lines(path: Path) -> Iterator[str]:
+    """De regels van een tekstbestand, in blokken van `STAGED_BLOCK` gelezen. Regel voor regel lezen (`for line in handle`) hield
+    in de thread van `apply` een andere thread tot 140 ms van de GIL af, ook de event loop (taak 10, gemeten op het klaargezette
+    bestand van de volumedatabase: 18 MB): het bestand vult zijn buffer in kleine stukken, geeft de GIL daarbij steeds even vrij en
+    pakt hem meteen terug. Met blokken van een MB wacht een andere thread hooguit een paar milliseconden."""
+    rest: str = ""
     with path.open(encoding="utf-8") as handle:
-        for line in handle:
-            kind, values = json.loads(line)
-            yield kind, tuple(values)
+        while block := handle.read(STAGED_BLOCK):
+            lines: list[str] = (rest + block).split("\n")
+            rest = lines.pop()
+            yield from lines
+    if rest:
+        yield rest
+
+
+def _staged_rows(path: Path) -> Iterator[tuple[str, tuple[Any, ...]]]:
+    for line in _staged_lines(path):
+        kind, values = json.loads(line)
+        yield kind, tuple(values)
 
 
 def apply(
