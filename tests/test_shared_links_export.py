@@ -65,9 +65,7 @@ class ExportCase(AppTestCase):
         self.orders: int = 0
 
     def write_file(self, store: str, links: list[SharedLink]) -> None:
-        (self.shared_dir / f"{store}.json").write_text(
-            shared_links.dump(links), encoding="utf-8"
-        )
+        (self.shared_dir / f"{store}.json").write_text(shared_links.dump(links), encoding="utf-8")
 
     def bought(self, title: str, store: str = "ah") -> None:
         with closing(db(price_import)) as conn, conn:
@@ -90,17 +88,13 @@ class ExportCase(AppTestCase):
     ) -> None:
         if bought:
             self.bought(name, store)
-        await product_links.save(
-            store, name, product(product_id, title, unit), origin=origin
-        )
+        await product_links.save(store, name, product(product_id, title, unit), origin=origin)
 
     async def asyncSetUp(self) -> None:
         self.addAsyncCleanup(tasks.cancel_all)
         self.app = create_app()
         self.admin: helpers.AppClient = self.client_for(self.app)
-        await self.admin.post(
-            "/api/auth/password", json={"username": "admin", "password": self.PASSWORD}
-        )
+        await self.admin.post("/api/auth/password", json={"username": "admin", "password": self.PASSWORD})
 
 
 class PendingTest(ExportCase):
@@ -109,9 +103,7 @@ class PendingTest(ExportCase):
         await self.link("AH Peer", "2", origin="confirmed")
         await self.link("AH Banaan", "3", origin="exact")
         page = await shared_links_export.pending("ah")
-        self.assertEqual(
-            [item["name"] for item in page["new"]], ["ah appel", "ah peer"]
-        )
+        self.assertEqual([item["name"] for item in page["new"]], ["ah appel", "ah peer"])
         self.assertEqual(page["conflicts"], [])
         self.assertEqual(
             page["new"][0],
@@ -123,16 +115,12 @@ class PendingTest(ExportCase):
                 "unitSize": "1 kg",
             },
         )
-        self.assertIn(
-            "/blob/beta/mealieshopper/shared_link_data/ah.json", page["fileUrl"]
-        )
+        self.assertIn("/blob/beta/mealieshopper/shared_link_data/ah.json", page["fileUrl"])
 
     async def test_pending_skips_article_links_and_names_that_are_not_from_an_imported_order(
         self,
     ) -> None:
-        await product_links.save(
-            "ah", "AH Kaas", product("1", "Kaas"), article="123456"
-        )
+        await product_links.save("ah", "AH Kaas", product("1", "Kaas"), article="123456")
         await self.link("AH Zonder bestelling", "2", bought=False)
         await self.link("AH Andere winkel", "3", store="jumbo", bought=False)
         self.bought("AH Andere winkel", "jumbo")
@@ -175,12 +163,8 @@ class PendingTest(ExportCase):
         self.assertEqual(ambiguous["key"], name_keys.key("AH Les pain triomphe heel"))
         self.assertEqual(ambiguous["productIds"], ["1", "2"])
         self.assertEqual(len(ambiguous["names"]), 2)
-        text = await shared_links_export.merged(
-            "ah", [ambiguous["key"], name_keys.key("AH Gewoon")]
-        )
-        self.assertEqual(
-            [link.name for link in shared_links.parse(text)], ["ah gewoon"]
-        )
+        text = await shared_links_export.merged("ah", [ambiguous["key"], name_keys.key("AH Gewoon")])
+        self.assertEqual([link.name for link in shared_links.parse(text)], ["ah gewoon"])
 
     async def test_two_names_with_the_same_key_and_the_same_product_give_one_item(
         self,
@@ -198,9 +182,7 @@ class MergedTest(ExportCase):
         await self.link("AH Appel", "1")
         await self.link("AH Peer", "2")
         page = await shared_links_export.pending("ah")
-        text = await shared_links_export.merged(
-            "ah", [item["key"] for item in page["new"]]
-        )
+        text = await shared_links_export.merged("ah", [item["key"] for item in page["new"]])
         self.assertEqual(shared_links.problems(shared_links.parse(text)), [])
         self.assertEqual(shared_links.dump(shared_links.parse(text)), text)
         self.assertEqual(
@@ -248,9 +230,7 @@ class MergedTest(ExportCase):
             {link.name: link.product_id for link in shared_links.parse(unchecked)},
             {"ah appel": "1", "ah peer": "2", "ah zout": "7"},
         )
-        replaced = await shared_links_export.merged(
-            "ah", [keys["ah appel"], "~onbekend"]
-        )
+        replaced = await shared_links_export.merged("ah", [keys["ah appel"], "~onbekend"])
         self.assertEqual(
             {link.name: link.product_id for link in shared_links.parse(replaced)},
             {"ah appel": "9", "ah zout": "7"},
@@ -258,11 +238,7 @@ class MergedTest(ExportCase):
         none = await shared_links_export.merged("ah", [])
         self.assertEqual(
             none,
-            shared_links.dump(
-                shared_links.parse(
-                    (self.shared_dir / "ah.json").read_text(encoding="utf-8")
-                )
-            ),
+            shared_links.dump(shared_links.parse((self.shared_dir / "ah.json").read_text(encoding="utf-8"))),
         )
 
     async def test_merged_refuses_a_file_that_would_have_problems(self) -> None:
@@ -306,16 +282,10 @@ class RoutesTest(ExportCase):
                 expected,
             )
             self.assertEqual(
-                (
-                    await client.post(
-                        "/api/shared-links/export", json={"store": "ah", "keys": []}
-                    )
-                ).status_code,
+                (await client.post("/api/shared-links/export", json={"store": "ah", "keys": []})).status_code,
                 expected,
             )
-        apple: dict[str, SharedLink] = {
-            name_keys.key("AH Appel"): SharedLink("ah appel", "1", "AH Appel", "")
-        }
+        apple: dict[str, SharedLink] = {name_keys.key("AH Appel"): SharedLink("ah appel", "1", "AH Appel", "")}
         with mock.patch.object(shared_links, "load", return_value=apple):
             reject = await anna.post(
                 "/api/shared-links/reject",
@@ -352,12 +322,6 @@ class RoutesTest(ExportCase):
             json={"store": "ah", "keys": [page["new"][0]["key"], "~niet-klaar"]},
         )
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(
-            response.headers["Content-Type"].split(";")[0], "application/json"
-        )
-        self.assertEqual(
-            response.headers["Content-Disposition"], 'attachment; filename="ah.json"'
-        )
-        self.assertEqual(
-            [link.name for link in shared_links.parse(response.text)], ["ah appel"]
-        )
+        self.assertEqual(response.headers["Content-Type"].split(";")[0], "application/json")
+        self.assertEqual(response.headers["Content-Disposition"], 'attachment; filename="ah.json"')
+        self.assertEqual([link.name for link in shared_links.parse(response.text)], ["ah appel"])

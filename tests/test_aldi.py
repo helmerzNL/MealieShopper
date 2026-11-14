@@ -1,4 +1,5 @@
 """Aldi: de aanbiedingen van de openbare aanbiedingenpagina lezen (mealieshopper/aldi.py). Zie docs/onderzoek-supermarkten.md."""
+
 import json
 import os
 import tempfile
@@ -9,9 +10,9 @@ from pathlib import Path
 os.environ.setdefault("MEALIESHOPPER_DATA_DIR", tempfile.mkdtemp())
 
 import httpx
+from helpers import run, served  # noqa: E402
 
 from mealieshopper import aldi, deals  # noqa: E402
-from helpers import run, served  # noqa: E402
 
 FIXTURE = (Path(__file__).parent / "fixtures" / "aldi-aanbiedingen.html").read_text(encoding="utf-8")
 SUNDAY = date(2026, 11, 8)  # de dag van de kopie
@@ -32,7 +33,12 @@ def item(product_id="1", name="Kaas", label="OP=OP", **extra):
         "salesUnit": "400 g",
         "productSlug": f"kaas-{product_id}",
         "assets": [{"type": "primary", "url": f"https://s7g10.scene7.com/is/image/aldinord/product_{product_id}"}],
-        "currentPrice": {"priceValue": 2.49, "priceTagLabels": {"promoText1": label}, "validFrom": stamp(today), "validUntil": stamp(today + timedelta(days=7), True)},
+        "currentPrice": {
+            "priceValue": 2.49,
+            "priceTagLabels": {"promoText1": label},
+            "validFrom": stamp(today),
+            "validUntil": stamp(today + timedelta(days=7), True),
+        },
     }
     data.update(extra)
     return data
@@ -60,10 +66,17 @@ class ReadPageTest(unittest.TestCase):
         self.assertEqual(
             self.offers["1219324"],
             {
-                "id": "1219324", "title": "Mandarijnen", "brand": None, "unitSize": "1 kg", "price": 1.69, "priceBefore": 1.99,
+                "id": "1219324",
+                "title": "Mandarijnen",
+                "brand": None,
+                "unitSize": "1 kg",
+                "price": 1.69,
+                "priceBefore": 1.99,
                 "promoLabel": "-15%",
                 "image": "https://s7g10.scene7.com/is/image/aldinord/product_1219324_main_cms_9_nl_nl_mandarijnen_cw01_2024?wid=500&hei=500",
-                "url": "https://www.aldi.nl/product/mandarijnen-1219324.html", "validFrom": "2026-11-09", "validUntil": "2026-11-15",
+                "url": "https://www.aldi.nl/product/mandarijnen-1219324.html",
+                "validFrom": "2026-11-09",
+                "validUntil": "2026-11-15",
                 "categoryHint": "Aardappels, groente en fruit",
             },
         )
@@ -105,7 +118,11 @@ class ReadPageTest(unittest.TestCase):
                 self.assertEqual(len(aldi.offers_from_html(page([item()], nest=nest, as_text=as_text))), 1)
 
     def test_an_unknown_page_is_an_error(self):
-        for text in ("<html></html>", '<script id="__NEXT_DATA__" type="application/json">{"props": {}}</script>', page([]).replace("OFFER_GET", "X").replace("algoliaDataMap", "y")):
+        for text in (
+            "<html></html>",
+            '<script id="__NEXT_DATA__" type="application/json">{"props": {}}</script>',
+            page([]).replace("OFFER_GET", "X").replace("algoliaDataMap", "y"),
+        ):
             with self.subTest(text=text[:40]), self.assertRaises(aldi.AldiError):
                 aldi.offers_from_html(text)
 

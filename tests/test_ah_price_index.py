@@ -15,9 +15,7 @@ from test_prices import PricesCase, deal, offer, order_item
 
 from mealieshopper import ah_orders, ah_price_index, image_cache, loose_names, offers, offers_schedule, prices, tasks
 
-FIXTURE: Path = (
-    Path(__file__).resolve().parent / "fixtures" / "ahprijsindex-product-446406.html"
-)
+FIXTURE: Path = Path(__file__).resolve().parent / "fixtures" / "ahprijsindex-product-446406.html"
 TODAY: str = "2026-11-13"
 NOW: str = f"{TODAY}T05:30:00+00:00"
 
@@ -55,29 +53,21 @@ def page(
 
 
 def html(text: str, status: int = 200) -> httpx.Response:
-    return httpx.Response(
-        status, text=text, headers={"Content-Type": "text/html; charset=utf-8"}
-    )
+    return httpx.Response(status, text=text, headers={"Content-Type": "text/html; charset=utf-8"})
 
 
 class ParseTest(unittest.TestCase):
     def test_a_recorded_page_gives_every_week_on_its_monday(self) -> None:
-        series: ah_price_index.Series = ah_price_index.parse(
-            FIXTURE.read_text(encoding="utf-8")
-        )
+        series: ah_price_index.Series = ah_price_index.parse(FIXTURE.read_text(encoding="utf-8"))
         self.assertEqual(
             (series.product_id, series.title, series.brand, series.unit_size),
             ("446406", "AH Les pains boulogne heel", "AH", "per stuk"),
         )
         self.assertTrue(series.image.startswith("https://static.ah.nl/dam/product/"))
         self.assertEqual(len(series.weeks), 225)
-        self.assertEqual(
-            series.weeks[0], ("2022-07-25", 2.39)
-        )  # week 30 van 2022, de oudste eerst
+        self.assertEqual(series.weeks[0], ("2022-07-25", 2.39))  # week 30 van 2022, de oudste eerst
         self.assertEqual(series.weeks[-1], ("2026-11-09", 2.39))  # week 46 van 2026
-        self.assertIn(
-            ("2023-10-09", 1.99), series.weeks
-        )  # week 41 van 2023: de prijs ging omlaag
+        self.assertIn(("2023-10-09", 1.99), series.weeks)  # week 41 van 2023: de prijs ging omlaag
 
     def test_a_guessed_week_and_a_week_without_a_price_are_left_out(self) -> None:
         series: ah_price_index.Series = ah_price_index.parse(
@@ -95,9 +85,7 @@ class ParseTest(unittest.TestCase):
 
     def test_a_product_that_changed_size_has_no_size_on_its_prices(self) -> None:
         # De prijs van een oudere week hoort dan bij een andere inhoud dan die de pagina nu noemt.
-        series: ah_price_index.Series = ah_price_index.parse(
-            page(sizeHistory=[{"isoweek": 12, "isoyear": 2025}])
-        )
+        series: ah_price_index.Series = ah_price_index.parse(page(sizeHistory=[{"isoweek": 12, "isoyear": 2025}]))
         self.assertIsNone(series.unit_size)
 
     def test_a_page_in_another_shape_is_an_error(self) -> None:
@@ -147,12 +135,7 @@ class RoundCase(PricesCase):
 
     def state(self) -> dict[str, tuple[str, str]]:
         with closing(db(ah_price_index)) as conn:
-            return {
-                row[0]: (row[1], row[2])
-                for row in conn.execute(
-                    "SELECT product_id, status, checked_at FROM ah_price_index"
-                )
-            }
+            return {row[0]: (row[1], row[2]) for row in conn.execute("SELECT product_id, status, checked_at FROM ah_price_index")}
 
 
 class RoundTest(RoundCase):
@@ -184,9 +167,7 @@ class RoundTest(RoundCase):
         self.assertEqual(self.state(), {"446406": ("ok", NOW)})
 
     async def test_only_products_with_a_number_of_the_webshop_are_asked(self) -> None:
-        self.ah_receipt(
-            "r1", "2026-11-02T10:00:00", (0, "AH LOSSE NAAM", 1, 1.0, 1.0)
-        )  # een bonregel zonder product
+        self.ah_receipt("r1", "2026-11-02T10:00:00", (0, "AH LOSSE NAAM", 1, 1.0, 1.0))  # een bonregel zonder product
         with served(html(page())) as route:
             self.assertIsNone(await ah_price_index.run_round(now=NOW))
         self.assertEqual(route.call_count, 0)
@@ -195,13 +176,9 @@ class RoundTest(RoundCase):
         await self.buy(446406)
         with served(html(page())) as route:
             await ah_price_index.run_round(now=NOW)
-            self.assertIsNone(
-                await ah_price_index.run_round(now="2026-11-26T05:30:00+00:00")
-            )  # 13 dagen later
+            self.assertIsNone(await ah_price_index.run_round(now="2026-11-26T05:30:00+00:00"))  # 13 dagen later
             self.assertEqual(route.call_count, 1)
-            again: dict[str, Any] | None = await ah_price_index.run_round(
-                now="2026-11-27T05:30:00+00:00"
-            )
+            again: dict[str, Any] | None = await ah_price_index.run_round(now="2026-11-27T05:30:00+00:00")
         self.assertEqual(route.call_count, 2)
         self.assertEqual(again["checked"], 1)
 
@@ -209,9 +186,7 @@ class RoundTest(RoundCase):
         await self.buy(1, 2, 3)
         with served(side_effect=[html(page(1)), html(page(2)), html(page(3))]):
             await ah_price_index.run_round(now=NOW)
-        self.assertEqual(
-            self.waits, [10.0, 10.0]
-        )  # tussen de verzoeken, niet voor het eerste of na het laatste
+        self.assertEqual(self.waits, [10.0, 10.0])  # tussen de verzoeken, niet voor het eerste of na het laatste
 
     async def test_a_price_the_app_measured_itself_stays(self) -> None:
         await self.buy(446406)
@@ -220,9 +195,7 @@ class RoundTest(RoundCase):
             [{"id": "446406", "title": "AH Les pains boulogne heel", "price": 2.49}],
             now="2026-11-09T08:00:00+00:00",
         )
-        with served(
-            html(page(weeks=((2026, 45, "2.39", False), (2026, 46, "2.39", False))))
-        ):
+        with served(html(page(weeks=((2026, 45, "2.39", False), (2026, 46, "2.39", False))))):
             await ah_price_index.run_round(now=NOW)
         self.assertEqual(
             self.observations(),
@@ -245,9 +218,7 @@ class RoundTest(RoundCase):
 
     async def test_a_week_that_has_not_started_is_not_saved(self) -> None:
         await self.buy(446406)
-        with served(
-            html(page(weeks=((2026, 46, "2.39", False), (2026, 47, "2.59", False))))
-        ):
+        with served(html(page(weeks=((2026, 46, "2.39", False), (2026, 47, "2.59", False))))):
             result: dict[str, Any] | None = await ah_price_index.run_round(now=NOW)
         self.assertEqual(result["prices"], 1)
         self.assertEqual(self.observations(), [("2026-11-09", 2.39, "ahprijsindex")])
@@ -256,13 +227,9 @@ class RoundTest(RoundCase):
         await self.buy(7)
         with served(html("niet gevonden", 404)) as route:
             first: dict[str, Any] | None = await ah_price_index.run_round(now=NOW)
-            self.assertIsNone(
-                await ah_price_index.run_round(now="2026-12-12T05:30:00+00:00")
-            )  # 29 dagen later
+            self.assertIsNone(await ah_price_index.run_round(now="2026-12-12T05:30:00+00:00"))  # 29 dagen later
             await ah_price_index.run_round(now="2026-12-13T05:30:00+00:00")
-        self.assertEqual(
-            (first["checked"], first["missing"], first["prices"]), (1, 1, 0)
-        )
+        self.assertEqual((first["checked"], first["missing"], first["prices"]), (1, 1, 0))
         self.assertEqual(route.call_count, 2)
         self.assertEqual(self.state()["7"][0], "missing")
         self.assertEqual(self.observations("7"), [])
@@ -272,19 +239,13 @@ class RoundTest(RoundCase):
         for status in (429, 403, 503):
             with (
                 self.subTest(status=status),
-                served(
-                    side_effect=[html(page(1)), html("te druk", status), html(page(3))]
-                ) as route,
+                served(side_effect=[html(page(1)), html("te druk", status), html(page(3))]) as route,
             ):
                 with closing(db(ah_price_index)) as conn, conn:
                     conn.execute("DELETE FROM ah_price_index")
                 with self.assertLogs(ah_price_index.log, "WARNING"):
-                    result: dict[str, Any] | None = await ah_price_index.run_round(
-                        now=NOW
-                    )
-                self.assertEqual(
-                    route.call_count, 2, "na de weigering geen verzoek meer"
-                )
+                    result: dict[str, Any] | None = await ah_price_index.run_round(now=NOW)
+                self.assertEqual(route.call_count, 2, "na de weigering geen verzoek meer")
                 self.assertEqual(
                     (result["checked"], result["stopped"], result["left"]),
                     (1, f"HTTP {status}", 2),
@@ -321,11 +282,7 @@ class RoundTest(RoundCase):
         )
         self.assertEqual({status for status, _ in self.state().values()}, {"error"})
         # De volgende nacht: eerst wat nog nooit is gevraagd, de mislukte daarna opnieuw.
-        with served(
-            side_effect=lambda request: html(
-                page(int(request.url.path.rsplit("/", 1)[1]))
-            )
-        ) as route:
+        with served(side_effect=lambda request: html(page(int(request.url.path.rsplit("/", 1)[1])))) as route:
             await ah_price_index.run_round(now="2026-11-14T05:30:00+00:00")
         self.assertEqual(route.call_count, 5)
 
@@ -333,17 +290,9 @@ class RoundTest(RoundCase):
         self,
     ) -> None:
         await self.buy(1, 2, 3)
-        with served(
-            side_effect=lambda request: html(
-                page(int(request.url.path.rsplit("/", 1)[1]))
-            )
-        ) as route:
-            first: dict[str, Any] | None = await ah_price_index.run_round(
-                limit=2, now=NOW
-            )
-            second: dict[str, Any] | None = await ah_price_index.run_round(
-                limit=2, now=NOW
-            )
+        with served(side_effect=lambda request: html(page(int(request.url.path.rsplit("/", 1)[1])))) as route:
+            first: dict[str, Any] | None = await ah_price_index.run_round(limit=2, now=NOW)
+            second: dict[str, Any] | None = await ah_price_index.run_round(limit=2, now=NOW)
         self.assertEqual((first["checked"], first["left"]), (2, 1))
         self.assertEqual((second["checked"], second["left"]), (1, 0))
         self.assertEqual(
@@ -354,15 +303,9 @@ class RoundTest(RoundCase):
     async def test_a_product_in_this_weeks_offers_goes_first(self) -> None:
         await self.buy(1, 2, 3)
         await self.sync_offer(NOW, offer("3", "AH Product 3", 1.20, 2.39, "1+1 gratis"))
-        with served(
-            side_effect=lambda request: html(
-                page(int(request.url.path.rsplit("/", 1)[1]))
-            )
-        ) as route:
+        with served(side_effect=lambda request: html(page(int(request.url.path.rsplit("/", 1)[1])))) as route:
             await ah_price_index.run_round(limit=1, now=NOW)
-        self.assertEqual(
-            [call.request.url.path for call in route.calls], ["/product/3"]
-        )
+        self.assertEqual([call.request.url.path for call in route.calls], ["/product/3"])
 
     async def test_switched_off_it_asks_nothing(self) -> None:
         await self.buy(446406)
@@ -379,17 +322,11 @@ class VerdictTest(RoundCase):
     async def test_the_offer_of_a_bought_product_is_judged_on_the_price_of_the_index(
         self,
     ) -> None:
-        await self.buy(
-            446406, day="2025-06-02"
-        )  # langer dan een jaar geleden: te oud voor een oordeel
+        await self.buy(446406, day="2025-06-02")  # langer dan een jaar geleden: te oud voor een oordeel
         before: dict[str, Any] = (
             await prices.annotate(
                 "ah",
-                [
-                    deal(
-                        "446406", "AH Les pains boulogne heel", 1.20, 2.99, "nu 1,20"
-                    )
-                ],
+                [deal("446406", "AH Les pains boulogne heel", 1.20, 2.99, "nu 1,20")],
                 today=TODAY,
             )
         )[0]
@@ -399,11 +336,7 @@ class VerdictTest(RoundCase):
         after: dict[str, Any] = (
             await prices.annotate(
                 "ah",
-                [
-                    deal(
-                        "446406", "AH Les pains boulogne heel", 1.20, 2.99, "nu 1,20"
-                    )
-                ],
+                [deal("446406", "AH Les pains boulogne heel", 1.20, 2.99, "nu 1,20")],
                 today=TODAY,
             )
         )[0]
@@ -418,18 +351,14 @@ class VerdictTest(RoundCase):
                 "fresh": True,
             },
         )
-        self.assertTrue(
-            after["badge"]["inflated"], "de winkel noemt 2,99, de gewone prijs is 2,39"
-        )
+        self.assertTrue(after["badge"]["inflated"], "de winkel noemt 2,99, de gewone prijs is 2,39")
         self.assertEqual(after["verdict"]["percent"], 50)
 
     async def test_the_history_shows_the_regular_price_through_the_years(self) -> None:
         await self.buy(446406)
         with served(html(FIXTURE.read_text(encoding="utf-8"))):
             await ah_price_index.run_round(now=NOW)
-        product: dict[str, Any] = (
-            await prices.history("ah", "", 50, today=TODAY, product="446406")
-        )["products"][0]
+        product: dict[str, Any] = (await prices.history("ah", "", 50, today=TODAY, product="446406"))["products"][0]
         self.assertEqual(product["regular"][0]["from"], "2022-07-25")
         self.assertEqual(
             (
@@ -451,9 +380,7 @@ class VerdictTest(RoundCase):
             receipts: list[dict[str, Any]] = await prices._receipt_rows(conn, "ah", TODAY)
             return await prices._history_points(conn, "ah", TODAY, receipts, ("446406",))
 
-        found: dict[str, list[tuple[str, float, str]]] = (
-            await in_db(prices._connect, points)
-        )[0]
+        found: dict[str, list[tuple[str, float, str]]] = (await in_db(prices._connect, points))[0]
         # Alleen de aankoop.
         self.assertEqual(found["446406"], [("2026-11-02", 2.39, "purchase")])
 

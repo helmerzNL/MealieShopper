@@ -33,6 +33,7 @@ regeleinde aan het eind), dus de SHA-256 op de site is die van het bestand.
 Een adres van een folderarchief (supermarktaanbiedingen.com, voordeelmuis.nl; `ARCHIVE_URLS`) gaat niet mee naar de site: van
 zo'n regel is `url` leeg, en het schema weigert zo'n adres. De regel zelf (product, prijs, looptijd, actietekst) gaat wel mee.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -46,8 +47,18 @@ from typing import IO, Any, Iterable
 
 from . import about, offers, thread_db
 from .price_archive import (
-    EXPORT_MANIFEST, FORMAT, FORMAT_VERSION, MAX_PRICE, OFFER_COLUMNS, PRICE_COLUMNS, PRICE_SOURCES, SITE_FORMAT, RowError, Today,
-    normalise_offer, normalise_price,
+    EXPORT_MANIFEST,
+    FORMAT,
+    FORMAT_VERSION,
+    MAX_PRICE,
+    OFFER_COLUMNS,
+    PRICE_COLUMNS,
+    PRICE_SOURCES,
+    SITE_FORMAT,
+    RowError,
+    Today,
+    normalise_offer,
+    normalise_price,
 )
 from .price_archive_tidy import ARCHIVE_URLS
 
@@ -226,7 +237,9 @@ def site_schema(store: str) -> dict[str, Any]:
     folderarchief (`ARCHIVE_URLS`) weigert het: dat hoort niet op de site."""
     name = STORE_NAMES[store]
     url = {
-        "type": ["string", "null"], "maxLength": 2000, "pattern": r"^https://[^ ]+$",
+        "type": ["string", "null"],
+        "maxLength": 2000,
+        "pattern": r"^https://[^ ]+$",
         "not": {"type": "string", "pattern": ARCHIVE_URL_PATTERN},  # met type: anders zou ook null hier vallen
     }
     amount = {"type": ["number", "null"], "minimum": 0, "maximum": MAX_PRICE}
@@ -445,8 +458,8 @@ def site_readme(header: dict[str, Any], span: dict[str, list[str]]) -> str:
     table = "\n".join(rows) or "| - | 0 | 0 | | |"
     day = header["createdAt"][:10]
     merged = sum(header.get("merged", {}).values())
-    merged_nl = (f" {merged} regels die alleen in het adres van het archief verschilden, staan er één keer in." if merged else "")
-    merged_en = (f" {merged} lines that only differed in the archive address are included once." if merged else "")
+    merged_nl = f" {merged} regels die alleen in het adres van het archief verschilden, staan er één keer in." if merged else ""
+    merged_en = f" {merged} lines that only differed in the archive address are included once." if merged else ""
     return f"""# Export voor data.mealieshopper.nl
 
 Aanbiedingen en prijzen van supermarkten, geëxporteerd door {header["source"]} op {day}, in de vorm van

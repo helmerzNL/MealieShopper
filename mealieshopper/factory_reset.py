@@ -12,6 +12,7 @@ Veiligheid in het kort:
   wachtwoord (en de code bij tweestapsverificatie) of met een passkey, en met het getypte woord `RESET`.
 - Foute pogingen tellen mee voor dezelfde begrenzing als inloggen.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -21,7 +22,7 @@ import signal
 from pathlib import Path
 from typing import Any
 
-from quart import Quart, jsonify, request
+from quart import Quart, jsonify
 
 from . import audit, auth, auth_password, backup, price_archive, request_body
 from .i18n import tr
@@ -114,10 +115,13 @@ async def _check_passkey(uid: str, credential: Any) -> auth_password.ErrorReply 
         challenge = await auth.pop_challenge(f"reset:{uid}")
         if not challenge:
             return jsonify({"error": tr("Deze bevestiging is verlopen. Probeer het opnieuw.", "This confirmation has expired. Try again.")}), 400
-        async with auth.connect() as conn, conn.execute(
-            "SELECT public_key FROM passkey_credentials WHERE id = ? AND user_id = ?",
-            (str(credential.get("id") or ""), uid),
-        ) as cursor:
+        async with (
+            auth.connect() as conn,
+            conn.execute(
+                "SELECT public_key FROM passkey_credentials WHERE id = ? AND user_id = ?",
+                (str(credential.get("id") or ""), uid),
+            ) as cursor,
+        ):
             stored = await cursor.fetchone()
         try:
             if not stored:
@@ -148,9 +152,10 @@ def register_routes(app: Quart) -> None:
         """De uitdaging voor de passkey waarmee de beheerder het wissen bevestigt."""
         if not await auth.auth_required() or not (await _owner_methods())["passkey"]:
             return jsonify({"error": tr("Bevestigen met een passkey kan hier niet.", "Confirming with a passkey is not possible here.")}), 400
-        async with auth.connect() as conn, conn.execute(
-            "SELECT id FROM passkey_credentials WHERE user_id = ? ORDER BY created_at", (auth.OWNER_ID,)
-        ) as cursor:
+        async with (
+            auth.connect() as conn,
+            conn.execute("SELECT id FROM passkey_credentials WHERE user_id = ? ORDER BY created_at", (auth.OWNER_ID,)) as cursor,
+        ):
             rows = await cursor.fetchall()
         challenge = auth.make_challenge()
         await auth.store_challenge(f"reset:{auth.OWNER_ID}", challenge)

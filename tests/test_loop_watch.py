@@ -37,9 +37,7 @@ def test_a_stall_in_the_app_fails_the_test_in_enforce_mode() -> None:
 
 
 def test_a_stall_outside_the_app_does_not_count() -> None:
-    outside: loop_guard.Stall = loop_guard.Stall(
-        0.5, (loop_guard.Frame("/x/test_a.py", 3, "test_a"),)
-    )
+    outside: loop_guard.Stall = loop_guard.Stall(0.5, (loop_guard.Frame("/x/test_a.py", 3, "test_a"),))
     counted: list[loop_guard.Stall] = loop_watch.counted([outside], exempt=False)
     assert counted == []
     assert loop_watch.failure_message("enforce", counted) is None
@@ -66,19 +64,11 @@ def test_may_block_exempts_a_test() -> None:
 
 
 def test_report_mode_lists_stalls_without_failing() -> None:
-    stalls: list[loop_guard.Stall] = loop_watch.counted(
-        [app_stall(0.2), app_stall(0.4)], exempt=False
-    )
+    stalls: list[loop_guard.Stall] = loop_watch.counted([app_stall(0.2), app_stall(0.4)], exempt=False)
     assert loop_watch.failure_message("report", stalls) is None
-    lines: list[str] = loop_watch.summary_lines(
-        [loop_watch.Reported("t1", stalls[0]), loop_watch.Reported("t2", stalls[1])]
-    )
+    lines: list[str] = loop_watch.summary_lines([loop_watch.Reported("t1", stalls[0]), loop_watch.Reported("t2", stalls[1])])
     assert len(lines) == 1  # beide op dezelfde binnenste regel van de app
-    assert (
-        "400 ms" in lines[0]
-        and "2 tests" in lines[0]
-        and "blocker.py:12 slow_call" in lines[0]
-    )
+    assert "400 ms" in lines[0] and "2 tests" in lines[0] and "blocker.py:12 slow_call" in lines[0]
 
 
 def check(mode: str, stalls: list[loop_guard.Stall], *marks: str) -> str | None:
@@ -93,9 +83,7 @@ def test_check_enforce_fails_a_stall_in_the_app() -> None:
 
 
 def test_check_enforce_ignores_a_stall_without_an_app_frame() -> None:
-    outside: loop_guard.Stall = loop_guard.Stall(
-        0.5, (loop_guard.Frame("/x/test_a.py", 3, "test_a"),)
-    )
+    outside: loop_guard.Stall = loop_guard.Stall(0.5, (loop_guard.Frame("/x/test_a.py", 3, "test_a"),))
     assert check("enforce", [outside]) is None
 
 
@@ -139,9 +127,7 @@ def test_a_loop_started_by_helpers_run_is_watched() -> None:
 
     async def block() -> None:
         blocking_in_the_app()
-        await asyncio.sleep(
-            0.05
-        )  # de bewaker meldt pas als de loop weer aan de beurt is
+        await asyncio.sleep(0.05)  # de bewaker meldt pas als de loop weer aan de beurt is
 
     helpers.run(block())
     stalls: list[loop_guard.Stall] = counted_after(loop_watch.drain())

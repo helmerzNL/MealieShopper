@@ -11,6 +11,7 @@ bereikbaar is. Alleen een synchronisatie praat met Jumbo.
 Het afleveradres, je klantnummer en het reserveringsnummer bewaren we bewust niet; alleen datum en tijdvak.
 Winkelbonnen kent MealieShopper bij Jumbo nog niet: we melden alleen hoeveel Jumbo er heeft.
 """
+
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
@@ -82,18 +83,33 @@ def _now() -> str:
 
 def _item_values(item: dict[str, Any]) -> tuple:
     return (
-        item.get("productId"), item.get("title"), item.get("brand"), item.get("unitSize"), item.get("quantity"),
-        item.get("amount"), item.get("price"), item.get("priceBeforeBonus"), 1 if item.get("bonus") else 0,
-        item.get("taxonomy"), item.get("image"),
+        item.get("productId"),
+        item.get("title"),
+        item.get("brand"),
+        item.get("unitSize"),
+        item.get("quantity"),
+        item.get("amount"),
+        item.get("price"),
+        item.get("priceBeforeBonus"),
+        1 if item.get("bonus") else 0,
+        item.get("taxonomy"),
+        item.get("image"),
     )
 
 
 def _item_json(row: Any) -> dict[str, Any]:
     return {
-        "productId": row["product_id"], "title": row["title"], "brand": row["brand"], "unitSize": row["unit_size"],
-        "quantity": row["quantity"], "amount": row["amount"], "price": row["price"],
-        "priceBeforeBonus": row["price_before_bonus"], "bonus": bool(row["bonus"]),
-        "taxonomy": row["taxonomy"], "image": row["image"],
+        "productId": row["product_id"],
+        "title": row["title"],
+        "brand": row["brand"],
+        "unitSize": row["unit_size"],
+        "quantity": row["quantity"],
+        "amount": row["amount"],
+        "price": row["price"],
+        "priceBeforeBonus": row["price_before_bonus"],
+        "bonus": bool(row["bonus"]),
+        "taxonomy": row["taxonomy"],
+        "image": row["image"],
     }
 
 
@@ -120,10 +136,19 @@ async def _save_order(conn: aiosqlite.Connection, header: dict[str, Any], items:
           slot_end = COALESCE(NULLIF(excluded.slot_end, ''), jumbo_orders.slot_end),
           items_synced = excluded.items_synced, synced_at = excluded.synced_at
         """,
-        (header["id"], header.get("state"), header.get("shoppingType"), header.get("method"), header.get("total"),
-         header.get("deliveryDate"), header.get("slotStart"), header.get("slotEnd"),
-         1 if items is not None else (existing["items_synced"] if existing else 0),
-         existing["first_seen"] if existing else now, now),
+        (
+            header["id"],
+            header.get("state"),
+            header.get("shoppingType"),
+            header.get("method"),
+            header.get("total"),
+            header.get("deliveryDate"),
+            header.get("slotStart"),
+            header.get("slotEnd"),
+            1 if items is not None else (existing["items_synced"] if existing else 0),
+            existing["first_seen"] if existing else now,
+            now,
+        ),
     )
     if items is not None:
         await conn.execute("DELETE FROM jumbo_order_items WHERE order_id = ?", (header["id"],))
@@ -186,17 +211,28 @@ async def sync_orders() -> dict[str, Any]:
         await conn.commit()
     await image_cache.prefetch_async(limit=image_cache.PREFETCH_AFTER_SYNC)  # de foto's van de nieuwe bestellingen alvast in de cache
     return {
-        "orders": len(orders), "new": new, "remaining": remaining, "storeReceipts": listed["storeReceipts"],
+        "orders": len(orders),
+        "new": new,
+        "remaining": remaining,
+        "storeReceipts": listed["storeReceipts"],
         **({"detailError": detail_error} if detail_error else {}),
     }
 
 
 def _order_json(row: Any, count: int | None = None) -> dict[str, Any]:
     return {
-        "id": row["order_id"], "kind": row["kind"], "state": row["state"], "stateText": None,
-        "shoppingType": row["shopping_type"], "method": row["method"], "total": row["total"],
-        "deliveryDate": row["delivery_date"], "slotStart": row["slot_start"], "slotEnd": row["slot_end"],
-        "itemsSynced": bool(row["items_synced"]), "syncedAt": row["synced_at"],
+        "id": row["order_id"],
+        "kind": row["kind"],
+        "state": row["state"],
+        "stateText": None,
+        "shoppingType": row["shopping_type"],
+        "method": row["method"],
+        "total": row["total"],
+        "deliveryDate": row["delivery_date"],
+        "slotStart": row["slot_start"],
+        "slotEnd": row["slot_end"],
+        "itemsSynced": bool(row["items_synced"]),
+        "syncedAt": row["synced_at"],
         **({"itemCount": count} if count is not None else {}),
     }
 
@@ -219,9 +255,12 @@ def _order_summary(row: Any) -> dict[str, Any]:
     savings = row["summary_savings"]
     status_kind, status_text = purchase_lines.status_kind("order", row)
     return {
-        "images": price_import.split_lines(row["summary_images"]), "productNames": price_import.split_lines(row["summary_names"]),
-        "savings": round(float(savings), 2) if savings is not None else None, "bonusCount": int(row["summary_bonus"] or 0),
-        "statusKind": status_kind, "statusText": status_text,
+        "images": price_import.split_lines(row["summary_images"]),
+        "productNames": price_import.split_lines(row["summary_names"]),
+        "savings": round(float(savings), 2) if savings is not None else None,
+        "bonusCount": int(row["summary_bonus"] or 0),
+        "statusKind": status_kind,
+        "statusText": status_text,
     }
 
 
@@ -273,11 +312,18 @@ async def search_purchases(query: Any, limit: int = 50) -> dict[str, Any]:
             """
         ):
             if all(word in _fold(f"{row['title']} {row['brand'] or ''}") for word in words):
-                occurrences.append({
-                    "source": "bestelling", "product": row["title"], "brand": row["brand"], "quantity": row["quantity"],
-                    "amount": row["amount"], "date": (row["delivery_date"] or row["first_seen"] or "")[:10], "id": str(row["order_id"]),
-                    "open": False,
-                })
+                occurrences.append(
+                    {
+                        "source": "bestelling",
+                        "product": row["title"],
+                        "brand": row["brand"],
+                        "quantity": row["quantity"],
+                        "amount": row["amount"],
+                        "date": (row["delivery_date"] or row["first_seen"] or "")[:10],
+                        "id": str(row["order_id"]),
+                        "open": False,
+                    }
+                )
         unsearched = (await auth.fetchone(conn, "SELECT COUNT(*) FROM jumbo_orders WHERE items_synced = 0"))[0]
         # Oude bestellingen uit je bevestigingsmails.
         occurrences += await price_import.search_lines(conn, "jumbo", words, _fold)

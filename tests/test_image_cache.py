@@ -18,10 +18,10 @@ from PIL import Image
 
 os.environ["PASSKEY_AUTH_ENABLED"] = "false"
 
-from mealieshopper import ah, ah_orders, auth, image_cache, offers, readers, tasks  # noqa: E402
-from mealieshopper.app import create_app  # noqa: E402
 from helpers import AppTestCase, db, in_db, run, start_app  # noqa: E402
 
+from mealieshopper import ah, ah_orders, auth, image_cache, offers, readers, tasks  # noqa: E402
+from mealieshopper.app import create_app  # noqa: E402
 
 AH = "https://static.ah.nl/dam/product/AHI_4354523130323030333238?revLabel=1&rendition=800x800_WEBP&fileType=binary"
 JUMBO = "https://images.jumbo.com/product/x.png"
@@ -130,24 +130,16 @@ class LookupThreadsTest(Case):
 class HostsAndTokensTest(Case):
     def test_only_store_hosts_are_known(self) -> None:
         self.assertEqual(image_cache.store_for(AH), "ah")
-        self.assertEqual(
-            image_cache.store_for("https://images.jumbo.com/x.png"), "jumbo"
-        )
+        self.assertEqual(image_cache.store_for("https://images.jumbo.com/x.png"), "jumbo")
         self.assertEqual(image_cache.store_for("https://jumbo.com/x.png"), "jumbo")
         self.assertEqual(
-            image_cache.store_for(
-                "https://storefront-prod.nl.picnicinternational.com/static/images/1/medium.png"
-            ),
+            image_cache.store_for("https://storefront-prod.nl.picnicinternational.com/static/images/1/medium.png"),
             "picnic",
         )
-        self.assertEqual(
-            image_cache.store_for("https://crispapp.nl/blob/abc?thumb=200"), "crisp"
-        )
+        self.assertEqual(image_cache.store_for("https://crispapp.nl/blob/abc?thumb=200"), "crisp")
         self.assertEqual(image_cache.store_for("https://www.lidl.nl/assets/gcp58e1.png"), "lidl")
         self.assertEqual(image_cache.store_for("https://imgproxy-retcat.assets.schwarz/abc/w:1278/x.jpg"), "lidl")
-        self.assertEqual(
-            image_cache.store_for("https://s7g10.scene7.com/is/image/aldinord/product_1219324?wid=500&hei=500"), "aldi"
-        )
+        self.assertEqual(image_cache.store_for("https://s7g10.scene7.com/is/image/aldinord/product_1219324?wid=500&hei=500"), "aldi")
         for url in (
             "https://www.lidl.nl/c/aanbiedingen/a10008785",  # de rest van de site van Lidl is geen foto
             "https://s7g10.scene7.com/is/image/anderbedrijf/x",  # scene7 is het gedeelde CDN van Adobe
@@ -169,9 +161,7 @@ class HostsAndTokensTest(Case):
         self.assertNotRegex(token, r"[+/=]")
         self.assertEqual(image_cache.url_for(token), AH)
         self.assertIsNone(image_cache.url_for("%%%"))
-        self.assertIsNone(
-            image_cache.url_for(image_cache.token_for("https://mealie.local/x.png"))
-        )
+        self.assertIsNone(image_cache.url_for(image_cache.token_for("https://mealie.local/x.png")))
 
     def test_a_token_only_decodes_to_a_strict_store_address(self) -> None:
         # Een token komt van de browser en is dus van iedereen. Dezelfde eisen als aan een doorverwijzing: https, en geen adres dat
@@ -233,9 +223,7 @@ class HostsAndTokensTest(Case):
         second = run(image_cache.register(AH, now="2026-11-05T01:00:00+00:00"))
         self.assertEqual(first, second)
         with closing(db()) as conn:
-            row = conn.execute(
-                "SELECT host, seen_at, attempts, path FROM image_cache"
-            ).fetchone()
+            row = conn.execute("SELECT host, seen_at, attempts, path FROM image_cache").fetchone()
         self.assertEqual(
             (row["host"], row["seen_at"], row["attempts"], row["path"]),
             ("static.ah.nl", "2026-11-05T01:00:00+00:00", 0, None),
@@ -249,7 +237,9 @@ class FetchTest(FetchCase):
     async def test_a_fetch_stores_the_file_and_the_row_with_browser_headers(self) -> None:
         self.serve(AH, 200, "image/webp", picture(8, 8, "WEBP"))
         row = await fetch(AH)
-        self.assertEqual((row["content_type"], row["bytes"], row["width"], row["height"], row["fetched_at"]), ("image/webp", len(picture(8, 8, "WEBP")), 8, 8, NOW))
+        self.assertEqual(
+            (row["content_type"], row["bytes"], row["width"], row["height"], row["fetched_at"]), ("image/webp", len(picture(8, 8, "WEBP")), 8, 8, NOW)
+        )
         self.assertTrue((image_cache.images_dir() / row["path"]).is_file())
         self.assertRegex(row["path"], r"^[0-9a-f]{2}/[0-9a-f]{64}\.webp$")
         headers = self.get.calls.last.request.headers
@@ -471,8 +461,10 @@ class FetchTest(FetchCase):
         self.serve(AH, 200, "image/png", picture(4, 4))
         self.serve(other, 200, "image/png", picture(4, 4))
         self.serve(JUMBO, 200, "image/png", picture(4, 4))
-        with mock.patch.object(image_cache, "_monotonic", side_effect=lambda: clock[0]), \
-             mock.patch.object(image_cache, "random", mock.Mock(uniform=lambda low, high: high)):
+        with (
+            mock.patch.object(image_cache, "_monotonic", side_effect=lambda: clock[0]),
+            mock.patch.object(image_cache, "random", mock.Mock(uniform=lambda low, high: high)),
+        ):
             await fetch(AH)
             await fetch(JUMBO)
             clock[0] += 0.25
@@ -530,8 +522,10 @@ class FetchTest(FetchCase):
     async def test_a_cache_hit_does_not_write_to_the_database(self) -> None:
         self.serve(AH, 200, "image/png", picture(4, 4))
         await fetch(AH)
-        with mock.patch.object(image_cache, "register", new_callable=mock.AsyncMock) as register, \
-             mock.patch.object(image_cache, "_record_success", new_callable=mock.AsyncMock) as success:
+        with (
+            mock.patch.object(image_cache, "register", new_callable=mock.AsyncMock) as register,
+            mock.patch.object(image_cache, "_record_success", new_callable=mock.AsyncMock) as success,
+        ):
             self.assertIsNotNone(await fetch(AH))
         register.assert_not_called()
         success.assert_not_called()
@@ -612,7 +606,9 @@ class RoutesTest(FetchCase):
     async def test_the_route_serves_the_cached_file_with_a_long_cache_header(self) -> None:
         self.serve(AH, 200, "image/webp", picture(8, 8, "WEBP"))
         reply = await self.client.get(f"/api/images/{image_cache.token_for(AH)}")
-        self.assertEqual((reply.status_code, reply.content_type, reply.headers["Cache-Control"]), (200, "image/webp", "private, max-age=31536000, immutable"))
+        self.assertEqual(
+            (reply.status_code, reply.content_type, reply.headers["Cache-Control"]), (200, "image/webp", "private, max-age=31536000, immutable")
+        )
         self.assertEqual(reply.data, picture(8, 8, "WEBP"))
         self.assertEqual(reply.headers["X-Content-Type-Options"], "nosniff")
         again = await self.client.get(f"/api/images/{image_cache.token_for(AH)}", headers={"If-None-Match": reply.headers["ETag"]})
@@ -663,7 +659,10 @@ class RoutesTest(FetchCase):
         self.assertNotIn("--threads", dockerfile)
 
     async def test_the_route_needs_a_login_like_the_rest_of_the_api(self) -> None:
-        with mock.patch.object(auth, "auth_required", new_callable=mock.AsyncMock, return_value=True), mock.patch.object(auth, "current_user", new_callable=mock.AsyncMock, return_value=None):
+        with (
+            mock.patch.object(auth, "auth_required", new_callable=mock.AsyncMock, return_value=True),
+            mock.patch.object(auth, "current_user", new_callable=mock.AsyncMock, return_value=None),
+        ):
             self.assertEqual((await self.client.get(f"/api/images/{image_cache.token_for(AH)}")).status_code, 401)
         self.assertEqual(self.get.call_count, 0)
 
@@ -676,9 +675,7 @@ class PausesTest(Case):
         run(image_cache._pause("crispapp.nl", "2026-11-03T03:00:00+00:00"))  # al afgelopen
         run(auth.set_setting(image_cache.SETTING_PAUSED + "static.ah.nl", ""))  # opgeheven
         run(auth.set_setting(image_cache.SETTING_PAUSED + "example.com", "2026-11-04T16:00:00+00:00"))  # geen winkel
-        self.assertEqual(
-            run(image_cache.pauses(NOW)), [{"host": self.PICNIC, "store": "picnic", "until": "2026-11-04T15:00:00+00:00"}]
-        )
+        self.assertEqual(run(image_cache.pauses(NOW)), [{"host": self.PICNIC, "store": "picnic", "until": "2026-11-04T15:00:00+00:00"}])
         self.assertEqual(run(image_cache.stats(NOW))["paused"], run(image_cache.pauses(NOW)))
 
     def test_a_picnic_pause_from_before_3_7_1_is_lifted_once(self) -> None:
@@ -715,7 +712,9 @@ class PrefetchTest(FetchCase):
                 "INSERT INTO ah_order_items (order_id, position, product_id, title, image) VALUES (1, 0, 10, 'Melk', ?)",
                 ("https://static.ah.nl/dam/product/melk",),
             )
-            conn.execute("INSERT INTO ah_receipt_products (receipt_product_id, product_id, title, checked_at, image) VALUES (1, 10, 'Melk', 'x', 'https://static.ah.nl/dam/product/bon')")
+            conn.execute(
+                "INSERT INTO ah_receipt_products (receipt_product_id, product_id, title, checked_at, image) VALUES (1, 10, 'Melk', 'x', 'https://static.ah.nl/dam/product/bon')"
+            )
         with closing(db(offers)) as conn, conn:
             conn.execute(
                 "INSERT INTO offers (store, product_id, position, title, image) VALUES ('ah', '1', 0, 'Kaas', 'https://static.ah.nl/dam/product/kaas')"
@@ -772,13 +771,18 @@ class PrefetchTest(FetchCase):
     async def test_collect_known_skips_an_address_that_only_passes_the_host_check(self) -> None:
         with closing(db(ah_orders)) as conn, conn:
             for position, url in enumerate(("http://static.ah.nl/dam/plain", "https://user@static.ah.nl/dam/x")):
-                conn.execute("INSERT INTO ah_order_items (order_id, position, product_id, title, image) VALUES (1, ?, ?, 'Melk', ?)", (position, 10 + position, url))
+                conn.execute(
+                    "INSERT INTO ah_order_items (order_id, position, product_id, title, image) VALUES (1, ?, ?, 'Melk', ?)",
+                    (position, 10 + position, url),
+                )
         self.assertEqual(await image_cache.collect_known(now=NOW), 0)
         self.assertEqual(await rows(), [])
 
     def test_collect_known_survives_a_table_that_has_no_image_column_yet(self) -> None:
         with closing(db()) as conn, conn:
-            conn.execute("CREATE TABLE ah_receipt_products (receipt_product_id INTEGER PRIMARY KEY, product_id INTEGER, title TEXT, checked_at TEXT NOT NULL)")
+            conn.execute(
+                "CREATE TABLE ah_receipt_products (receipt_product_id INTEGER PRIMARY KEY, product_id INTEGER, title TEXT, checked_at TEXT NOT NULL)"
+            )
             conn.execute("INSERT INTO ah_receipt_products VALUES (1, 10, 'Melk', 'x')")
         self.assertEqual(run(image_cache.collect_known(now=NOW)), 0)
 
@@ -808,11 +812,15 @@ class PrefetchTest(FetchCase):
         with mock.patch.object(image_cache.audit, "record", new_callable=mock.AsyncMock) as record:
             result = await image_cache.prefetch_nightly()
         self.assertEqual(result["fetched"], 1)
-        self.assertEqual((record.call_args.kwargs["service"], record.call_args.kwargs["action"], record.call_args.kwargs["detail"]), ("images", "prefetch", result))
+        self.assertEqual(
+            (record.call_args.kwargs["service"], record.call_args.kwargs["action"], record.call_args.kwargs["detail"]), ("images", "prefetch", result)
+        )
 
     def test_a_failing_nightly_round_is_logged_and_gives_none(self) -> None:
-        with mock.patch.object(image_cache, "prefetch", new_callable=mock.AsyncMock, side_effect=RuntimeError("stuk")), \
-             self.assertLogs("mealieshopper.image_cache", level="ERROR"):
+        with (
+            mock.patch.object(image_cache, "prefetch", new_callable=mock.AsyncMock, side_effect=RuntimeError("stuk")),
+            self.assertLogs("mealieshopper.image_cache", level="ERROR"),
+        ):
             self.assertIsNone(run(image_cache.prefetch_nightly()))
 
     async def test_prefetch_async_runs_a_small_round_in_one_background_task(self) -> None:
@@ -886,6 +894,7 @@ class PrefetchTest(FetchCase):
 
         run(leftover())  # de loop sluit en annuleert de task
         with mock.patch.object(image_cache, "prefetch", new_callable=mock.AsyncMock, return_value={}) as prefetch:
+
             async def go() -> None:
                 await image_cache.prefetch_async(limit=3)
                 await image_cache._PREFETCH_TASK

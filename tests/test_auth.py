@@ -13,11 +13,11 @@ from typing import Any
 from unittest import mock
 
 import pytest
+from helpers import db, run  # noqa: E402
 from quart import Quart
 
 from mealieshopper import auth, readers, tasks
 from mealieshopper.app import create_app
-from helpers import db, run  # noqa: E402
 
 OTHER_ID: str = "u-2"
 
@@ -72,19 +72,13 @@ def seeded(data_dir: Path) -> Path:
 
 
 @asynccontextmanager
-async def request_as(
-    user_id: str | None, *, bearer: bool = False, path: str = "/api/recipes"
-) -> AsyncIterator[None]:
+async def request_as(user_id: str | None, *, bearer: bool = False, path: str = "/api/recipes") -> AsyncIterator[None]:
     """Een verzoekcontext met (of zonder) een sessie van `user_id`, als cookie of als Bearer-token."""
     headers: dict[str, str] = {}
     if user_id:
         username: str = "spam" if user_id == auth.OWNER_ID else "eggs"
         token: str = await auth.create_token(user_id, username)
-        headers = (
-            {"Authorization": f"Bearer {token}"}
-            if bearer
-            else {"Cookie": f"{auth.SESSION_COOKIE_NAME}={token}"}
-        )
+        headers = {"Authorization": f"Bearer {token}"} if bearer else {"Cookie": f"{auth.SESSION_COOKIE_NAME}={token}"}
     async with Quart(__name__).test_request_context(path, headers=headers):
         yield
 
@@ -219,9 +213,7 @@ async def test_setup_is_required_without_credentials(data_dir: Path) -> None:
 
 
 async def test_create_token_carries_the_claims(seeded: Path) -> None:
-    claims: dict[str, Any] = (
-        await auth.verify_token(await auth.create_token(auth.OWNER_ID, "spam")) or {}
-    )
+    claims: dict[str, Any] = await auth.verify_token(await auth.create_token(auth.OWNER_ID, "spam")) or {}
     assert (claims["sub"], claims["usr"], claims["ep"]) == (auth.OWNER_ID, "spam", 3)
     assert claims["exp"] - claims["iat"] == auth.session_max_age_seconds()
 
@@ -241,9 +233,7 @@ async def test_secret_box_decrypts_what_it_encrypted(seeded: Path) -> None:
     assert (await auth.secret_box()).decrypt(token) == b"spam"
 
 
-async def test_auth_required_without_credentials(
-    data_dir: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+async def test_auth_required_without_credentials(data_dir: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     assert await auth.auth_required() is True
     await auth.set_setting(auth.SETTING_AUTH_MODE, "none")
     assert await auth.auth_required() is False
@@ -265,9 +255,7 @@ async def test_set_secret_round_trip(data_dir: Path) -> None:
     await auth.set_secret("AH_TOKEN", "spam")
     assert await auth.get_secret("AH_TOKEN") == "spam"
     with closing(db()) as conn:
-        stored: str = conn.execute(
-            "SELECT value FROM app_settings WHERE key = 'AH_TOKEN'"
-        ).fetchone()["value"]
+        stored: str = conn.execute("SELECT value FROM app_settings WHERE key = 'AH_TOKEN'").fetchone()["value"]
     assert stored.startswith("gAAAA")  # versleuteld opgeslagen
     await auth.delete_secret("AH_TOKEN")
     assert await auth.get_secret("AH_TOKEN") == ""
@@ -316,12 +304,7 @@ async def test_ensure_db_creates_the_schema_once(data_dir: Path) -> None:
     assert init.call_count == 1
     assert auth._INITIALIZED is True
     with closing(db()) as conn:
-        tables: set[str] = {
-            row[0]
-            for row in conn.execute(
-                "SELECT name FROM sqlite_master WHERE type = 'table'"
-            )
-        }
+        tables: set[str] = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
     assert {
         "users",
         "passkey_credentials",
@@ -351,12 +334,8 @@ def old_database() -> None:
     """Een database van voor de kolom `users.session_epoch`, met de oude teller in app_settings."""
     auth.data_dir().mkdir(parents=True, exist_ok=True)
     with closing(sqlite3.connect(auth.db_path())) as conn, conn:
-        conn.execute(
-            "CREATE TABLE users (id TEXT PRIMARY KEY, username TEXT NOT NULL UNIQUE, created_at TEXT NOT NULL)"
-        )
-        conn.execute(
-            "CREATE TABLE app_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL)"
-        )
+        conn.execute("CREATE TABLE users (id TEXT PRIMARY KEY, username TEXT NOT NULL UNIQUE, created_at TEXT NOT NULL)")
+        conn.execute("CREATE TABLE app_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL)")
         conn.execute("INSERT INTO users VALUES ('owner', 'spam', '2026-01-01')")
         conn.execute(
             "INSERT INTO app_settings VALUES (?, '7', '2026-01-01')",
@@ -389,9 +368,7 @@ async def test_concurrent_init_db_migrates_once(data_dir: Path) -> None:
     with mock.patch.object(auth, "_has_session_epoch", side_effect=check_together):
         await asyncio.gather(*(auth.init_db() for _ in range(workers)))
     with closing(db()) as conn:
-        columns: list[str] = [
-            row["name"] for row in conn.execute("PRAGMA table_info(users)")
-        ]
+        columns: list[str] = [row["name"] for row in conn.execute("PRAGMA table_info(users)")]
     assert columns.count("session_epoch") == 1
     assert await auth.session_epoch(auth.OWNER_ID) == 7
 
@@ -411,9 +388,7 @@ async def test_connect_rows_behave_like_sqlite3_rows(data_dir: Path) -> None:
     assert dict(row) == {"key": "WEEK_START", "value": "monday"}
 
 
-async def test_connect_creates_the_data_dir(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+async def test_connect_creates_the_data_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     target: Path = tmp_path / "nieuw" / "data"
     monkeypatch.setenv("MEALIESHOPPER_DATA_DIR", str(target))
     async with auth.connect() as conn:
@@ -424,14 +399,10 @@ async def test_connect_creates_the_data_dir(
 async def test_connect_does_not_commit_implicitly(data_dir: Path) -> None:
     await auth.ensure_db()
     async with auth.connect() as conn:
-        await conn.execute(
-            "INSERT INTO app_settings (key, value, updated_at) VALUES ('SPAM', 'eggs', 'nu')"
-        )
+        await conn.execute("INSERT INTO app_settings (key, value, updated_at) VALUES ('SPAM', 'eggs', 'nu')")
     assert await auth.get_setting("SPAM") == ""
     async with auth.connect() as conn:
-        await conn.execute(
-            "INSERT INTO app_settings (key, value, updated_at) VALUES ('SPAM', 'eggs', 'nu')"
-        )
+        await conn.execute("INSERT INTO app_settings (key, value, updated_at) VALUES ('SPAM', 'eggs', 'nu')")
         await conn.commit()
     assert await auth.get_setting("SPAM") == "eggs"
 
@@ -449,14 +420,10 @@ async def test_master_secret_is_cached(data_dir: Path) -> None:
     assert (data_dir / auth.SECRET_FILE).read_text(encoding="ascii") == secret
     assert await auth.master_secret() == secret
     (data_dir / auth.SECRET_FILE).unlink()
-    assert (
-        await auth.master_secret() == secret
-    )  # uit de cache, het bestand wordt niet opnieuw gelezen
+    assert await auth.master_secret() == secret  # uit de cache, het bestand wordt niet opnieuw gelezen
 
 
-async def test_master_secret_prefers_the_environment(
-    data_dir: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+async def test_master_secret_prefers_the_environment(data_dir: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("MEALIESHOPPER_AUTH_SECRET", "  spam  ")
     assert await auth.master_secret() == "spam"
     assert not (data_dir / auth.SECRET_FILE).exists()
@@ -506,10 +473,27 @@ def test_every_database_helper_is_a_coroutine_function() -> None:
     import inspect
 
     names: list[str] = sorted({name for name, _, _ in READS}) + [
-        "current_user", "acting_user_id", "is_owner", "require_auth_for_request", "credential_rows", "master_secret",
-        "signing_secret", "init_db", "ensure_db", "set_setting", "bump_session_epoch", "set_secret", "delete_secret",
-        "purge_obsolete_secrets", "store_challenge", "pop_challenge", "create_token", "verify_token", "secret_box",
-        "check_registration", "check_assertion",
+        "current_user",
+        "acting_user_id",
+        "is_owner",
+        "require_auth_for_request",
+        "credential_rows",
+        "master_secret",
+        "signing_secret",
+        "init_db",
+        "ensure_db",
+        "set_setting",
+        "bump_session_epoch",
+        "set_secret",
+        "delete_secret",
+        "purge_obsolete_secrets",
+        "store_challenge",
+        "pop_challenge",
+        "create_token",
+        "verify_token",
+        "secret_box",
+        "check_registration",
+        "check_assertion",
     ]
     for name in names:
         assert inspect.iscoroutinefunction(getattr(auth, name)), name

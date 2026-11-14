@@ -24,26 +24,19 @@ APP_PATH: str = os.path.join(loop_guard.APP_DIR, "prices.py")
 
 async def test_a_blocking_call_is_reported_with_its_stack() -> None:
     stalls: list[loop_guard.Stall] = []
-    guard: loop_guard.LoopGuard = loop_guard.LoopGuard(
-        asyncio.get_running_loop(), 0.05, stalls.append
-    )
+    guard: loop_guard.LoopGuard = loop_guard.LoopGuard(asyncio.get_running_loop(), 0.05, stalls.append)
     guard.start()
     time.sleep(0.2)  # noqa: ASYNC251
     await asyncio.sleep(0.05)
     guard.stop()
     assert len(stalls) == 1
     assert 0.15 <= stalls[0].seconds < 1.0
-    assert (
-        stalls[0].stack[-1].function
-        == "test_a_blocking_call_is_reported_with_its_stack"
-    )
+    assert stalls[0].stack[-1].function == "test_a_blocking_call_is_reported_with_its_stack"
 
 
 async def test_waiting_is_not_a_stall() -> None:
     stalls: list[loop_guard.Stall] = []
-    guard: loop_guard.LoopGuard = loop_guard.LoopGuard(
-        asyncio.get_running_loop(), 0.05, stalls.append
-    )
+    guard: loop_guard.LoopGuard = loop_guard.LoopGuard(asyncio.get_running_loop(), 0.05, stalls.append)
     guard.start()
     await asyncio.sleep(0.2)
     guard.stop()
@@ -52,9 +45,7 @@ async def test_waiting_is_not_a_stall() -> None:
 
 async def test_work_in_a_thread_is_not_a_stall() -> None:
     stalls: list[loop_guard.Stall] = []
-    guard: loop_guard.LoopGuard = loop_guard.LoopGuard(
-        asyncio.get_running_loop(), 0.05, stalls.append
-    )
+    guard: loop_guard.LoopGuard = loop_guard.LoopGuard(asyncio.get_running_loop(), 0.05, stalls.append)
     guard.start()
     await asyncio.to_thread(time.sleep, 0.2)
     guard.stop()
@@ -63,9 +54,7 @@ async def test_work_in_a_thread_is_not_a_stall() -> None:
 
 async def test_two_stalls_are_two_reports() -> None:
     stalls: list[loop_guard.Stall] = []
-    guard: loop_guard.LoopGuard = loop_guard.LoopGuard(
-        asyncio.get_running_loop(), 0.05, stalls.append
-    )
+    guard: loop_guard.LoopGuard = loop_guard.LoopGuard(asyncio.get_running_loop(), 0.05, stalls.append)
     guard.start()
     time.sleep(0.15)  # noqa: ASYNC251
     await asyncio.sleep(0.05)
@@ -99,9 +88,7 @@ async def test_a_failing_callback_does_not_stop_the_guard() -> None:
         calls.append(stall)
         raise RuntimeError("kapot")
 
-    guard: loop_guard.LoopGuard = loop_guard.LoopGuard(
-        asyncio.get_running_loop(), 0.05, on_stall
-    )
+    guard: loop_guard.LoopGuard = loop_guard.LoopGuard(asyncio.get_running_loop(), 0.05, on_stall)
     guard.start()
     time.sleep(0.15)  # noqa: ASYNC251
     await asyncio.sleep(0.05)
@@ -112,9 +99,7 @@ async def test_a_failing_callback_does_not_stop_the_guard() -> None:
 
 
 def test_in_app_needs_a_frame_of_the_app() -> None:
-    outside: loop_guard.Stall = loop_guard.Stall(
-        0.3, (loop_guard.Frame("/usr/lib/python3/asyncio/base_events.py", 10, "run"),)
-    )
+    outside: loop_guard.Stall = loop_guard.Stall(0.3, (loop_guard.Frame("/usr/lib/python3/asyncio/base_events.py", 10, "run"),))
     inside: loop_guard.Stall = loop_guard.Stall(
         0.3,
         (
@@ -148,10 +133,7 @@ def test_describe_lists_the_innermost_app_frames_first() -> None:
             loop_guard.Frame(APP_PATH, 1040, "_catalogue"),
         ),
     )
-    assert (
-        stall.describe()
-        == "310 ms: prices.py:1040 _catalogue < prices.py:914 _known_products"
-    )
+    assert stall.describe() == "310 ms: prices.py:1040 _catalogue < prices.py:914 _known_products"
     assert stall.describe(limit=1) == "310 ms: prices.py:1040 _catalogue"
 
 
@@ -165,14 +147,10 @@ async def test_stop_after_the_loop_closed_does_not_raise() -> None:
     loop_guard.LoopGuard(loop, 0.05, lambda stall: None).stop()
 
 
-async def test_a_block_of_threshold_plus_one_and_a_half_intervals_is_always_reported() -> (
-    None
-):
+async def test_a_block_of_threshold_plus_one_and_a_half_intervals_is_always_reported() -> None:
     """Een tik per twee wakes liet een blinde plek van twee intervallen: 70 ms bij een drempel van 40 ms viel erdoorheen."""
     stalls: list[loop_guard.Stall] = []
-    guard: loop_guard.LoopGuard = loop_guard.LoopGuard(
-        asyncio.get_running_loop(), 0.04, stalls.append, interval=0.02
-    )
+    guard: loop_guard.LoopGuard = loop_guard.LoopGuard(asyncio.get_running_loop(), 0.04, stalls.append, interval=0.02)
     guard.start()
     for step in range(8):
         await asyncio.sleep(0.06 + step * 0.0037)  # elke keer een andere fase
@@ -186,21 +164,15 @@ async def test_a_block_of_threshold_plus_one_and_a_half_intervals_is_always_repo
 
 async def test_stop_right_after_the_block_still_reports_it() -> None:
     stalls: list[loop_guard.Stall] = []
-    guard: loop_guard.LoopGuard = loop_guard.LoopGuard(
-        asyncio.get_running_loop(), 0.05, stalls.append
-    )
+    guard: loop_guard.LoopGuard = loop_guard.LoopGuard(asyncio.get_running_loop(), 0.05, stalls.append)
     guard.start()
     time.sleep(0.2)  # noqa: ASYNC251
-    await asyncio.sleep(
-        0
-    )  # de loop beantwoordt de tik, de thread heeft het nog niet gezien
+    await asyncio.sleep(0)  # de loop beantwoordt de tik, de thread heeft het nog niet gezien
     guard.stop()
     assert len(stalls) == 1
 
 
-def test_a_stall_in_the_first_iteration_has_a_stack_when_the_loop_thread_is_given() -> (
-    None
-):
+def test_a_stall_in_the_first_iteration_has_a_stack_when_the_loop_thread_is_given() -> None:
     stalls: list[loop_guard.Stall] = []
     loop: asyncio.AbstractEventLoop = asyncio.new_event_loop()
     guard: loop_guard.LoopGuard = loop_guard.LoopGuard(loop, 0.05, stalls.append)
@@ -210,9 +182,7 @@ def test_a_stall_in_the_first_iteration_has_a_stack_when_the_loop_thread_is_give
         await asyncio.sleep(0.05)
 
     try:
-        guard.start(
-            loop_thread=threading.get_ident()
-        )  # de loop draait nog niet: zonder dit is de stack leeg
+        guard.start(loop_thread=threading.get_ident())  # de loop draait nog niet: zonder dit is de stack leeg
         loop.run_until_complete(block_at_once())
     finally:
         guard.stop()
@@ -261,9 +231,7 @@ async def test_a_thread_holding_the_gil_is_reported_with_its_frame() -> None:
     assert "Andere threads: holder test_loop_guard.py:" in stall.describe()
 
 
-async def test_the_other_threads_are_read_when_the_loop_waits() -> (
-    None
-):
+async def test_the_other_threads_are_read_when_the_loop_waits() -> None:
     """De bewaker leest de andere threads als de loop geen regel van de app draait."""
     stalls: list[loop_guard.Stall] = []
     stop: threading.Event = threading.Event()
@@ -274,9 +242,7 @@ async def test_the_other_threads_are_read_when_the_loop_waits() -> (
 
     spinner: threading.Thread = threading.Thread(target=spin, name="spinner")
     spinner.start()
-    guard: loop_guard.LoopGuard = loop_guard.LoopGuard(
-        asyncio.get_running_loop(), 0.05, stalls.append
-    )
+    guard: loop_guard.LoopGuard = loop_guard.LoopGuard(asyncio.get_running_loop(), 0.05, stalls.append)
     guard.start()
     try:
         time.sleep(0.2)  # noqa: ASYNC251
@@ -322,9 +288,7 @@ async def test_a_loop_stuck_in_a_call_outside_the_app_lists_the_busy_threads(mon
 
 
 def test_a_loop_busy_in_the_app_lists_no_other_threads() -> None:
-    selector: loop_guard.Frame = loop_guard.Frame(
-        "/usr/lib/python3.12/selectors.py", 566, "select"
-    )
+    selector: loop_guard.Frame = loop_guard.Frame("/usr/lib/python3.12/selectors.py", 566, "select")
     app: loop_guard.Frame = loop_guard.Frame(APP_PATH, 5, "_catalogue")
     assert not loop_guard.loop_waiting((selector, app))
     assert loop_guard.loop_waiting((app, selector))
@@ -357,14 +321,8 @@ def test_describe_names_the_busy_threads_and_counts_the_waiting_ones() -> None:
     )
     stall: loop_guard.Stall = loop_guard.Stall(0.145, (), (busy, idle, waiting))
     assert stall.busy_threads == (busy,)
-    assert (
-        stall.describe()
-        == "145 ms: . Andere threads: compute-0 prices.py:1234 _rows < compute.py:70 _work (2 wachtend)"
-    )
-    assert (
-        loop_guard.Stall(0.2, (), (idle,)).describe()
-        == "200 ms: . Andere threads: geen bezig (1 wachtend)"
-    )
+    assert stall.describe() == "145 ms: . Andere threads: compute-0 prices.py:1234 _rows < compute.py:70 _work (2 wachtend)"
+    assert loop_guard.Stall(0.2, (), (idle,)).describe() == "200 ms: . Andere threads: geen bezig (1 wachtend)"
     assert loop_guard.Stall(0.2, ()).describe() == "200 ms: "
 
 

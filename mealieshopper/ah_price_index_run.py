@@ -22,9 +22,7 @@ async def main(limit: int) -> None:
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
-    parser: argparse.ArgumentParser = argparse.ArgumentParser(
-        description="Haal de weekprijzen van je gekochte AH-producten op bij ahprijsindex.nl."
-    )
+    parser: argparse.ArgumentParser = argparse.ArgumentParser(description="Haal de weekprijzen van je gekochte AH-producten op bij ahprijsindex.nl.")
     parser.add_argument(
         "--limit",
         type=int,

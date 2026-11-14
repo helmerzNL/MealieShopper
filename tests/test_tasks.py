@@ -233,7 +233,6 @@ async def test_shielded_work_finishes_although_its_caller_is_cancelled() -> None
     assert done == ["bewaard"]
 
 
-
 async def test_map_bounded_stops_what_it_started_when_the_items_raise() -> None:
     """Gooit de iterable zelf halverwege, dan blijven de al gestarte items niet als losse tasks achter."""
     started: list[int] = []
@@ -312,7 +311,12 @@ def _shield_calls(path: Path) -> list[int]:
     found: list[int] = []
     for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
         function: ast.expr | None = node.func if isinstance(node, ast.Call) else None
-        if isinstance(function, ast.Attribute) and function.attr == "shield" and isinstance(function.value, ast.Name) and function.value.id == "asyncio":
+        if (
+            isinstance(function, ast.Attribute)
+            and function.attr == "shield"
+            and isinstance(function.value, ast.Name)
+            and function.value.id == "asyncio"
+        ):
             found.append(node.lineno)
     return found
 
@@ -409,7 +413,9 @@ async def test_after_serving_reports_that_the_app_stopped(app: Quart, caplog: py
     assert "MealieShopper afgesloten" in caplog.text
 
 
-async def test_the_stopped_line_comes_after_every_other_after_serving_step(app: Quart, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture) -> None:
+async def test_the_stopped_line_comes_after_every_other_after_serving_step(
+    app: Quart, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
     """Taak 10b: `tasks.register` hing de regel "afgesloten" vroeg in `create_app` aan `after_serving`, en Quart draait die
     stappen in volgorde: de regel kwam voor `compute.stop` en de andere stappen van daarna. Nu is hij de laatste stap."""
     order: list[str] = []

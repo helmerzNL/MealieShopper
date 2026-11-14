@@ -22,9 +22,10 @@ from py_vapid import Vapid02
 
 os.environ["PASSKEY_AUTH_ENABLED"] = "false"
 
+from helpers import AppTestCase, db, served  # noqa: E402
+
 from mealieshopper import auth, auth_password, push, users  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
-from helpers import AppTestCase, db, served  # noqa: E402
 
 PASSWORD = "koffie-met-melk-42"
 ANNA = "een-heel-ander-wachtwoord"
@@ -42,7 +43,11 @@ class Browser:
 
     def subscription(self) -> dict:
         public = self.key.public_key().public_bytes(serialization.Encoding.X962, serialization.PublicFormat.UncompressedPoint)
-        return {"endpoint": self.endpoint, "expirationTime": None, "keys": {"p256dh": auth.b64url_encode(public), "auth": auth.b64url_encode(self.secret)}}
+        return {
+            "endpoint": self.endpoint,
+            "expirationTime": None,
+            "keys": {"p256dh": auth.b64url_encode(public), "auth": auth.b64url_encode(self.secret)},
+        }
 
     def read(self, body: bytes) -> dict:
         return json.loads(http_ece.decrypt(body, private_key=self.key, auth_secret=self.secret, version="aes128gcm"))
@@ -68,7 +73,13 @@ class PushCase(AppTestCase):
 
     async def subscribe(self, browser: Browser, timers: list, now: float = NOW) -> None:
         """Bewaart een abonnement met timers zoals de route doet, met een vaste klok."""
-        await push.save_timers("owner", push.parse_subscription(browser.subscription()), push.parse_timers(timers, now), url="/recipes", contact_url="https://shop.example.nl")
+        await push.save_timers(
+            "owner",
+            push.parse_subscription(browser.subscription()),
+            push.parse_timers(timers, now),
+            url="/recipes",
+            contact_url="https://shop.example.nl",
+        )
 
     @staticmethod
     def rows(table: str) -> list[dict]:
@@ -172,7 +183,15 @@ class TimersTest(PushCase):
         self.assertEqual(len(found["body"]), push.MAX_BODY_CHARS)
 
     def test_the_page_to_open_and_the_contact(self):
-        for value, expected in {"/recipes?week=2026-11-16": "/recipes?week=2026-11-16", "//evil.example": "/", "https://evil.example": "/", "/a\\b": "/", "": "/", None: "/", "/a b": "/"}.items():
+        for value, expected in {
+            "/recipes?week=2026-11-16": "/recipes?week=2026-11-16",
+            "//evil.example": "/",
+            "https://evil.example": "/",
+            "/a\\b": "/",
+            "": "/",
+            None: "/",
+            "/a b": "/",
+        }.items():
             self.assertEqual(push.page_url(value), expected, value)
         self.assertEqual(push.contact("https://Shop.Example.nl"), "https://shop.example.nl")
         self.assertEqual(push.contact("https://shop.example.nl:8443"), "https://shop.example.nl:8443")
@@ -194,7 +213,9 @@ class KeyTest(PushCase):
 
     async def test_an_unreadable_key_is_replaced(self):
         with closing(db(push)) as conn, conn:
-            conn.execute("INSERT INTO app_settings (key, value, updated_at) VALUES (?, ?, '')", (push.SETTING_VAPID_KEY, "gAAAAA-van-een-ander-geheim"))
+            conn.execute(
+                "INSERT INTO app_settings (key, value, updated_at) VALUES (?, ?, '')", (push.SETTING_VAPID_KEY, "gAAAAA-van-een-ander-geheim")
+            )
         key = await push.public_key()
         self.assertEqual(len(auth.b64url_decode(key)), 65)
         self.assertEqual(await push.public_key(), key)
@@ -394,7 +415,9 @@ class SessionTest(AppTestCase):
     async def asyncSetUp(self):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
-        env = mock.patch.dict(os.environ, {"PASSKEY_AUTH_ENABLED": "true", "MEALIESHOPPER_DATA_DIR": tmp.name, "MEALIESHOPPER_AUTH_SECRET": "test-secret"})
+        env = mock.patch.dict(
+            os.environ, {"PASSKEY_AUTH_ENABLED": "true", "MEALIESHOPPER_DATA_DIR": tmp.name, "MEALIESHOPPER_AUTH_SECRET": "test-secret"}
+        )
         env.start()
         self.addCleanup(env.stop)
         cost = mock.patch.object(auth_password, "SCRYPT_N", 2**4)

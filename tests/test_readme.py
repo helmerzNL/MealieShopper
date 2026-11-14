@@ -9,9 +9,10 @@ from unittest import mock
 
 os.environ["PASSKEY_AUTH_ENABLED"] = "false"
 
+from helpers import AppTestCase, db  # noqa: E402
+
 from mealieshopper import ah, auth, auth_password, mealie  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
-from helpers import AppTestCase, db  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 READMES = {"nl": ROOT / "README.md", "en": ROOT / "README.en.md"}
@@ -20,10 +21,38 @@ GUIDES = {"nl": ROOT / "docs" / "handleiding.md", "en": ROOT / "docs" / "handlei
 DOCS = {**{("readme", lang): path for lang, path in READMES.items()}, **{("guide", lang): path for lang, path in GUIDES.items()}}
 # De kopjes van de README-template, in deze volgorde; een app voegt er geen tussen en hernoemt ze niet.
 TEMPLATE_HEADINGS = {
-    "nl": ["Inhoud", "Waarom MealieShopper?", "Wat kan het?", "Zo ziet het eruit", "Snel starten", "Configuratie", "Beheer",
-           "Data en back-ups", "Architectuur", "Stabiel en beta", "Meewerken", "Privacy en beveiliging", "Steun MealieShopper", "Licentie"],
-    "en": ["Contents", "Why MealieShopper?", "Features", "Screenshots", "Getting started", "Configuration", "Running it",
-           "Data and backups", "Architecture", "Stable and beta", "Contributing", "Privacy and security", "Support MealieShopper", "License"],
+    "nl": [
+        "Inhoud",
+        "Waarom MealieShopper?",
+        "Wat kan het?",
+        "Zo ziet het eruit",
+        "Snel starten",
+        "Configuratie",
+        "Beheer",
+        "Data en back-ups",
+        "Architectuur",
+        "Stabiel en beta",
+        "Meewerken",
+        "Privacy en beveiliging",
+        "Steun MealieShopper",
+        "Licentie",
+    ],
+    "en": [
+        "Contents",
+        "Why MealieShopper?",
+        "Features",
+        "Screenshots",
+        "Getting started",
+        "Configuration",
+        "Running it",
+        "Data and backups",
+        "Architecture",
+        "Stable and beta",
+        "Contributing",
+        "Privacy and security",
+        "Support MealieShopper",
+        "License",
+    ],
 }
 IMAGE = re.compile(r"(?:src|srcset|href)=\"([^\"]+\.(?:png|svg))\"|!\[[^\]]*\]\(([^)]+)\)")
 LOCAL_LINK = re.compile(r"\]\(((?!https?:|#|mailto:)[^)]+)\)")
@@ -180,17 +209,21 @@ class ResetLoginTest(AppTestCase):
     async def test_documented_reset_brings_the_wizard_back(self):
         with tempfile.TemporaryDirectory() as tmp:
             env = {"PASSKEY_AUTH_ENABLED": "true", "MEALIESHOPPER_DATA_DIR": tmp, "MEALIESHOPPER_AUTH_SECRET": "test-secret"}
-            with mock.patch.dict(os.environ, env), \
-                    mock.patch.object(auth_password, "SCRYPT_N", 2**4), \
-                    mock.patch.object(mealie, "mealie_url", new_callable=mock.AsyncMock, return_value=""), \
-                    mock.patch.object(mealie, "mealie_token", new_callable=mock.AsyncMock, return_value=""), \
-                    mock.patch.object(ah, "configured_refresh_token", return_value=""):
+            with (
+                mock.patch.dict(os.environ, env),
+                mock.patch.object(auth_password, "SCRYPT_N", 2**4),
+                mock.patch.object(mealie, "mealie_url", new_callable=mock.AsyncMock, return_value=""),
+                mock.patch.object(mealie, "mealie_token", new_callable=mock.AsyncMock, return_value=""),
+                mock.patch.object(ah, "configured_refresh_token", return_value=""),
+            ):
                 app = create_app()
                 client = self.client_for(app)
                 await auth.ensure_db()
                 with closing(db()) as conn, conn:
                     conn.execute("INSERT OR IGNORE INTO users (id, username, created_at) VALUES ('owner', 'admin', 'x')")
-                    conn.execute("INSERT INTO passkey_credentials (id, user_id, public_key, credential_name, created_at) VALUES ('c1', 'owner', x'00', 'Telefoon', 'x')")
+                    conn.execute(
+                        "INSERT INTO passkey_credentials (id, user_id, public_key, credential_name, created_at) VALUES ('c1', 'owner', x'00', 'Telefoon', 'x')"
+                    )
                 for key, value in (("ONBOARDING_DONE", "1"), ("AUTH_MODE", "passkey"), ("KEEP_ME", "bewaard")):
                     await auth.set_setting(key, value)
                 self.assertFalse((await client.get("/api/onboarding/status")).get_json()["needed"])
@@ -200,12 +233,16 @@ class ResetLoginTest(AppTestCase):
                     self.assertIsNotNone(command, lang)
                     code = command.group(1).replace('\\"', '"').replace("/data/auth.sqlite3", str(Path(tmp) / "auth.sqlite3"))
                     with closing(sqlite3.connect(Path(tmp) / "auth.sqlite3")) as conn, conn:
-                        conn.execute("INSERT OR IGNORE INTO passkey_credentials (id, user_id, public_key, credential_name, created_at) VALUES ('c1', 'owner', x'00', 'Telefoon', 'x')")
+                        conn.execute(
+                            "INSERT OR IGNORE INTO passkey_credentials (id, user_id, public_key, credential_name, created_at) VALUES ('c1', 'owner', x'00', 'Telefoon', 'x')"
+                        )
                     for key, value in (("ONBOARDING_DONE", "1"), ("AUTH_MODE", "passkey")):
                         await auth.set_setting(key, value)
                     with closing(sqlite3.connect(Path(tmp) / "auth.sqlite3")) as conn, conn:
                         conn.execute("INSERT OR IGNORE INTO users (id, username, created_at) VALUES ('u_anna', 'anna', 'x')")
-                        conn.execute("INSERT OR IGNORE INTO invites (id, token_hash, user_id, username, kind, created_by, created_at, expires_at) VALUES ('i1', 'h', 'u_x', 'bob', 'new', 'owner', 'x', '2999')")
+                        conn.execute(
+                            "INSERT OR IGNORE INTO invites (id, token_hash, user_id, username, kind, created_by, created_at, expires_at) VALUES ('i1', 'h', 'u_x', 'bob', 'new', 'owner', 'x', '2999')"
+                        )
                     with closing(sqlite3.connect(Path(tmp) / "auth.sqlite3")) as conn:
                         before = conn.execute("SELECT session_epoch FROM users WHERE id = 'owner'").fetchone()[0]
                     exec(compile(code, "readme", "exec"), {})

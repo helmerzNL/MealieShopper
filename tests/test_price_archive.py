@@ -1,4 +1,5 @@
 """Prijsarchief importeren (price_archive.py): de ZIP van de gist, het .tar.gz en het eigen formaat, met alles wat geweigerd wordt."""
+
 import asyncio
 import base64
 import gzip
@@ -21,9 +22,10 @@ from unittest import mock
 
 os.environ["PASSKEY_AUTH_ENABLED"] = "false"
 
+from helpers import AppClient, run_aside  # noqa: E402
+
 from mealieshopper import about, auth, auth_password, backup, deals, price_archive, price_archive_tidy, prices, tasks, uploads  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
-from helpers import AppClient, run_aside  # noqa: E402
 
 if TYPE_CHECKING:  # niet bij de import: pytest zou TestAppProtocol voor een testklasse aanzien
     from quart.typing import TestAppProtocol
@@ -38,11 +40,28 @@ FOLDER = "https://www.supermarktaanbiedingen.com/folders"
 def offer(n: int, store: str = "ah", **changes) -> dict:
     slug = {"ah": "albert_heijn", "jumbo": "jumbo", "picnic": "picnic", "crisp": "crisp"}[store]
     row = {
-        "store": store, "product_id": f"folder:{store}{n:04d}", "title": f"Folder: Product {n}", "brand": "Folderarchief",
-        "unit_size": "500 g", "category": None, "price": 1.0 + n / 100, "price_before": 2.0, "promo_label": "Folder | 2 voor",
-        "image": "", "url": f"{FOLDER}/{slug}/2013/23/product-{n}", "valid_from": "2013-06-03", "valid_until": "2013-06-09",
-        "first_seen": "2013-06-03T00:00:00+00:00", "last_seen": "2013-06-09T23:59:59+00:00", "ended_at": "2013-06-09T23:59:59+00:00",
-        "syncs": 1, "continued": 0, "personal": 0, "source_title": f"Product {n}", "raw_old": "2.00", "raw_now": "1.00",
+        "store": store,
+        "product_id": f"folder:{store}{n:04d}",
+        "title": f"Folder: Product {n}",
+        "brand": "Folderarchief",
+        "unit_size": "500 g",
+        "category": None,
+        "price": 1.0 + n / 100,
+        "price_before": 2.0,
+        "promo_label": "Folder | 2 voor",
+        "image": "",
+        "url": f"{FOLDER}/{slug}/2013/23/product-{n}",
+        "valid_from": "2013-06-03",
+        "valid_until": "2013-06-09",
+        "first_seen": "2013-06-03T00:00:00+00:00",
+        "last_seen": "2013-06-09T23:59:59+00:00",
+        "ended_at": "2013-06-09T23:59:59+00:00",
+        "syncs": 1,
+        "continued": 0,
+        "personal": 0,
+        "source_title": f"Product {n}",
+        "raw_old": "2.00",
+        "raw_now": "1.00",
     }
     row.update(changes)
     return row
@@ -50,11 +69,18 @@ def offer(n: int, store: str = "ah", **changes) -> dict:
 
 def price(n: int, store: str = "picnic", **changes) -> dict:
     row = {
-        "store": store, "product_id": f"folder:{store}p{n:04d}", "day": "2022-11-30",
+        "store": store,
+        "product_id": f"folder:{store}p{n:04d}",
+        "day": "2022-11-30",
         "source": "public_observed_unknown" if store == "picnic" else "public_press_release",
-        "title": f"Archief: Prijs {n}", "brand": f"{store.title()} (archief)", "unit_size": "1 l", "image": "",
+        "title": f"Archief: Prijs {n}",
+        "brand": f"{store.title()} (archief)",
+        "unit_size": "1 l",
+        "image": "",
         "url": "https://github.com/supermarkt/checkjebon/blob/2b1b6636d81c75cc63da1ac365371908f990e17c/data/supermarkets.json",
-        "price": 1.25 + n / 100, "seen_at": "2022-11-30T19:56:18+01:00", "source_commit": "2b1b6636d81c75cc63da1ac365371908f990e17c",
+        "price": 1.25 + n / 100,
+        "seen_at": "2022-11-30T19:56:18+01:00",
+        "source_commit": "2b1b6636d81c75cc63da1ac365371908f990e17c",
     }
     row.update(changes)
     return row
@@ -80,7 +106,9 @@ def gist_files(**changes) -> dict[str, bytes]:
         "jumbo/reports/observations.jsonl": jsonl([offer(3, "jumbo"), offer(4, "jumbo", price=None, price_before=None)]),
         "picnic/reports/offers.jsonl": jsonl([offer(5, "picnic", url="https://www.voordeelmuis.nl/cgi-bin/v.cgi?a=d&d=3318619")]),
         "picnic/reports/observations.jsonl": jsonl([price(1), price(2), price(3, day="2023-04-12", seen_at="2023-04-12T08:00:00+02:00")]),
-        "crisp/reports/observations.jsonl": jsonl([price(4, "crisp", url="https://crisp.nl/download/12/175/persbericht.pdf", day="2021-10-19", seen_at="2021-10-19T00:00:00+00:00")]),
+        "crisp/reports/observations.jsonl": jsonl(
+            [price(4, "crisp", url="https://crisp.nl/download/12/175/persbericht.pdf", day="2021-10-19", seen_at="2021-10-19T00:00:00+00:00")]
+        ),
     }
     files.update(changes)
     return files
@@ -104,10 +132,16 @@ def gist_zip(archive: bytes | None = None, part_size: int = 300, tamper=None, to
     """De ZIP zoals Download ZIP van de gist hem geeft: een map erboven, het manifest en Base64-delen van het .tar.gz."""
     archive = archive if archive is not None else tar_gz(gist_files())
     encoded = base64.b64encode(archive)
-    parts = {f"supermarket-archive.part-{i + 1:03d}.b64": encoded[at:at + part_size] + b"\n" for i, at in enumerate(range(0, len(encoded), part_size))}
+    parts = {
+        f"supermarket-archive.part-{i + 1:03d}.b64": encoded[at : at + part_size] + b"\n" for i, at in enumerate(range(0, len(encoded), part_size))
+    }
     manifest = {
-        "format": "supermarket-archive-base64-parts", "formatVersion": 1, "archiveFile": "supermarket-archives-20261106.tar.gz",
-        "archiveBytes": len(archive), "archiveSha256": hashlib.sha256(archive).hexdigest(), "observationCount": 9,
+        "format": "supermarket-archive-base64-parts",
+        "formatVersion": 1,
+        "archiveFile": "supermarket-archives-20261106.tar.gz",
+        "archiveBytes": len(archive),
+        "archiveSha256": hashlib.sha256(archive).hexdigest(),
+        "observationCount": 9,
         "parts": [{"file": name, "bytes": len(data), "sha256": hashlib.sha256(data).hexdigest()} for name, data in parts.items()],
     }
     if tamper:
@@ -124,10 +158,17 @@ def gist_zip(archive: bytes | None = None, part_size: int = 300, tamper=None, to
 
 
 def own(rows: list[dict], header: dict | None = None, compress: bool = False) -> bytes:
-    head = header if header is not None else {
-        "format": "mealieshopper-price-archive", "formatVersion": 1, "createdAt": "2026-11-06T09:00:00Z",
-        "source": "Testarchief", "license": "CC0",
-    }
+    head = (
+        header
+        if header is not None
+        else {
+            "format": "mealieshopper-price-archive",
+            "formatVersion": 1,
+            "createdAt": "2026-11-06T09:00:00Z",
+            "source": "Testarchief",
+            "license": "CC0",
+        }
+    )
     data = (json.dumps(head) + "\n").encode() + jsonl(rows)
     return gzip.compress(data) if compress else data
 
@@ -294,12 +335,14 @@ class GistPackageTest(ArchiveCase):
                     "VALUES ('ah', ?, 'AH Muffins', ?, ?, ?, '2013-06-03', '2013-06-09')",
                     (f"folder:c{n}", value[0], value[1], url),
                 )
-        changes = json.dumps([
-            correction(urls[0], (1.0, 1.5), (0.5, 0.75)),  # klopt: wordt verbeterd
-            correction(urls[1], (1.0, 1.5), (0.5, 0.75)),  # de huidige waarde wijkt af: blijft staan
-            correction(urls[2], (1.0, 1.5), (0.5, 0.75)),  # staat al goed
-            correction(urls[3], (1.0, 1.5), (0.5, 0.75)),  # die regel is er niet
-        ]).encode()
+        changes = json.dumps(
+            [
+                correction(urls[0], (1.0, 1.5), (0.5, 0.75)),  # klopt: wordt verbeterd
+                correction(urls[1], (1.0, 1.5), (0.5, 0.75)),  # de huidige waarde wijkt af: blijft staan
+                correction(urls[2], (1.0, 1.5), (0.5, 0.75)),  # staat al goed
+                correction(urls[3], (1.0, 1.5), (0.5, 0.75)),  # die regel is er niet
+            ]
+        ).encode()
         summary, job = await self.run_import(gist_zip(tar_gz(gist_files(**{"ah-corrected/corrections.json": changes}))))
         self.assertEqual(summary["corrections"], {"apply": 1, "already": 1, "missing": 1, "conflict": 1})
         self.assertEqual(job["summary"]["corrections"]["apply"], 1)
@@ -311,7 +354,8 @@ class GistPackageTest(ArchiveCase):
         with closing(self.connect()) as conn, conn:
             conn.execute(
                 "INSERT INTO offer_history (store, product_id, title, price, price_before, url, first_seen, last_seen) "
-                "VALUES ('ah', '4183', 'AH Bloemkool', 1.0, 1.5, ?, '2013-06-03', '2013-06-09')", (url,),
+                "VALUES ('ah', '4183', 'AH Bloemkool', 1.0, 1.5, ?, '2013-06-03', '2013-06-09')",
+                (url,),
             )
         changes = json.dumps([correction(url, (1.0, 1.5), (0.5, 0.75))]).encode()
         summary, _ = await self.run_import(gist_zip(tar_gz(gist_files(**{"ah-corrected/corrections.json": changes}))))
@@ -333,7 +377,15 @@ class GistPackageTest(ArchiveCase):
 
 class OwnFormatTest(ArchiveCase):
     ROWS = [
-        {"type": "correction", "store": "ah", "url": f"{FOLDER}/albert_heijn/2013/23/eerder", "old_price": 1.0, "old_before": 1.5, "new_price": 0.5, "new_before": 0.75},
+        {
+            "type": "correction",
+            "store": "ah",
+            "url": f"{FOLDER}/albert_heijn/2013/23/eerder",
+            "old_price": 1.0,
+            "old_before": 1.5,
+            "new_price": 0.5,
+            "new_before": 0.75,
+        },
         {"type": "offer", **offer(7, "jumbo")},
         {"type": "price", **price(8, "crisp", url="https://crisp.nl/download/1/2/x.pdf", unit_size="3 stuks")},
         {"type": "price", **price(9, "picnic")},
@@ -343,7 +395,8 @@ class OwnFormatTest(ArchiveCase):
         with closing(self.connect()) as conn, conn:
             conn.execute(
                 "INSERT INTO offer_history (store, product_id, title, price, price_before, url, first_seen, last_seen) "
-                "VALUES ('ah', 'folder:eerder', 'Eerder', 1.0, 1.5, ?, '2013-06-03', '2013-06-09')", (self.ROWS[0]["url"],),
+                "VALUES ('ah', 'folder:eerder', 'Eerder', 1.0, 1.5, ?, '2013-06-03', '2013-06-09')",
+                (self.ROWS[0]["url"],),
             )
         summary, job = await self.run_import(own(self.ROWS))
         self.assertEqual((summary["format"], summary["source"], summary["license"]), ("mealieshopper-price-archive", "Testarchief", "CC0"))
@@ -353,7 +406,15 @@ class OwnFormatTest(ArchiveCase):
         self.assertEqual({row["source"] for row in self.rows("price_observations")}, {"public_press_release", "public_observed_unknown"})
 
     async def test_gzip_works_and_defaults_are_filled_in(self):
-        minimal = {"type": "price", "store": "crisp", "product_id": "folder:x", "day": "2024-01-02", "source": "public_press_release", "title": "Avocado", "price": 4.99}
+        minimal = {
+            "type": "price",
+            "store": "crisp",
+            "product_id": "folder:x",
+            "day": "2024-01-02",
+            "source": "public_press_release",
+            "title": "Avocado",
+            "price": 4.99,
+        }
         bare_offer = {k: v for k, v in offer(1, "jumbo").items() if k not in ("ended_at", "syncs", "continued", "personal", "image")}
         await self.run_import(own([minimal, {"type": "offer", **bare_offer}], compress=True))
         observed = self.rows("price_observations")[0]
@@ -367,18 +428,22 @@ class RefusedTest(ArchiveCase):
         def bad_part(manifest, parts):
             name = next(iter(parts))
             parts[name] = b"A" + parts[name][1:]
+
         await self.refused(gist_zip(tamper=bad_part), "checksum")
 
         def bad_total(manifest, parts):
             manifest["archiveSha256"] = "0" * 64
+
         await self.refused(gist_zip(tamper=bad_total), "checksum")
 
         def path_in_name(manifest, parts):
             manifest["parts"][0]["file"] = "../supermarket-archive.part-001.b64"
+
         await self.refused(gist_zip(tamper=path_in_name), "bad_structure")
 
         def missing_part(manifest, parts):
             parts.pop(next(iter(parts)))
+
         await self.refused(gist_zip(tamper=missing_part), "missing_file")
 
         files = gist_files()
@@ -518,10 +583,13 @@ class ReplaceTest(ArchiveCase):
 
     async def test_replacing_with_the_same_package_gives_the_same_rows(self):
         await self.run_import(gist_zip())
+
         def content():
             columns = ("store", "product_id", "title", "price", "price_before", "url", "valid_from", "valid_until")
             return sorted(tuple(row[c] for c in columns) for row in self.rows("offer_history")), sorted(
-                (row["store"], row["product_id"], row["day"], row["price"]) for row in self.rows("price_observations"))
+                (row["store"], row["product_id"], row["day"], row["price"]) for row in self.rows("price_observations")
+            )
+
         before = content()
         staged = (await self.stage(gist_zip())).get_json()
         self.assertEqual((staged["new"], staged["replace"]["new"]), (0, 9))
@@ -535,7 +603,8 @@ class ReplaceTest(ArchiveCase):
         with closing(self.connect()) as conn, conn:
             conn.execute(
                 "INSERT INTO offer_history (store, product_id, title, price, price_before, url, first_seen, last_seen) "
-                "VALUES ('ah', 'folder:eerder', 'Eerder', 1.0, 1.5, ?, '2013-06-03', '2013-06-09')", (url,),
+                "VALUES ('ah', 'folder:eerder', 'Eerder', 1.0, 1.5, ?, '2013-06-03', '2013-06-09')",
+                (url,),
             )
         changes = json.dumps([correction(url, (1.0, 1.5), (0.5, 0.75))]).encode()
         staged = (await self.stage(gist_zip(tar_gz(gist_files(**{"ah-corrected/corrections.json": changes}))))).get_json()
@@ -573,13 +642,20 @@ class TidyTest(ArchiveCase):
     async def test_a_combination_offer_is_kept_as_a_line_offer_of_its_own(self):
         # Een actie voor de hele lijn ("Alle Dr. Oetker Casa di Mama pizza's") is in een folderarchief het grootste deel. Met
         # keep_unlinked blijft hij, als eigen folderproduct, zonder prijs als er niet één verpakking is, en met de prijzen uit de bron.
-        summary, rows = (await self.import_ah(
+        summary, rows = await self.import_ah(
             offer(1, source_title="AH Runderhamburger 2 stuks of gehaktschnitzel Hongaarse stijl 4 stuks"),
             offer(2, source_title="Alle Ajax", description="2e halve prijs, diverse soorten", unit_size=None),
             offer(3, source_title="AH Runderhamburger 4 stuks"),
-            offer(4, source_title="Alle Dr. Oetker Casa di Mama pizza's", description="2 dozen", unit_size=None, price=None, price_before=None,
-                  promo_label="Folder | 2 dozen | bron: oud=2 stuks 5.38, actie=3.50 | prijs onzeker"),
-        ))
+            offer(
+                4,
+                source_title="Alle Dr. Oetker Casa di Mama pizza's",
+                description="2 dozen",
+                unit_size=None,
+                price=None,
+                price_before=None,
+                promo_label="Folder | 2 dozen | bron: oud=2 stuks 5.38, actie=3.50 | prijs onzeker",
+            ),
+        )
         by_id = {row["product_id"]: row for row in rows}
         self.assertEqual(sorted(by_id), ["folder:ah0001", "folder:ah0002", "folder:ah0003", "folder:ah0004"])
         self.assertEqual((summary["tidied"]["groups"], summary["tidied"]["lineOffers"]), (0, 3))
@@ -588,10 +664,10 @@ class TidyTest(ArchiveCase):
         self.assertEqual(by_store(summary)["ah"]["offers"]["new"], 4)
 
     async def test_without_a_known_pack_the_price_is_left_out(self):
-        summary, rows = (await self.import_ah(
+        summary, rows = await self.import_ah(
             offer(1, source_title="AH Runderhamburgers", description="2e gratis, 2 schalen", unit_size=None),
             offer(2, source_title="AH Runderhamburger 4 stuks", description="voor 3.99", unit_size=None),
-        ))
+        )
         by_id = {row["product_id"]: row for row in rows}
         self.assertEqual((by_id["folder:ah0001"]["price"], by_id["folder:ah0001"]["price_before"]), (None, None))
         self.assertIsNotNone(by_id["folder:ah0002"]["price"])  # een aantal stuks telt als verpakking
@@ -600,8 +676,16 @@ class TidyTest(ArchiveCase):
     async def test_an_uncertain_link_becomes_its_own_folder_product(self):
         # Met keep_unlinked komt een onzekere koppeling erin, maar niet bij het product waar het archief hem op woorden aan hing:
         # "AH Goudse oude kaas 48" uit 2009 hoort niet bij "AH Oude kaas L".
-        uncertain = dict(product_id="579426", title="AH Oude kaas L", brand="AH", unit_size="400 g", price=None, price_before=None,
-                         match_kind="approximate", promo_label="Folder | Van de versafdeling | bron: oud=11.50, actie=5.75 | koppeling onzeker: AH Oude kaas L")
+        uncertain = dict(
+            product_id="579426",
+            title="AH Oude kaas L",
+            brand="AH",
+            unit_size="400 g",
+            price=None,
+            price_before=None,
+            match_kind="approximate",
+            promo_label="Folder | Van de versafdeling | bron: oud=11.50, actie=5.75 | koppeling onzeker: AH Oude kaas L",
+        )
         summary, rows = await self.import_ah(
             offer(1, source_title="AH Goudse oude kaas 48", **uncertain),
             offer(2, source_title="AH goudse  oude kaas 48", valid_from="2009-07-06", valid_until="2009-07-12", **uncertain),
@@ -616,10 +700,14 @@ class TidyTest(ArchiveCase):
         self.assertEqual({(row["brand"], row["unit_size"], row["promo_label"]) for row in detached}, {("Folderarchief", None, "Van de versafdeling")})
 
     async def test_own_format_lines_are_tidied_by_their_title(self):
-        summary, _ = (await self.run_import(own([
-            {"type": "offer", **{k: v for k, v in offer(1, "jumbo", title="Folder: Alle Ajax").items() if k != "source_title"}},
-            {"type": "offer", **offer(2, "jumbo")},
-        ])))
+        summary, _ = await self.run_import(
+            own(
+                [
+                    {"type": "offer", **{k: v for k, v in offer(1, "jumbo", title="Folder: Alle Ajax").items() if k != "source_title"}},
+                    {"type": "offer", **offer(2, "jumbo")},
+                ]
+            )
+        )
         self.assertEqual((summary["tidied"]["groups"], summary["tidied"]["lineOffers"]), (0, 1))
         titles = {row["product_id"]: row["title"] for row in self.rows("offer_history")}
         self.assertEqual(titles, {"folder:jumbo0001": "Folder: Alle Ajax", "folder:jumbo0002": "Folder: Product 2"})
@@ -638,16 +726,18 @@ class TidyTest(ArchiveCase):
 
     async def test_lines_are_linked_to_your_own_products(self):
         self.add_own_products()
-        summary, rows = (await self.import_ah(
+        summary, rows = await self.import_ah(
             offer(1, source_title="AH Biologisch halfvolle melk", description="1 liter", unit_size="1000 ml", price=1.29),
             offer(2, source_title="AH Biologisch halfvolle melk pak", description="per pak", unit_size=None, price=1.29),
             offer(3, source_title="AH Biologisch halfvolle melk of karnemelk", description="2 pakken", unit_size=None),
             offer(4, source_title="Alle Ajax", description="diverse soorten"),
-        ))
+        )
         # Alleen exact koppelen: dezelfde naam en verpakking. Op woorden ("… pak", geen verpakking) koppelt de app niet meer.
         self.assertEqual(summary["tidied"]["exact"], 1)
         linked = [row for row in rows if row["product_id"] == "8001" and row["url"].startswith(FOLDER)]
-        self.assertEqual([(row["url"].rsplit("/", 1)[1], row["title"], row["price"]) for row in linked], [("product-1", "AH Biologisch halfvolle melk", 1.29)])
+        self.assertEqual(
+            [(row["url"].rsplit("/", 1)[1], row["title"], row["price"]) for row in linked], [("product-1", "AH Biologisch halfvolle melk", 1.29)]
+        )
         # Een combi komt nooit bij een product van jou, ook niet als hij het noemt: met keep_unlinked als eigen folderproduct.
         self.assertEqual((summary["tidied"]["groups"], summary["tidied"]["lineOffers"]), (0, 2))
         self.assertEqual({row["product_id"] for row in rows} & {"folder:ah0003", "folder:ah0004"}, {"folder:ah0003", "folder:ah0004"})
@@ -659,11 +749,25 @@ class TidyTest(ArchiveCase):
         self.assertEqual(product["timesOnOffer"], 2)
 
     async def test_a_line_already_linked_in_the_archive_keeps_its_product(self):
-        summary, rows = (await self.import_ah(
-            offer(1, product_id="4183", title="AH Bloemkool", source_title="AH Bloemkool", unit_size="per stuk", match_kind="exact",
-                  promo_label="Folder | VOOR: 1.39Los | bron: oud=1.79, actie=1.39"),
-            offer(2, product_id="169238", title="AH Runderhamburger 2st", source_title="AH Runderhamburgers of schnitzels", price=None, price_before=None),
-        ))
+        summary, rows = await self.import_ah(
+            offer(
+                1,
+                product_id="4183",
+                title="AH Bloemkool",
+                source_title="AH Bloemkool",
+                unit_size="per stuk",
+                match_kind="exact",
+                promo_label="Folder | VOOR: 1.39Los | bron: oud=1.79, actie=1.39",
+            ),
+            offer(
+                2,
+                product_id="169238",
+                title="AH Runderhamburger 2st",
+                source_title="AH Runderhamburgers of schnitzels",
+                price=None,
+                price_before=None,
+            ),
+        )
         by_title = {row["title"]: row for row in rows}
         self.assertEqual((by_title["AH Bloemkool"]["product_id"], by_title["AH Bloemkool"]["promo_label"]), ("4183", "voor: 1.39 Los"))
         # Een combi die het archief al aan een product hing, komt los van dat product: als eigen folderproduct.
@@ -697,42 +801,65 @@ class LinkedOnlyTest(ArchiveCase):
 
     async def test_only_lines_that_belong_to_your_products_come_in(self):
         self.add_own_products()
-        files = gist_files(**{"ah-corrected/observations.jsonl": jsonl([
-            offer(1, source_title="AH Biologisch halfvolle melk", description="1 liter", unit_size="1000 ml", price=1.29),
-            offer(2, source_title="AH Excellent tafelversiering", unit_size=None, price=None, price_before=None),
-            offer(3, source_title="A-merk speelgoed"),
-            offer(4, product_id="4183", title="AH Bloemkool", source_title="AH Bloemkool", unit_size="per stuk"),
-        ])})
+        files = gist_files(
+            **{
+                "ah-corrected/observations.jsonl": jsonl(
+                    [
+                        offer(1, source_title="AH Biologisch halfvolle melk", description="1 liter", unit_size="1000 ml", price=1.29),
+                        offer(2, source_title="AH Excellent tafelversiering", unit_size=None, price=None, price_before=None),
+                        offer(3, source_title="A-merk speelgoed"),
+                        offer(4, product_id="4183", title="AH Bloemkool", source_title="AH Bloemkool", unit_size="per stuk"),
+                    ]
+                )
+            }
+        )
         summary, job = await self.run_import(gist_zip(tar_gz(files)))
         self.assertFalse(summary["keepUnlinked"])
         self.assertEqual(summary["tidied"]["exact"], 1)
         # Twee AH-regels en de Jumbo- en Picnic-aanbiedingen uit het pakket horen bij geen product van jou.
         self.assertEqual(summary["tidied"]["unlinked"], 2 + 2 + 1)
         offers = self.rows("offer_history")
-        self.assertEqual(sorted(row["product_id"] for row in offers if row["url"] and row["url"].startswith("https://www.supermarktaanbiedingen")), ["4183", "8001"])
+        self.assertEqual(
+            sorted(row["product_id"] for row in offers if row["url"] and row["url"].startswith("https://www.supermarktaanbiedingen")),
+            ["4183", "8001"],
+        )
         self.assertEqual([row for row in offers if row["product_id"].startswith("folder:")], [])
         # Van de prijzen (Picnic en Crisp) hoort er één exact bij een product van jou: die staat bij dat product. De rest niet.
         self.assertEqual((summary["tidied"]["pricesExact"], summary["tidied"]["pricesUnlinked"]), (1, 3))
         prices_in = self.rows("price_observations")
-        self.assertEqual([(row["store"], row["product_id"], row["title"], row["brand"], row["source"]) for row in prices_in],
-                         [("picnic", "s1002", "Prijs 2", None, "public_observed_unknown")])
+        self.assertEqual(
+            [(row["store"], row["product_id"], row["title"], row["brand"], row["source"]) for row in prices_in],
+            [("picnic", "s1002", "Prijs 2", None, "public_observed_unknown")],
+        )
         self.assertEqual((job["summary"]["offers"], job["summary"]["prices"]), (2, 1))
 
     async def test_a_combination_offer_stays_out(self):
-        files = gist_files(**{"ah-corrected/observations.jsonl": jsonl([
-            offer(1, source_title="Alle Dr. Oetker Casa di Mama pizza's", unit_size=None),
-            offer(2, product_id="169238", title="AH Runderhamburger 2st", source_title="AH Runderhamburgers of schnitzels"),
-        ])})
+        files = gist_files(
+            **{
+                "ah-corrected/observations.jsonl": jsonl(
+                    [
+                        offer(1, source_title="Alle Dr. Oetker Casa di Mama pizza's", unit_size=None),
+                        offer(2, product_id="169238", title="AH Runderhamburger 2st", source_title="AH Runderhamburgers of schnitzels"),
+                    ]
+                )
+            }
+        )
         summary, _ = await self.run_import(gist_zip(tar_gz(files)))
         self.assertEqual((summary["tidied"]["groups"], summary["tidied"]["lineOffers"]), (2, 0))
         self.assertEqual([row for row in self.rows("offer_history") if row["store"] == "ah"], [])
 
     async def test_an_archive_price_needs_the_same_name_and_pack(self):
         self.add_own_products()
-        files = gist_files(**{"picnic/reports/observations.jsonl": jsonl([
-            price(2, unit_size="500 ml"),  # dezelfde naam, een andere verpakking
-            price(9, unit_size="1 l", title="Archief: Prijs 2 met kers"),  # dezelfde verpakking, een andere naam
-        ])})
+        files = gist_files(
+            **{
+                "picnic/reports/observations.jsonl": jsonl(
+                    [
+                        price(2, unit_size="500 ml"),  # dezelfde naam, een andere verpakking
+                        price(9, unit_size="1 l", title="Archief: Prijs 2 met kers"),  # dezelfde verpakking, een andere naam
+                    ]
+                )
+            }
+        )
         summary, _ = await self.run_import(gist_zip(tar_gz(files)))
         self.assertEqual((summary["tidied"]["pricesExact"], summary["tidied"]["pricesUnlinked"]), (0, 3))
         self.assertEqual(self.rows("price_observations"), [])
@@ -743,21 +870,49 @@ class LinkedOnlyTest(ArchiveCase):
                 "INSERT INTO offer_history (store, product_id, title, unit_size, price, url, valid_from, valid_until, first_seen, last_seen) "
                 "VALUES ('picnic', 's1003', 'Affligem blond', '6 x 300 ml', 7.49, NULL, '2026-10-26', '2026-11-01', '2026-10-26', '2026-11-01')"
             )
-        files = gist_files(**{"picnic/reports/observations.jsonl": jsonl([
-            price(1, title="Archief: Affligem blond", unit_size="6 x 300 ml"),
-            price(2, title="Archief: Affligem blond", unit_size="4 x 300 ml"),
-        ])})
+        files = gist_files(
+            **{
+                "picnic/reports/observations.jsonl": jsonl(
+                    [
+                        price(1, title="Archief: Affligem blond", unit_size="6 x 300 ml"),
+                        price(2, title="Archief: Affligem blond", unit_size="4 x 300 ml"),
+                    ]
+                )
+            }
+        )
         summary, _ = await self.run_import(gist_zip(tar_gz(files)))
         self.assertEqual((summary["tidied"]["pricesExact"], summary["tidied"]["pricesUnlinked"]), (1, 2))
         self.assertEqual([(row["product_id"], row["unit_size"]) for row in self.rows("price_observations")], [("s1003", "6 x 300 ml")])
 
     async def test_an_uncertain_link_from_the_archive_is_left_out(self):
-        files = gist_files(**{"ah-corrected/observations.jsonl": jsonl([
-            offer(1, product_id="169238", title="AH Runderhamburger 2st", source_title="AH Runderhamburgers", unit_size=None,
-                  price=None, price_before=None, match_kind="approximate", promo_label="Folder | per schaal | bron: x | koppeling onzeker: AH Runderhamburgers"),
-            offer(2, product_id="4183", title="AH Bloemkool", source_title="AH Bloemkool", unit_size="per stuk", match_kind="exact",
-                  promo_label="Folder | VOOR: 1.39Los | bron: oud=1.79, actie=1.39"),
-        ])})
+        files = gist_files(
+            **{
+                "ah-corrected/observations.jsonl": jsonl(
+                    [
+                        offer(
+                            1,
+                            product_id="169238",
+                            title="AH Runderhamburger 2st",
+                            source_title="AH Runderhamburgers",
+                            unit_size=None,
+                            price=None,
+                            price_before=None,
+                            match_kind="approximate",
+                            promo_label="Folder | per schaal | bron: x | koppeling onzeker: AH Runderhamburgers",
+                        ),
+                        offer(
+                            2,
+                            product_id="4183",
+                            title="AH Bloemkool",
+                            source_title="AH Bloemkool",
+                            unit_size="per stuk",
+                            match_kind="exact",
+                            promo_label="Folder | VOOR: 1.39Los | bron: oud=1.79, actie=1.39",
+                        ),
+                    ]
+                )
+            }
+        )
         summary, _ = await self.run_import(gist_zip(tar_gz(files)))
         self.assertEqual((summary["tidied"]["uncertain"], summary["tidied"]["linkedByArchive"]), (1, 1))
         archive = [row for row in self.rows("offer_history") if row["url"].startswith(FOLDER)]
@@ -801,7 +956,11 @@ class ShortLabelTest(unittest.TestCase):
 
     def test_the_app_reads_no_action_in_it(self):
         # De prijs uit het archief is al per stuk; als de app "2 voor 5.00" las, zou hij nog een keer delen.
-        for label in ("Folder | 2 voor: 5.00, 2 schalen | bron: x", "Folder | 2 VOOR: 1.00Los | bron: x", "Folder | 2e halve-prijs, 2 schalen | bron: x"):
+        for label in (
+            "Folder | 2 voor: 5.00, 2 schalen | bron: x",
+            "Folder | 2 VOOR: 1.00Los | bron: x",
+            "Folder | 2e halve-prijs, 2 schalen | bron: x",
+        ):
             with self.subTest(label=label):
                 self.assertEqual(deals.parse_mechanic(price_archive_tidy.short_label(label))["type"], "unknown")
 
@@ -810,25 +969,115 @@ class ExportTest(ArchiveCase):
     """Prijsarchief exporteren (price_archive_export.py): een ZIP met een bestand per winkel en maand, die de import weer leest."""
 
     def fill(self):
-        offer_sql = ("INSERT INTO offer_history (store, product_id, title, unit_size, price, price_before, promo_label, image, url, "
-                     "valid_from, valid_until, first_seen, last_seen, personal) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
-        price_sql = ("INSERT INTO price_observations (store, product_id, day, source, title, brand, unit_size, image, url, price, seen_at) "
-                     "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+        offer_sql = (
+            "INSERT INTO offer_history (store, product_id, title, unit_size, price, price_before, promo_label, image, url, "
+            "valid_from, valid_until, first_seen, last_seen, personal) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+        )
+        price_sql = (
+            "INSERT INTO price_observations (store, product_id, day, source, title, brand, unit_size, image, url, price, seen_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+        )
         with closing(self.connect()) as conn, conn:
-            conn.executemany(offer_sql, [
-                ("ah", "8001", "AH Halfvolle melk", "1 l", 1.19, 1.39, "voor 1.19", "https://static.ah.nl/melk.jpg",
-                 "https://www.ah.nl/producten/product/wi8001", "2026-10-26", "2026-11-01", "2026-10-26T06:00:00+00:00", "2026-11-01T06:00:00+00:00", 0),
-                ("ah", "8002", "AH Persoonlijke kaas", "500 g", 3.0, 4.0, "Bonus Box", None,
-                 "https://www.ah.nl/producten/product/wi8002", "2026-10-26", "2026-11-01", "2026-10-26T06:00:00+00:00", "2026-11-01T06:00:00+00:00", 1),
-                ("picnic", "s1001", "Picnic eieren", "10 stuks", 2.49, 2.99, "1+1 gratis", None,
-                 None, "2026-11-02", "2026-11-08", "2026-11-02T06:00:00+00:00", "2026-11-03T06:00:00+00:00", 0),
-                ("ah", "4183", "AH Bloemkool", "per stuk", 1.39, 1.79, "voor: 1.39 Los", None,
-                 f"{FOLDER}/albert_heijn/2013/23/product-2", "2013-06-03", "2013-06-09", "2013-06-03T00:00:00+00:00", "2013-06-09T23:59:59+00:00", 0),
-            ])
-            conn.executemany(price_sql, [
-                ("ah", "8001", "2026-10-05", "search", "AH Halfvolle melk", "AH", "1 l", None, "https://www.ah.nl/producten/product/wi8001", 1.39, "2026-10-05T10:00:00+00:00"),
-                ("picnic", "s1001", "2022-11-30", "public_observed_unknown", "Picnic eieren", None, "10 stuks", None, None, 2.79, "2022-11-30T19:56:18+01:00"),
-            ])
+            conn.executemany(
+                offer_sql,
+                [
+                    (
+                        "ah",
+                        "8001",
+                        "AH Halfvolle melk",
+                        "1 l",
+                        1.19,
+                        1.39,
+                        "voor 1.19",
+                        "https://static.ah.nl/melk.jpg",
+                        "https://www.ah.nl/producten/product/wi8001",
+                        "2026-10-26",
+                        "2026-11-01",
+                        "2026-10-26T06:00:00+00:00",
+                        "2026-11-01T06:00:00+00:00",
+                        0,
+                    ),
+                    (
+                        "ah",
+                        "8002",
+                        "AH Persoonlijke kaas",
+                        "500 g",
+                        3.0,
+                        4.0,
+                        "Bonus Box",
+                        None,
+                        "https://www.ah.nl/producten/product/wi8002",
+                        "2026-10-26",
+                        "2026-11-01",
+                        "2026-10-26T06:00:00+00:00",
+                        "2026-11-01T06:00:00+00:00",
+                        1,
+                    ),
+                    (
+                        "picnic",
+                        "s1001",
+                        "Picnic eieren",
+                        "10 stuks",
+                        2.49,
+                        2.99,
+                        "1+1 gratis",
+                        None,
+                        None,
+                        "2026-11-02",
+                        "2026-11-08",
+                        "2026-11-02T06:00:00+00:00",
+                        "2026-11-03T06:00:00+00:00",
+                        0,
+                    ),
+                    (
+                        "ah",
+                        "4183",
+                        "AH Bloemkool",
+                        "per stuk",
+                        1.39,
+                        1.79,
+                        "voor: 1.39 Los",
+                        None,
+                        f"{FOLDER}/albert_heijn/2013/23/product-2",
+                        "2013-06-03",
+                        "2013-06-09",
+                        "2013-06-03T00:00:00+00:00",
+                        "2013-06-09T23:59:59+00:00",
+                        0,
+                    ),
+                ],
+            )
+            conn.executemany(
+                price_sql,
+                [
+                    (
+                        "ah",
+                        "8001",
+                        "2026-10-05",
+                        "search",
+                        "AH Halfvolle melk",
+                        "AH",
+                        "1 l",
+                        None,
+                        "https://www.ah.nl/producten/product/wi8001",
+                        1.39,
+                        "2026-10-05T10:00:00+00:00",
+                    ),
+                    (
+                        "picnic",
+                        "s1001",
+                        "2022-11-30",
+                        "public_observed_unknown",
+                        "Picnic eieren",
+                        None,
+                        "10 stuks",
+                        None,
+                        None,
+                        2.79,
+                        "2022-11-30T19:56:18+01:00",
+                    ),
+                ],
+            )
 
     async def export(self, client=None) -> tuple[zipfile.ZipFile, dict]:
         response = await (client or self.admin).post("/api/price-archive/export")
@@ -845,8 +1094,13 @@ class ExportTest(ArchiveCase):
     async def test_a_file_per_store_and_month_without_personal_offers(self):
         self.fill()
         archive, header = await self.export()
-        files = ["offers/ah/2013-06.jsonl", "offers/ah/2026-10.jsonl", "offers/picnic/2026-11.jsonl",
-                 "prices/ah/2026-10.jsonl", "prices/picnic/2022-11.jsonl"]
+        files = [
+            "offers/ah/2013-06.jsonl",
+            "offers/ah/2026-10.jsonl",
+            "offers/picnic/2026-11.jsonl",
+            "prices/ah/2026-10.jsonl",
+            "prices/picnic/2022-11.jsonl",
+        ]
         self.assertEqual(header["files"], files)
         self.assertEqual(sorted(archive.namelist()), sorted(files + ["README.md", "mealieshopper-price-archive.json"]))
         self.assertEqual((header["format"], header["formatVersion"]), ("mealieshopper-price-archive", 1))
@@ -888,13 +1142,16 @@ class ExportTest(ArchiveCase):
         self.assertEqual((job["summary"]["offers"], job["summary"]["prices"]), (3, 2))
         offers_after, prices_after = self.snapshot()
         columns = ("store", "product_id", "title", "unit_size", "price", "price_before", "url", "valid_from", "valid_until", "first_seen")
+
         def plain(rows):
             return sorted(([row[key] for key in columns] for row in rows), key=lambda values: (values[0], values[1]))
 
         self.assertEqual(plain(offers_after), plain(row for row in before[0] if not row["personal"]))
         # De schapprijs komt terug als archiefregel (archive_search): een gewone prijs, die Vervangen herkent.
-        self.assertEqual(sorted((row["store"], row["source"], row["price"]) for row in prices_after),
-                         [("ah", "archive_search", 1.39), ("picnic", "public_observed_unknown", 2.79)])
+        self.assertEqual(
+            sorted((row["store"], row["source"], row["price"]) for row in prices_after),
+            [("ah", "archive_search", 1.39), ("picnic", "public_observed_unknown", 2.79)],
+        )
         # Nog een keer: alles staat er al, ook de aanbieding zonder adres.
         again = (await self.stage(data.getvalue())).get_json()
         self.assertEqual(again["new"], 0)
@@ -934,11 +1191,15 @@ class ExportTest(ArchiveCase):
         missing = await self.stage(rebuilt(lambda name, content: None if name == "prices/ah/2026-10.jsonl" else content))
         self.assertEqual((missing.status_code, missing.get_json()["code"]), (400, "missing_file"))
         self.assertIn("prices/ah/2026-10.jsonl", missing.get_json()["error"])
-        broken = await self.stage(rebuilt(lambda name, content: content.replace(b'"store": "ah"', b'"store": "nope"') if name == "offers/ah/2026-10.jsonl" else content))
+        broken = await self.stage(
+            rebuilt(lambda name, content: content.replace(b'"store": "ah"', b'"store": "nope"') if name == "offers/ah/2026-10.jsonl" else content)
+        )
         self.assertEqual((broken.status_code, broken.get_json()["code"]), (400, "bad_row"))
         self.assertIn("offers/ah/2026-10.jsonl", broken.get_json()["error"])
         outside = dict(header, files=header["files"] + ["../geheim.jsonl"])
-        escaped = await self.stage(rebuilt(lambda name, content: json.dumps(outside).encode() if name == "mealieshopper-price-archive.json" else content))
+        escaped = await self.stage(
+            rebuilt(lambda name, content: json.dumps(outside).encode() if name == "mealieshopper-price-archive.json" else content)
+        )
         self.assertEqual((escaped.status_code, escaped.get_json()["code"]), (400, "bad_structure"))
         self.assertEqual(self.staged_files(), [])
 
@@ -956,11 +1217,18 @@ class ExportTest(ArchiveCase):
 
 class JobAndAccessTest(ArchiveCase):
     ROUTES = (
-        ("get", "/api/price-archive"), ("post", "/api/price-archive/stage"), ("delete", "/api/price-archive/stage/" + "0" * 32),
-        ("post", "/api/price-archive/jobs"), ("get", "/api/price-archive/jobs/latest"), ("delete", "/api/price-archive/jobs/abc"),
-        ("post", "/api/price-archive/uploads"), ("put", "/api/price-archive/uploads/" + "0" * 32),
-        ("delete", "/api/price-archive/uploads/" + "0" * 32), ("post", "/api/price-archive/uploads/" + "0" * 32 + "/stage"),
-        ("post", "/api/price-archive/export"), ("post", "/api/price-archive/fetch"),
+        ("get", "/api/price-archive"),
+        ("post", "/api/price-archive/stage"),
+        ("delete", "/api/price-archive/stage/" + "0" * 32),
+        ("post", "/api/price-archive/jobs"),
+        ("get", "/api/price-archive/jobs/latest"),
+        ("delete", "/api/price-archive/jobs/abc"),
+        ("post", "/api/price-archive/uploads"),
+        ("put", "/api/price-archive/uploads/" + "0" * 32),
+        ("delete", "/api/price-archive/uploads/" + "0" * 32),
+        ("post", "/api/price-archive/uploads/" + "0" * 32 + "/stage"),
+        ("post", "/api/price-archive/export"),
+        ("post", "/api/price-archive/fetch"),
     )
 
     async def test_every_route_needs_a_session(self):
@@ -998,7 +1266,9 @@ class JobAndAccessTest(ArchiveCase):
             begun = (await self.admin.post("/api/price-archive/uploads", json={"size": len(data)})).get_json()
             token = begun["token"]
             for offset in range(0, len(data), 512):
-                sent = await self.admin.put(f"/api/price-archive/uploads/{token}?offset={offset}", data=data[offset:offset + 512], content_type="application/octet-stream")
+                sent = await self.admin.put(
+                    f"/api/price-archive/uploads/{token}?offset={offset}", data=data[offset : offset + 512], content_type="application/octet-stream"
+                )
                 self.assertEqual(sent.status_code, 200, sent.get_json())
         response = await self.admin.post(f"/api/price-archive/uploads/{token}/stage?keep_unlinked=1", json={"size": len(data)})
         self.assertEqual(response.status_code, 200, response.get_json())
@@ -1202,7 +1472,10 @@ class StagedLinesTest(unittest.TestCase):
 
     def test_the_lines_are_those_of_the_file_whatever_the_block(self) -> None:
         texts: tuple[str, ...] = (
-            '["o", [1]]\n["p", [2]]\n', '["o", [1]]\r\n["p", [2]]', "", '["c", []]\n' * 50,
+            '["o", [1]]\n["p", [2]]\n',
+            '["o", [1]]\r\n["p", [2]]',
+            "",
+            '["c", []]\n' * 50,
             '["o", ["Crème fraîche", "Paté", "😀"]]\n["p", ["ß€"]]\n',  # tekens van twee, drie en vier bytes in UTF-8
             '["o", [1]]\r["p", [2]]\r',  # een losse \r is ook een regeleinde
             "abcdef\r\nghijkl\r\n",  # met blok 7 valt \r op teken 7 en \n op teken 8: precies op de grens

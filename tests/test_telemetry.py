@@ -28,9 +28,7 @@ from mealieshopper.app import create_app
 @pytest.fixture
 def measured_app(data_dir: Path, monkeypatch: pytest.MonkeyPatch) -> Quart:
     monkeypatch.setenv("MEALIESHOPPER_TELEMETRY", "true")
-    monkeypatch.setenv(
-        "MEALIESHOPPER_TELEMETRY_SLOW_MS", "0"
-    )  # elke aanvraag telt als traag, zodat de tests ze terugzien
+    monkeypatch.setenv("MEALIESHOPPER_TELEMETRY_SLOW_MS", "0")  # elke aanvraag telt als traag, zodat de tests ze terugzien
     app: Quart = create_app()
 
     @app.get("/api/auth/test-query")  # onder /api/auth/: zonder inloggen bereikbaar
@@ -74,25 +72,19 @@ async def test_watch_does_nothing_without_a_request(data_dir: Path) -> None:
         assert next(iter(await conn.execute_fetchall("SELECT 1")))[0] == 1
 
 
-async def test_request_is_timed_with_its_route(
-    measured: TestClientProtocol, measured_app: Quart
-) -> None:
+async def test_request_is_timed_with_its_route(measured: TestClientProtocol, measured_app: Quart) -> None:
     response: Any = await measured.get("/healthz")
     assert response.status_code == 200
     assert response.headers["Server-Timing"].startswith("total;dur=")
     snapshot: dict[str, Any] = stats(measured_app).snapshot()
-    route: dict[str, Any] = next(
-        item for item in snapshot["routes"] if item["route"] == "GET /healthz"
-    )
+    route: dict[str, Any] = next(item for item in snapshot["routes"] if item["route"] == "GET /healthz")
     assert route["count"] == 1
     assert route["maxMs"] >= route["p50Ms"] > 0
     assert snapshot["slow"][0]["target"] == "/healthz"
     assert snapshot["slow"][0]["status"] == 200
 
 
-async def test_database_time_and_slowest_query(
-    measured: TestClientProtocol, measured_app: Quart
-) -> None:
+async def test_database_time_and_slowest_query(measured: TestClientProtocol, measured_app: Quart) -> None:
     """Elke bewerking van een aiosqlite-verbinding telt mee. Faalt dit na een upgrade van aiosqlite, dan loopt een bewerking
     niet meer door `Connection._execute` en moet `telemetry.watch` mee veranderen."""
     response: Any = await measured.get("/api/auth/test-query")
@@ -101,74 +93,47 @@ async def test_database_time_and_slowest_query(
     recorded: dict[str, Any] = stats(measured_app).snapshot()["slow"][0]
     assert recorded["route"] == "/api/auth/test-query"
     assert recorded["connections"] >= 1  # die van de route, en die van de controle op inloggen ervoor
-    assert (
-        recorded["phases"]["db"]["count"] >= 4
-    )  # connect, de query met fetchall, de cursor met fetchone, close
+    assert recorded["phases"]["db"]["count"] >= 4  # connect, de query met fetchall, de cursor met fetchone, close
     assert recorded["phases"]["db"]["ms"] > 0
     assert recorded["slowestQuery"]["sql"]
-    assert "hunter2" not in str(
-        recorded
-    )  # de waarden van een query worden niet bewaard
+    assert "hunter2" not in str(recorded)  # de waarden van een query worden niet bewaard
 
 
-async def test_gzip_is_a_phase(
-    measured: TestClientProtocol, measured_app: Quart
-) -> None:
-    response: Any = await measured.get(
-        "/api/auth/test-query", headers={"Accept-Encoding": "gzip"}
-    )
+async def test_gzip_is_a_phase(measured: TestClientProtocol, measured_app: Quart) -> None:
+    response: Any = await measured.get("/api/auth/test-query", headers={"Accept-Encoding": "gzip"})
     assert response.headers["Content-Encoding"] == "gzip"
     recorded: dict[str, Any] = stats(measured_app).snapshot()["slow"][0]
     assert recorded["phases"]["gzip"]["count"] == 1
     assert 0 < recorded["bytes"] < 5000  # de bytes die de deur uitgingen, verpakt
 
 
-async def test_only_safe_parameters_are_kept(
-    measured: TestClientProtocol, measured_app: Quart
-) -> None:
+async def test_only_safe_parameters_are_kept(measured: TestClientProtocol, measured_app: Quart) -> None:
     await measured.get("/healthz?store=ah&q=geheim&code=abc123")
     assert stats(measured_app).snapshot()["slow"][0]["target"] == "/healthz?store=ah"
 
 
-async def test_slow_request_is_logged(
-    measured: TestClientProtocol, caplog: pytest.LogCaptureFixture
-) -> None:
+async def test_slow_request_is_logged(measured: TestClientProtocol, caplog: pytest.LogCaptureFixture) -> None:
     with caplog.at_level(logging.WARNING, logger="mealieshopper.telemetry"):
         await measured.get("/api/auth/test-query")
-    lines: list[str] = [
-        record.getMessage()
-        for record in caplog.records
-        if record.name == "mealieshopper.telemetry"
-    ]
-    assert any(
-        line.startswith("Trage aanvraag: GET /api/auth/test-query 200 in ") and "db " in line
-        for line in lines
-    )
+    lines: list[str] = [record.getMessage() for record in caplog.records if record.name == "mealieshopper.telemetry"]
+    assert any(line.startswith("Trage aanvraag: GET /api/auth/test-query 200 in ") and "db " in line for line in lines)
 
 
-async def test_fast_request_is_not_logged(
-    data_dir: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
-) -> None:
+async def test_fast_request_is_not_logged(data_dir: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture) -> None:
     monkeypatch.setenv("MEALIESHOPPER_TELEMETRY", "1")
     monkeypatch.setenv("MEALIESHOPPER_TELEMETRY_SLOW_MS", "60000")
     app: Quart = create_app()
     with caplog.at_level(logging.WARNING, logger="mealieshopper.telemetry"):
         async with app.test_app() as test_app:
             await test_app.test_client().get("/healthz")
-    assert not [
-        record for record in caplog.records if record.name == "mealieshopper.telemetry"
-    ]
+    assert not [record for record in caplog.records if record.name == "mealieshopper.telemetry"]
     snapshot: dict[str, Any] = stats(app).snapshot()
     assert snapshot["slow"] == []
-    assert (
-        snapshot["routes"][0]["count"] == 1
-    )  # de cijfers per route tellen wel elke aanvraag
+    assert snapshot["routes"][0]["count"] == 1  # de cijfers per route tellen wel elke aanvraag
 
 
 @pytest.mark.may_block("de test blokkeert de event loop met opzet")
-async def test_blocked_event_loop_is_reported(
-    measured: TestClientProtocol, measured_app: Quart, caplog: pytest.LogCaptureFixture
-) -> None:
+async def test_blocked_event_loop_is_reported(measured: TestClientProtocol, measured_app: Quart, caplog: pytest.LogCaptureFixture) -> None:
     with caplog.at_level(logging.WARNING, logger="mealieshopper.telemetry"):
         await measured.get("/api/auth/test-block")
         await asyncio.sleep(0.1)  # de bewaker meldt pas als de loop weer aan de beurt is
@@ -179,9 +144,7 @@ async def test_blocked_event_loop_is_reported(
     assert stall["active"] == ["GET /api/auth/test-block"]
     assert any("test_telemetry.py" in line and "block" in line for line in stall["stack"])
     assert any(
-        "De event loop stond" in record.getMessage()
-        and "/api/auth/test-block" in record.getMessage()
-        and "test_telemetry.py" in record.getMessage()
+        "De event loop stond" in record.getMessage() and "/api/auth/test-block" in record.getMessage() and "test_telemetry.py" in record.getMessage()
         for record in caplog.records
     )
 
@@ -194,15 +157,9 @@ def test_a_stall_names_the_thread_that_held_the_gil(
         waiting: int = next(number for number, line in enumerate(source, 1) if "waiter.acquire()" in line)
     stall: loop_guard.Stall = loop_guard.Stall(
         0.177,
+        (loop_guard.Frame("/usr/lib/python3.12/asyncio/selector_events.py", 132, "_read_from_self"),),
         (
-            loop_guard.Frame(
-                "/usr/lib/python3.12/asyncio/selector_events.py", 132, "_read_from_self"
-            ),
-        ),
-        (
-            loop_guard.ThreadStack(
-                "compute-0", (loop_guard.Frame("/app/mealieshopper/prices.py", 1234, "_rows"),)
-            ),
+            loop_guard.ThreadStack("compute-0", (loop_guard.Frame("/app/mealieshopper/prices.py", 1234, "_rows"),)),
             loop_guard.ThreadStack(
                 "compute-1",
                 (loop_guard.Frame(threading.__file__, waiting, "wait"),),
@@ -215,11 +172,7 @@ def test_a_stall_names_the_thread_that_held_the_gil(
     recorded: dict[str, Any] = measured.snapshot()["stalls"][0]
     assert recorded["threads"] == ["compute-0 prices.py:1234 _rows"]
     assert recorded["stack"] == ["selector_events.py:132 _read_from_self"]
-    assert any(
-        "Andere threads: compute-0 prices.py:1234 _rows (1 wachtend)"
-        in record.getMessage()
-        for record in caplog.records
-    )
+    assert any("Andere threads: compute-0 prices.py:1234 _rows (1 wachtend)" in record.getMessage() for record in caplog.records)
 
 
 def test_a_stall_in_the_app_has_no_threads() -> None:
@@ -314,20 +267,14 @@ async def test_snapshot_route(data_dir: Path, monkeypatch: pytest.MonkeyPatch) -
 def test_routes_are_capped() -> None:
     measured: telemetry.Telemetry = telemetry.Telemetry(slow_seconds=60)
     for number in range(telemetry.MAX_ROUTES + 5):
-        recording: telemetry.Recording = telemetry.Recording(
-            method="GET", target=f"/{number}"
-        )
+        recording: telemetry.Recording = telemetry.Recording(method="GET", target=f"/{number}")
         recording.route = f"/{number}"
         measured.finish(recording)
     assert len(measured.routes) == telemetry.MAX_ROUTES + 1
     assert measured.routes[telemetry.OTHER_ROUTES].count == 5
 
 
-@pytest.mark.parametrize(
-    ("value", "expected"), [("", 500), ("250", 250), ("0", 0), ("-5", 0), ("snel", 500)]
-)
-def test_slow_threshold(
-    monkeypatch: pytest.MonkeyPatch, value: str, expected: int
-) -> None:
+@pytest.mark.parametrize(("value", "expected"), [("", 500), ("250", 250), ("0", 0), ("-5", 0), ("snel", 500)])
+def test_slow_threshold(monkeypatch: pytest.MonkeyPatch, value: str, expected: int) -> None:
     monkeypatch.setenv("MEALIESHOPPER_TELEMETRY_SLOW_MS", value)
     assert telemetry.slow_ms() == expected

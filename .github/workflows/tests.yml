@@ -24,6 +24,10 @@ jobs:
           python-version: "3.15"
       - name: Afhankelijkheden installeren
         run: pip install -r requirements.txt -r requirements-dev.txt
+      - name: Opmaak en lint controleren (Ruff)
+        run: |
+          ruff check .
+          ruff format --check .
       - name: Tests draaien
         run: MEALIESHOPPER_TESTING=1 python -m pytest -q -m "not volume"
       # De volumetests draaien de zware paden op een database van productieschaal (een paar minuten): een eigen stap, zodat

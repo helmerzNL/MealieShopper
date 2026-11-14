@@ -69,9 +69,7 @@ class GcWatch:
     ) -> None:
         self._keep: float = keep
         self._on_collection: Callable[[Collection], None] | None = on_collection
-        self._started: dict[
-            int, float
-        ] = {}  # per thread: wanneer de lopende ronde begon
+        self._started: dict[int, float] = {}  # per thread: wanneer de lopende ronde begon
         self.recent: deque[Collection] = deque(maxlen=KEPT)
 
     def start(self) -> None:

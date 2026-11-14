@@ -63,9 +63,7 @@ from mealieshopper import (
 from mealieshopper import app as app_module
 from mealieshopper.app import create_app
 
-if (
-    TYPE_CHECKING
-):  # niet in de module zelf: pytest zou de klasse `Test...` als test willen verzamelen
+if TYPE_CHECKING:  # niet in de module zelf: pytest zou de klasse `Test...` als test willen verzamelen
     from quart.typing import TestClientProtocol
 
 T = TypeVar("T")
@@ -129,27 +127,19 @@ def answer_digest(answer: Any) -> str:
 
 
 def _recorded() -> dict[str, str]:
-    return (
-        json.loads(GOLDEN_FILE.read_text(encoding="utf-8"))
-        if GOLDEN_FILE.exists()
-        else {}
-    )
+    return json.loads(GOLDEN_FILE.read_text(encoding="utf-8")) if GOLDEN_FILE.exists() else {}
 
 
 def _record(name: str, digest: str) -> None:
     recorded: dict[str, str] = _recorded()
     recorded[name] = digest
     GOLDEN_FILE.parent.mkdir(exist_ok=True)
-    GOLDEN_FILE.write_text(
-        json.dumps(recorded, indent=2, sort_keys=True) + "\n", encoding="utf-8"
-    )
+    GOLDEN_FILE.write_text(json.dumps(recorded, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
 @pytest.mark.volume
 @pytest.mark.parametrize("name", sorted(GOLDEN_REQUESTS))
-async def test_the_answer_is_unchanged(
-    volume_client: TestClientProtocol, name: str, tmp_path: Path
-) -> None:
+async def test_the_answer_is_unchanged(volume_client: TestClientProtocol, name: str, tmp_path: Path) -> None:
     response = await volume_client.get(GOLDEN_REQUESTS[name])
     assert response.status_code == 200
     answer: Any = await response.get_json()
@@ -164,9 +154,7 @@ async def test_the_answer_is_unchanged(
             json.dumps(answer, sort_keys=True, indent=1, ensure_ascii=False),
             encoding="utf-8",
         )
-        pytest.fail(
-            f"Het antwoord op {GOLDEN_REQUESTS[name]} is veranderd ({digest}, vastgelegd {expected}): zie {saved}"
-        )
+        pytest.fail(f"Het antwoord op {GOLDEN_REQUESTS[name]} is veranderd ({digest}, vastgelegd {expected}): zie {saved}")
 
 
 # --- stilstanden ------------------------------------------------------------------------------------------------------
@@ -213,13 +201,9 @@ async def quiet(
             return result
         seen.append(stalls)
         collected.append(loop_watch.GC.drain())
-    lines: list[str] = [
-        f"De event loop stond in alle {attempts} pogingen langer dan {round(loop_watch.LIMIT * 1000)} ms stil:"
-    ]
+    lines: list[str] = [f"De event loop stond in alle {attempts} pogingen langer dan {round(loop_watch.LIMIT * 1000)} ms stil:"]
     for number, stalls in enumerate(seen, 1):
-        lines += [f"  poging {number}:"] + [
-            f"    {stall.describe()}" for stall in stalls
-        ]
+        lines += [f"  poging {number}:"] + [f"    {stall.describe()}" for stall in stalls]
         lines += [f"    {collection.describe()}" for collection in collected[number - 1]]
     pytest.fail("\n".join(lines), pytrace=False)
 
@@ -278,17 +262,12 @@ def stalls_until(task: str) -> pytest.MarkDecorator:
 
 # De catalogus (taak 7) en het oordeel (taak 8) staan niet meer stil: geen winkel heeft nog een markering.
 COLD_STALLS: dict[str, Any] = {}
-COLD_STORES: list[Any] = [
-    pytest.param(store, marks=COLD_STALLS.get(store, ()))
-    for store in ("ah", "jumbo", "picnic", "lidl", "aldi")
-]
+COLD_STORES: list[Any] = [pytest.param(store, marks=COLD_STALLS.get(store, ())) for store in ("ah", "jumbo", "picnic", "lidl", "aldi")]
 
 
 @pytest.mark.volume
 @pytest.mark.parametrize("store", COLD_STORES)
-async def test_cold_offers_do_not_stall(
-    volume_client: TestClientProtocol, volume_dir: Path, store: str
-) -> None:
+async def test_cold_offers_do_not_stall(volume_client: TestClientProtocol, volume_dir: Path, store: str) -> None:
     answer: Any = await quiet(
         lambda: _get(volume_client, f"/api/offers?store={store}&week=2026-11-09"),
         prepare=cold(volume_dir),
@@ -297,12 +276,8 @@ async def test_cold_offers_do_not_stall(
 
 
 @pytest.mark.volume
-async def test_warm_offers_do_not_stall(
-    volume_client: TestClientProtocol, volume_dir: Path
-) -> None:
-    await _get(
-        volume_client, "/api/offers?store=ah&week=2026-11-09"
-    )  # de catalogus opbouwen
+async def test_warm_offers_do_not_stall(volume_client: TestClientProtocol, volume_dir: Path) -> None:
+    await _get(volume_client, "/api/offers?store=ah&week=2026-11-09")  # de catalogus opbouwen
     answer: Any = await quiet(
         lambda: _get(volume_client, "/api/offers?store=ah&week=2026-11-09"),
         prepare=new_sync(volume_dir),
@@ -325,9 +300,7 @@ def built(data_dir: Path, store: str) -> Callable[[], Awaitable[None]]:
 
 @pytest.mark.volume
 @pytest.mark.parametrize("store", ("ah", "jumbo"))
-async def test_judging_with_a_built_catalogue_does_not_stall(
-    volume_client: TestClientProtocol, volume_dir: Path, store: str
-) -> None:
+async def test_judging_with_a_built_catalogue_does_not_stall(volume_client: TestClientProtocol, volume_dir: Path, store: str) -> None:
     answer: Any = await quiet(
         lambda: _get(volume_client, f"/api/offers?store={store}&week=2026-11-09"),
         prepare=built(volume_dir, store),
@@ -337,9 +310,7 @@ async def test_judging_with_a_built_catalogue_does_not_stall(
 
 @pytest.mark.volume
 @pytest.mark.parametrize("query", ("store=ah", "store=ah&q=melk", "store=ah&bought=1"))
-async def test_price_history_with_a_built_catalogue_does_not_stall(
-    volume_client: TestClientProtocol, volume_dir: Path, query: str
-) -> None:
+async def test_price_history_with_a_built_catalogue_does_not_stall(volume_client: TestClientProtocol, volume_dir: Path, query: str) -> None:
     answer: Any = await quiet(
         lambda: _get(volume_client, f"/api/prices/history?{query}"),
         prepare=built(volume_dir, "ah"),
@@ -352,9 +323,7 @@ async def test_the_offers_body_is_serialised_once(
     volume_client: TestClientProtocol,
 ) -> None:
     path: str = "/api/offers?store=ah&week=2026-11-09"
-    with mock.patch.object(
-        app_module, "json_bytes", wraps=app_module.json_bytes
-    ) as spy:
+    with mock.patch.object(app_module, "json_bytes", wraps=app_module.json_bytes) as spy:
         first: Response = await volume_client.get(path)
         second: Response = await volume_client.get(path)
     assert first.status_code == second.status_code == 200
@@ -416,16 +385,12 @@ SMALL_OBSERVED: list[dict[str, Any]] = [
         "price": 6.29,
     },
 ]
-SMALL_BODY_SHA256: str = (
-    "e6db0ad545ade72d9e460829e62c61d0d78cbbc1eb39b76982c77c2f1b0a5cee"
-)
+SMALL_BODY_SHA256: str = "e6db0ad545ade72d9e460829e62c61d0d78cbbc1eb39b76982c77c2f1b0a5cee"
 SMALL_BODY_LENGTH: int = 3893
 SMALL_CONTENT_TYPE: str = "application/json"
 
 
-SMALL_HEADERS: dict[
-    str, str
-] = {  # zonder de ETag, die per run verschilt (het token van de catalogus)
+SMALL_HEADERS: dict[str, str] = {  # zonder de ETag, die per run verschilt (het token van de catalogus)
     "content-type": "application/json",
     "content-length": "3893",
     "cache-control": "private, no-cache",
@@ -439,26 +404,18 @@ async def small_list(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("PASSKEY_AUTH_ENABLED", "false")
     volume.freeze_clock(monkeypatch)
     await prices.record("ah", SMALL_OBSERVED, now="2026-11-01T08:00:00+00:00")
-    with mock.patch.dict(
-        offers.FETCHERS, {"ah": lambda: helpers.returned(SMALL_OFFERS)}
-    ):
+    with mock.patch.dict(offers.FETCHERS, {"ah": lambda: helpers.returned(SMALL_OFFERS)}):
         await offers.sync("ah")
 
 
-async def test_the_offers_response_is_the_same_json_as_jsonify(
-    client: TestClientProtocol, monkeypatch: pytest.MonkeyPatch
-) -> None:
+async def test_the_offers_response_is_the_same_json_as_jsonify(client: TestClientProtocol, monkeypatch: pytest.MonkeyPatch) -> None:
     await small_list(monkeypatch)
     response: Response = await client.get(SMALL_PATH)
     body: bytes = await response.get_data()
     assert response.status_code == 200
     assert response.headers["Content-Type"] == SMALL_CONTENT_TYPE
     assert response.headers["Content-Length"] == str(SMALL_BODY_LENGTH)
-    assert {
-        name.lower(): value
-        for name, value in response.headers.items()
-        if name.lower() != "etag"
-    } == SMALL_HEADERS
+    assert {name.lower(): value for name, value in response.headers.items() if name.lower() != "etag"} == SMALL_HEADERS
     # wat de digest vastlegt: ensure_ascii, gesorteerde sleutels zonder spaties, een regeleinde, en een lijst met oordeel
     assert b"Cr\\u00e8me fra\\u00eeche" in body and b'"verdict":{' in body
     assert body.startswith(b'{"categories":') and body.endswith(b"}\n")
@@ -468,27 +425,21 @@ async def test_the_offers_response_is_the_same_json_as_jsonify(
     )
 
 
-async def test_an_error_in_the_json_reaches_the_request_and_is_not_kept(
-    client: TestClientProtocol, monkeypatch: pytest.MonkeyPatch
-) -> None:
+async def test_an_error_in_the_json_reaches_the_request_and_is_not_kept(client: TestClientProtocol, monkeypatch: pytest.MonkeyPatch) -> None:
     # Review Focus 1: de aanvraag krijgt de fout, de cache bewaart hem niet en de volgende aanvraag rekent opnieuw
     await small_list(monkeypatch)
     with mock.patch.object(app_module, "json_bytes", side_effect=TypeError("stuk")):
         failed: Response = await client.get(SMALL_PATH)
     assert failed.status_code == 424
     assert (await failed.get_json())["error"] == "stuk"
-    with mock.patch.object(
-        app_module, "json_bytes", wraps=app_module.json_bytes
-    ) as spy:
+    with mock.patch.object(app_module, "json_bytes", wraps=app_module.json_bytes) as spy:
         again: Response = await client.get(SMALL_PATH)
     assert again.status_code == 200
     assert spy.call_count == 1
     assert hashlib.sha256(await again.get_data()).hexdigest() == SMALL_BODY_SHA256
 
 
-async def test_a_request_that_goes_away_leaves_the_whole_list(
-    client: TestClientProtocol, monkeypatch: pytest.MonkeyPatch
-) -> None:
+async def test_a_request_that_goes_away_leaves_the_whole_list(client: TestClientProtocol, monkeypatch: pytest.MonkeyPatch) -> None:
     # Review Focus 2: de eerste aanvraag gaat weg terwijl de JSON wordt gemaakt, de tweede krijgt de hele lijst, en de cache
     # heeft daarna de hele lijst (de derde rekent niets meer)
     await small_list(monkeypatch)
@@ -514,16 +465,12 @@ async def test_a_request_that_goes_away_leaves_the_whole_list(
     assert answer.status_code == third.status_code == 200
     assert spy.call_count == 1
     for response in (answer, third):
-        assert (
-            hashlib.sha256(await response.get_data()).hexdigest() == SMALL_BODY_SHA256
-        )
+        assert hashlib.sha256(await response.get_data()).hexdigest() == SMALL_BODY_SHA256
 
 
 @pytest.mark.volume  # geen xfail: sinds 4.21.1 leest de pagina alleen de rijen van zijn producten, en staat hij niet stil
 async def test_offer_history_does_not_stall(volume_client: TestClientProtocol) -> None:
-    answer: Any = await quiet(
-        lambda: _get(volume_client, "/api/offers/history?limit=200")
-    )
+    answer: Any = await quiet(lambda: _get(volume_client, "/api/offers/history?limit=200"))
     assert answer["products"]
 
 
@@ -542,9 +489,7 @@ PRICE_STALLS: dict[str, Any] = {}
     "query",
     [pytest.param(query, marks=PRICE_STALLS.get(query, ())) for query in PRICE_QUERIES],
 )
-async def test_price_history_does_not_stall(
-    volume_client: TestClientProtocol, volume_dir: Path, query: str
-) -> None:
+async def test_price_history_does_not_stall(volume_client: TestClientProtocol, volume_dir: Path, query: str) -> None:
     answer: Any = await quiet(
         lambda: _get(volume_client, f"/api/prices/history?{query}"),
         prepare=cold(volume_dir),
@@ -570,9 +515,7 @@ async def test_two_cold_requests_build_the_catalogue_once(volume_dir: Path) -> N
     # De versie van de catalogus staat vast voordat de twee aanvragen haar lezen.
     async with prices._connect() as conn:
         await prices._catalogue_version(conn, "ah")
-    with mock.patch.object(
-        prices, "_build_catalogue", wraps=prices._build_catalogue
-    ) as built:
+    with mock.patch.object(prices, "_build_catalogue", wraps=prices._build_catalogue) as built:
         await asyncio.gather(
             prices.annotate("ah", [], today=volume.TODAY),
             prices.annotate("ah", [], today=volume.TODAY),
@@ -620,8 +563,7 @@ def _dead_cycles_in_the_old_generation(count: int) -> None:
 
 
 PRODUCT_CHANGE: str = (
-    "UPDATE price_observations SET title = title || ' (nieuw)'"
-    " WHERE rowid = (SELECT MIN(rowid) FROM price_observations WHERE store = 'ah')"
+    "UPDATE price_observations SET title = title || ' (nieuw)' WHERE rowid = (SELECT MIN(rowid) FROM price_observations WHERE store = 'ah')"
 )
 PLANTED: int = 500  # gesloten verbindingen per ronde, elk vijf objecten die de GC volgt
 
@@ -674,9 +616,7 @@ def _bought_outside_the_list(path: Path, count: int, reached: tuple[str, ...]) -
 
 
 @pytest.mark.volume
-async def test_offers_stay_warm_during_a_price_index_round(
-    volume_client: TestClientProtocol, volume_dir: Path
-) -> None:
+async def test_offers_stay_warm_during_a_price_index_round(volume_client: TestClientProtocol, volume_dir: Path) -> None:
     """De ronde langs de prijsindex bewaart een prijs per tien seconden. Een prijs van een product buiten de lijst laat de
     ETag van /api/offers staan, en een prijs van een bekend product bouwt de catalogus niet opnieuw op (`_build_catalogue`).
     Het antwoord uit de cache is daarna hetzelfde als een koud uitgerekend antwoord: de bijgewerkte catalogus mist niets."""
@@ -786,7 +726,10 @@ async def test_the_catalogues_keep_a_full_collection_short(volume_client: TestCl
     assert len(prices._CATALOGUES) == len(offers.STORES)
     after_seconds, after_wall, after_tracked = await asyncio.to_thread(_full_collection)
     assert after_tracked - before_tracked < ADDED_TRACKED_LIMIT, (before_tracked, after_tracked)
-    assert after_seconds - before_seconds < ADDED_COLLECTION_SECONDS, {"rekentijd": (before_seconds, after_seconds), "wandtijd": (before_wall, after_wall)}
+    assert after_seconds - before_seconds < ADDED_COLLECTION_SECONDS, {
+        "rekentijd": (before_seconds, after_seconds),
+        "wandtijd": (before_wall, after_wall),
+    }
 
 
 # Hoeveel gevolgde objecten een koude bouw van AH er hooguit bij heeft op het moment dat een volle ronde van de GC begint: dan
@@ -820,7 +763,7 @@ async def test_a_cold_build_keeps_the_tracked_set_small(volume_dir: Path) -> Non
             gc.callbacks.remove(at_full_collection)
     finally:
         gc.unfreeze()
-    assert ("ah" in {key[1] for key in prices._CATALOGUES}), "de catalogus van AH is gebouwd"
+    assert "ah" in {key[1] for key in prices._CATALOGUES}, "de catalogus van AH is gebouwd"
     assert peaks, "geen volle ronde van de GC tijdens de bouw: dan meet deze test niets"
     assert max(peaks) - before < BUILD_PEAK_ADDED_LIMIT, (before, peaks)
 
@@ -846,9 +789,7 @@ def server_total(response: Response) -> float:
     return float(found.group(1))
 
 
-async def best_total(
-    volume_dir: Path, monkeypatch: pytest.MonkeyPatch, prepare: Callable[[], Awaitable[None]], attempts: int = 3
-) -> float:
+async def best_total(volume_dir: Path, monkeypatch: pytest.MonkeyPatch, prepare: Callable[[], Awaitable[None]], attempts: int = 3) -> float:
     """De beste `total` van `attempts` aanvragen van `OFFERS_AH`, elk na `prepare`, op een app met de telemetrie aan. De eerste
     aanvraag bouwt de catalogus en vult de caches van de namen (buiten de meting), zoals een app die al even draait."""
     monkeypatch.setenv("MEALIESHOPPER_TELEMETRY", "true")
@@ -884,9 +825,7 @@ async def test_judging_with_a_built_catalogue_is_fast_enough(
 
 
 @pytest.mark.volume
-async def test_cold_offers_are_fast_enough(
-    volume_dir: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
+async def test_cold_offers_are_fast_enough(volume_dir: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
     best: float = await best_total(volume_dir, monkeypatch, cold(volume_dir))
     _judge_speed("koud", best, COLD_LIMIT_MS, capsys)
 
@@ -1006,9 +945,7 @@ def _hq_search(path: Path) -> Callable[[str], Awaitable[list[tuple[int, int, str
     """`ah.search_hq_ids` van een nagebootste AH: een zoekopdracht vindt de artikelnummers van de bonregels met die naam (de helft
     van de namen, vast per naam), zoals AH ze teruggeeft: (hqId, webshopId, titel, foto)."""
     with contextlib.closing(sqlite3.connect(path)) as conn:
-        rows: list[tuple[Any, ...]] = conn.execute(
-            "SELECT DISTINCT name, product_id FROM ah_receipt_items WHERE product_id IS NOT NULL"
-        ).fetchall()
+        rows: list[tuple[Any, ...]] = conn.execute("SELECT DISTINCT name, product_id FROM ah_receipt_items WHERE product_id IS NOT NULL").fetchall()
     by_name: dict[str, list[int]] = {}
     for name, product_id in rows:
         by_name.setdefault(" ".join(str(name).split()).casefold(), []).append(int(product_id))
@@ -1073,9 +1010,7 @@ async def test_offer_status_and_overview_do_not_stall(volume_client: TestClientP
 
 
 @pytest.mark.volume
-async def test_price_compare_does_not_stall(
-    volume_client: TestClientProtocol, volume_dir: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+async def test_price_compare_does_not_stall(volume_client: TestClientProtocol, volume_dir: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     # Een gekocht product buiten de aanbiedingen: `prices._known_product` leest dan de lijst en de bewaarde prijzen.
     product_id: str = _scalar(
         volume_dir / volume.DB_NAME,
@@ -1259,9 +1194,7 @@ MCP_TOOLS: tuple[Any, ...] = (
 
 @pytest.mark.volume
 @pytest.mark.parametrize(("tool", "arguments", "listed"), MCP_TOOLS)
-async def test_mcp_tools_do_not_stall(
-    volume_client: TestClientProtocol, tool: str, arguments: dict[str, Any], listed: str
-) -> None:
+async def test_mcp_tools_do_not_stall(volume_client: TestClientProtocol, tool: str, arguments: dict[str, Any], listed: str) -> None:
     # `listed`: de lijst die in het antwoord niet leeg mag zijn. Zonder recepten en meldingen heeft de volumedatabase voor
     # review_offer_matches en list_offer_mismatches geen paren: die lezen wel de aanbiedingen.
     async def call() -> Any:
@@ -1330,9 +1263,7 @@ NIGHTLY_PEAK_ADDED_LIMIT: int = 90_000
 
 
 @pytest.mark.volume
-async def test_a_nightly_run_keeps_the_tracked_set_small(
-    volume_dir: Path, fake_stores: None, monkeypatch: pytest.MonkeyPatch
-) -> None:
+async def test_a_nightly_run_keeps_the_tracked_set_small(volume_dir: Path, fake_stores: None, monkeypatch: pytest.MonkeyPatch) -> None:
     peaks: list[int] = []
 
     def at_full_collection(phase: str, info: dict[str, Any]) -> None:
@@ -1441,18 +1372,14 @@ async def _ai_answer(provider: str, key: str, model: str, system: str, payload: 
 
 
 @pytest.mark.volume
-async def test_an_ai_match_round_does_not_stall(
-    volume_client: TestClientProtocol, volume_dir: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+async def test_an_ai_match_round_does_not_stall(volume_client: TestClientProtocol, volume_dir: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     # De ronde van de AI langs de recepten (`ai-match`): de aanbiedingen van deze week, de recepten die nog moeten, en per groep
     # van veertig recepten een antwoord om te bewaren. Elke poging begint zonder doorzochte recepten (`restored`).
     path: Path = volume_dir / volume.DB_NAME
     async with offers._connect():
         pass  # de tabellen van de receptindex
     with contextlib.closing(sqlite3.connect(path)) as conn:
-        conn.executemany(
-            "INSERT INTO offer_recipes (source, recipe_id, title, ingredients) VALUES (?, ?, ?, ?)", _recipe_rows(path)
-        )
+        conn.executemany("INSERT INTO offer_recipes (source, recipe_id, title, ingredients) VALUES (?, ?, ?, ?)", _recipe_rows(path))
         conn.commit()
     monkeypatch.setattr(ai_review, "active_provider", lambda: helpers.returned("openai"))
     monkeypatch.setattr(ai_review, "api_key", lambda provider: helpers.returned(("sleutel", "env")))

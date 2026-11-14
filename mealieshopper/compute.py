@@ -46,8 +46,7 @@ class _Pool:
         self._lock: threading.Lock = threading.Lock()
         self._stopped: bool = False
         self._threads: list[threading.Thread] = [
-            threading.Thread(target=self._work, name=f"compute-{number}", daemon=True)
-            for number in range(WORKERS)
+            threading.Thread(target=self._work, name=f"compute-{number}", daemon=True) for number in range(WORKERS)
         ]
         for thread in self._threads:
             thread.start()

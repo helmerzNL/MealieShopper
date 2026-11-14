@@ -53,9 +53,7 @@ from types import FrameType
 from typing import TypeAlias
 
 APP_DIR: str = os.path.dirname(os.path.abspath(__file__))
-EXEMPT_FUNCTIONS: frozenset[str] = frozenset(
-    {"create_app", "_startup"}
-)  # opstarten telt niet
+EXEMPT_FUNCTIONS: frozenset[str] = frozenset({"create_app", "_startup"})  # opstarten telt niet
 THREAD_NAME: str = "loop-guard"
 JOIN_TIMEOUT: float = 2.0
 # Een loop met zijn binnenste regel in een van deze bestanden wacht op de selector (of op de GIL om daaruit terug te komen).
@@ -151,9 +149,7 @@ class Stall:
     def in_app(self) -> bool:
         """Of de app dit veroorzaakte: er staat een regel van de app op de stack en die hoort niet bij het opstarten."""
         frames: tuple[Frame, ...] = self.app_frames
-        return bool(frames) and not any(
-            frame.function in EXEMPT_FUNCTIONS for frame in frames
-        )
+        return bool(frames) and not any(frame.function in EXEMPT_FUNCTIONS for frame in frames)
 
     @property
     def busy_threads(self) -> tuple[ThreadStack, ...]:
@@ -212,22 +208,14 @@ def _frames(raw: tuple[RawFrame, ...]) -> tuple[Frame, ...]:
 
 
 def _thread_names() -> dict[int, str]:
-    return {
-        thread.ident: thread.name
-        for thread in threading.enumerate()
-        if thread.ident is not None
-    }
+    return {thread.ident: thread.name for thread in threading.enumerate() if thread.ident is not None}
 
 
 def _raw_threads(skip: Iterable[int | None]) -> dict[int, RawThread]:
     """De naam en de stack (`_raw_frames`) van elke levende thread nu, behalve `skip`, per id van de thread."""
     names: dict[int, str] = _thread_names()
     skipped: set[int | None] = set(skip)
-    return {
-        ident: (names.get(ident, hex(ident)), _raw_frames(frame))
-        for ident, frame in sys._current_frames().items()
-        if ident not in skipped
-    }
+    return {ident: (names.get(ident, hex(ident)), _raw_frames(frame)) for ident, frame in sys._current_frames().items() if ident not in skipped}
 
 
 def current_threads(skip: Iterable[int | None]) -> dict[int, ThreadStack]:
@@ -237,11 +225,7 @@ def current_threads(skip: Iterable[int | None]) -> dict[int, ThreadStack]:
 
 def _by_name(threads: Iterable[RawThread]) -> tuple[ThreadStack, ...]:
     """De threads op naam, zonder bewakers: die van een andere loop houdt de GIL niet vast."""
-    return tuple(
-        ThreadStack(name, _frames(raw))
-        for name, raw in sorted(threads, key=lambda thread: thread[0])
-        if name != THREAD_NAME
-    )
+    return tuple(ThreadStack(name, _frames(raw)) for name, raw in sorted(threads, key=lambda thread: thread[0]) if name != THREAD_NAME)
 
 
 @dataclass
@@ -319,9 +303,7 @@ class LoopGuard:
 
     def _capture(self) -> tuple[RawFrame, ...]:
         thread_id: int | None = self._loop_thread
-        frame: FrameType | None = (
-            sys._current_frames().get(thread_id) if thread_id else None
-        )
+        frame: FrameType | None = sys._current_frames().get(thread_id) if thread_id else None
         return _raw_frames(frame)
 
     def _others(self) -> tuple[RawThread, ...]:
@@ -343,9 +325,7 @@ class LoopGuard:
             return stack, ()
         return stack, _by_name(tick.threads or self._others())
 
-    def _report(
-        self, seconds: float, stack: tuple[Frame, ...], threads: tuple[ThreadStack, ...]
-    ) -> None:
+    def _report(self, seconds: float, stack: tuple[Frame, ...], threads: tuple[ThreadStack, ...]) -> None:
         try:
             self._on_stall(Stall(seconds, stack, threads))
         except Exception:

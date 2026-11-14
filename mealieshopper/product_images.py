@@ -14,6 +14,7 @@ die nog geeft.
 - De afbeeldingen staan in `product_images` (zie `prices.SCHEMA`) en gaan mee in de back-up: ze zijn niet opnieuw op te halen als de
   winkel ze vervangt. Bij het terugzetten wordt elke afbeelding opnieuw gelezen (`checked`).
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -110,8 +111,13 @@ def shrink(data: bytes) -> tuple[bytes, str, int, int]:
     """
     with _open(data) as image:
         rotated = image.getexif().get(0x0112, 1) in (5, 6, 7, 8)  # de breedte in beeld is dan de hoogte van het bestand
-        if (image.format in _KEEP_FORMATS and not rotated and image.width <= MAX_WIDTH and len(data) <= MAX_STORED_BYTES
-                and profile.sniff(data) == _KEEP_FORMATS[image.format]):
+        if (
+            image.format in _KEEP_FORMATS
+            and not rotated
+            and image.width <= MAX_WIDTH
+            and len(data) <= MAX_STORED_BYTES
+            and profile.sniff(data) == _KEEP_FORMATS[image.format]
+        ):
             return data, _KEEP_FORMATS[image.format], image.width, image.height
         try:
             picture = ImageOps.exif_transpose(image)
@@ -199,9 +205,13 @@ async def _store(conn: aiosqlite.Connection, store: str, product_id: str, title:
     we hem de volgende keer niet opnieuw ophalen."""
     data, content_type, width, height = image
     digest = hashlib.sha256(data).hexdigest()
-    exists = await conn.execute_fetchall("SELECT 1 FROM product_images WHERE store = ? AND product_id = ? AND digest = ?", (store, product_id, digest))
+    exists = await conn.execute_fetchall(
+        "SELECT 1 FROM product_images WHERE store = ? AND product_id = ? AND digest = ?", (store, product_id, digest)
+    )
     if exists:
-        await conn.execute("UPDATE product_images SET source_url = ? WHERE store = ? AND product_id = ? AND digest = ?", (url, store, product_id, digest))
+        await conn.execute(
+            "UPDATE product_images SET source_url = ? WHERE store = ? AND product_id = ? AND digest = ?", (url, store, product_id, digest)
+        )
         return False
     await conn.execute(
         """INSERT INTO product_images (store, product_id, title, source_url, digest, content_type, width, height, data, saved_at)
@@ -210,7 +220,7 @@ async def _store(conn: aiosqlite.Connection, store: str, product_id: str, title:
     )
     rows = await conn.execute_fetchall("SELECT id FROM product_images WHERE store = ? AND product_id = ? ORDER BY saved_at, id", (store, product_id))
     if len(rows) > MAX_PER_PRODUCT:
-        doomed = [row["id"] for row in rows[1:1 + len(rows) - MAX_PER_PRODUCT]]  # de eerste blijft altijd
+        doomed = [row["id"] for row in rows[1 : 1 + len(rows) - MAX_PER_PRODUCT]]  # de eerste blijft altijd
         await conn.execute(f"DELETE FROM product_images WHERE id IN ({','.join('?' * len(doomed))})", doomed)
     return True
 

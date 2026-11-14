@@ -63,11 +63,7 @@ def _refuse(host: Any) -> None:
 
 
 def _guarded_address(sock: socket.socket, address: Any) -> None:
-    if (
-        sock.family in (socket.AF_INET, socket.AF_INET6)
-        and isinstance(address, tuple)
-        and not _is_loopback(address[0])
-    ):
+    if sock.family in (socket.AF_INET, socket.AF_INET6) and isinstance(address, tuple) and not _is_loopback(address[0]):
         _refuse(address[0])
 
 
@@ -92,9 +88,7 @@ def network_guard() -> Iterator[None]:
         result: int = connect_ex(sock, address)
         return result
 
-    def guarded_create_connection(
-        address: tuple[Any, ...], *args: Any, **kwargs: Any
-    ) -> socket.socket:
+    def guarded_create_connection(address: tuple[Any, ...], *args: Any, **kwargs: Any) -> socket.socket:
         if not _is_loopback(address[0]):
             _refuse(address[0])
         made: socket.socket = create_connection(address, *args, **kwargs)
@@ -117,9 +111,7 @@ def network_guard() -> Iterator[None]:
 # De clients nemen proxy en CA's uit de omgeving over (zoals requests). Een proxy of CA-bestand van de ontwikkelaar mag de
 # tests niet sturen: de tests die het gedrag nagaan, zetten de variabelen zelf.
 CLIENT_ENVIRONMENT: tuple[str, ...] = tuple(
-    name
-    for base in ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY")
-    for name in (base, base.lower())
+    name for base in ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY") for name in (base, base.lower())
 ) + ("SSL_CERT_FILE", "SSL_CERT_DIR", "REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE")
 
 
@@ -141,9 +133,7 @@ def no_network_attempts(network_guard: None) -> Iterator[None]:
         tried: list[str] = list(_network_attempts)
         _network_attempts.clear()
     if tried:
-        pytest.fail(
-            f"Test probeert het netwerk te bereiken: {', '.join(sorted(set(tried)))}"
-        )
+        pytest.fail(f"Test probeert het netwerk te bereiken: {', '.join(sorted(set(tried)))}")
 
 
 @pytest.fixture(autouse=True)
@@ -203,9 +193,7 @@ def _remove_database(folder: Path) -> None:
 
 
 @pytest.fixture
-def volume_dir(
-    volume_template: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> Iterator[Path]:
+def volume_dir(volume_template: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Path]:
     """Een kopie van de volumedatabase als datamap, met de klok op `volume.TODAY`, zonder inloggen en zonder AH.
 
     `prices._CATALOGUES` gaat ervoor en erna leeg: de catalogus van AH is op deze schaal groot, en de sleutel is het pad van
@@ -214,9 +202,7 @@ def volume_dir(
     shutil.copyfile(volume_template / volume.DB_NAME, tmp_path / volume.DB_NAME)
     monkeypatch.setenv("MEALIESHOPPER_DATA_DIR", str(tmp_path))
     monkeypatch.setenv("MEALIESHOPPER_TESTING", "1")
-    monkeypatch.setenv(
-        "PASSKEY_AUTH_ENABLED", "false"
-    )  # zoals de tests van de aanbiedingen
+    monkeypatch.setenv("PASSKEY_AUTH_ENABLED", "false")  # zoals de tests van de aanbiedingen
     volume.freeze_clock(monkeypatch)
     monkeypatch.setattr(ah_orders, "resolve_receipt_names", volume.no_receipt_lookup)
     prices._CATALOGUES.clear()
@@ -242,16 +228,12 @@ def loop_watch_check(request: pytest.FixtureRequest) -> Iterator[None]:
     """
     marker: Any = request.node.get_closest_marker("may_block")
     try:
-        loop_watch.exemption_reason(
-            marker
-        )  # een markering zonder reden faalt voor de test, niet erna
+        loop_watch.exemption_reason(marker)  # een markering zonder reden faalt voor de test, niet erna
     except ValueError as error:
         pytest.fail(str(error), pytrace=False)
     loop_watch.drain()  # wat een vorige loop nog meldde, hoort niet bij deze test
     yield
-    message: str | None = loop_watch.check(
-        request.node.nodeid, marker, loop_watch.MODE, loop_watch.drain()
-    )
+    message: str | None = loop_watch.check(request.node.nodeid, marker, loop_watch.MODE, loop_watch.drain())
     if message:
         pytest.fail(message, pytrace=False)
 
@@ -260,8 +242,6 @@ def pytest_terminal_summary(terminalreporter: Any) -> None:
     lines: list[str] = loop_watch.summary_lines()
     if not lines:
         return
-    terminalreporter.section(
-        f"stilstanden van de event loop (> {round(loop_watch.LIMIT * 1000)} ms, binnenste regel van de app)"
-    )
+    terminalreporter.section(f"stilstanden van de event loop (> {round(loop_watch.LIMIT * 1000)} ms, binnenste regel van de app)")
     for line in lines:
         terminalreporter.write_line(line)

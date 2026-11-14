@@ -15,6 +15,7 @@ opslaan vervangen door `[verborgen]`, in de URL, het verzoek én het antwoord. H
 Bodies zijn ingekort en na `MEALIESHOPPER_AUDIT_RETENTION_DAYS` dagen (standaard 30) wist de app alles.
 Alleen de beheerder kan de log lezen of wissen.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -56,7 +57,23 @@ MAX_PARSE_BYTES = 1_000_000  # grotere antwoorden knippen we in zonder ze te ont
 PAGE_SIZE = 50
 MAX_PAGE_SIZE = 200
 MAX_EXPORT = 5000  # zoveel regels (de nieuwste) in één export
-CSV_COLUMNS = ("id", "ts", "kind", "service", "action", "method", "url", "status", "ok", "durationMs", "actor", "corr", "error", "request", "response")
+CSV_COLUMNS = (
+    "id",
+    "ts",
+    "kind",
+    "service",
+    "action",
+    "method",
+    "url",
+    "status",
+    "ok",
+    "durationMs",
+    "actor",
+    "corr",
+    "error",
+    "request",
+    "response",
+)
 
 # Welke host bij welke dienst hoort.
 SERVICE_DOMAINS: dict[str, tuple[str, ...]] = {
@@ -123,6 +140,7 @@ CREATE INDEX IF NOT EXISTS audit_log_ts ON audit_log (ts);
 
 # --- instellingen ----------------------------------------------------------------------------------
 
+
 def enabled() -> bool:
     return environ.get("MEALIESHOPPER_AUDIT_LOG", "true").strip().lower() not in OFF
 
@@ -152,9 +170,13 @@ def settings_payload() -> dict[str, Any]:
 
 # --- afschermen ------------------------------------------------------------------------------------
 
+
 def _redact_value(value: Any) -> Any:
     if isinstance(value, dict):
-        return {k: (HIDDEN if isinstance(k, str) and _SENSITIVE_KEY.search(k) and v not in (None, "", [], {}) else _redact_value(v)) for k, v in value.items()}
+        return {
+            k: (HIDDEN if isinstance(k, str) and _SENSITIVE_KEY.search(k) and v not in (None, "", [], {}) else _redact_value(v))
+            for k, v in value.items()
+        }
     if isinstance(value, list):
         return [_redact_value(item) for item in value]
     return value
@@ -231,6 +253,7 @@ def service_for(url: str) -> str:
 
 # --- opslag ----------------------------------------------------------------------------------------
 
+
 def _now() -> str:
     return auth.utcnow().isoformat()
 
@@ -262,8 +285,22 @@ def _row_values(
 ) -> tuple[str | int | None, ...]:
     """De waarden voor `_INSERT_SQL`, ingekort en geredigeerd. Voor `record`."""
     return (
-        _now(), kind, service, action[:200], method, url[:2000], status, 1 if ok else 0, int(duration_ms), actor[:200], corr,
-        request_body, response_body, req_bytes, resp_bytes, redact_text(error)[:500],
+        _now(),
+        kind,
+        service,
+        action[:200],
+        method,
+        url[:2000],
+        status,
+        1 if ok else 0,
+        int(duration_ms),
+        actor[:200],
+        corr,
+        request_body,
+        response_body,
+        req_bytes,
+        resp_bytes,
+        redact_text(error)[:500],
         json.dumps(detail, ensure_ascii=False) if detail else "",
     )
 
@@ -310,9 +347,22 @@ async def record(
     if not enabled():
         return None
     values: tuple[str | int | None, ...] = _row_values(
-        kind=kind, service=service, action=action, method=method, url=url, status=status, ok=ok, duration_ms=duration_ms,
-        actor=actor, corr=corr, request_body=request_body, response_body=response_body, req_bytes=req_bytes,
-        resp_bytes=resp_bytes, error=error, detail=detail,
+        kind=kind,
+        service=service,
+        action=action,
+        method=method,
+        url=url,
+        status=status,
+        ok=ok,
+        duration_ms=duration_ms,
+        actor=actor,
+        corr=corr,
+        request_body=request_body,
+        response_body=response_body,
+        req_bytes=req_bytes,
+        resp_bytes=resp_bytes,
+        error=error,
+        detail=detail,
     )
     try:
         if tasks.stopped():
@@ -535,6 +585,7 @@ auth.remember_cache(_retire_writers)
 
 # --- herkomst --------------------------------------------------------------------------------------
 
+
 async def current_actor() -> str:
     """`mcp:<app>` binnen een MCP-aanroep, `app:<gebruiker>` voor een scherm in de app, anders `system`."""
     actor = _actor.get()
@@ -560,6 +611,7 @@ def login_proxy() -> Iterator[None]:
 
 
 # --- uitgaand verkeer ------------------------------------------------------------------------------
+
 
 def _action_for(method: str, url: str, request_json: Any) -> str:
     if isinstance(request_json, dict) and isinstance(request_json.get("operationName"), str):
@@ -782,6 +834,7 @@ def httpx_hooks() -> dict[str, list[HttpxHook]]:
 
 # --- MCP en OAuth ----------------------------------------------------------------------------------
 
+
 def _rpc_text(result: dict[str, Any]) -> str:
     return "\n".join(str(part.get("text", "")) for part in result.get("content") or [] if isinstance(part, dict))
 
@@ -803,7 +856,16 @@ def _mcp_actor(identity: dict[str, Any] | None) -> str:
     return f"mcp:{app_name}" if app_name else "mcp"
 
 
-def _mcp_fields(rpc: str, params: dict[str, Any], identity: dict[str, Any] | None, actor: str, corr: str, started: float, reply: dict[str, Any] | None, failure: BaseException | None) -> dict[str, Any]:
+def _mcp_fields(
+    rpc: str,
+    params: dict[str, Any],
+    identity: dict[str, Any] | None,
+    actor: str,
+    corr: str,
+    started: float,
+    reply: dict[str, Any] | None,
+    failure: BaseException | None,
+) -> dict[str, Any]:
     """De velden van de regel voor een verwerkt MCP-bericht."""
     identity = identity or {}
     tool = str(params.get("name") or "") if rpc == "tools/call" else ""
@@ -852,7 +914,9 @@ def _mcp_fields(rpc: str, params: dict[str, Any], identity: dict[str, Any] | Non
     }
 
 
-async def mcp_message(message: Any, handler: Callable[[Any], Awaitable[dict[str, Any] | None]], identity: dict[str, Any] | None) -> dict[str, Any] | None:
+async def mcp_message(
+    message: Any, handler: Callable[[Any], Awaitable[dict[str, Any] | None]], identity: dict[str, Any] | None
+) -> dict[str, Any] | None:
     """Verwerk één JSON-RPC-bericht en leg het vast, met de winkelverzoeken die eruit volgen."""
     rpc, params = _mcp_parts(message)
     if not enabled() or _mcp_unlogged(rpc):
@@ -942,6 +1006,7 @@ async def _log_oauth(response):
 
 
 # --- lezen en wissen -------------------------------------------------------------------------------
+
 
 def _row(row, *, full: bool) -> dict[str, Any]:
     try:
@@ -1101,11 +1166,17 @@ def register_routes(app: Quart) -> None:
             query=request.args.get("q", "").strip()[:100],
         )
         user = await auth.current_user()
-        await record(kind="audit", service="audit", action="log exported", actor=f"app:{user['username']}" if user else "app", detail={"entries": len(entries)})
+        await record(
+            kind="audit", service="audit", action="log exported", actor=f"app:{user['username']}" if user else "app", detail={"entries": len(entries)}
+        )
         stamp = auth.utcnow().strftime("%Y%m%d-%H%M%S")
         # Tot MAX_EXPORT regels omzetten is rekenwerk van een paar MB: in een thread, de event loop bedient intussen de rest.
         if request.args.get("format") == "csv":
-            body, mimetype, name = "\ufeff" + await asyncio.to_thread(entries_csv, entries), "text/csv", f"mealieshopper-audit-{stamp}.csv"  # BOM: Excel leest anders de accenten verkeerd
+            body, mimetype, name = (
+                "\ufeff" + await asyncio.to_thread(entries_csv, entries),
+                "text/csv",
+                f"mealieshopper-audit-{stamp}.csv",
+            )  # BOM: Excel leest anders de accenten verkeerd
         else:
             exported: dict[str, Any] = {"exportedAt": _now(), "entries": entries}
             body = await asyncio.to_thread(json.dumps, exported, ensure_ascii=False, indent=1)

@@ -12,6 +12,7 @@ Heb je een API-sleutel ingevuld (zie `ai_review.py`), dan kan de beheerder met e
 Een ronde duurt meerdere aanvragen en loopt daarom op de achtergrond (`start`, `progress`). Er gaat alleen tekst van producten en
 ingrediënten naar de aanbieder, geen recepttitels, namen of adressen, en alleen als de beheerder op de knop drukt.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -141,10 +142,17 @@ async def plan(store: Any, max_recipes: Any = DEFAULT_MAX_RECIPES) -> dict[str, 
     chosen = todo[:limit]
     chunks = (len(chosen) + GROUP_SIZE - 1) // GROUP_SIZE
     offer_tokens = len(offers_text(items)) / CHARS_PER_TOKEN
-    recipe_tokens = sum(len(recipes_text(chosen[i:i + GROUP_SIZE])) for i in range(0, len(chosen), GROUP_SIZE)) / CHARS_PER_TOKEN
+    recipe_tokens = sum(len(recipes_text(chosen[i : i + GROUP_SIZE])) for i in range(0, len(chosen), GROUP_SIZE)) / CHARS_PER_TOKEN
     return {
-        "store": store, "recipes": total, "todo": len(todo), "chosen": len(chosen), "chunks": chunks, "offers": len(items),
-        "estimatedTokens": int(chunks * (offer_tokens + ANSWER_TOKENS) + recipe_tokens), "maxRecipes": limit, "maxAllowed": MAX_RECIPES,
+        "store": store,
+        "recipes": total,
+        "todo": len(todo),
+        "chosen": len(chosen),
+        "chunks": chunks,
+        "offers": len(items),
+        "estimatedTokens": int(chunks * (offer_tokens + ANSWER_TOKENS) + recipe_tokens),
+        "maxRecipes": limit,
+        "maxAllowed": MAX_RECIPES,
     }
 
 
@@ -182,20 +190,40 @@ def _valid_matches(entry: Any, recipe: dict[str, Any], product_count: int) -> li
     return result
 
 
-async def _save_group(store: str, group: list[dict[str, Any]], answers: dict[int, list[tuple[int, int]]], items: list[dict[str, Any]],
-                synced_at: str, provider: str, model: str) -> int:
+async def _save_group(
+    store: str,
+    group: list[dict[str, Any]],
+    answers: dict[int, list[tuple[int, int]]],
+    items: list[dict[str, Any]],
+    synced_at: str,
+    provider: str,
+    model: str,
+) -> int:
     """Bewaart de doorzochte recepten van een groep (een recept vervangt zijn vorige resultaat) en geeft het aantal koppelingen."""
     now, matched = _now(), 0
     async with offers._connect() as conn:
         for number, found in answers.items():
             recipe = group[number - 1]
-            await conn.execute("DELETE FROM ai_recipe_matches WHERE store = ? AND source = ? AND recipe_id = ?", (store, recipe["source"], recipe["id"]))
+            await conn.execute(
+                "DELETE FROM ai_recipe_matches WHERE store = ? AND source = ? AND recipe_id = ?", (store, recipe["source"], recipe["id"])
+            )
             for line, product in found:
                 offer = items[product - 1]
                 await conn.execute(
                     "INSERT INTO ai_recipe_matches (store, source, recipe_id, line_index, ingredient, product_id, product_title, provider, model, matched_at) "
                     "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                    (store, recipe["source"], recipe["id"], line - 1, recipe["ingredients"][line - 1], str(offer["id"]), offer["title"], provider, model, now),
+                    (
+                        store,
+                        recipe["source"],
+                        recipe["id"],
+                        line - 1,
+                        recipe["ingredients"][line - 1],
+                        str(offer["id"]),
+                        offer["title"],
+                        provider,
+                        model,
+                        now,
+                    ),
                 )
             await conn.execute(
                 "INSERT INTO ai_recipe_runs (store, source, recipe_id, offers_synced_at, ingredients_hash, matched_count, provider, model, searched_at) "
@@ -230,7 +258,7 @@ async def search(store: Any, max_recipes: Any = DEFAULT_MAX_RECIPES, progress: C
     prefix = offers_text(items)
     result: dict[str, Any] = {"store": store, "provider": provider, "model": model, "searched": 0, "matched": 0, "tokens": 0, "error": ""}
     for start in range(0, len(chosen), GROUP_SIZE):
-        group = chosen[start:start + GROUP_SIZE]
+        group = chosen[start : start + GROUP_SIZE]
         try:
             data, tokens = await ai_review._call(
                 provider, key, model, SYSTEM_PROMPT, recipes_text(group), schema=SEARCH_SCHEMA, tool=TOOL, prefix=prefix, max_tokens=MAX_ANSWER_TOKENS

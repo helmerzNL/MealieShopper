@@ -15,6 +15,7 @@ stuurt: de naam van het ingrediënt uit Mealie (`food.name`), en bij een ingredi
 Beide tabellen zijn werk van de gebruiker en gaan mee in de back-up (`backup.DATA_TABLES`); een gebruiker die wordt verwijderd
 neemt zijn rijen mee (`remove_user`).
 """
+
 from __future__ import annotations
 
 from collections.abc import AsyncIterator, Iterable
@@ -121,7 +122,16 @@ async def remember(user_id: str, store: Any, items: Iterable[Any], now: str | No
         title = _text(item.get("title"), MAX_NAME_CHARS)
         if not ingredient or not product_id or not title:
             continue
-        rows[ingredient] = (user_id, key_store, ingredient, product_id, title, _text(item.get("unitSize"), MAX_SIZE_CHARS) or None, _image(item.get("image")), stamp)
+        rows[ingredient] = (
+            user_id,
+            key_store,
+            ingredient,
+            product_id,
+            title,
+            _text(item.get("unitSize"), MAX_SIZE_CHARS) or None,
+            _image(item.get("image")),
+            stamp,
+        )
     if not rows:
         return 0
     async with _connect() as conn:

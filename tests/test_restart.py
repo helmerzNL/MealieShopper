@@ -58,13 +58,9 @@ def local_command(port: int) -> list[str]:
     return [sys.executable, "-m", "hypercorn", *middle, "restart_app:app"]
 
 
-def request(
-    port: int, path: str, body: dict[str, str] | None = None
-) -> tuple[int, str]:
+def request(port: int, path: str, body: dict[str, str] | None = None) -> tuple[int, str]:
     data: bytes | None = json.dumps(body).encode() if body is not None else None
-    made: urllib.request.Request = urllib.request.Request(
-        f"http://127.0.0.1:{port}{path}", data=data, method="POST" if data else "GET"
-    )
+    made: urllib.request.Request = urllib.request.Request(f"http://127.0.0.1:{port}{path}", data=data, method="POST" if data else "GET")
     made.add_header("Content-Type", "application/json")
     with urllib.request.urlopen(made, timeout=5) as response:
         status: int = response.status
@@ -76,9 +72,7 @@ def wait_until_up(port: int, process: subprocess.Popen[str]) -> None:
     deadline: float = time.monotonic() + WAIT
     while time.monotonic() < deadline:
         if process.poll() is not None:
-            raise AssertionError(
-                f"hypercorn stopte bij het starten: {process.communicate()[1]}"
-            )
+            raise AssertionError(f"hypercorn stopte bij het starten: {process.communicate()[1]}")
         try:
             if request(port, "/healthz")[0] == 200:
                 return

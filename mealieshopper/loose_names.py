@@ -52,9 +52,7 @@ ROUND_DEADLINE_SECONDS: int = 6 * 3600
 
 Search = Callable[[str, int], Awaitable[list[dict[str, Any]]]]
 STORES: tuple[str, ...] = product_links.STORES
-BLOCKED_STATUSES: frozenset[int] = frozenset(
-    {403, 429}
-)  # een firewall of te veel verzoeken: niet aandringen
+BLOCKED_STATUSES: frozenset[int] = frozenset({403, 429})  # een firewall of te veel verzoeken: niet aandringen
 SETTING_PAUSED_PREFIX: str = "loose_names_paused_until_"  # plus de winkel, niet bij AH (die heeft `ah_orders.pause`)
 MAX_KEY_CHARS: int = 400
 PAGE_SIZE: int = 30
@@ -84,9 +82,7 @@ CREATE TABLE IF NOT EXISTS loose_names (
 
 # Een koppeling van een mens (`manual` of `confirmed`) op een van de schrijfwijzen van een naam. `{marks}` is een `?` per
 # schrijfwijze (`product_links.fold`), na de winkel.
-_HUMAN_LINK_SQL: str = (
-    "SELECT 1 FROM product_links WHERE store = ? AND kind = 'name' AND origin IN ('manual', 'confirmed') AND key IN ({marks})"
-)
+_HUMAN_LINK_SQL: str = "SELECT 1 FROM product_links WHERE store = ? AND kind = 'name' AND origin IN ('manual', 'confirmed') AND key IN ({marks})"
 
 # Een nieuwe uitkomst van de ronde, in een opdracht: een afwijzing (`reject`) of een bevestiging (`confirm`) die de gebruiker gaf
 # terwijl de ronde de naam opzocht, blijft staan. Parameters: de zeven kolommen, dan de winkel en de schrijfwijzen van `{marks}`.
@@ -130,9 +126,7 @@ def _clock() -> float:
 # --- een ronde per winkel tegelijk -----------------------------------------------------------------------------------------
 # Een `asyncio.Lock` hoort bij de event loop waarin hij voor het eerst wacht. In de app is er een loop per proces, de tests
 # draaien elk een eigen loop (zoals `ah_orders._lock`).
-_LOCKS: weakref.WeakKeyDictionary[
-    asyncio.AbstractEventLoop, dict[str, asyncio.Lock]
-] = weakref.WeakKeyDictionary()
+_LOCKS: weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, dict[str, asyncio.Lock]] = weakref.WeakKeyDictionary()
 
 
 def _lock(store: str) -> asyncio.Lock:
@@ -192,9 +186,7 @@ async def _pause(store: str, now: str, status: int) -> str:
     """Zet het zoeken bij `store` `BACKOFF_HOURS` uur stil. Bij AH de bestaande pauze (`ah_orders.pause`). Geeft het einde."""
     if store == "ah":
         return await ah_orders.pause(now, status)
-    until: str = (
-        datetime.fromisoformat(now) + timedelta(hours=BACKOFF_HOURS)
-    ).isoformat(timespec="seconds")
+    until: str = (datetime.fromisoformat(now) + timedelta(hours=BACKOFF_HOURS)).isoformat(timespec="seconds")
     await auth.set_setting(SETTING_PAUSED_PREFIX + store, until)
     return until
 
@@ -204,9 +196,7 @@ async def _pause(store: str, now: str, status: int) -> str:
 
 async def _states(store: str) -> dict[str, aiosqlite.Row]:
     async with _connect() as conn:
-        rows: list[aiosqlite.Row] = list(
-            await conn.execute_fetchall("SELECT * FROM loose_names WHERE store = ?", (store,))
-        )
+        rows: list[aiosqlite.Row] = list(await conn.execute_fetchall("SELECT * FROM loose_names WHERE store = ?", (store,)))
     return {row["key"]: row for row in rows}
 
 
@@ -219,19 +209,13 @@ def _json(value: Any, kind: type) -> Any:
     return found if isinstance(found, kind) else None
 
 
-def _due(
-    loose: list[dict[str, Any]], states: dict[str, aiosqlite.Row], now: str
-) -> list[dict[str, Any]]:
+def _due(loose: list[dict[str, Any]], states: dict[str, aiosqlite.Row], now: str) -> list[dict[str, Any]]:
     """De losse namen die de ronde nu mag opzoeken: niet afgewezen en niet korter dan `RECHECK_DAYS` geleden opgezocht."""
-    since: str = (datetime.fromisoformat(now) - timedelta(days=RECHECK_DAYS)).isoformat(
-        timespec="seconds"
-    )
+    since: str = (datetime.fromisoformat(now) - timedelta(days=RECHECK_DAYS)).isoformat(timespec="seconds")
     found: list[dict[str, Any]] = []
     for entry in loose:
         state: aiosqlite.Row | None = states.get(entry["key"])
-        if state is None or (
-            state["outcome"] != "rejected" and state["checked_at"] <= since
-        ):
+        if state is None or (state["outcome"] != "rejected" and state["checked_at"] <= since):
             found.append(entry)
     return found
 
@@ -247,9 +231,7 @@ def _folded(entry: dict[str, Any]) -> list[str]:
     return [product_links.fold(spelling) for spelling in entry["spellings"]]
 
 
-async def _open_state(
-    store: str, entry: dict[str, Any]
-) -> tuple[bool, str | None, str | None]:
+async def _open_state(store: str, entry: dict[str, Any]) -> tuple[bool, str | None, str | None]:
     """(staat de naam nog open, de bewaarde uitkomst, het bewaarde voorstel). Dicht is een naam die de gebruiker afwees of zelf
     koppelde terwijl de ronde hem opzocht: die krijgt geen koppeling en geen nieuwe stand."""
     folded: list[str] = _folded(entry)
@@ -257,9 +239,7 @@ async def _open_state(
         row: aiosqlite.Row | None = await auth.fetchone(
             conn, "SELECT outcome, proposal FROM loose_names WHERE store = ? AND key = ?", (store, entry["key"])
         )
-        human: aiosqlite.Row | None = await auth.fetchone(
-            conn, _HUMAN_LINK_SQL.format(marks=",".join("?" * len(folded))), (store, *folded)
-        )
+        human: aiosqlite.Row | None = await auth.fetchone(conn, _HUMAN_LINK_SQL.format(marks=",".join("?" * len(folded))), (store, *folded))
     rejected: bool = row is not None and row["outcome"] == "rejected"
     return (
         not rejected and human is None,
@@ -295,8 +275,15 @@ async def _settle(store: str, entry: dict[str, Any], products: list[Any], now: s
             await product_links.save(store, spelling, kept[0], now=now, origin="exact")
     folded: list[str] = _folded(entry)
     values: tuple[Any, ...] = (
-        store, entry["key"], entry["name"], now, outcome, json.dumps(kept, ensure_ascii=False), kept_proposal(old_proposal, kept),
-        store, *folded,
+        store,
+        entry["key"],
+        entry["name"],
+        now,
+        outcome,
+        json.dumps(kept, ensure_ascii=False),
+        kept_proposal(old_proposal, kept),
+        store,
+        *folded,
     )
     async with _connect() as conn:
         await conn.execute(_UPSERT_SQL.format(marks=",".join("?" * len(folded))), values)
@@ -340,9 +327,7 @@ async def _search(store: str, search: Search, name: str, now: str) -> list[Any]:
     else:
         found = await _unless_paused(store, search, name, now)
     if not isinstance(found, list):
-        raise TypeError(
-            f"search_products gaf {type(found).__name__} in plaats van een lijst"
-        )
+        raise TypeError(f"search_products gaf {type(found).__name__} in plaats van een lijst")
     return found
 
 
@@ -406,18 +391,14 @@ def _counts(stopped: str | None = None) -> dict[str, Any]:
     return {"searches": 0, "exact": 0, "candidates": 0, "missing": 0, "stopped": stopped}
 
 
-async def _round(
-    store: str, fixed: str | None, searches: int, search: Search
-) -> dict[str, Any]:
+async def _round(store: str, fixed: str | None, searches: int, search: Search) -> dict[str, Any]:
     result: dict[str, Any] = _counts()
     start: str = fixed or _now()
     if await paused_until(store, start):
         return {**result, "stopped": "blocked"}
     deadline: float = _clock() + ROUND_DEADLINE_SECONDS
     for entry in await due(store, start, searches):
-        stopped: str | None = await _look_up(
-            store, entry, fixed, search, result, deadline
-        )
+        stopped: str | None = await _look_up(store, entry, fixed, search, result, deadline)
         if stopped:
             return {**result, "stopped": stopped}
     return result
@@ -441,9 +422,7 @@ async def run_round(
     if lock.locked():
         return _counts("running")
     async with lock:
-        return await _round(
-            key_store, now, max(0, int(searches)), search or _default_search(key_store)
-        )
+        return await _round(key_store, now, max(0, int(searches)), search or _default_search(key_store))
 
 
 # --- de keuze van de gebruiker -------------------------------------------------------------------------------------------------
@@ -455,9 +434,7 @@ async def confirm(store: Any, key: Any, product_id: Any) -> dict[str, Any]:
     key_store: str
     text: str
     key_store, text = _identity(store, key)
-    chosen_id: str = " ".join(str(product_id or "").split())[
-        : product_links.MAX_ID_CHARS
-    ]
+    chosen_id: str = " ".join(str(product_id or "").split())[: product_links.MAX_ID_CHARS]
     entry: dict[str, Any] | None = next(
         (e for e in await prices.loose_import_names(key_store) if e["key"] == text),
         None,
@@ -488,9 +465,7 @@ async def confirm(store: Any, key: Any, product_id: Any) -> dict[str, Any]:
     for spelling in entry["spellings"]:
         link = await product_links.save(key_store, spelling, chosen, origin="confirmed")
     async with _connect() as conn:
-        await conn.execute(
-            "DELETE FROM loose_names WHERE store = ? AND key = ?", (key_store, text)
-        )
+        await conn.execute("DELETE FROM loose_names WHERE store = ? AND key = ?", (key_store, text))
         await conn.commit()
     return link
 
@@ -546,13 +521,9 @@ def _card(entry: dict[str, Any], state: aiosqlite.Row) -> dict[str, Any]:
     }
 
 
-def _listed(
-    loose: list[dict[str, Any]], states: dict[str, aiosqlite.Row], outcome: str
-) -> list[dict[str, Any]]:
+def _listed(loose: list[dict[str, Any]], states: dict[str, aiosqlite.Row], outcome: str) -> list[dict[str, Any]]:
     return [
-        {"key": e["key"], "name": e["name"], "bought": e["bought"]}
-        for e in loose
-        if e["key"] in states and states[e["key"]]["outcome"] == outcome
+        {"key": e["key"], "name": e["name"], "bought": e["bought"]} for e in loose if e["key"] in states and states[e["key"]]["outcome"] == outcome
     ]
 
 
@@ -566,11 +537,7 @@ async def page(store: Any, offset: int = 0, limit: int = PAGE_SIZE) -> dict[str,
     now: str = _now()
     loose: list[dict[str, Any]] = await prices.loose_import_names(key_store)
     states: dict[str, aiosqlite.Row] = await _states(key_store)
-    cards: list[dict[str, Any]] = [
-        _card(e, states[e["key"]])
-        for e in loose
-        if e["key"] in states and states[e["key"]]["outcome"] in CARD_OUTCOMES
-    ]
+    cards: list[dict[str, Any]] = [_card(e, states[e["key"]]) for e in loose if e["key"] in states and states[e["key"]]["outcome"] in CARD_OUTCOMES]
     return {
         "cards": cards[start : start + size],
         "total": len(cards),
@@ -587,11 +554,7 @@ async def page(store: Any, offset: int = 0, limit: int = PAGE_SIZE) -> dict[str,
 
 async def _linked_stores() -> list[str]:
     """De winkels van `product_links.STORES` die gekoppeld zijn, met dezelfde controle als de nachtelijke synchronisatie."""
-    return [
-        s.name
-        for s in purchase_sync._STORES
-        if s.name in STORES and await purchase_sync._is_linked(s)
-    ]
+    return [s.name for s in purchase_sync._STORES if s.name in STORES and await purchase_sync._is_linked(s)]
 
 
 async def _round_of(store: str, now: str | None) -> dict[str, Any]:
@@ -615,9 +578,7 @@ async def _proposals_of(store: str) -> dict[str, Any] | None:
         return {"error": str(exc) or type(exc).__name__}
 
 
-async def run_all_stores(
-    trigger: str, now: str | None = None, only: str | None = None
-) -> dict[str, Any]:
+async def run_all_stores(trigger: str, now: str | None = None, only: str | None = None) -> dict[str, Any]:
     """Loop de ronde voor elke gekoppelde winkel (of alleen `only`), na elkaar, daarna de voorstellen van de AI als die aan staan.
     De uitkomst, {at, trigger, stores: {winkel: ronde plus eventueel "ai"}}, gaat naar de instelling `loose_names_last_round`."""
     names: list[str] = [_store(only)] if only else await _linked_stores()

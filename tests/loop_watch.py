@@ -69,9 +69,7 @@ def drain() -> list[loop_guard.Stall]:
 
 def install() -> None:
     """Verpakt `run_forever`: bewaker aan, het origineel, bewaker uit. Een tweede aanroep doet niets."""
-    original: Callable[[asyncio.BaseEventLoop], None] = (
-        asyncio.base_events.BaseEventLoop.run_forever
-    )
+    original: Callable[[asyncio.BaseEventLoop], None] = asyncio.base_events.BaseEventLoop.run_forever
     if MODE == "off" or getattr(original, WRAPPED_ATTRIBUTE, False):
         return
     GC.start()
@@ -158,14 +156,10 @@ def summary_lines(reported: list[Reported] | None = None) -> list[str]:
     for entry in items:
         frames: tuple[loop_guard.Frame, ...] = entry.stall.app_frames
         groups.setdefault(frames[-1].short() if frames else "?", []).append(entry)
-    ordered: list[tuple[str, list[Reported]]] = sorted(
-        groups.items(), key=lambda pair: -max(entry.stall.seconds for entry in pair[1])
-    )
+    ordered: list[tuple[str, list[Reported]]] = sorted(groups.items(), key=lambda pair: -max(entry.stall.seconds for entry in pair[1]))
     lines: list[str] = []
     for where, entries in ordered:
         tests: set[str] = {entry.test for entry in entries}
         longest: float = max(entry.stall.seconds for entry in entries)
-        lines.append(
-            f"{round(longest * 1000):>6} ms  {len(tests):>3} tests  {len(entries):>3}x  {where}"
-        )
+        lines.append(f"{round(longest * 1000):>6} ms  {len(tests):>3} tests  {len(entries):>3}x  {where}")
     return lines

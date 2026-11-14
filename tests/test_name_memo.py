@@ -37,9 +37,7 @@ MEMOISED: list[Callable[..., Any]] = [
 def names(count: int = 500) -> list[str]:
     """Namen uit de volumedatabase, met een paar die niet gewoon zijn: accenten, een dubbel merk, een lijst, een maat."""
     rng: random.Random = random.Random(6)
-    found: list[str] = [
-        product.title for product in volume.products(rng, "ah", count - 6)
-    ]
+    found: list[str] = [product.title for product in volume.products(rng, "ah", count - 6)]
     found += [
         "AH Ah zachte spinazie",
         "Crème fraîche 200 g",
@@ -55,17 +53,13 @@ def names(count: int = 500) -> list[str]:
 def test_the_memo_gives_the_same_answer(function: Callable[..., Any]) -> None:
     for name in names():
         assert function(name) == function.__wrapped__(name), name
-        assert function(name) == function.__wrapped__(name), (
-            name
-        )  # de tweede keer komt uit het geheugen
+        assert function(name) == function.__wrapped__(name), name  # de tweede keer komt uit het geheugen
 
 
 def test_offer_category_gives_the_same_answer() -> None:
     for store, name in ((store, name) for store in ("ah", "jumbo") for name in names()):
         for hint in ("", "Zuivel", "Drogisterij, baby", None):
-            assert offer_categories.offer_category(
-                store, name, hint
-            ) == offer_categories.offer_category.__wrapped__(store, name, hint), (
+            assert offer_categories.offer_category(store, name, hint) == offer_categories.offer_category.__wrapped__(store, name, hint), (
                 store,
                 name,
                 hint,

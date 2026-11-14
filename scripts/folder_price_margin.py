@@ -31,16 +31,20 @@ PURCHASE_SQL: dict[str, tuple[tuple[str, tuple[str, ...], str], ...]] = {
         (
             "bestelling",
             ("ah_order_items", "ah_orders"),
-            ("SELECT CAST(i.product_id AS TEXT) AS product_id, i.title AS title, i.unit_size AS unit_size "
-             "FROM ah_order_items i JOIN ah_orders o ON o.order_id = i.order_id "
-             "WHERE o.kind = 'delivered' AND i.product_id IS NOT NULL AND i.product_id != 0"),
+            (
+                "SELECT CAST(i.product_id AS TEXT) AS product_id, i.title AS title, i.unit_size AS unit_size "
+                "FROM ah_order_items i JOIN ah_orders o ON o.order_id = i.order_id "
+                "WHERE o.kind = 'delivered' AND i.product_id IS NOT NULL AND i.product_id != 0"
+            ),
         ),
         (
             "kassabon",
             ("ah_receipt_items", "ah_receipts"),
-            ("SELECT CASE WHEN l.product_id IS NULL OR l.product_id = 0 THEN NULL ELSE CAST(l.product_id AS TEXT) END AS product_id, "
-             "l.name AS title, NULL AS unit_size "
-             "FROM ah_receipt_items l JOIN ah_receipts r ON r.receipt_id = l.receipt_id WHERE COALESCE(l.name, '') != ''"),
+            (
+                "SELECT CASE WHEN l.product_id IS NULL OR l.product_id = 0 THEN NULL ELSE CAST(l.product_id AS TEXT) END AS product_id, "
+                "l.name AS title, NULL AS unit_size "
+                "FROM ah_receipt_items l JOIN ah_receipts r ON r.receipt_id = l.receipt_id WHERE COALESCE(l.name, '') != ''"
+            ),
         ),
         (
             "import",
@@ -52,9 +56,11 @@ PURCHASE_SQL: dict[str, tuple[tuple[str, tuple[str, ...], str], ...]] = {
         (
             "bestelling",
             ("jumbo_order_items", "jumbo_orders"),
-            ("SELECT CAST(i.product_id AS TEXT) AS product_id, i.title AS title, i.unit_size AS unit_size "
-             "FROM jumbo_order_items i JOIN jumbo_orders o ON o.order_id = i.order_id "
-             "WHERE o.kind = 'delivered' AND i.product_id IS NOT NULL"),
+            (
+                "SELECT CAST(i.product_id AS TEXT) AS product_id, i.title AS title, i.unit_size AS unit_size "
+                "FROM jumbo_order_items i JOIN jumbo_orders o ON o.order_id = i.order_id "
+                "WHERE o.kind = 'delivered' AND i.product_id IS NOT NULL"
+            ),
         ),
         (
             "import",
@@ -67,38 +73,27 @@ PURCHASE_SQL: dict[str, tuple[tuple[str, tuple[str, ...], str], ...]] = {
 
 def open_readonly(path: str) -> sqlite3.Connection:
     """De database alleen-lezen: een schrijfpoging geeft een OperationalError."""
-    conn: sqlite3.Connection = sqlite3.connect(
-        Path(path).resolve().as_uri() + "?mode=ro", uri=True
-    )
+    conn: sqlite3.Connection = sqlite3.connect(Path(path).resolve().as_uri() + "?mode=ro", uri=True)
     conn.row_factory = sqlite3.Row
     return conn
 
 
 def tables(conn: sqlite3.Connection) -> set[str]:
-    return {
-        row[0]
-        for row in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
-    }
+    return {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
 
 
 def is_multi_buy(offer: dict[str, Any]) -> bool:
     """Heeft de aanbieding een minimumaantal boven 1? Volgens `deals.describe`, of in de vorm "N voor: ..." van een foldertekst."""
     for item in offer["rows"]:
         label: str | None = item["promo_label"]
-        described: dict[str, Any] = deals.describe(
-            label, price_now=item["price"], price_before=item["price_before"]
-        )
+        described: dict[str, Any] = deals.describe(label, price_now=item["price"], price_before=item["price_before"])
         found: re.Match[str] | None = MULTI_BUY_COLON.search(str(label or "").lower())
-        if (described["minQuantity"] or 1) > 1 or (
-            found is not None and int(found.group(1)) > 1
-        ):
+        if (described["minQuantity"] or 1) > 1 or (found is not None and int(found.group(1)) > 1):
             return True
     return False
 
 
-def offers_per_product(
-    conn: sqlite3.Connection, store: str
-) -> tuple[int, dict[str, list[dict[str, Any]]]]:
+def offers_per_product(conn: sqlite3.Connection, store: str) -> tuple[int, dict[str, list[dict[str, Any]]]]:
     """Het aantal gelezen rijen en per product de aanbiedingen (`price_drift.chain_offers`).
 
     Rijen met een productnummer zonder `folder:`, ook die het prijsarchief al aan een echt product koppelde (zoals
@@ -149,10 +144,7 @@ def drift_section(title: str, stats: dict[str, Any]) -> list[str]:
         "| Afstand | Paren | p50 | p90 | p95 |",
         "|---|---|---|---|---|",
     ]
-    lines += [
-        f"| {r['gap']} | {r['count']} | {percent(r['p50'])} | {percent(r['p90'])} | {percent(r['p95'])} |"
-        for r in stats["summary"]
-    ]
+    lines += [f"| {r['gap']} | {r['count']} | {percent(r['p50'])} | {percent(r['p90'])} | {percent(r['p95'])} |" for r in stats["summary"]]
     return lines + [
         "",
         f"- Aanbiedingen na samenvoegen van ketens: {stats['offers']}",
@@ -168,18 +160,13 @@ def folder_lines(conn: sqlite3.Connection, store: str) -> list[dict[str, Any]]:
     """De folderregels van een winkel (`product_id` begint met `folder:`), als dicts voor `price_archive_tidy`."""
     if "offer_history" not in tables(conn):
         return []
-    sql: str = (
-        "SELECT product_id, title, unit_size, price_before, promo_label FROM offer_history "
-        "WHERE store = ? AND product_id LIKE 'folder:%'"
-    )
+    sql: str = "SELECT product_id, title, unit_size, price_before, promo_label FROM offer_history WHERE store = ? AND product_id LIKE 'folder:%'"
     return [dict(found) for found in conn.execute(sql, (store,))]
 
 
 def line_pack(line: dict[str, Any]) -> Any:
     """De verpakking van een regel (`price_archive_tidy.size`): uit `unit_size`, anders uit de titel. None als ze niet leesbaar is."""
-    return price_archive_tidy.size(line["unit_size"] or "") or price_archive_tidy.size(
-        price_archive_tidy.source_title(line)
-    )
+    return price_archive_tidy.size(line["unit_size"] or "") or price_archive_tidy.size(price_archive_tidy.source_title(line))
 
 
 def folder_counts(lines: list[dict[str, Any]]) -> dict[str, int]:
@@ -204,9 +191,7 @@ def folder_counts(lines: list[dict[str, Any]]) -> dict[str, int]:
     }
 
 
-def purchases(
-    conn: sqlite3.Connection, store: str
-) -> tuple[dict[str, set[tuple[str, Any]]], dict[str, set[tuple[str, Any]]]]:
+def purchases(conn: sqlite3.Connection, store: str) -> tuple[dict[str, set[tuple[str, Any]]], dict[str, set[tuple[str, Any]]]]:
     """De gekochte producten van de eigenaar, als (met productnummer, zonder productnummer).
 
     Beide: sleutel -> de (gevouwen naam, verpakking) waaronder het gekocht is. Met productnummer is de sleutel de bron met het
@@ -222,40 +207,26 @@ def purchases(
             if not found["title"]:
                 continue
             name: str = price_archive_tidy.fold(found["title"])
-            pack: Any = price_archive_tidy.size(
-                found["unit_size"] or ""
-            ) or price_archive_tidy.size(found["title"])
-            key: str = (
-                f"{source}:{found['product_id']}" if found["product_id"] else name
-            )
-            (numbered if found["product_id"] else unnumbered).setdefault(
-                key, set()
-            ).add((name, pack))
+            pack: Any = price_archive_tidy.size(found["unit_size"] or "") or price_archive_tidy.size(found["title"])
+            key: str = f"{source}:{found['product_id']}" if found["product_id"] else name
+            (numbered if found["product_id"] else unnumbered).setdefault(key, set()).add((name, pack))
     return numbered, unnumbered
 
 
-def match_counts(
-    lines: list[dict[str, Any]], bought: dict[str, set[tuple[str, Any]]]
-) -> dict[str, int]:
+def match_counts(lines: list[dict[str, Any]], bought: dict[str, set[tuple[str, Any]]]) -> dict[str, int]:
     """Bij hoeveel aankopen een folderregel dezelfde gevouwen naam heeft, en daarvan met gelijke verpakking.
 
     De gelijke verpakking telt alleen over aankopen met een leesbare verpakking (`readable`): een ondergrens."""
     folder_packs: dict[str, set[Any]] = {}
     for line in lines:
-        folder_packs.setdefault(
-            price_archive_tidy.fold(price_archive_tidy.source_title(line)), set()
-        ).add(line_pack(line))
+        folder_packs.setdefault(price_archive_tidy.fold(price_archive_tidy.source_title(line)), set()).add(line_pack(line))
     same_name: int = 0
     same_pack: int = 0
     readable: int = 0
     for variants in bought.values():
-        named: list[tuple[str, Any]] = [
-            (name, pack) for name, pack in variants if name in folder_packs
-        ]
+        named: list[tuple[str, Any]] = [(name, pack) for name, pack in variants if name in folder_packs]
         same_name += bool(named)
-        known: list[tuple[str, Any]] = [
-            (name, pack) for name, pack in named if pack is not None
-        ]
+        known: list[tuple[str, Any]] = [(name, pack) for name, pack in named if pack is not None]
         readable += bool(known)
         same_pack += any(pack in folder_packs[name] for name, pack in known)
     return {
@@ -277,9 +248,7 @@ def match_section(title: str, counts: dict[str, int]) -> list[str]:
 
 def store_section(conn: sqlite3.Connection, store: str) -> str:
     read, offers = offers_per_product(conn, store)
-    single: dict[str, list[dict[str, Any]]] = {
-        pid: [o for o in found if not is_multi_buy(o)] for pid, found in offers.items()
-    }
+    single: dict[str, list[dict[str, Any]]] = {pid: [o for o in found if not is_multi_buy(o)] for pid, found in offers.items()}
     lines: list[dict[str, Any]] = folder_lines(conn, store)
     counts: dict[str, int] = folder_counts(lines)
     numbered, unnumbered = purchases(conn, store)
@@ -313,9 +282,7 @@ def store_section(conn: sqlite3.Connection, store: str) -> str:
         "### Gekocht door de eigenaar",
         "",
     ]
-    out += match_section(
-        "Gekochte producten met productnummer", match_counts(lines, numbered)
-    )
+    out += match_section("Gekochte producten met productnummer", match_counts(lines, numbered))
     out += match_section(
         "Gekochte namen zonder productnummer (kassabonregels zonder id en ingelezen mails, verpakking uit de titel)",
         match_counts(lines, unnumbered),
@@ -337,10 +304,7 @@ def report(path: str) -> str:
     """Het hele rapport als Markdown."""
     conn: sqlite3.Connection = open_readonly(path)
     try:
-        return "\n".join(
-            ["# Meting prijsmarge folderregels", ""]
-            + [store_section(conn, store) for store in STORES]
-        )
+        return "\n".join(["# Meting prijsmarge folderregels", ""] + [store_section(conn, store) for store in STORES])
     finally:
         conn.close()
 

@@ -8,9 +8,9 @@ het woord "online" weg, en `key` is beide achter elkaar. Het gedeelde bestand pe
 
 from __future__ import annotations
 
-from collections.abc import Callable
 import inspect
 import threading
+from collections.abc import Callable
 from functools import update_wrapper
 from typing import Any, Generic, NamedTuple, TypeVar
 
@@ -125,7 +125,7 @@ class TextMemo(Generic[_Result]):
             args = bound.args
         if len(args) < len(self._defaults):  # `categorize(title)`, `categorize(title, "")` en `categorize(title=title)`: een sleutel
             missing: list[Any] = []
-            for default in self._defaults[len(args):]:
+            for default in self._defaults[len(args) :]:
                 if default is inspect.Parameter.empty:
                     break  # een verplichte parameter ontbreekt: de functie zelf geeft de fout
                 missing.append(default)
@@ -206,9 +206,7 @@ class TextMemo(Generic[_Result]):
 
 
 NEAR_MARK: str = "~"  # voor een sleutel van `near`: geen gevouwen naam begint zo
-NEAR_NOISE: frozenset[str] = frozenset(
-    {"online"}
-)  # "AH Les pain triomphe heel online" in een oude bevestigingsmail
+NEAR_NOISE: frozenset[str] = frozenset({"online"})  # "AH Les pain triomphe heel online" in een oude bevestigingsmail
 
 
 @memo(FOLD_SIZE)

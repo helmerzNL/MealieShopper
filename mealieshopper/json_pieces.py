@@ -18,9 +18,7 @@ import re
 from collections.abc import Callable
 from typing import Any
 
-_SPACE: re.Pattern[str] = re.compile(
-    r"[ \t\n\r]*"
-)  # de witruimte van JSON (RFC 8259), dezelfde als in `json.decoder`
+_SPACE: re.Pattern[str] = re.compile(r"[ \t\n\r]*")  # de witruimte van JSON (RFC 8259), dezelfde als in `json.decoder`
 
 Value = Callable[[str, int], tuple[Any, int]]
 
@@ -38,9 +36,7 @@ def _expect(text: str, position: int, character: str) -> int:
     return position + 1
 
 
-def _object(
-    text: str, position: int, decoder: json.JSONDecoder, value: Value
-) -> tuple[dict[str, Any], int]:
+def _object(text: str, position: int, decoder: json.JSONDecoder, value: Value) -> tuple[dict[str, Any], int]:
     """Een object vanaf `position` (de `{`), met elke waarde uit `value(sleutel, positie)`. Een sleutel die twee keer staat,
     krijgt de laatste waarde op de plek van de eerste, zoals bij `json.loads`."""
     found: dict[str, Any] = {}
@@ -49,9 +45,7 @@ def _object(
         return found, position + 1
     while True:
         if not text.startswith('"', position):
-            raise json.JSONDecodeError(
-                "Expecting property name enclosed in double quotes", text, position
-            )
+            raise json.JSONDecodeError("Expecting property name enclosed in double quotes", text, position)
         key: str
         key, position = decoder.raw_decode(text, position)
         position = _skip(text, _expect(text, position, ":"))
@@ -100,9 +94,7 @@ def _tables(text: str, position: int, decoder: json.JSONDecoder, finish: Callabl
     return _object(text, position, decoder, lambda key, at: _rows(text, at, decoder, finish))
 
 
-def loads(
-    text: str, split: str, parse_constant: Callable[[str], Any] | None = None, each: Callable[[Any], Any] | None = None
-) -> Any:
+def loads(text: str, split: str, parse_constant: Callable[[str], Any] | None = None, each: Callable[[Any], Any] | None = None) -> Any:
     """`json.loads(text, parse_constant=parse_constant)`, met de waarde van de sleutel `split` van het object bovenaan (een object
     van lijsten) een element per aanroep. `each` krijgt elk element zodra het gelezen is en geeft terug wat er in de lijst komt:
     zo hoeft de aanroeper de rijen niet allemaal tegelijk als dict te hebben. Zonder `each` is het resultaat dat van `json.loads`."""

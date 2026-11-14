@@ -30,9 +30,7 @@ def fresh_pool() -> Iterator[None]:
 
 async def test_run_returns_the_result_and_keeps_the_loop_free() -> None:
     stalls: list[loop_guard.Stall] = []
-    guard: loop_guard.LoopGuard = loop_guard.LoopGuard(
-        asyncio.get_running_loop(), 0.05, stalls.append
-    )
+    guard: loop_guard.LoopGuard = loop_guard.LoopGuard(asyncio.get_running_loop(), 0.05, stalls.append)
     guard.start()
     result: str = await compute.run(lambda: time.sleep(0.3) or "klaar")
     guard.stop()
@@ -57,9 +55,7 @@ async def test_run_raises_the_error_of_the_function() -> None:
 
 async def test_run_counts_as_a_phase_in_the_telemetry() -> None:
     recording: telemetry.Recording = telemetry.Recording("GET", "/x")
-    token: contextvars.Token[telemetry.Recording | None] = telemetry._current.set(
-        recording
-    )
+    token: contextvars.Token[telemetry.Recording | None] = telemetry._current.set(recording)
     try:
         await compute.run(time.sleep, 0.05)
     finally:
@@ -95,9 +91,7 @@ async def test_at_most_two_run_at_once() -> None:
         with lock:
             active[0] += 1
             most[0] = max(most[0], active[0])
-        both_started.wait(
-            timeout=5
-        )  # bewijst dat er twee tegelijk bezig kunnen zijn
+        both_started.wait(timeout=5)  # bewijst dat er twee tegelijk bezig kunnen zijn
         time.sleep(0.02)
         with lock:
             active[0] -= 1
@@ -116,9 +110,7 @@ async def test_single_flight_builds_once_for_concurrent_callers() -> None:
         await release.wait()
         return 42
 
-    callers: list[asyncio.Task[int]] = [
-        asyncio.create_task(flight.get("k", build)) for _ in range(3)
-    ]
+    callers: list[asyncio.Task[int]] = [asyncio.create_task(flight.get("k", build)) for _ in range(3)]
     await asyncio.sleep(0)
     release.set()
     assert await asyncio.gather(*callers) == [42, 42, 42]
@@ -164,9 +156,7 @@ async def test_single_flight_survives_a_cancelled_caller() -> None:
     assert flight._flights == {}
 
 
-async def test_single_flight_leaves_nothing_behind_when_the_only_caller_is_cancelled() -> (
-    None
-):
+async def test_single_flight_leaves_nothing_behind_when_the_only_caller_is_cancelled() -> None:
     flight: compute.SingleFlight[str, int] = compute.SingleFlight()
     release: asyncio.Event = asyncio.Event()
     problems: list[dict[str, Any]] = []
@@ -286,9 +276,7 @@ async def test_stop_does_not_hold_the_loop_while_a_function_is_stuck(
     started: threading.Event = threading.Event()
     stuck: threading.Event = threading.Event()
     stalls: list[loop_guard.Stall] = []
-    guard: loop_guard.LoopGuard = loop_guard.LoopGuard(
-        asyncio.get_running_loop(), 0.1, stalls.append
-    )
+    guard: loop_guard.LoopGuard = loop_guard.LoopGuard(asyncio.get_running_loop(), 0.1, stalls.append)
 
     def wait_forever() -> bool:
         started.set()
@@ -350,9 +338,7 @@ async def test_stop_returns_when_stopping_the_pool_fails(monkeypatch: pytest.Mon
     assert [type(failure) for failure in failures] == [RuntimeError]
 
 
-async def test_single_flight_ignores_a_finished_flight_that_is_not_yet_removed() -> (
-    None
-):
+async def test_single_flight_ignores_a_finished_flight_that_is_not_yet_removed() -> None:
     flight: compute.SingleFlight[str, int] = compute.SingleFlight()
     calls: list[int] = []
 
@@ -400,18 +386,14 @@ def test_single_flight_ignores_a_flight_of_another_loop() -> None:
     del stale
 
 
-async def test_app_shutdown_does_not_stall_the_loop_while_a_function_is_stuck(
-    data_dir: Any, monkeypatch: pytest.MonkeyPatch
-) -> None:
+async def test_app_shutdown_does_not_stall_the_loop_while_a_function_is_stuck(data_dir: Any, monkeypatch: pytest.MonkeyPatch) -> None:
     from mealieshopper.app import create_app
 
     monkeypatch.setattr(compute, "SHUTDOWN_SECONDS", 0.5)
     started: threading.Event = threading.Event()
     stuck: threading.Event = threading.Event()
     stalls: list[loop_guard.Stall] = []
-    guard: loop_guard.LoopGuard = loop_guard.LoopGuard(
-        asyncio.get_running_loop(), 0.1, stalls.append
-    )
+    guard: loop_guard.LoopGuard = loop_guard.LoopGuard(asyncio.get_running_loop(), 0.1, stalls.append)
 
     def wait_forever() -> bool:
         started.set()

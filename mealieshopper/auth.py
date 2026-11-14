@@ -22,8 +22,8 @@ from quart import Quart, g, jsonify, make_response, request
 from webauthn import verify_authentication_response, verify_registration_response
 from webauthn.helpers.cose import COSEAlgorithmIdentifier
 
-from .i18n import tr
 from . import readers, request_body, telemetry
+from .i18n import tr
 
 OWNER_ID = "owner"  # de eerste gebruiker is de beheerder; alle anderen zijn gewone gebruikers
 SESSION_COOKIE_NAME = "ms_session"
@@ -379,8 +379,6 @@ CREATE INDEX IF NOT EXISTS mfa_recovery_codes_user ON mfa_recovery_codes (user_i
 """
 
 
-
-
 async def init_db() -> None:
     """Het schema en de migratie, met de vlag `_INITIALIZED`. Draait bij het starten (`before_serving`), anders een keer
     via `ensure_db`, nooit per verzoek."""
@@ -665,7 +663,9 @@ async def revoke_session(token: str) -> str:
     if not sid:
         return ""
     auth_time: float = float(payload.get("auth_time") or payload.get("iat") or utcnow().timestamp())
-    expires_at: datetime = datetime.fromtimestamp(auth_time, tz=timezone.utc) + timedelta(seconds=SESSION_ABSOLUTE_SECONDS + session_max_age_seconds())
+    expires_at: datetime = datetime.fromtimestamp(auth_time, tz=timezone.utc) + timedelta(
+        seconds=SESSION_ABSOLUTE_SECONDS + session_max_age_seconds()
+    )
     async with connect() as conn:
         await conn.execute("DELETE FROM revoked_sessions WHERE expires_at < ?", (utcnow().isoformat(),))
         await conn.execute("INSERT OR REPLACE INTO revoked_sessions (sid, expires_at) VALUES (?, ?)", (str(sid), expires_at.isoformat()))
@@ -715,7 +715,13 @@ async def current_user() -> dict[str, Any] | None:
     auth_time: int = int(payload.get("auth_time") or payload.get("iat") or now)
     if from_cookie and now - float(payload.get("iat") or 0) >= SESSION_RENEW_AFTER_SECONDS and now - auth_time < SESSION_ABSOLUTE_SECONDS:
         # De after_request-hook zet de verse cookie, met de sessieteller, sessie-id en inlogtijd van deze gecontroleerde cookie.
-        g.renew_session = {"user_id": str(row["id"]), "username": str(row["username"]), "epoch": int(row["session_epoch"]), "sid": payload.get("sid"), "auth_time": auth_time}
+        g.renew_session = {
+            "user_id": str(row["id"]),
+            "username": str(row["username"]),
+            "epoch": int(row["session_epoch"]),
+            "sid": payload.get("sid"),
+            "auth_time": auth_time,
+        }
     user = {"id": row["id"], "username": row["username"], "created_at": row["created_at"]}
     return {**user, "role": "owner" if user["id"] == OWNER_ID else "user"}
 
@@ -862,7 +868,9 @@ async def renew_session_cookie(response: Any) -> Any:
     renew: dict[str, Any] | None = g.get("renew_session")
     if not renew or any(header.startswith(f"{SESSION_COOKIE_NAME}=") for header in response.headers.getlist("Set-Cookie")):
         return response
-    set_session_cookie(response, await create_token(renew["user_id"], renew["username"], epoch=renew["epoch"], sid=renew["sid"], auth_time=renew["auth_time"]))
+    set_session_cookie(
+        response, await create_token(renew["user_id"], renew["username"], epoch=renew["epoch"], sid=renew["sid"], auth_time=renew["auth_time"])
+    )
     return response
 
 
@@ -944,7 +952,9 @@ def register_routes(app: Quart) -> None:
         if body.get("invite"):
             invite = await users.find_invite(body.get("invite"))
             if not invite:
-                return jsonify({"error": tr("Deze uitnodiging bestaat niet meer of is verlopen.", "This invitation no longer exists or has expired.")}), 404
+                return jsonify(
+                    {"error": tr("Deze uitnodiging bestaat niet meer of is verlopen.", "This invitation no longer exists or has expired.")}
+                ), 404
         elif await credentials_exist() and await auth_required() and not await current_user():
             return jsonify({"error": tr("Log eerst in om nog een passkey toe te voegen.", "Sign in first to add another passkey.")}), 401
 
@@ -989,7 +999,9 @@ def register_routes(app: Quart) -> None:
         if body.get("invite"):
             invite = await users.find_invite(body.get("invite"))
             if not invite:
-                return jsonify({"error": tr("Deze uitnodiging bestaat niet meer of is verlopen.", "This invitation no longer exists or has expired.")}), 404
+                return jsonify(
+                    {"error": tr("Deze uitnodiging bestaat niet meer of is verlopen.", "This invitation no longer exists or has expired.")}
+                ), 404
             user_id = invite["userId"]
             username = invite["username"] if invite["kind"] == "reset" else str(body.get("username") or invite["username"]).strip()
         else:
@@ -1131,15 +1143,52 @@ def register_routes(app: Quart) -> None:
 
 # Alleen de beheerder: Mealie en Albert Heijn koppelen, gebruikers beheren en de serverinstellingen. Gewone gebruikers
 # zien de status ervan wel (/api/mealie/status, /api/ah/auth/status), maar kunnen niets wijzigen.
-ADMIN_PREFIXES = ("/api/users", "/api/server-settings", "/api/audit", "/api/update", "/api/system", "/api/backup", "/api/price-archive", "/api/mealie/auth", "/api/prices/import", "/api/ah/auth/", "/api/picnic/auth/", "/api/jumbo/auth/", "/api/crisp/auth/", "/api/loose-names")
-ADMIN_PATHS = {"/api/mealie/bulk-import/group", "/api/mealie/nutrition/backfill", "/api/offers/sync-all", "/api/offers/ai", "/api/offers/ai/test", "/api/offers/ai/review", "/api/offers/ai/search", "/api/offers/ai/search/plan", "/api/offers/ai/search/status", "/api/ah/auth", "/api/ah/explore", "/api/picnic/auth", "/api/picnic/explore", "/api/jumbo/auth", "/api/jumbo/explore", "/api/crisp/auth", "/api/crisp/explore", "/api/shared-links/export", "/api/telemetry"}
+ADMIN_PREFIXES = (
+    "/api/users",
+    "/api/server-settings",
+    "/api/audit",
+    "/api/update",
+    "/api/system",
+    "/api/backup",
+    "/api/price-archive",
+    "/api/mealie/auth",
+    "/api/prices/import",
+    "/api/ah/auth/",
+    "/api/picnic/auth/",
+    "/api/jumbo/auth/",
+    "/api/crisp/auth/",
+    "/api/loose-names",
+)
+ADMIN_PATHS = {
+    "/api/mealie/bulk-import/group",
+    "/api/mealie/nutrition/backfill",
+    "/api/offers/sync-all",
+    "/api/offers/ai",
+    "/api/offers/ai/test",
+    "/api/offers/ai/review",
+    "/api/offers/ai/search",
+    "/api/offers/ai/search/plan",
+    "/api/offers/ai/search/status",
+    "/api/ah/auth",
+    "/api/ah/explore",
+    "/api/picnic/auth",
+    "/api/picnic/explore",
+    "/api/jumbo/auth",
+    "/api/jumbo/explore",
+    "/api/crisp/auth",
+    "/api/crisp/explore",
+    "/api/shared-links/export",
+    "/api/telemetry",
+}
 ADMIN_EXCEPTIONS = {"/api/ah/auth/status", "/api/picnic/auth/status", "/api/jumbo/auth/status", "/api/crisp/auth/status"}
 
 
 def admin_only(path: str) -> bool:
     if path in ADMIN_EXCEPTIONS:
         return False
-    return path in ADMIN_PATHS or any(path == prefix or path.startswith(prefix + "/") or (prefix.endswith("/") and path.startswith(prefix)) for prefix in ADMIN_PREFIXES)
+    return path in ADMIN_PATHS or any(
+        path == prefix or path.startswith(prefix + "/") or (prefix.endswith("/") and path.startswith(prefix)) for prefix in ADMIN_PREFIXES
+    )
 
 
 # De adressen van de pagina's (zie static/router.js). Ze geven dezelfde pagina als "/", met het inlogscherm als je niet bent

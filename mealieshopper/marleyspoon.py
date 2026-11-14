@@ -10,6 +10,7 @@ de receptpagina, dan één vraag met het token van die pagina, dat nergens wordt
   Marley Spoon wordt alleen gevraagd als de kopie ontbreekt, verouderd is of de gebruiker ververst. Recepten bewaren we niet.
 - We vragen zuinig (één verzoek tegelijk, met een pauze ertussen) en noemen ons in de User-Agent.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -51,9 +52,14 @@ _EMPHASIS = re.compile(r"__(.+?)__")
 PORTIONS = "2"  # de menupagina rekent met twee personen
 # Voedingswaarden per portie: sleutel bij Marley Spoon -> (veld van schema.org, eenheid).
 NUTRITION = {
-    "energy_kcal": ("calories", "kcal"), "total_fat": ("fatContent", "g"), "saturated_fat": ("saturatedFatContent", "g"),
-    "total_carbs": ("carbohydrateContent", "g"), "sugar_carbs": ("sugarContent", "g"), "protein": ("proteinContent", "g"),
-    "fiber": ("fiberContent", "g"), "sodium": ("sodiumContent", "mg"),
+    "energy_kcal": ("calories", "kcal"),
+    "total_fat": ("fatContent", "g"),
+    "saturated_fat": ("saturatedFatContent", "g"),
+    "total_carbs": ("carbohydrateContent", "g"),
+    "sugar_carbs": ("sugarContent", "g"),
+    "protein": ("proteinContent", "g"),
+    "fiber": ("fiberContent", "g"),
+    "sodium": ("sodiumContent", "mg"),
 }
 
 QUERY = """
@@ -154,7 +160,9 @@ async def _send(method: str, url: str, host: str, **kwargs: Any) -> httpx.Respon
         if wait > 0:
             await _wait(wait)
         try:
-            response = await http_client.client("marleyspoon").request(method, url, headers=headers, timeout=TIMEOUT, follow_redirects=False, **kwargs)
+            response = await http_client.client("marleyspoon").request(
+                method, url, headers=headers, timeout=TIMEOUT, follow_redirects=False, **kwargs
+            )
         except httpx.HTTPError as exc:
             raise MarleySpoonError(tr("Marley Spoon is niet bereikbaar", "Marley Spoon is not reachable")) from exc
         finally:
@@ -165,7 +173,9 @@ async def _send(method: str, url: str, host: str, **kwargs: Any) -> httpx.Respon
     if response.status_code == 404:
         raise ValueError(tr("Marley Spoon heeft dit niet (meer)", "Marley Spoon does not have this (any more)"))
     if response.status_code != 200:
-        raise MarleySpoonError(tr(f"Marley Spoon antwoordde met status {response.status_code}", f"Marley Spoon answered with status {response.status_code}"))
+        raise MarleySpoonError(
+            tr(f"Marley Spoon antwoordde met status {response.status_code}", f"Marley Spoon answered with status {response.status_code}")
+        )
     return response
 
 
@@ -341,7 +351,9 @@ async def get_recipe(key: Any) -> dict[str, Any]:
     key = str(key or "").strip()
     if not _KEY.match(key):
         raise ValueError(tr("Geen geldig recept", "Not a valid recipe"))
-    data = (await _graphql(API_AUTH, RECIPE_QUERY, {"recipeId": key.split("-")[0]}, tr("het recept", "recipe"), token=await _visitor_token(key))).get("recipe")
+    data = (await _graphql(API_AUTH, RECIPE_QUERY, {"recipeId": key.split("-")[0]}, tr("het recept", "recipe"), token=await _visitor_token(key))).get(
+        "recipe"
+    )
     if not isinstance(data, dict):
         raise ValueError(tr("Marley Spoon heeft dit niet (meer)", "Marley Spoon does not have this (any more)"))
     shipped = [i.get("nameWithQuantity") for i in data.get("shippedIngredients") or [] if isinstance(i, dict)]
@@ -375,7 +387,9 @@ def jsonld(recipe: dict[str, Any], minimal: bool = False) -> dict[str, Any]:
     Met `minimal` zonder foto en voedingswaarden: de import van het recept zelf hoeft daar niet op stuk te lopen.
     """
     if not recipe["name"] or not (recipe["ingredients"] or recipe["steps"]):
-        raise MarleySpoonError(tr("Dit Marley Spoon-recept heeft geen ingrediënten of bereiding", "This Marley Spoon recipe has no ingredients or steps"))
+        raise MarleySpoonError(
+            tr("Dit Marley Spoon-recept heeft geen ingrediënten of bereiding", "This Marley Spoon recipe has no ingredients or steps")
+        )
     data: dict[str, Any] = {
         "@context": "https://schema.org",
         "@type": "Recipe",
@@ -422,8 +436,14 @@ async def detail(key: Any) -> dict[str, Any]:
     """Het recept in de vorm van het zoekscherm (ingrediënten als regels), zoals Jumbo en Picnic, met de voedingswaarden per portie."""
     recipe = await get_recipe(key)
     return {
-        "id": recipe["key"], "name": recipe["name"], "description": recipe["description"], "image": recipe["image"],
-        "minutes": recipe["minutes"], "portions": recipe["portions"], "url": source_url(recipe["key"]),
-        "ingredients": [{"line": line} for line in recipe["ingredients"]], "steps": recipe["steps"],
+        "id": recipe["key"],
+        "name": recipe["name"],
+        "description": recipe["description"],
+        "image": recipe["image"],
+        "minutes": recipe["minutes"],
+        "portions": recipe["portions"],
+        "url": source_url(recipe["key"]),
+        "ingredients": [{"line": line} for line in recipe["ingredients"]],
+        "steps": recipe["steps"],
         "nutrition": nutrition.items(recipe.get("nutrition")),
     }

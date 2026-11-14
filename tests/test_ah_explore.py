@@ -30,12 +30,8 @@ async def test_resolved_gives_a_value_back_and_waits_for_an_awaitable() -> None:
     assert await ah_explore.resolved(None) is None
 
 
-async def test_a_probe_waits_for_an_async_call_and_shows_the_shape_of_its_result() -> (
-    None
-):
-    report, result = await ah_explore._probe(
-        "async", lambda: later({"orderId": 42, "state": "OPEN"})
-    )
+async def test_a_probe_waits_for_an_async_call_and_shows_the_shape_of_its_result() -> None:
+    report, result = await ah_explore._probe("async", lambda: later({"orderId": 42, "state": "OPEN"}))
     assert result == {"orderId": 42, "state": "OPEN"}
     assert report == {
         "name": "async",
@@ -75,9 +71,7 @@ async def test_a_network_error_is_named_by_its_type_without_the_message(
 
 
 async def test_another_error_keeps_its_message() -> None:
-    report, _ = await ah_explore._probe(
-        "fout", mock.Mock(side_effect=RuntimeError("404: not found"))
-    )
+    report, _ = await ah_explore._probe("fout", mock.Mock(side_effect=RuntimeError("404: not found")))
     assert report == {"name": "fout", "ok": False, "error": "404: not found"}
 
 
@@ -115,22 +109,29 @@ async def test_explore_sends_nothing_itself_and_reports_every_route() -> None:
         mock.patch.object(ah, "configured_refresh_token", return_value="x"),
     ):
         report = await ah_explore.explore()
-    assert route.call_count == 0, (
-        "de verkenner praat alleen via ah, en die is hier nagebootst"
-    )
+    assert route.call_count == 0, "de verkenner praat alleen via ah, en die is hier nagebootst"
     assert report["linked"] is True
     assert report["ok"] == sum(1 for probe in report["probes"] if probe["ok"])
-    assert all("coroutine" not in repr(probe) for probe in report["probes"]), (
-        "elke probe heeft op zijn uitkomst gewacht"
-    )
+    assert all("coroutine" not in repr(probe) for probe in report["probes"]), "elke probe heeft op zijn uitkomst gewacht"
 
 
 def test_the_nutrition_probe_shows_the_shape_without_the_numbers() -> None:
     """De controle voor de voedingswaarden van een product (4.10.0): soorten, namen en eenheden, de cijfers als 9."""
-    data = {"product": {"tradeItem": {"nutritions": [
-        {"nutrients": [{"type": "ENER-", "name": "Energie", "value": "1595 kJ (380 kcal)"}, {"type": "FAT", "name": "Vet", "value": "12,5 g"}]},
-        {"nutrients": []},
-    ]}}}
+    data = {
+        "product": {
+            "tradeItem": {
+                "nutritions": [
+                    {
+                        "nutrients": [
+                            {"type": "ENER-", "name": "Energie", "value": "1595 kJ (380 kcal)"},
+                            {"type": "FAT", "name": "Vet", "value": "12,5 g"},
+                        ]
+                    },
+                    {"nutrients": []},
+                ]
+            }
+        }
+    }
     report = ah_explore.nutrition_report(data)
     assert report["tabellen"] == 2
     assert report["regels"] == [

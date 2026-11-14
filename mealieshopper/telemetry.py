@@ -83,10 +83,7 @@ def slow_ms() -> int:
     try:
         return max(
             0,
-            int(
-                environ.get("MEALIESHOPPER_TELEMETRY_SLOW_MS", "").strip()
-                or DEFAULT_SLOW_MS
-            ),
+            int(environ.get("MEALIESHOPPER_TELEMETRY_SLOW_MS", "").strip() or DEFAULT_SLOW_MS),
         )
     except ValueError:
         return DEFAULT_SLOW_MS
@@ -99,11 +96,7 @@ def _ms(seconds: float) -> float:
 def _safe_target(path: str, query_string: bytes) -> str:
     """Het pad met alleen de parameters uit `SAFE_PARAMS`: een zoekterm of een code uit een inlog hoort niet in het log."""
     kept: list[tuple[str, str]] = [
-        (key, value)
-        for key, value in parse_qsl(
-            query_string.decode("latin-1"), keep_blank_values=True
-        )
-        if key in SAFE_PARAMS
+        (key, value) for key, value in parse_qsl(query_string.decode("latin-1"), keep_blank_values=True) if key in SAFE_PARAMS
     ]
     return f"{path}?{urlencode(kept)}" if kept else path
 
@@ -152,10 +145,7 @@ class Recording:
             "status": self.status,
             "ms": _ms(self.seconds),
             "bytes": self.size,
-            "phases": {
-                name: {"ms": _ms(seconds), "count": self.counts[name]}
-                for name, seconds in self.phases.items()
-            },
+            "phases": {name: {"ms": _ms(seconds), "count": self.counts[name]} for name, seconds in self.phases.items()},
             "connections": self.connections,
             "slowestQuery": {
                 "ms": _ms(self.slowest_sql_seconds),
@@ -166,19 +156,16 @@ class Recording:
         }
 
     def log_line(self) -> str:
-        phases: str = ", ".join(
-            f"{name} {round(seconds * 1000)} ms in {self.counts[name]}x"
-            for name, seconds in self.phases.items()
+        phases: str = ", ".join(f"{name} {round(seconds * 1000)} ms in {self.counts[name]}x" for name, seconds in self.phases.items())
+        line: str = (
+            f"{self.method} {self.target} {self.status} in {round(self.seconds * 1000)} ms ({phases or 'geen fasen gemeten'}, {self.size} bytes)"
         )
-        line: str = f"{self.method} {self.target} {self.status} in {round(self.seconds * 1000)} ms ({phases or 'geen fasen gemeten'}, {self.size} bytes)"
         if self.slowest_sql:
             line += f". Traagste query {round(self.slowest_sql_seconds * 1000)} ms: {self.slowest_sql}"
         return line
 
 
-_current: ContextVar[Recording | None] = ContextVar(
-    "mealieshopper_telemetry", default=None
-)
+_current: ContextVar[Recording | None] = ContextVar("mealieshopper_telemetry", default=None)
 
 
 def current() -> Recording | None:
@@ -227,9 +214,7 @@ def watch(conn: Any, opened: float | None = None) -> None:
         try:
             return await inner(function, *args, **kwargs)
         finally:
-            recording.add_query(
-                time.perf_counter() - started, _query_label(function, args)
-            )
+            recording.add_query(time.perf_counter() - started, _query_label(function, args))
 
     conn._execute = timed
 
@@ -276,11 +261,7 @@ class RouteStats:
 
     def percentile(self, fraction: float) -> float:
         ordered: list[float] = sorted(self.recent)
-        return (
-            ordered[min(len(ordered) - 1, int(len(ordered) * fraction))]
-            if ordered
-            else 0.0
-        )
+        return ordered[min(len(ordered) - 1, int(len(ordered) * fraction))] if ordered else 0.0
 
     def as_dict(self, route: str) -> dict[str, Any]:
         return {
@@ -312,9 +293,7 @@ class Telemetry:
 
     def finish(self, recording: Recording) -> None:
         recording.seconds = time.perf_counter() - recording.started
-        self.finished.append(
-            (recording.started + recording.seconds, f"{recording.method} {recording.target}")
-        )
+        self.finished.append((recording.started + recording.seconds, f"{recording.method} {recording.target}"))
         key: str = f"{recording.method} {recording.route or '(geen route)'}"
         if key not in self.routes and len(self.routes) >= MAX_ROUTES:
             key = OTHER_ROUTES
@@ -330,10 +309,7 @@ class Telemetry:
         vaak al klaar. Daarom telt ook een aanvraag mee die tijdens de stilstand eindigde. Alles wordt als kopie gelezen.
         """
         since: float = time.perf_counter() - stall.seconds
-        labels: list[str] = [
-            f"{recording.method} {recording.target}"
-            for recording in list(self.active.values())
-        ]
+        labels: list[str] = [f"{recording.method} {recording.target}" for recording in list(self.active.values())]
         labels += [label for end, label in list(self.finished) if end >= since]
         targets: list[str] = list(dict.fromkeys(labels))
         frames: tuple[loop_guard.Frame, ...] = stall.app_frames or stall.stack
@@ -359,9 +335,7 @@ class Telemetry:
 
         Loopt in de callback van de GC: alleen een append, en het loggen gaat naar de loop (`call_soon_threadsafe`). Een handler
         van het log neemt een slot, en dat hoort niet midden in de GC."""
-        self.collections.append(
-            {"at": datetime.now(UTC).isoformat(timespec="seconds"), **collection.as_dict()}
-        )
+        self.collections.append({"at": datetime.now(UTC).isoformat(timespec="seconds"), **collection.as_dict()})
         loop: asyncio.AbstractEventLoop | None = self.loop
         if collection.seconds >= STALL_SECONDS and loop is not None:
             try:
@@ -387,13 +361,9 @@ class Telemetry:
         }
 
     def snapshot(self) -> dict[str, Any]:
-        routes: list[tuple[str, RouteStats]] = sorted(
-            self.routes.items(), key=lambda item: item[1].seconds, reverse=True
-        )
+        routes: list[tuple[str, RouteStats]] = sorted(self.routes.items(), key=lambda item: item[1].seconds, reverse=True)
         return {
-            "since": datetime.fromtimestamp(self.since, UTC).isoformat(
-                timespec="seconds"
-            ),
+            "since": datetime.fromtimestamp(self.since, UTC).isoformat(timespec="seconds"),
             "slowMs": round(self.slow_seconds * 1000),
             "stallMs": round(STALL_SECONDS * 1000),
             "routes": [stats.as_dict(route) for route, stats in routes],
@@ -416,9 +386,7 @@ class Middleware:
             return
         recording: Recording = Recording(
             method=str(scope.get("method") or ""),
-            target=_safe_target(
-                str(scope.get("path") or ""), scope.get("query_string") or b""
-            ),
+            target=_safe_target(str(scope.get("path") or ""), scope.get("query_string") or b""),
         )
 
         async def timed_send(message: Message) -> None:
@@ -454,9 +422,7 @@ def register(app: Quart) -> Telemetry | None:
     app.asgi_app = Middleware(app.asgi_app, telemetry)  # type: ignore[method-assign]
     app.extensions["mealieshopper_telemetry"] = telemetry
     guard: list[loop_guard.LoopGuard] = []
-    collections: gc_watch.GcWatch | None = (
-        gc_watch.GcWatch(on_collection=telemetry.collected) if gc_enabled() else None
-    )
+    collections: gc_watch.GcWatch | None = gc_watch.GcWatch(on_collection=telemetry.collected) if gc_enabled() else None
 
     @app.before_request
     async def _name_route() -> None:
@@ -466,9 +432,7 @@ def register(app: Quart) -> Telemetry | None:
 
     @app.before_serving
     async def _start_watching() -> None:
-        watcher: loop_guard.LoopGuard = loop_guard.LoopGuard(
-            asyncio.get_running_loop(), STALL_SECONDS, telemetry.stalled
-        )
+        watcher: loop_guard.LoopGuard = loop_guard.LoopGuard(asyncio.get_running_loop(), STALL_SECONDS, telemetry.stalled)
         watcher.start()  # op de loop zelf, zodat de bewaker de thread van de loop kent
         guard.append(watcher)
         if collections is not None:

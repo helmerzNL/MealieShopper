@@ -12,6 +12,7 @@ Veiligheid in het kort:
 - Herstelcodes (16 tekens, 80 bit) worden alleen als SHA-256 bewaard en werken één keer.
 - Een nieuw wachtwoord of een uitgezette MFA maakt alle sessies van die gebruiker ongeldig.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -64,14 +65,11 @@ LOCK_DURATION = timedelta(minutes=15)
 # hash_password en verify_password zijn puur rekenwerk en blijven synchroon. De routes roepen ze via
 # `asyncio.to_thread` aan (`_hash_in_thread`, `_matches`), zodat scrypt de event loop niet ophoudt.
 
+
 def hash_password(password: str) -> str:
     salt = secrets.token_bytes(16)
-    digest = hashlib.scrypt(
-        password.encode("utf-8"), salt=salt, n=SCRYPT_N, r=SCRYPT_R, p=SCRYPT_P, maxmem=SCRYPT_MAXMEM, dklen=32
-    )
-    return "scrypt${}${}${}${}${}".format(
-        SCRYPT_N, SCRYPT_R, SCRYPT_P, auth.b64url_encode(salt), auth.b64url_encode(digest)
-    )
+    digest = hashlib.scrypt(password.encode("utf-8"), salt=salt, n=SCRYPT_N, r=SCRYPT_R, p=SCRYPT_P, maxmem=SCRYPT_MAXMEM, dklen=32)
+    return "scrypt${}${}${}${}${}".format(SCRYPT_N, SCRYPT_R, SCRYPT_P, auth.b64url_encode(salt), auth.b64url_encode(digest))
 
 
 def verify_password(password: str, stored: str) -> bool:
@@ -122,9 +120,7 @@ def validate_username(value: Any) -> tuple[str, str | None]:
             f"A username is at most {MAX_USERNAME_LENGTH} characters.",
         )
     if any(ord(ch) < 32 or ord(ch) == 127 for ch in username):
-        return username, tr(
-            "Een gebruikersnaam mag geen stuurtekens bevatten.", "A username cannot contain control characters."
-        )
+        return username, tr("Een gebruikersnaam mag geen stuurtekens bevatten.", "A username cannot contain control characters.")
     return username, None
 
 
@@ -199,9 +195,10 @@ async def store_password(user_id: str, username: str, password: str) -> None:
 async def _user_by_name(username: str) -> tuple[str, str] | None:
     """(id, wachtwoordhash) van de gebruiker met dit wachtwoord-login, zonder hoofdletters te onderscheiden."""
     wanted = username.casefold()
-    async with auth.connect() as conn, conn.execute(
-        "SELECT u.id, u.username, p.password_hash FROM users u JOIN password_credentials p ON p.user_id = u.id"
-    ) as cursor:
+    async with (
+        auth.connect() as conn,
+        conn.execute("SELECT u.id, u.username, p.password_hash FROM users u JOIN password_credentials p ON p.user_id = u.id") as cursor,
+    ):
         rows = await cursor.fetchall()
     for row in rows:
         if hmac.compare_digest(str(row["username"]).casefold().encode(), wanted.encode()):
@@ -253,9 +250,7 @@ async def register_failure() -> None:
         await conn.execute("BEGIN IMMEDIATE")
         for key in _client_keys():
             limit = limits.get(key, ATTEMPTS_PER_WINDOW)
-            async with conn.execute(
-                "SELECT failures, window_start FROM login_attempts WHERE key = ?", (key,)
-            ) as cursor:
+            async with conn.execute("SELECT failures, window_start FROM login_attempts WHERE key = ?", (key,)) as cursor:
                 row = await cursor.fetchone()
             failures, start = 0, now
             if row:
@@ -300,6 +295,7 @@ async def _too_many() -> Response:
 
 # -------------------------------------------------------------------- TOTP
 
+
 def new_totp_secret() -> str:
     return base64.b32encode(secrets.token_bytes(20)).decode("ascii")  # 32 tekens, geen opvulling nodig
 
@@ -307,7 +303,7 @@ def new_totp_secret() -> str:
 def _hotp(secret: bytes, counter: int) -> str:
     digest = hmac.new(secret, struct.pack(">Q", counter), hashlib.sha1).digest()
     offset = digest[-1] & 0x0F
-    value = (struct.unpack(">I", digest[offset:offset + 4])[0] & 0x7FFFFFFF) % (10**TOTP_DIGITS)
+    value = (struct.unpack(">I", digest[offset : offset + 4])[0] & 0x7FFFFFFF) % (10**TOTP_DIGITS)
     return str(value).zfill(TOTP_DIGITS)
 
 
@@ -335,10 +331,7 @@ def check_totp(secret_b32: str, code: str, last_counter: int = 0, at: float | No
 def otpauth_uri(secret_b32: str, account: str) -> str:
     issuer = auth.rp_name()
     label = quote(f"{issuer}:{account}", safe="")
-    return (
-        f"otpauth://totp/{label}?secret={secret_b32}&issuer={quote(issuer, safe='')}"
-        f"&algorithm=SHA1&digits={TOTP_DIGITS}&period={TOTP_PERIOD}"
-    )
+    return f"otpauth://totp/{label}?secret={secret_b32}&issuer={quote(issuer, safe='')}&algorithm=SHA1&digits={TOTP_DIGITS}&period={TOTP_PERIOD}"
 
 
 async def _read_totp(user_id: str, confirmed: bool | None = None) -> dict[str, Any] | None:
@@ -360,6 +353,7 @@ async def _save_last_counter(user_id: str, counter: int) -> None:
 
 # -------------------------------------------------------------- herstelcodes
 
+
 def _normalize_recovery(code: str) -> str:
     return "".join(ch for ch in str(code or "").upper() if ch.isalnum())
 
@@ -372,7 +366,7 @@ def new_recovery_codes() -> list[str]:
     codes = []
     for _ in range(RECOVERY_CODE_COUNT):
         raw = "".join(secrets.choice(_RECOVERY_ALPHABET) for _ in range(16))
-        codes.append("-".join(raw[i:i + 4] for i in range(0, 16, 4)))
+        codes.append("-".join(raw[i : i + 4] for i in range(0, 16, 4)))
     return codes
 
 
@@ -398,6 +392,7 @@ async def _use_recovery_code(user_id: str, code: str) -> bool:
 
 
 # ------------------------------------------------------------ MFA-kaartje
+
 
 async def _make_ticket(user_id: str) -> str:
     return jwt.encode(
@@ -464,7 +459,12 @@ async def reauthenticate(user_id: str, body: dict[str, Any]) -> ErrorReply | Non
         if await auth.mfa_enabled(user_id):
             code = str(body.get("code") or "").strip()
             if not code:
-                return jsonify({"error": tr("Vul ook de code uit je authenticator-app in.", "Also enter the code from your authenticator app."), "mfaRequired": True}), 400
+                return jsonify(
+                    {
+                        "error": tr("Vul ook de code uit je authenticator-app in.", "Also enter the code from your authenticator app."),
+                        "mfaRequired": True,
+                    }
+                ), 400
             record = await _read_totp(user_id, confirmed=True)
             counter = check_totp(record["secret"], code, record["lastCounter"]) if record and record["secret"] else None
             if counter is not None:
@@ -490,9 +490,7 @@ def register_routes(app: Quart) -> None:
         if await auth.credentials_exist():
             return _json_error(tr("Er is al een manier om in te loggen ingesteld.", "A way to log in is already set up."), 409)
         if body.get("confirm") is not True:
-            return _json_error(
-                tr("Bevestig dat je zonder beveiliging verder wilt.", "Confirm that you want to continue without security."), 400
-            )
+            return _json_error(tr("Bevestig dat je zonder beveiliging verder wilt.", "Confirm that you want to continue without security."), 400)
         await onboarding.begin()
         await auth.set_setting(auth.SETTING_AUTH_MODE, "none")
         return jsonify({"status": "ok"})
@@ -503,9 +501,7 @@ def register_routes(app: Quart) -> None:
         from . import onboarding
 
         if not auth.auth_enabled():
-            return _json_error(
-                tr("Inloggen staat uit via de omgevingsvariabelen.", "Login is turned off through the environment variables."), 400
-            )
+            return _json_error(tr("Inloggen staat uit via de omgevingsvariabelen.", "Login is turned off through the environment variables."), 400)
         denied = await _needs_session()
         if denied:
             return denied
@@ -623,7 +619,7 @@ def register_routes(app: Quart) -> None:
         account = await _username_of(uid) or "admin"
         return jsonify(
             {
-                "secret": " ".join(secret[i:i + 4] for i in range(0, len(secret), 4)),
+                "secret": " ".join(secret[i : i + 4] for i in range(0, len(secret), 4)),
                 "otpauthUri": otpauth_uri(secret, account),
                 "issuer": auth.rp_name(),
                 "account": account,

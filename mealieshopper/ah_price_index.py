@@ -45,15 +45,11 @@ TASK_NAME: str = "ah-price-index"
 SETTING_LAST_ROUND: str = "AH_PRICE_INDEX_LAST_ROUND"
 
 GAP_SECONDS: float = 10.0  # Crawl-delay in de robots.txt van de site
-REFRESH_DAYS: int = (
-    14  # een week is zeven dagen en het oordeel wil een prijs van de laatste dertig
-)
+REFRESH_DAYS: int = 14  # een week is zeven dagen en het oordeel wil een prijs van de laatste dertig
 MISSING_DAYS: int = 30  # een product dat de site niet kent
 ERROR_DAYS: int = 1  # een pagina die niet te lezen was
 ROUND_LIMIT: int = 500  # hooguit zoveel verzoeken per ronde, bijna anderhalf uur
-PAGE_ERRORS_IN_A_ROW: int = (
-    3  # zoveel onleesbare pagina's achter elkaar: de site is veranderd, de ronde stopt
-)
+PAGE_ERRORS_IN_A_ROW: int = 3  # zoveel onleesbare pagina's achter elkaar: de site is veranderd, de ronde stopt
 
 SCHEMA: str = """
 -- De stand per product van de ronde langs ahprijsindex.nl: wanneer het is gevraagd en wat eruit kwam (`ok`, `missing` als de
@@ -67,9 +63,7 @@ CREATE TABLE IF NOT EXISTS ah_price_index (
 """
 
 _WAIT_DAYS: dict[str, int] = {"ok": REFRESH_DAYS, "missing": MISSING_DAYS}
-_DATA: re.Pattern[str] = re.compile(
-    r'<script id="__NEXT_DATA__"[^>]*>(.*?)</script>', re.DOTALL
-)
+_DATA: re.Pattern[str] = re.compile(r'<script id="__NEXT_DATA__"[^>]*>(.*?)</script>', re.DOTALL)
 # Een prijs van de index vervangt alleen een eerdere prijs van de index, en alleen als hij anders is. Wat de app zelf mat, blijft.
 _SAVE_SQL: str = """
 INSERT INTO price_observations (store, product_id, day, source, title, brand, unit_size, image, url, price, seen_at)
@@ -99,9 +93,7 @@ class Series(NamedTuple):
     brand: str | None
     unit_size: str | None
     image: str | None
-    weeks: tuple[
-        tuple[str, float], ...
-    ]  # (maandag van de week, gewone prijs), de oudste eerst
+    weeks: tuple[tuple[str, float], ...]  # (maandag van de week, gewone prijs), de oudste eerst
 
 
 def enabled() -> bool:
@@ -142,11 +134,7 @@ async def _connect() -> AsyncIterator[aiosqlite.Connection]:
 
 
 def _text(value: Any) -> str | None:
-    text: str = (
-        str(value).strip()
-        if isinstance(value, (str, int)) and not isinstance(value, bool)
-        else ""
-    )
+    text: str = str(value).strip() if isinstance(value, (str, int)) and not isinstance(value, bool) else ""
     return text or None
 
 
@@ -208,9 +196,7 @@ def parse(html: str) -> Series:
     product_id, title = _text(info.get("product_id")), _text(info.get("product_title"))
     if product_id is None or title is None:
         raise PageError("een product zonder nummer of naam")
-    weeks: dict[str, float] = dict(
-        found for found in map(_week, rows) if found is not None
-    )
+    weeks: dict[str, float] = dict(found for found in map(_week, rows) if found is not None)
     same_size: bool = not props.get("sizeHistory")
     return Series(
         product_id,
@@ -225,9 +211,7 @@ def parse(html: str) -> Series:
 async def fetch(product_id: str) -> Series | None:
     """De reeks van een product, of None als de site het niet kent (404). Refused bij elk ander antwoord dan een pagina,
     PageError bij een pagina die niet te lezen is of van een ander product is, httpx.HTTPError als de site niet bereikbaar is."""
-    client: httpx.AsyncClient = http_client.client(
-        CLIENT, headers={"User-Agent": user_agent()}
-    )
+    client: httpx.AsyncClient = http_client.client(CLIENT, headers={"User-Agent": user_agent()})
     response: httpx.Response = await client.get(page_url(product_id))
     if response.status_code in (404, 410):
         return None
@@ -265,9 +249,7 @@ async def _save(conn: aiosqlite.Connection, series: Series, stamp: str) -> int:
     return len(rows)
 
 
-async def _mark(
-    product_id: str, status: str, stamp: str, series: Series | None = None
-) -> int:
+async def _mark(product_id: str, status: str, stamp: str, series: Series | None = None) -> int:
     """Bewaart de uitkomst van een product, met zijn weken als die er zijn. Geeft het aantal weken."""
     async with _connect() as conn:
         weeks: int = await _save(conn, series, stamp) if series is not None else 0
@@ -288,29 +270,18 @@ def _is_due(entry: tuple[str, str] | None, today: str) -> bool:
 async def _due(today: str) -> list[str]:
     """De gekochte producten die aan de beurt zijn: eerst wat nog nooit is gevraagd, dan het langst geleden. Bij gelijke stand
     gaat een product uit de aanbiedingen van nu voor: daar staat het oordeel nu op het scherm."""
-    bought: set[str] = {
-        product_id
-        for product_id in await prices.bought_ids(STORE, today)
-        if product_id.isdigit()
-    }
+    bought: set[str] = {product_id for product_id in await prices.bought_ids(STORE, today) if product_id.isdigit()}
     if not bought:
         return []
     async with _connect() as conn:
         state: dict[str, tuple[str, str]] = {
             row["product_id"]: (row["status"], str(row["checked_at"])[:10])
-            for row in await conn.execute_fetchall(
-                "SELECT product_id, status, checked_at FROM ah_price_index"
-            )
+            for row in await conn.execute_fetchall("SELECT product_id, status, checked_at FROM ah_price_index")
         }
         on_offer: set[str] = {
-            str(row["product_id"])
-            for row in await conn.execute_fetchall(
-                "SELECT DISTINCT product_id FROM offers WHERE store = ?", (STORE,)
-            )
+            str(row["product_id"]) for row in await conn.execute_fetchall("SELECT DISTINCT product_id FROM offers WHERE store = ?", (STORE,))
         }
-    waiting: list[str] = [
-        product_id for product_id in bought if _is_due(state.get(product_id), today)
-    ]
+    waiting: list[str] = [product_id for product_id in bought if _is_due(state.get(product_id), today)]
     return sorted(
         waiting,
         key=lambda product_id: (
@@ -339,9 +310,7 @@ async def _one(product_id: str, stamp: str, result: dict[str, Any]) -> bool:
         result["checked"] += 1
         result["failed"] += 1
         return False
-    result["prices"] += await _mark(
-        product_id, "ok" if series is not None else "missing", stamp, series
-    )
+    result["prices"] += await _mark(product_id, "ok" if series is not None else "missing", stamp, series)
     result["checked"] += 1
     result["missing"] += series is None
     return True
@@ -364,9 +333,7 @@ async def _walk(waiting: list[str], stamp: str, result: dict[str, Any]) -> str |
     return None
 
 
-async def run_round(
-    limit: int = ROUND_LIMIT, now: str | None = None
-) -> dict[str, Any] | None:
+async def run_round(limit: int = ROUND_LIMIT, now: str | None = None) -> dict[str, Any] | None:
     """Een ronde langs ahprijsindex.nl voor de gekochte producten die aan de beurt zijn, hooguit `limit` verzoeken.
 
     Geeft `{checked, prices, missing, failed, stopped, left}`: hoeveel producten een antwoord kregen, hoeveel weekprijzen dat gaf,
@@ -410,9 +377,7 @@ async def run_round(
 async def last_round() -> dict[str, Any] | None:
     """De uitkomst van de laatste ronde die iets te doen had, met `at`, of None."""
     try:
-        found: Any = json.loads(
-            await auth.get_setting(SETTING_LAST_ROUND, "") or "null"
-        )
+        found: Any = json.loads(await auth.get_setting(SETTING_LAST_ROUND, "") or "null")
     except ValueError:
         return None
     return found if isinstance(found, dict) else None

@@ -71,21 +71,15 @@ class HeldBuild:
     def installed(self) -> Iterator[mock.MagicMock]:
         get: Callable[..., Awaitable[prices._Catalogue]] = prices._CATALOGUE_BUILDS.get
 
-        async def counted(
-            key: Hashable, build: Callable[[], Awaitable[prices._Catalogue]]
-        ) -> prices._Catalogue:
+        async def counted(key: Hashable, build: Callable[[], Awaitable[prices._Catalogue]]) -> prices._Catalogue:
             self.asked += 1
             if self.asked >= self.waiting:
                 self.joined.set()
-            return await get(
-                key, build
-            )  # zonder await ervoor: de bouw die er al is, krijgt deze aanvraag erbij
+            return await get(key, build)  # zonder await ervoor: de bouw die er al is, krijgt deze aanvraag erbij
 
         with (
             mock.patch.object(prices._CATALOGUE_BUILDS, "get", counted),
-            mock.patch.object(
-                prices, "_build_catalogue", side_effect=self.build
-            ) as built,
+            mock.patch.object(prices, "_build_catalogue", side_effect=self.build) as built,
         ):
             yield built
 
@@ -112,9 +106,7 @@ async def test_a_store_without_data_gives_an_empty_catalogue(database: Path) -> 
 
 def test_build_catalogue_does_not_touch_the_module_cache() -> None:
     before: dict[Any, Any] = dict(prices._CATALOGUES)
-    rows: prices._CatalogueRows = prices._CatalogueRows(
-        [], [], [], [], [], [], [], None
-    )
+    rows: prices._CatalogueRows = prices._CatalogueRows([], [], [], [], [], [], [], None)
     catalogue: prices._Catalogue = prices._build_catalogue("ah", TODAY, rows)
     assert (catalogue.receipts, catalogue.products, catalogue.twins) == ([], {}, {})
     assert prices._CATALOGUES == before
@@ -125,18 +117,14 @@ async def test_an_error_in_the_build_reaches_the_request_and_is_not_kept(
 ) -> None:
     held: HeldBuild = HeldBuild(2, _fail)
     with held.installed() as failing:
-        requests: asyncio.Future[list[Any]] = asyncio.gather(
-            _catalogue(), _catalogue(), return_exceptions=True
-        )
+        requests: asyncio.Future[list[Any]] = asyncio.gather(_catalogue(), _catalogue(), return_exceptions=True)
         assert await asyncio.to_thread(held.joined.wait, WAIT_SECONDS)
         held.release.set()
         found: list[Any] = await requests
     assert [type(error) for error in found] == [RuntimeError, RuntimeError]
     assert failing.call_count == 1, "twee aanvragen tegelijk: een bouw"
     assert prices._CATALOGUES == {}
-    with mock.patch.object(
-        prices, "_build_catalogue", wraps=prices._build_catalogue
-    ) as built:
+    with mock.patch.object(prices, "_build_catalogue", wraps=prices._build_catalogue) as built:
         await _catalogue()
     assert built.call_count == 1, "de volgende aanvraag bouwt opnieuw"
     assert [key[1] for key in prices._CATALOGUES] == ["ah"]
@@ -157,6 +145,4 @@ async def test_a_cancelled_request_does_not_stop_the_build_for_the_others(
     assert first.cancelled()
     assert built.call_count == 1
     assert catalogue.products == {}
-    assert [key[1] for key in prices._CATALOGUES] == ["ah"], (
-        "de bouw schreef de catalogus, ook zonder de eerste aanvraag"
-    )
+    assert [key[1] for key in prices._CATALOGUES] == ["ah"], "de bouw schreef de catalogus, ook zonder de eerste aanvraag"

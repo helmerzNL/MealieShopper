@@ -10,6 +10,7 @@ van die gebruiker. Tokens staan alleen als hash in de database. Een token verval
 sessieteller van die gebruiker verandert (nieuw wachtwoord, MFA uitgezet, reset) of de gebruiker
 wordt verwijderd, en elke gebruiker kan zijn eigen apps intrekken.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -119,6 +120,7 @@ def _hash(value: str) -> str:
 
 # --- clients -------------------------------------------------------------------------------------
 
+
 def valid_redirect_uri(uri: Any) -> bool:
     """https, http op de eigen computer (loopback) of een eigen schema van een app (`vscode://`)."""
     if not isinstance(uri, str) or not uri or len(uri) > 2000:
@@ -144,12 +146,7 @@ def _same_redirect(registered: str, requested: str) -> bool:
         return True
     # RFC 8252: bij een loopback-adres kiest de app zelf een vrije poort.
     a, b = urlsplit(registered), urlsplit(requested)
-    return (
-        a.scheme == b.scheme == "http"
-        and a.hostname == b.hostname
-        and a.hostname in LOOPBACK_HOSTS
-        and (a.path, a.query) == (b.path, b.query)
-    )
+    return a.scheme == b.scheme == "http" and a.hostname == b.hostname and a.hostname in LOOPBACK_HOSTS and (a.path, a.query) == (b.path, b.query)
 
 
 async def register_client(metadata: dict[str, Any]) -> dict[str, Any]:
@@ -254,6 +251,7 @@ def _authorize_error(params: dict[str, str], resource_url: str) -> OAuthError | 
 
 # --- codes en tokens -----------------------------------------------------------------------------
 
+
 async def issue_code(user_id: str, client_id: str, redirect_uri: str, code_challenge: str, resource: str) -> str:
     code = secrets.token_urlsafe(32)
     epoch = await auth.session_epoch(user_id)
@@ -269,9 +267,7 @@ async def issue_code(user_id: str, client_id: str, redirect_uri: str, code_chall
     return code
 
 
-async def _new_token_row(
-    conn: aiosqlite.Connection, *, family: str, user_id: str, client_id: str, resource: str, epoch: int
-) -> dict[str, Any]:
+async def _new_token_row(conn: aiosqlite.Connection, *, family: str, user_id: str, client_id: str, resource: str, epoch: int) -> dict[str, Any]:
     access, refresh = "msa_" + secrets.token_urlsafe(32), "msr_" + secrets.token_urlsafe(32)
     now = _now()
     await conn.execute(
@@ -281,8 +277,17 @@ async def _new_token_row(
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
-            secrets.token_hex(8), family, user_id, client_id, _hash(access), _hash(refresh), resource, epoch,
-            _iso(now + ACCESS_TTL), _iso(now + REFRESH_TTL), _iso(now),
+            secrets.token_hex(8),
+            family,
+            user_id,
+            client_id,
+            _hash(access),
+            _hash(refresh),
+            resource,
+            epoch,
+            _iso(now + ACCESS_TTL),
+            _iso(now + REFRESH_TTL),
+            _iso(now),
         ),
     )
     return {
@@ -337,7 +342,9 @@ async def exchange_code(form: dict[str, str], resource_url: str) -> dict[str, An
             raise OAuthError("invalid_target", "resource komt niet overeen met het verzoek")
         if row["epoch"] != await _user_epoch(conn, row["user_id"]):
             raise OAuthError("invalid_grant", "De inlog is sinds de toestemming gewijzigd; probeer opnieuw")
-        tokens = await _new_token_row(conn, family=secrets.token_hex(8), user_id=row["user_id"], client_id=client_id, resource=row["resource"], epoch=row["epoch"])
+        tokens = await _new_token_row(
+            conn, family=secrets.token_hex(8), user_id=row["user_id"], client_id=client_id, resource=row["resource"], epoch=row["epoch"]
+        )
         await conn.commit()
         return tokens
 
@@ -360,7 +367,9 @@ async def refresh(form: dict[str, str]) -> dict[str, Any]:
             raise OAuthError("invalid_grant", "Het verversingstoken is verlopen")
         if row["epoch"] != await _user_epoch(conn, row["user_id"]):
             raise OAuthError("invalid_grant", "De inlog is gewijzigd; geef de app opnieuw toestemming")
-        tokens = await _new_token_row(conn, family=row["family"], user_id=row["user_id"], client_id=client_id, resource=row["resource"], epoch=row["epoch"])
+        tokens = await _new_token_row(
+            conn, family=row["family"], user_id=row["user_id"], client_id=client_id, resource=row["resource"], epoch=row["epoch"]
+        )
         await conn.commit()
         return tokens
 
@@ -414,11 +423,14 @@ async def revoke_token(token: str) -> None:
 
 # --- beheer door de eigenaar ---------------------------------------------------------------------
 
+
 async def connected_apps(user_id: str) -> list[dict[str, Any]]:
     """Apps van deze gebruiker met een actief (niet ingetrokken, niet verlopen) verversingstoken."""
     now = _iso(_now())
     epoch = await auth.session_epoch(user_id)
-    async with _connect() as conn, conn.execute(
+    async with (
+        _connect() as conn,
+        conn.execute(
             """
             SELECT c.client_id, c.client_name, MIN(t.created_at) AS connected_at, MAX(t.last_used_at) AS last_used_at
             FROM oauth_clients c JOIN oauth_tokens t ON t.client_id = c.client_id
@@ -426,12 +438,10 @@ async def connected_apps(user_id: str) -> list[dict[str, Any]]:
             GROUP BY c.client_id ORDER BY MAX(t.created_at) DESC
             """,
             (user_id, now, epoch),
-        ) as cursor:
+        ) as cursor,
+    ):
         rows = await cursor.fetchall()
-    return [
-        {"clientId": r["client_id"], "name": r["client_name"], "connectedAt": r["connected_at"], "lastUsedAt": r["last_used_at"]}
-        for r in rows
-    ]
+    return [{"clientId": r["client_id"], "name": r["client_name"], "connectedAt": r["connected_at"], "lastUsedAt": r["last_used_at"]} for r in rows]
 
 
 async def revoke_app(user_id: str, client_id: str) -> bool:

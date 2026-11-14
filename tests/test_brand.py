@@ -12,21 +12,34 @@ from unittest import mock
 
 os.environ["PASSKEY_AUTH_ENABLED"] = "false"
 
-from mealieshopper.app import create_app  # noqa: E402
 from helpers import AppTestCase  # noqa: E402
+
+from mealieshopper.app import create_app  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 STATIC = ROOT / "static"
 BRAND = STATIC / "brand"
 
 SVGS = [
-    "icon.svg", "mark.svg", "mark-white.svg", "mark-mono.svg",
-    "wordmark.svg", "wordmark-white.svg", "wordmark-mono.svg", "favicon.svg",
+    "icon.svg",
+    "mark.svg",
+    "mark-white.svg",
+    "mark-mono.svg",
+    "wordmark.svg",
+    "wordmark-white.svg",
+    "wordmark-mono.svg",
+    "favicon.svg",
 ]
 PNG_SIZES = {
-    "favicon-16.png": (16, 16), "favicon-32.png": (32, 32), "favicon-48.png": (48, 48),
-    "icon-192.png": (192, 192), "icon-512.png": (512, 512), "icon-maskable-512.png": (512, 512),
-    "apple-touch-icon.png": (180, 180), "social-card.png": (1200, 630), "brand-preview.png": (1600, 1180),
+    "favicon-16.png": (16, 16),
+    "favicon-32.png": (32, 32),
+    "favicon-48.png": (48, 48),
+    "icon-192.png": (192, 192),
+    "icon-512.png": (512, 512),
+    "icon-maskable-512.png": (512, 512),
+    "apple-touch-icon.png": (180, 180),
+    "social-card.png": (1200, 630),
+    "brand-preview.png": (1600, 1180),
 }
 
 
@@ -54,7 +67,7 @@ def css_tokens() -> dict[str, str]:
 
 
 def luminance(hex_color: str) -> float:
-    channels = [int(hex_color[i:i + 2], 16) / 255 for i in (1, 3, 5)]
+    channels = [int(hex_color[i : i + 2], 16) / 255 for i in (1, 3, 5)]
     lin = [c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4 for c in channels]
     return 0.2126 * lin[0] + 0.7152 * lin[1] + 0.0722 * lin[2]
 
@@ -95,8 +108,7 @@ class BrandFilesTest(AppTestCase):
         self.assertNotIn("#F2CF45", mono)
 
     def test_fonts_and_licences_sit_together(self):
-        for name in ("Manrope-Variable.woff2", "Manrope-Variable.ttf", "Inter-Variable.woff2",
-                     "OFL-Manrope.txt", "OFL-Inter.txt"):
+        for name in ("Manrope-Variable.woff2", "Manrope-Variable.ttf", "Inter-Variable.woff2", "OFL-Manrope.txt", "OFL-Inter.txt"):
             self.assertTrue((STATIC / "fonts" / name).is_file(), name)
         for name in ("OFL-Manrope.txt", "OFL-Inter.txt"):
             self.assertIn("SIL Open Font License", (STATIC / "fonts" / name).read_text(), name)
@@ -156,10 +168,13 @@ class ServedAssetsTest(AppTestCase):
     def setUp(self):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
-        patcher = mock.patch.dict(os.environ, {
-            "MEALIESHOPPER_DATA_DIR": tmp.name,
-            "MEALIESHOPPER_PUBLIC_BASE_URL": "https://mealieshopper.example.nl",
-        })
+        patcher = mock.patch.dict(
+            os.environ,
+            {
+                "MEALIESHOPPER_DATA_DIR": tmp.name,
+                "MEALIESHOPPER_PUBLIC_BASE_URL": "https://mealieshopper.example.nl",
+            },
+        )
         patcher.start()
         self.addCleanup(patcher.stop)
         self.client = self.client_for(create_app())
@@ -189,10 +204,16 @@ class ServedAssetsTest(AppTestCase):
         # Browsers halen manifest, iconen en lettertypen op voordat iemand ingelogd is.
         with mock.patch.dict(os.environ, {"PASSKEY_AUTH_ENABLED": "true"}):
             for path in (
-                "/static/manifest.webmanifest", "/static/brand/icon-192.png", "/static/brand/icon-512.png",
-                "/static/brand/icon-maskable-512.png", "/static/brand/apple-touch-icon.png",
-                "/static/brand/favicon.svg", "/static/brand/social-card.png",
-                "/static/fonts/Manrope-Variable.woff2", "/static/fonts/Inter-Variable.woff2", "/favicon.ico",
+                "/static/manifest.webmanifest",
+                "/static/brand/icon-192.png",
+                "/static/brand/icon-512.png",
+                "/static/brand/icon-maskable-512.png",
+                "/static/brand/apple-touch-icon.png",
+                "/static/brand/favicon.svg",
+                "/static/brand/social-card.png",
+                "/static/fonts/Manrope-Variable.woff2",
+                "/static/fonts/Inter-Variable.woff2",
+                "/favicon.ico",
             ):
                 self.assertEqual((await self.client.get(path)).status_code, 200, path)
             self.assertEqual((await self.client.get("/api/ah/lists")).status_code, 401)
@@ -204,7 +225,8 @@ class ServedAssetsTest(AppTestCase):
             'rel="manifest" href="/static/manifest.webmanifest"',
             'rel="icon" href="/static/brand/favicon.svg" type="image/svg+xml"',
             'rel="icon" href="/static/brand/favicon.ico" sizes="48x48"',
-            'sizes="32x32"', 'sizes="16x16"',
+            'sizes="32x32"',
+            'sizes="16x16"',
             'rel="apple-touch-icon" href="/static/brand/apple-touch-icon.png"',
             '<meta name="apple-mobile-web-app-capable" content="yes">',
             '<meta name="mobile-web-app-capable" content="yes">',
@@ -219,9 +241,7 @@ class ServedAssetsTest(AppTestCase):
         for fragment in expected:
             self.assertIn(fragment, html, fragment)
         # Deelafbeelding: een absolute URL op het publieke adres
-        self.assertIn(
-            'property="og:image" content="https://mealieshopper.example.nl/static/brand/social-card.png"', html
-        )
+        self.assertIn('property="og:image" content="https://mealieshopper.example.nl/static/brand/social-card.png"', html)
         self.assertIn('content="https://mealieshopper.example.nl/static/brand/social-card.png"', html)
 
     async def test_brand_mark_replaces_the_ms_placeholder(self):
@@ -239,10 +259,20 @@ class DesignTokensTest(AppTestCase):
 
     def test_tokens_match_the_style_guide(self):
         expected = {
-            "--primary": "#176b45", "--primary-strong": "#105235", "--selection": "#eaf5ee",
-            "--lemon": "#f2cf45", "--bg": "#f5f7f6", "--surface": "#ffffff", "--text": "#18251e",
-            "--muted": "#59665e", "--border": "#d6dfd9", "--radius-card": "12px", "--radius-control": "8px",
-            "--radius-sm": "4px", "--radius-lg": "16px", "--radius-pill": "999px",
+            "--primary": "#176b45",
+            "--primary-strong": "#105235",
+            "--selection": "#eaf5ee",
+            "--lemon": "#f2cf45",
+            "--bg": "#f5f7f6",
+            "--surface": "#ffffff",
+            "--text": "#18251e",
+            "--muted": "#59665e",
+            "--border": "#d6dfd9",
+            "--radius-card": "12px",
+            "--radius-control": "8px",
+            "--radius-sm": "4px",
+            "--radius-lg": "16px",
+            "--radius-pill": "999px",
         }
         for name, value in expected.items():
             self.assertEqual(self.tokens[name], value, name)
@@ -264,8 +294,16 @@ class DesignTokensTest(AppTestCase):
 
     def test_type_scale_has_eight_steps(self):
         # Fase 4 (4.9.0): acht stappen in plaats van 21 losse groottes. Lopende tekst en invoer blijven 16 px (iOS zoomt niet in).
-        scale = {"--text-xs": "12px", "--text-sm": "13px", "--text-md": "14px", "--text-ui": "15px", "--text-base": "16px",
-                 "--text-lg": "18px", "--text-xl": "20px", "--text-2xl": "24px"}
+        scale = {
+            "--text-xs": "12px",
+            "--text-sm": "13px",
+            "--text-md": "14px",
+            "--text-ui": "15px",
+            "--text-base": "16px",
+            "--text-lg": "18px",
+            "--text-xl": "20px",
+            "--text-2xl": "24px",
+        }
         for name, value in scale.items():
             self.assertEqual(self.tokens[name], value, name)
         self.assertEqual(set(re.findall(r"var\((--text-[\w-]+)\)", self.css)) - set(scale), set(), "geen onbekende stap")
@@ -273,7 +311,10 @@ class DesignTokensTest(AppTestCase):
     def test_every_font_size_comes_from_the_scale(self):
         # Een letterlijke grootte alleen voor wat geen lopende tekst is; elke uitzondering heeft een opmerking die zegt waarom.
         allowed = {
-            ".icon-button": "24px", "html.has-tabbar .tab": "10px", ".receipt__cols": "11px", ".avatar--xl": "32px",
+            ".icon-button": "24px",
+            "html.has-tabbar .tab": "10px",
+            ".receipt__cols": "11px",
+            ".avatar--xl": "32px",
             ".cook-mode .cook-mode__step-title": "clamp(20px, 1rem + 1vw, 26px)",
             ".cook-mode .cook-mode__text": "clamp(22px, 1.2rem + 1.5vw, 34px)",
         }
@@ -295,9 +336,17 @@ class DesignTokensTest(AppTestCase):
         # hebben: de menubalk (iOS-capsule en zijn tabs), het streepje van het actieve menu-item, de stapjes van de installatiehulp, de
         # legenda van de prijsgrafiek en de miniaturen in Weergave.
         own = {
-            ".ob-progress li:not(:last-child)::after", "html.has-tabbar .tabs", "html.has-tabbar .tab", ".shell > .tabs .tab.is-active::before",
-            ".ohc-key--offer", ".ohc-key--line", ".appearance-sample", ".appearance-sample i", ".appearance-navsample",
-            ".appearance-navsample--ios i", ".appearance-navsample--android i::after",
+            ".ob-progress li:not(:last-child)::after",
+            "html.has-tabbar .tabs",
+            "html.has-tabbar .tab",
+            ".shell > .tabs .tab.is-active::before",
+            ".ohc-key--offer",
+            ".ohc-key--line",
+            ".appearance-sample",
+            ".appearance-sample i",
+            ".appearance-navsample",
+            ".appearance-navsample--ios i",
+            ".appearance-navsample--android i::after",
         }
         literal = set()
         for selector, body in re.findall(r"([^{}]+){([^{}]*)}", re.sub(r"/\*.*?\*/", "", self.css, flags=re.S)):
@@ -318,8 +367,22 @@ class DesignTokensTest(AppTestCase):
         self.assertIn("OFFER_POPUP_MIN_SCREEN = 860;", script)
 
     def test_no_leftover_blue_palette(self):
-        for old in ("#2563eb", "#1d4ed8", "#e8f0ff", "#1e4fbf", "#f6f7f9", "#162033", "#667085", "#d9dee8",
-                    "#eef3fb", "#f4f7ff", "#526070", "#f1f4f8", "#eef1f6", "#eef1f5"):
+        for old in (
+            "#2563eb",
+            "#1d4ed8",
+            "#e8f0ff",
+            "#1e4fbf",
+            "#f6f7f9",
+            "#162033",
+            "#667085",
+            "#d9dee8",
+            "#eef3fb",
+            "#f4f7ff",
+            "#526070",
+            "#f1f4f8",
+            "#eef1f6",
+            "#eef1f5",
+        ):
             self.assertNotIn(old, self.css.lower(), old)
 
     def test_lemon_is_never_text(self):
@@ -358,8 +421,7 @@ class DesignTokensTest(AppTestCase):
 
     def test_style_guide_lists_the_same_tokens(self):
         guide = (ROOT / "docs" / "huisstijl.md").read_text().lower()
-        for name in ("--primary", "--primary-strong", "--selection", "--lemon", "--bg", "--surface",
-                     "--text", "--muted", "--border"):
+        for name in ("--primary", "--primary-strong", "--selection", "--lemon", "--bg", "--surface", "--text", "--muted", "--border"):
             self.assertIn(self.tokens[name], guide, f"{name} ontbreekt of wijkt af in docs/huisstijl.md")
 
     def test_lemon_would_fail_as_text(self):
@@ -390,7 +452,8 @@ class BuildScriptTest(AppTestCase):
     def test_committed_svgs_are_up_to_date(self):
         for name in SVGS:
             self.assertEqual(
-                (Path(self.tmp.name) / name).read_text(), (BRAND / name).read_text(),
+                (Path(self.tmp.name) / name).read_text(),
+                (BRAND / name).read_text(),
                 f"{name} is verouderd; draai python scripts/build_brand.py",
             )
 

@@ -7,10 +7,11 @@ from unittest import mock
 
 os.environ.setdefault("MEALIESHOPER_DATA_DIR", tempfile.mkdtemp())
 
+from helpers import AppTestCase, db, run  # noqa: E402
+from test_users import ANNA, UsersTestCase  # noqa: E402
+
 from mealieshopper import auth, profile, users  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
-from test_users import ANNA, UsersTestCase  # noqa: E402
-from helpers import AppTestCase, db, run  # noqa: E402
 
 PNG = base64.b64decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==")
 JPEG = b"\xff\xd8\xff\xe0" + b"\x00" * 20
@@ -55,7 +56,9 @@ class ProfileTest(AppTestCase):
         ):
             response = await self.client.post("/api/profile/avatar", data=data, content_type=content_type)
             self.assertEqual(response.status_code, 400, content_type)
-        self.assertEqual((await self.client.post("/api/profile/avatar", data=PNG + b"0" * profile.MAX_AVATAR_BYTES, content_type="image/png")).status_code, 413)
+        self.assertEqual(
+            (await self.client.post("/api/profile/avatar", data=PNG + b"0" * profile.MAX_AVATAR_BYTES, content_type="image/png")).status_code, 413
+        )
         self.assertEqual((await self.client.post("/api/profile/avatar", data=WEBP, content_type="image/webp")).status_code, 200)
 
     async def test_prefer_organic_is_kept_without_touching_the_display_name(self):
@@ -81,15 +84,20 @@ class ProfileTest(AppTestCase):
         await self.client.put("/api/profile/preferences", json={"preferOrganic": True})
         await self.client.put("/api/profile/preferences", json={"theme": "system"})
         status = (await self.client.get("/api/auth/status")).get_json()
-        self.assertEqual(
-            (status["theme"], status["darkBackground"], status["accent"], status["preferOrganic"]), ("system", "grey", "#0a84ff", True)
-        )
+        self.assertEqual((status["theme"], status["darkBackground"], status["accent"], status["preferOrganic"]), ("system", "grey", "#0a84ff", True))
         self.assertEqual((await self.client.put("/api/profile/preferences", json={"accent": ""})).get_json()["accent"], "", "terug naar de huisstijl")
 
     async def test_appearance_refuses_values_it_does_not_know(self):
         for bad in (
-            {"theme": "sepia"}, {"theme": None}, {"darkBackground": "black"}, {"accent": "red"}, {"accent": "#12345"},
-            {"accent": "#1234567"}, {"accent": 123}, {"accent": "#12345g"}, {"accent": "url(x)"},
+            {"theme": "sepia"},
+            {"theme": None},
+            {"darkBackground": "black"},
+            {"accent": "red"},
+            {"accent": "#12345"},
+            {"accent": "#1234567"},
+            {"accent": 123},
+            {"accent": "#12345g"},
+            {"accent": "url(x)"},
             {"theme": "dark", "accent": "nope"},  # alles of niets
         ):
             self.assertEqual((await self.client.put("/api/profile/preferences", json=bad)).status_code, 400, bad)
@@ -105,8 +113,16 @@ class ProfileTest(AppTestCase):
         for glass in (0, 100, 35):
             self.assertEqual((await self.client.put("/api/profile/preferences", json={"navbarGlass": glass})).get_json()["navbarGlass"], glass)
         await self.client.put("/api/profile/preferences", json={"navbarStyle": "android"})
-        for bad in ({"navbarStyle": "windows"}, {"navbarStyle": None}, {"navbarGlass": -1}, {"navbarGlass": 101},
-                    {"navbarGlass": 50.5}, {"navbarGlass": "50"}, {"navbarGlass": True}, {"navbarGlass": None}):
+        for bad in (
+            {"navbarStyle": "windows"},
+            {"navbarStyle": None},
+            {"navbarGlass": -1},
+            {"navbarGlass": 101},
+            {"navbarGlass": 50.5},
+            {"navbarGlass": "50"},
+            {"navbarGlass": True},
+            {"navbarGlass": None},
+        ):
             self.assertEqual((await self.client.put("/api/profile/preferences", json=bad)).status_code, 400, bad)
         status = (await self.client.get("/api/auth/status")).get_json()
         self.assertEqual((status["navbarStyle"], status["navbarGlass"]), ("android", 35), "een weigering verandert niets")
@@ -141,8 +157,14 @@ class ProfileTest(AppTestCase):
             self.assertEqual((reply.status_code, reply.get_json()["preferredStore"]), (200, store))
         await self.client.put("/api/profile/preferences", json={"cookingMode": False})
         self.assertEqual((await self.client.get("/api/auth/status")).get_json()["preferredStore"], "jumbo", "een andere voorkeur laat hem staan")
-        for bad in ({"preferredStore": "lidl"}, {"preferredStore": "AH"}, {"preferredStore": ""}, {"preferredStore": None},
-                    {"preferredStore": 1}, {"preferredStore": "picnic", "theme": "sepia"}):
+        for bad in (
+            {"preferredStore": "lidl"},
+            {"preferredStore": "AH"},
+            {"preferredStore": ""},
+            {"preferredStore": None},
+            {"preferredStore": 1},
+            {"preferredStore": "picnic", "theme": "sepia"},
+        ):
             self.assertEqual((await self.client.put("/api/profile/preferences", json=bad)).status_code, 400, bad)
         self.assertEqual((await self.client.get("/api/auth/status")).get_json()["preferredStore"], "jumbo", "een weigering verandert niets")
         self.assertEqual((await self.client.get("/api/profile")).get_json()["preferredStore"], "jumbo")
@@ -155,7 +177,14 @@ class ProfileTest(AppTestCase):
             self.assertEqual((reply.status_code, reply.get_json()["plannerServings"]), (200, number))
         await self.client.put("/api/profile/preferences", json={"plannerCombine": False})
         self.assertEqual((await self.client.get("/api/auth/status")).get_json()["plannerServings"], 8, "een andere voorkeur laat hem staan")
-        for bad in ({"plannerServings": 0}, {"plannerServings": 9}, {"plannerServings": "4"}, {"plannerServings": True}, {"plannerServings": None}, {"plannerServings": 2.5}):
+        for bad in (
+            {"plannerServings": 0},
+            {"plannerServings": 9},
+            {"plannerServings": "4"},
+            {"plannerServings": True},
+            {"plannerServings": None},
+            {"plannerServings": 2.5},
+        ):
             self.assertEqual((await self.client.put("/api/profile/preferences", json=bad)).status_code, 400, bad)
         self.assertEqual((await self.client.get("/api/auth/status")).get_json()["plannerServings"], 8, "een weigering verandert niets")
 
@@ -202,7 +231,9 @@ class ProfileTest(AppTestCase):
         self.assertEqual((run(profile.get("owner"))["preferOrganic"], run(profile.get("owner"))["displayName"]), (True, "Oud"))
         self.assertEqual((run(profile.get("owner"))["theme"], run(profile.get("owner"))["accent"]), (None, ""), "en de kolommen van de weergave")
         self.assertEqual(run(profile.get("owner"))["preferredStore"], "ah", "en de voorkeurssupermarkt")
-        self.assertEqual((run(profile.get("owner"))["plannerCombine"], run(profile.get("owner"))["plannerSplitMeals"]), (True, True), "en de weekplanner")
+        self.assertEqual(
+            (run(profile.get("owner"))["plannerCombine"], run(profile.get("owner"))["plannerSplitMeals"]), (True, True), "en de weekplanner"
+        )
         run(profile.set_appearance("owner", accent="#b0213f"))
         self.assertEqual((run(profile.get("owner"))["accent"], run(profile.get("owner"))["darkBackground"]), ("#b0213f", "green"))
 
@@ -265,13 +296,13 @@ class ProfileMarkupTest(AppTestCase):
 
     def section(self, name):
         start = self.html.index(f'<section id="{name}"')
-        return self.html[start:self.html.index("</section>", start)]
+        return self.html[start : self.html.index("</section>", start)]
 
     def test_menu_has_profile_settings_for_the_admin_and_logout(self):
         import re
 
         start = self.html.index('id="user-menu-list"')
-        menu = self.html[start:self.html.index("</div>\n\n    <main", start)]
+        menu = self.html[start : self.html.index("</div>\n\n    <main", start)]
         self.assertEqual(re.findall(r'data-user-action="(\w+)"', menu), ["basket", "profile", "settings", "about", "theme", "lang", "reload"])
         settings = re.search(r'<a[^>]*data-user-action="settings"[^>]*>', menu).group(0)
         self.assertNotIn("data-admin-only", settings, "Instellingen is voor iedereen: een gewone gebruiker ziet daar alleen Weergave")
@@ -286,22 +317,50 @@ class ProfileMarkupTest(AppTestCase):
         import re
 
         start = self.html.index('id="user-menu-list"')
-        menu = self.html[start:self.html.index("</div>\n\n    <main", start)]
+        menu = self.html[start : self.html.index("</div>\n\n    <main", start)]
         parts = re.findall(r'class="(user-menu__who|user-menu__separator)"|data-user-action="(\w+)"|id="(auth-logout)"', menu)
-        self.assertEqual([next(p for p in part if p) for part in parts],
-                         ["user-menu__who", "basket", "profile", "settings", "about", "user-menu__separator", "theme", "lang", "reload",
-                          "user-menu__separator", "auth-logout"])
-        self.assertIn("border-bottom: 1px solid var(--border)", re.search(r"\.user-menu__who\s*{(.*?)}", self.css, re.S).group(1),
-                      "de lijn onder avatar en naam")
+        self.assertEqual(
+            [next(p for p in part if p) for part in parts],
+            [
+                "user-menu__who",
+                "basket",
+                "profile",
+                "settings",
+                "about",
+                "user-menu__separator",
+                "theme",
+                "lang",
+                "reload",
+                "user-menu__separator",
+                "auth-logout",
+            ],
+        )
+        self.assertIn(
+            "border-bottom: 1px solid var(--border)",
+            re.search(r"\.user-menu__who\s*{(.*?)}", self.css, re.S).group(1),
+            "de lijn onder avatar en naam",
+        )
         self.assertIn('role="separator"', menu)
         items = re.findall(r'<(?:a|button)[^>]*class="user-menu__item[^"]*".*?</(?:a|button)>', menu, re.S)
         self.assertEqual(len(items), 8)
-        icons = [re.search(r'<svg class="user-menu__icon" viewBox="0 0 24 24" aria-hidden="true" data-mdi="(\w+)"><path d="[^"]+"/></svg>', item)
-                 for item in items]
+        icons = [
+            re.search(r'<svg class="user-menu__icon" viewBox="0 0 24 24" aria-hidden="true" data-mdi="(\w+)"><path d="[^"]+"/></svg>', item)
+            for item in items
+        ]
         self.assertTrue(all(icons), "elk item heeft een icoon")
-        self.assertEqual([icon.group(1) for icon in icons],
-                         ["mdiCart", "mdiAccountCircleOutline", "mdiCogOutline", "mdiInformationOutline", "mdiThemeLightDark",
-                          "mdiTranslate", "mdiSync", "mdiLogout"])
+        self.assertEqual(
+            [icon.group(1) for icon in icons],
+            [
+                "mdiCart",
+                "mdiAccountCircleOutline",
+                "mdiCogOutline",
+                "mdiInformationOutline",
+                "mdiThemeLightDark",
+                "mdiTranslate",
+                "mdiSync",
+                "mdiLogout",
+            ],
+        )
         for item in items:
             self.assertNotRegex(item.split(">")[0], r"data-i18n=", "de vertaling staat op de tekst, niet op het item (anders verdwijnt het icoon)")
         basket = re.search(r'<a[^>]*data-user-action="basket"[^>]*>', menu).group(0)
@@ -316,7 +375,7 @@ class ProfileMarkupTest(AppTestCase):
         import re
 
         start = self.html.index('id="user-menu-list"')
-        menu = self.html[start:self.html.index("</div>\n\n    <main", start)]
+        menu = self.html[start : self.html.index("</div>\n\n    <main", start)]
         for action, label in (("theme", 'id="user-menu-theme"'), ("lang", 'id="user-menu-lang" lang="en"')):
             item = re.search(r'<button type="button" role="menuitem" class="user-menu__item" data-user-action="%s">.*?</button>' % action, menu, re.S)
             self.assertIsNotNone(item, action)
@@ -354,9 +413,9 @@ class ProfileMarkupTest(AppTestCase):
         self.assertIn('showPanel("about")', self.js)
 
     def test_security_has_one_password_block_with_two_step_inside_and_a_passkey_block(self):
-        security = self.html[self.html.index('<div id="profile-security"'):self.html.index('<div id="profile-ai"')]
+        security = self.html[self.html.index('<div id="profile-security"') : self.html.index('<div id="profile-ai"')]
         self.assertEqual(security.count('class="box'), 2, "wachtwoord (met tweestapsverificatie) en passkeys")
-        password = security[security.index('id="security-password-box"'):security.index('id="credentials-list"')]
+        password = security[security.index('id="security-password-box"') : security.index('id="credentials-list"')]
         self.assertIn('id="mfa-panel"', password)
         self.assertIn('id="credentials-list"', security)
 

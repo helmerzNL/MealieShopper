@@ -21,9 +21,16 @@ ROUTER_JS = (ROOT / "static" / "router.js").read_text(encoding="utf-8")
 
 # De subtabs van Winkels in de volgorde van de balk (templates/index.html, zie test_ah_items_ui.StoreSubtabsTest).
 SUBTABS = [
-    "ah-items-recepten", "ah-items-jumbo-recepten", "ah-items-lijstjes", "ah-items-bestellingen",
-    "ah-items-picnic", "ah-items-picnic-favorieten", "ah-items-picnic-bestellingen",
-    "ah-items-crisp-recepten", "ah-items-crisp-favorieten", "ah-items-crisp-bestellingen",
+    "ah-items-recepten",
+    "ah-items-jumbo-recepten",
+    "ah-items-lijstjes",
+    "ah-items-bestellingen",
+    "ah-items-picnic",
+    "ah-items-picnic-favorieten",
+    "ah-items-picnic-bestellingen",
+    "ah-items-crisp-recepten",
+    "ah-items-crisp-favorieten",
+    "ah-items-crisp-bestellingen",
 ]
 
 
@@ -91,10 +98,20 @@ function result() {
 class StoreSwitchTest(unittest.TestCase):
     def run_js(self, scenario):
         consts = [const_source(name) for name in ("STORES", "PICNIC_SUBTABS", "JUMBO_SUBTABS", "CRISP_SUBTABS", "STORE_SECTIONS")]
-        functions = [function_source(name) for name in (
-            "itemsStores", "itemsStoreName", "itemsOpenSubtab", "itemsSection", "itemsSubtab", "itemsStorePath",
-            "storesPath", "renderItemsStore", "switchItemsStore",
-        )]
+        functions = [
+            function_source(name)
+            for name in (
+                "itemsStores",
+                "itemsStoreName",
+                "itemsOpenSubtab",
+                "itemsSection",
+                "itemsSubtab",
+                "itemsStorePath",
+                "storesPath",
+                "renderItemsStore",
+                "switchItemsStore",
+            )
+        ]
         script = "\n".join([PAGE % json.dumps(SUBTABS), *consts, *functions, scenario])
         result = subprocess.run(["node", "-e", script], capture_output=True, text=True, timeout=30, check=False)
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -179,8 +196,14 @@ class StoreSwitchTest(unittest.TestCase):
             console.log(JSON.stringify({ lists, favorites, menu: $("#items-store-list").innerHTML }));
             """
         )
-        self.assertEqual(out["lists"], {"ah": "/stores/ah/lists", "jumbo": "/stores/jumbo/lists", "picnic": "/stores/picnic/recipes", "crisp": "/stores/crisp/recipes"})
-        self.assertEqual(out["favorites"], {"ah": "/stores/ah/recipes", "jumbo": "/stores/jumbo/recipes", "picnic": "/stores/picnic/favorites", "crisp": "/stores/crisp/favorites"})
+        self.assertEqual(
+            out["lists"],
+            {"ah": "/stores/ah/lists", "jumbo": "/stores/jumbo/lists", "picnic": "/stores/picnic/recipes", "crisp": "/stores/crisp/recipes"},
+        )
+        self.assertEqual(
+            out["favorites"],
+            {"ah": "/stores/ah/recipes", "jumbo": "/stores/jumbo/recipes", "picnic": "/stores/picnic/favorites", "crisp": "/stores/crisp/favorites"},
+        )
         # router.js houdt de links in het menu daarna gelijk met dezelfde functie.
         self.assertIn('link.setAttribute("href", itemsStorePath(link.dataset.store))', ROUTER_JS)
 

@@ -9,6 +9,7 @@ Aantallen zijn aan te passen. `default_quantity` is het aantal zoals AH het geef
 `quantity` het aantal dat de gebruiker wil. Een synchronisatie bewaart de door de
 gebruiker aangepaste aantallen (per product) en haalt de rest weer bij AH op.
 """
+
 from __future__ import annotations
 
 import sqlite3
@@ -159,10 +160,12 @@ async def save_snapshot(live: dict[str, Any]) -> dict[str, Any]:
 
     async with _connect() as conn:
         await conn.execute("BEGIN IMMEDIATE")  # een aanpassing van een aantal tijdens het synchroniseren gaat niet verloren
-        previous: list[Any] = list(await conn.execute_fetchall(
-            "SELECT position, item_id, product_id, quantity, default_quantity FROM ah_list_items WHERE list_id = ? ORDER BY position",
-            (list_id,),
-        ))
+        previous: list[Any] = list(
+            await conn.execute_fetchall(
+                "SELECT position, item_id, product_id, quantity, default_quantity FROM ah_list_items WHERE list_id = ? ORDER BY position",
+                (list_id,),
+            )
+        )
         matches = _match_previous(previous, items)
 
         rows: list[tuple[Any, ...]] = []
@@ -246,9 +249,7 @@ async def get_snapshot(list_id: str) -> dict[str, Any] | None:
         head = await auth.fetchone(conn, "SELECT id, name, synced_at FROM ah_lists WHERE id = ?", (list_id,))
         if not head:
             return None
-        rows = await conn.execute_fetchall(
-            "SELECT * FROM ah_list_items WHERE list_id = ? ORDER BY position", (list_id,)
-        )
+        rows = await conn.execute_fetchall("SELECT * FROM ah_list_items WHERE list_id = ? ORDER BY position", (list_id,))
     items = [_item_row(row) for row in rows]
     return {
         "id": head["id"],
@@ -281,9 +282,7 @@ async def search_items(query: Any, limit: int = 3) -> dict[str, list[str]]:
     if not words:
         return {}
     async with _connect() as conn:
-        rows = await conn.execute_fetchall(
-            "SELECT list_id, title, brand FROM ah_list_items WHERE title IS NOT NULL ORDER BY list_id, position"
-        )
+        rows = await conn.execute_fetchall("SELECT list_id, title, brand FROM ah_list_items WHERE title IS NOT NULL ORDER BY list_id, position")
     found: dict[str, list[str]] = {}
     for row in rows:
         haystack = _fold(f"{row['title']} {row['brand'] or ''}")

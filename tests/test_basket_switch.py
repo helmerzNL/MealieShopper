@@ -88,7 +88,9 @@ class BasketSwitchTest(unittest.TestCase):
         functions = [function_source(BASKET_JS, "showBasket")] + [
             function_source(ORDERS_JS, name) for name in ("renderBasket", "showAhBasket", "syncAhBasket")
         ]
-        script = "\n".join([PAGE, *functions, "(async () => {", scenario, "})().catch((error) => { console.log(JSON.stringify({ crash: String(error) })); });"])
+        script = "\n".join(
+            [PAGE, *functions, "(async () => {", scenario, "})().catch((error) => { console.log(JSON.stringify({ crash: String(error) })); });"]
+        )
         result = subprocess.run(["node", "-e", script], capture_output=True, text=True, timeout=30, check=False)
         self.assertEqual(result.returncode, 0, result.stderr)
         return json.loads(result.stdout.strip().splitlines()[-1])

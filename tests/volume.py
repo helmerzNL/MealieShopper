@@ -63,12 +63,8 @@ SIZES: dict[str, int] = {
     "offers_aldi": 130,
 }
 DB_NAME: str = "auth.sqlite3"
-NOW: datetime = datetime(
-    2026, 11, 13, 12, 0, tzinfo=UTC
-)  # de klok van de app in een volumetest
-SYNCED_AT: str = (
-    "2026-11-13T05:00:00+00:00"  # de laatste synchronisatie van de aanbiedingen
-)
+NOW: datetime = datetime(2026, 11, 13, 12, 0, tzinfo=UTC)  # de klok van de app in een volumetest
+SYNCED_AT: str = "2026-11-13T05:00:00+00:00"  # de laatste synchronisatie van de aanbiedingen
 MONDAY: date = date(2026, 11, 9)  # het begin van de week van TODAY
 TABLES: tuple[str, ...] = (
     "offer_history", "offers", "offers_meta", "price_observations", "ah_orders", "ah_order_items",
@@ -185,9 +181,7 @@ class Product(NamedTuple):
 
 
 def _kinds(text: str) -> tuple[Kind, ...]:
-    entries: list[str] = [
-        entry for line in text.strip().splitlines() for entry in line.split(";")
-    ]
+    entries: list[str] = [entry for line in text.strip().splitlines() for entry in line.split(";")]
     found: list[Kind] = []
     for entry in entries:
         name, price, sizes = entry.split("|")
@@ -196,9 +190,7 @@ def _kinds(text: str) -> tuple[Kind, ...]:
 
 
 KINDS: tuple[Kind, ...] = _kinds(KINDS_TEXT)
-TAXONOMY: dict[str, str] = {
-    category: key for key, category in reversed(offer_categories.AH_TAXONOMY.items())
-}
+TAXONOMY: dict[str, str] = {category: key for key, category in reversed(offer_categories.AH_TAXONOMY.items())}
 
 
 def scaled(value: int, scale: float) -> int:
@@ -220,21 +212,15 @@ def _size_factor(kind: Kind, size: str) -> float:
     return 1.0 + 0.6 * kind.sizes.index(size)
 
 
-def _product(
-    rng: random.Random, store: str, product_id: str, brands: tuple[str, ...]
-) -> Product:
+def _product(rng: random.Random, store: str, product_id: str, brands: tuple[str, ...]) -> Product:
     kind: Kind = rng.choice(KINDS)
     brand: str = rng.choice(brands)
     variant: str = rng.choice(VARIANTS)
     size: str = rng.choice(kind.sizes)
     title: str = " ".join(part for part in (brand, kind.name, variant) if part)
-    factor: float = _size_factor(kind, size) * (
-        0.85 if brand in HOUSE.get(store, ()) else 1.1
-    )
+    factor: float = _size_factor(kind, size) * (0.85 if brand in HOUSE.get(store, ()) else 1.1)
     category: str = offer_categories.offer_category(store, title)
-    return Product(
-        store, product_id, title, brand, size, _shelf(kind.price * factor), category
-    )
+    return Product(store, product_id, title, brand, size, _shelf(kind.price * factor), category)
 
 
 def _product_id(store: str, number: int) -> str:
@@ -258,11 +244,7 @@ def products(rng: random.Random, store: str, count: int) -> list[Product]:
 def _folder_title(rng: random.Random, store: str) -> tuple[str, Kind]:
     """Een foldernaam zoals in een prijsarchief: een lijn, een variant, een verpakking of een opsomming."""
     kind: Kind = rng.choice(KINDS)
-    brand: str = (
-        rng.choice(OLD_BRANDS)
-        if rng.random() < 0.3
-        else rng.choice(HOUSE[store] + BRANDS)
-    )
+    brand: str = rng.choice(OLD_BRANDS) if rng.random() < 0.3 else rng.choice(HOUSE[store] + BRANDS)
     variant: str = rng.choice(VARIANTS[3:])
     other: str = rng.choice(KINDS).name.lower()
     forms: tuple[str, ...] = (
@@ -282,9 +264,7 @@ def folder_products(rng: random.Random, store: str, count: int) -> list[Product]
     while len(found) < count:
         title, kind = _folder_title(rng, store)
         key: str = f"detached|{store}|{name_keys.fold(title)}"
-        product_id: str = (
-            "folder:" + hashlib.sha256(key.encode("utf-8")).hexdigest()[:24]
-        )
+        product_id: str = "folder:" + hashlib.sha256(key.encode("utf-8")).hexdigest()[:24]
         size: str | None = rng.choice(kind.sizes) if rng.random() < 0.35 else None
         found.setdefault(
             product_id,
@@ -323,9 +303,7 @@ def deal(rng: random.Random, regular: float) -> tuple[float, float | None, str]:
     return now, regular, f"nu {now:.2f}".replace(".", ",")
 
 
-def folder_deal(
-    rng: random.Random, regular: float
-) -> tuple[float | None, float | None, str]:
+def folder_deal(rng: random.Random, regular: float) -> tuple[float | None, float | None, str]:
     """(prijs, van-prijs, tekst) van een folderregel, in de vormen die `line_offers.per_piece` leest. De helft zonder van-prijs."""
     kind: int = rng.randrange(6)
     now: float = _shelf(regular * rng.choice((0.6, 0.75, 0.85)))
@@ -345,9 +323,7 @@ def folder_deal(
 def spread(rng: random.Random, total: int, weights: list[float]) -> list[int]:
     """`total` rijen over de producten: elk minstens een, de rest naar gewicht."""
     counts: list[int] = [1] * len(weights)
-    for index in rng.choices(
-        range(len(weights)), weights=weights, k=max(0, total - len(weights))
-    ):
+    for index in rng.choices(range(len(weights)), weights=weights, k=max(0, total - len(weights))):
         counts[index] += 1
     return counts
 
@@ -383,15 +359,11 @@ def _validity(kind: str) -> tuple[str | None, str | None]:
 def _kinds_of(store: str, total: int) -> list[str]:
     mix: dict[str, float] = OFFER_MIX[store]
     names: list[str] = list(mix)
-    kinds: list[str] = [
-        name for name in names[:-1] for _ in range(round(total * mix[name]))
-    ]
+    kinds: list[str] = [name for name in names[:-1] for _ in range(round(total * mix[name]))]
     return kinds + [names[-1]] * max(0, total - len(kinds))
 
 
-def shown_offers(
-    rng: random.Random, store: str, normal: list[Product], total: int
-) -> list[Shown]:
+def shown_offers(rng: random.Random, store: str, normal: list[Product], total: int) -> list[Shown]:
     """De aanbiedingen van een winkel. Een op de vier van volgende week staat ook deze week in de aanbieding (AH zet de
     bonus van volgende week naast die van deze week)."""
     found: list[Shown] = []
@@ -426,21 +398,9 @@ def history_row(
     folder: bool = product.product_id.startswith("folder:")
     start: date = date.fromisoformat(valid[0]) if valid[0] else MONDAY
     first: str = _stamp(start, "00:00:00" if folder else "05:00:00")
-    last: str = (
-        SYNCED_AT
-        if open_
-        else _stamp(start + timedelta(days=6), "23:59:59" if folder else "05:00:00")
-    )
-    image: str = (
-        ""
-        if folder
-        else f"https://img.example/{product.store}/{product.product_id}.webp"
-    )
-    url: str = (
-        f"https://folders.example/{product.store}/{start}"
-        if folder
-        else prices._url(product.store, product.product_id)
-    )
+    last: str = SYNCED_AT if open_ else _stamp(start + timedelta(days=6), "23:59:59" if folder else "05:00:00")
+    image: str = "" if folder else f"https://img.example/{product.store}/{product.product_id}.webp"
+    url: str = f"https://folders.example/{product.store}/{start}" if folder else prices._url(product.store, product.product_id)
     return (
         product.store, product.product_id, product.title, product.brand, product.unit_size, product.category or None,
         offer[0], offer[1], offer[2], image, url, valid[0], valid[1], first, last, None if open_ else last,
@@ -452,24 +412,16 @@ def _week(start: date) -> tuple[str, str]:
     return start.isoformat(), (start + timedelta(days=6)).isoformat()
 
 
-def normal_history(
-    rng: random.Random, normal: list[Product], shown: list[Shown], rows: int
-) -> list[tuple[Any, ...]]:
+def normal_history(rng: random.Random, normal: list[Product], shown: list[Shown], rows: int) -> list[tuple[Any, ...]]:
     """De rijen van de gewone producten: afgesloten weken uit de laatste anderhalf jaar, en voor elke aanbieding van nu
     (behalve die van volgende week) een open rij. Een product dat nu in de aanbieding is, was dat vaker."""
-    running: dict[str, Shown] = {
-        offer.product.product_id: offer for offer in shown if offer.kind != "next"
-    }
-    counts: list[int] = spread(
-        rng, rows, [3.0 if product.product_id in running else 1.0 for product in normal]
-    )
+    running: dict[str, Shown] = {offer.product.product_id: offer for offer in shown if offer.kind != "next"}
+    counts: list[int] = spread(rng, rows, [3.0 if product.product_id in running else 1.0 for product in normal])
     weeks: list[date] = [MONDAY - timedelta(weeks=n) for n in range(1, 79)]
     found: list[tuple[Any, ...]] = []
     for product, count in zip(normal, counts, strict=True):
         offer: Shown | None = running.get(product.product_id)
-        for week in sorted(
-            rng.sample(weeks, min(count - (offer is not None), len(weeks)))
-        ):
+        for week in sorted(rng.sample(weeks, min(count - (offer is not None), len(weeks)))):
             found.append(
                 history_row(
                     product,
@@ -481,20 +433,13 @@ def normal_history(
             )
         if offer is not None:
             valid: tuple[str | None, str | None] = (offer.valid_from, offer.valid_until)
-            found.append(
-                history_row(product, offer[2:5], valid, True, offer.kind == "personal")
-            )
+            found.append(history_row(product, offer[2:5], valid, True, offer.kind == "personal"))
     return found
 
 
-def folder_history(
-    rng: random.Random, folders: list[Product], rows: int
-) -> list[tuple[Any, ...]]:
+def folder_history(rng: random.Random, folders: list[Product], rows: int) -> list[tuple[Any, ...]]:
     """De rijen van de folderproducten: weken uit 2009 tot nu, de laatste jaren vaker, een paar producten heel vaak."""
-    weeks: list[date] = [
-        date(2009, 1, 5) + timedelta(weeks=n)
-        for n in range((MONDAY - date(2009, 1, 5)).days // 7 + 1)
-    ]
+    weeks: list[date] = [date(2009, 1, 5) + timedelta(weeks=n) for n in range((MONDAY - date(2009, 1, 5)).days // 7 + 1)]
     weights: list[float] = [1 + 4 * index / len(weeks) for index in range(len(weeks))]
     counts: list[int] = spread(rng, rows, [rng.paretovariate(2.0) for _ in folders])
     found: list[tuple[Any, ...]] = []
@@ -527,35 +472,19 @@ def offer_row(offer: Shown, position: int) -> tuple[Any, ...]:
     )  # fmt: skip
 
 
-def bought(
-    rng: random.Random, normal: list[Product], shown: list[Shown], count: int
-) -> list[Product]:
+def bought(rng: random.Random, normal: list[Product], shown: list[Shown], count: int) -> list[Product]:
     """De producten die je kocht: de helft uit de aanbiedingen van nu, de rest uit de catalogus."""
-    offered: list[Product] = list(
-        {offer.product.product_id: offer.product for offer in shown}.values()
-    )
+    offered: list[Product] = list({offer.product.product_id: offer.product for offer in shown}.values())
     taken: set[str] = {product.product_id for product in offered}
-    others: list[Product] = [
-        product for product in normal if product.product_id not in taken
-    ]
+    others: list[Product] = [product for product in normal if product.product_id not in taken]
     half: int = min(count // 2, len(offered))
-    return rng.sample(offered, half) + rng.sample(
-        others, min(count - half, len(others))
-    )
+    return rng.sample(offered, half) + rng.sample(others, min(count - half, len(others)))
 
 
-def _observation(
-    product: Product, day: date, source: str, price: float
-) -> tuple[Any, ...]:
+def _observation(product: Product, day: date, source: str, price: float) -> tuple[Any, ...]:
     shown: bool = source == "search"
-    image: str | None = (
-        f"https://img.example/{product.store}/{product.product_id}.webp"
-        if shown
-        else None
-    )
-    url: str | None = (
-        prices._url(product.store, product.product_id) or None if shown else None
-    )
+    image: str | None = f"https://img.example/{product.store}/{product.product_id}.webp" if shown else None
+    url: str | None = prices._url(product.store, product.product_id) or None if shown else None
     if source == prices.PUBLIC_OBSERVED_UNKNOWN:
         url = f"https://archief.example/{product.store}/{product.product_id}"
     return (
@@ -567,40 +496,26 @@ def _observation(
 def index_observations(bought_ah: list[Product], count: int) -> list[tuple[Any, ...]]:
     """De weekprijzen van de prijsindex (`ah_price_index.py`) voor de gekochte AH-producten: elke maandag, jaren terug."""
     days: list[date] = [MONDAY - timedelta(weeks=n) for n in range(INDEX_WEEKS)]
-    return [
-        _observation(product, day, prices.PRICE_INDEX, price_on(product, day))
-        for product in bought_ah[:count]
-        for day in days
-    ]
+    return [_observation(product, day, prices.PRICE_INDEX, price_on(product, day)) for product in bought_ah[:count] for day in days]
 
 
-def searched_observations(
-    rng: random.Random, chosen: list[Product], rows: int, days: list[date], source: str
-) -> list[tuple[Any, ...]]:
+def searched_observations(rng: random.Random, chosen: list[Product], rows: int, days: list[date], source: str) -> list[tuple[Any, ...]]:
     """Prijzen uit een zoekopdracht (`search`) of uit een openbaar archief, elk product op eigen dagen."""
     found: list[tuple[Any, ...]] = []
-    for product, count in zip(
-        chosen, spread(rng, rows, [1.0] * len(chosen)), strict=True
-    ):
+    for product, count in zip(chosen, spread(rng, rows, [1.0] * len(chosen)), strict=True):
         for day in sorted(rng.sample(days, min(count, len(days)))):
             found.append(_observation(product, day, source, price_on(product, day)))
     return found
 
 
-def _picked(
-    rng: random.Random, preferred: list[Product], rest: list[Product], count: int
-) -> list[Product]:
+def _picked(rng: random.Random, preferred: list[Product], rest: list[Product], count: int) -> list[Product]:
     first: list[Product] = preferred[: count // 2]
     taken: set[str] = {product.product_id for product in first}
-    pool: list[Product] = [
-        product for product in rest if product.product_id not in taken
-    ]
+    pool: list[Product] = [product for product in rest if product.product_id not in taken]
     return first + rng.sample(pool, min(count - len(first), len(pool)))
 
 
-def order_rows(
-    rng: random.Random, store: str, chosen: list[Product], scale: float
-) -> tuple[list[tuple[Any, ...]], list[tuple[Any, ...]]]:
+def order_rows(rng: random.Random, store: str, chosen: list[Product], scale: float) -> tuple[list[tuple[Any, ...]], list[tuple[Any, ...]]]:
     """Bestellingen en hun regels, in de vorm van de tabellen van `prices._PURCHASES`: AH en Jumbo met de bonus per regel,
     Picnic en Crisp met het bedrag van de hele regel. Een op de twintig bestellingen van AH en Jumbo is nog niet geleverd."""
     total, per_order = ORDERS[store]
@@ -609,34 +524,20 @@ def order_rows(
     orders: list[tuple[Any, ...]] = []
     items: list[tuple[Any, ...]] = []
     for number in range(count):
-        waiting: bool = store in ("ah", "jumbo") and number >= count - max(
-            1, count // 20
-        )
+        waiting: bool = store in ("ah", "jumbo") and number >= count - max(1, count // 20)
         day: date = date(2024, 1, 8) + timedelta(days=(number * 1040) // count)
-        day = (
-            date.fromisoformat(TODAY) + timedelta(days=1 + number % 5)
-            if waiting
-            else day
-        )
+        day = date.fromisoformat(TODAY) + timedelta(days=1 + number % 5) if waiting else day
         order_id: Any = 900_000 + number if store == "ah" else f"{store}-{number:05d}"
         lines: list[tuple[Any, ...]] = [
             _order_item(rng, store, order_id, position, product, day)
-            for position, product in enumerate(
-                rng.choices(chosen, weights=weights, k=per_order)
-            )
+            for position, product in enumerate(rng.choices(chosen, weights=weights, k=per_order))
         ]
         items += lines
-        orders.append(
-            _order(
-                store, order_id, day, waiting, round(sum(line[-1] for line in lines), 2)
-            )
-        )
+        orders.append(_order(store, order_id, day, waiting, round(sum(line[-1] for line in lines), 2)))
     return orders, [line[:-1] for line in items]
 
 
-def _order(
-    store: str, order_id: Any, day: date, waiting: bool, total: float
-) -> tuple[Any, ...]:
+def _order(store: str, order_id: Any, day: date, waiting: bool, total: float) -> tuple[Any, ...]:
     seen: str = _stamp(day - timedelta(days=2), "10:00:00")
     slot: tuple[str, str] = (_stamp(day, "17:00:00"), _stamp(day, "19:00:00"))
     if store == "ah":
@@ -696,9 +597,7 @@ def _order_item(
     quantity: int = rng.choice((1, 1, 1, 2, 3))
     image: str = f"https://img.example/{store}/{product.product_id}.webp"
     if store in ("picnic", "crisp"):
-        line: float = round(
-            regular * quantity * (0.8 if rng.random() < 0.2 else 1.0), 2
-        )
+        line: float = round(regular * quantity * (0.8 if rng.random() < 0.2 else 1.0), 2)
         return (
             order_id,
             position,
@@ -747,26 +646,18 @@ def receipt_products(
     for index, product in enumerate(rng.sample(normal, max(0, count - len(linked)))):
         article: int = 3_000_000 + index
         if index % 25 == 0:
-            found.append(
-                (article, None, None, "2026-01-01T00:00:00+00:00", None, None, None)
-            )
+            found.append((article, None, None, "2026-01-01T00:00:00+00:00", None, None, None))
         else:
             found.append((article, int(product.product_id), product.title, "2026-01-01T00:00:00+00:00", "",
                           product.brand, product.unit_size))  # fmt: skip
     return found
 
 
-def receipt_rows(
-    rng: random.Random, chosen: list[Product], normal: list[Product], scale: float
-) -> dict[str, list[tuple[Any, ...]]]:
+def receipt_rows(rng: random.Random, chosen: list[Product], normal: list[Product], scale: float) -> dict[str, list[tuple[Any, ...]]]:
     """Kassabonnen van AH met tien regels per bon. Het nummer op de bon is AH's artikelnummer: driekwart is gekoppeld aan
     een product van de webwinkel (`ah_receipt_products`), de rest koppelt de app op naam."""
-    articles: dict[str, int] = {
-        product.product_id: 2_000_000 + index for index, product in enumerate(chosen)
-    }
-    found: list[tuple[Any, ...]] = receipt_products(
-        rng, chosen, normal, articles, scaled(SIZES["ah_receipt_products"], scale)
-    )
+    articles: dict[str, int] = {product.product_id: 2_000_000 + index for index, product in enumerate(chosen)}
+    found: list[tuple[Any, ...]] = receipt_products(rng, chosen, normal, articles, scaled(SIZES["ah_receipt_products"], scale))
     lines: list[tuple[Any, ...]] = []
     receipts: list[tuple[Any, ...]] = []
     count: int = max(1, scaled(SIZES["ah_receipts"], scale))
@@ -796,9 +687,7 @@ def receipt_rows(
     }
 
 
-def _import_title(
-    rng: random.Random, chosen: list[Product], normal: list[Product]
-) -> str:
+def _import_title(rng: random.Random, chosen: list[Product], normal: list[Product]) -> str:
     """De naam in een bevestigingsmail: meestal die van het product, soms bijna (andere volgorde, "online" erachter), soms
     een naam die de app niet kent (een merk van vroeger)."""
     roll: float = rng.random()
@@ -811,9 +700,7 @@ def _import_title(
     return f"{rng.choice(OLD_BRANDS)} {rng.choice(KINDS).name.lower()} {rng.choice(VARIANTS[3:])}"
 
 
-def import_rows(
-    rng: random.Random, chosen: list[Product], normal: list[Product], scale: float
-) -> list[tuple[Any, ...]]:
+def import_rows(rng: random.Random, chosen: list[Product], normal: list[Product], scale: float) -> list[tuple[Any, ...]]:
     """Aankopen uit bevestigingsmails (`price_import.py`), twintig per bestelling, uit 2019 tot en met 2023: van voor de
     bestellingen in het account, dus niets telt dubbel."""
     count: int = scaled(SIZES["imported_purchases"], scale)
@@ -830,20 +717,12 @@ def import_rows(
     return found
 
 
-def store_rows(
-    rng: random.Random, store: str, scale: float
-) -> tuple[list[Product], list[Shown], list[tuple[Any, ...]]]:
+def store_rows(rng: random.Random, store: str, scale: float) -> tuple[list[Product], list[Shown], list[tuple[Any, ...]]]:
     """De gewone producten, de aanbiedingen en de rijen van offer_history van een winkel, volgens `SHAPE` en `OFFER_MIX`."""
-    normal_count, folder_count, normal_rows, folder_rows = (
-        scaled(value, scale) if value else 0 for value in SHAPE[store]
-    )
+    normal_count, folder_count, normal_rows, folder_rows = (scaled(value, scale) if value else 0 for value in SHAPE[store])
     normal: list[Product] = products(rng, store, normal_count)
-    shown: list[Shown] = shown_offers(
-        rng, store, normal, min(scaled(SIZES[f"offers_{store}"], scale), normal_count)
-    )
-    rows: list[tuple[Any, ...]] = normal_history(
-        rng, normal, shown, max(normal_rows, normal_count)
-    )
+    shown: list[Shown] = shown_offers(rng, store, normal, min(scaled(SIZES[f"offers_{store}"], scale), normal_count))
+    rows: list[tuple[Any, ...]] = normal_history(rng, normal, shown, max(normal_rows, normal_count))
     if folder_count:
         rows += folder_history(
             rng,
@@ -862,28 +741,16 @@ def observation_rows(
 ) -> list[tuple[Any, ...]]:
     """De 310.000 prijzen: de weekprijzen van de prijsindex, recente zoekopdrachten bij AH en Jumbo (de producten van de
     aanbiedingen voorop) en de openbare prijzen van Picnic uit 2022 en 2023."""
-    recent: list[date] = [
-        date.fromisoformat(TODAY) - timedelta(days=n)
-        for n in range(1, 60)
-        if n % 7 != 4
-    ]  # geen maandag
+    recent: list[date] = [date.fromisoformat(TODAY) - timedelta(days=n) for n in range(1, 60) if n % 7 != 4]  # geen maandag
     old: list[date] = [date(2022, 1, 3) + timedelta(days=n) for n in range(730)]
-    found: list[tuple[Any, ...]] = index_observations(
-        chosen_ah, scaled(INDEX_PRODUCTS, scale)
-    )
+    found: list[tuple[Any, ...]] = index_observations(chosen_ah, scaled(INDEX_PRODUCTS, scale))
     for store in ("ah", "jumbo"):
         count, rows = (scaled(value, scale) for value in SEARCHED[store])
-        chosen: list[Product] = _picked(
-            rng, [offer.product for offer in shown[store]], normal[store], count
-        )
+        chosen: list[Product] = _picked(rng, [offer.product for offer in shown[store]], normal[store], count)
         found += searched_observations(rng, chosen, rows, recent, "search")
     count, rows = (scaled(value, scale) for value in SEARCHED["picnic"])
-    archive: list[Product] = (
-        normal["picnic"] + products(rng, "picnic", count)[len(normal["picnic"]) :]
-    )
-    found += searched_observations(
-        rng, archive[:count], rows, old, prices.PUBLIC_OBSERVED_UNKNOWN
-    )
+    archive: list[Product] = normal["picnic"] + products(rng, "picnic", count)[len(normal["picnic"]) :]
+    found += searched_observations(rng, archive[:count], rows, old, prices.PUBLIC_OBSERVED_UNKNOWN)
     return found
 
 
@@ -896,21 +763,14 @@ def generate(scale: float = 1.0) -> dict[str, list[tuple[Any, ...]]]:
     for store in SHAPE:
         normal[store], shown[store], rows = store_rows(rng, store, scale)
         tables["offer_history"] += rows
-        tables["offers"] += [
-            offer_row(offer, position) for position, offer in enumerate(shown[store])
-        ]
+        tables["offers"] += [offer_row(offer, position) for position, offer in enumerate(shown[store])]
         tables["offers_meta"].append((store, SYNCED_AT, None))
-    chosen: dict[str, list[Product]] = {
-        store: bought(rng, normal[store], shown[store], scaled(1_600, scale))
-        for store in ("ah", "jumbo", "picnic")
-    }
+    chosen: dict[str, list[Product]] = {store: bought(rng, normal[store], shown[store], scaled(1_600, scale)) for store in ("ah", "jumbo", "picnic")}
     chosen["crisp"] = products(rng, "crisp", scaled(150, scale))
     for store in ORDERS:
         orders, items = order_rows(rng, store, chosen[store], scale)
         tables[f"{store}_orders"], tables[f"{store}_order_items"] = orders, items
-    tables["price_observations"] = observation_rows(
-        rng, normal, shown, chosen["ah"], scale
-    )
+    tables["price_observations"] = observation_rows(rng, normal, shown, chosen["ah"], scale)
     tables.update(receipt_rows(rng, chosen["ah"], normal["ah"], scale))
     tables["imported_purchases"] = import_rows(rng, chosen["ah"], normal["ah"], scale)
     return tables
@@ -985,9 +845,7 @@ def build(data_dir: Path, scale: float = 1.0) -> None:
             marks: str = ", ".join("?" * (columns.count(",") + 1))
             conn.executemany(f"INSERT INTO {table} ({columns}) VALUES ({marks})", rows)
         conn.commit()
-        conn.execute(
-            "PRAGMA wal_checkpoint(TRUNCATE)"
-        )  # alles in het bestand zelf: een kopie heeft dan alleen dat nodig
+        conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")  # alles in het bestand zelf: een kopie heeft dan alleen dat nodig
     finally:
         conn.close()
 
@@ -1008,10 +866,7 @@ def counts(path: Path) -> dict[str, int]:
     """Per naam uit `SIZES` hoeveel de database er heeft."""
     conn: sqlite3.Connection = sqlite3.connect(path)
     try:
-        return {
-            name: int(conn.execute(sql).fetchone()[0])
-            for name, sql in COUNT_SQL.items()
-        }
+        return {name: int(conn.execute(sql).fetchone()[0]) for name, sql in COUNT_SQL.items()}
     finally:
         conn.close()
 
@@ -1044,9 +899,7 @@ def freeze_clock(monkeypatch: pytest.MonkeyPatch) -> None:
     """Zet de klok van de app op TODAY en NOW: elke module van `mealieshopper` die `date` of `datetime` importeerde, krijgt
     de bevroren klasse. Zo is de week 2026-11-09 van de vastgelegde antwoorden voor de app de week van nu."""
     for name, module in sorted(sys.modules.items()):
-        if module is None or not (
-            name == "mealieshopper" or name.startswith("mealieshopper.")
-        ):
+        if module is None or not (name == "mealieshopper" or name.startswith("mealieshopper.")):
             continue
         if getattr(module, "date", None) is date:
             monkeypatch.setattr(module, "date", FrozenDate)
@@ -1054,9 +907,7 @@ def freeze_clock(monkeypatch: pytest.MonkeyPatch) -> None:
             monkeypatch.setattr(module, "datetime", FrozenDateTime)
 
 
-async def no_receipt_lookup(
-    names: list[str], *args: Any, **kwargs: Any
-) -> dict[str, int]:
+async def no_receipt_lookup(names: list[str], *args: Any, **kwargs: Any) -> dict[str, int]:
     """`ah_orders.resolve_receipt_names` zonder AH: de prijsgeschiedenis met een zoekterm zoekt de namen op de bon die nog
     bij geen product horen meteen op bij AH. Een volumetest bereikt geen winkel, dus AH vindt hier niets.
 

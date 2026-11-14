@@ -1,4 +1,5 @@
 """Prijsgeschiedenis: de schakelaar "Alleen eerder gekocht" en de bewaarde afbeeldingen van aanbiedingen die je kocht."""
+
 import asyncio
 import io
 import os
@@ -17,9 +18,10 @@ from PIL import Image
 
 os.environ.setdefault("MEALIESHOPPER_DATA_DIR", tempfile.mkdtemp())
 
+from helpers import AppTestCase, db, in_db, returned, run  # noqa: E402
+
 from mealieshopper import ah_orders, auth, crisp, http_client, mcp, offers, picnic, prices, product_images  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
-from helpers import AppTestCase, db, in_db, returned, run  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 TODAY = "2026-10-20"
@@ -36,8 +38,19 @@ def offer(product_id, title, image="", price=1.0, before=1.5):
 
 
 def order_item(product_id, title, price=1.0):
-    return {"productId": product_id, "title": title, "brand": "AH", "unitSize": "500 g", "quantity": 1, "amount": price,
-            "price": price, "priceBeforeBonus": None, "bonus": False, "taxonomy": "", "image": ""}
+    return {
+        "productId": product_id,
+        "title": title,
+        "brand": "AH",
+        "unitSize": "500 g",
+        "quantity": 1,
+        "amount": price,
+        "price": price,
+        "priceBeforeBonus": None,
+        "bonus": False,
+        "taxonomy": "",
+        "image": "",
+    }
 
 
 class Case(AppTestCase):
@@ -87,14 +100,21 @@ class BoughtFilterTest(Case):
     async def test_a_receipt_counts_as_bought_and_the_search_still_applies(self):
         await self.sync("2026-10-05T05:00:00+00:00", offer("1", "AH Penne"), offer("2", "AH Fusilli"))
         with closing(db(ah_orders)) as conn, conn:
-            conn.execute("INSERT INTO ah_receipts (receipt_id, date_time, total, details_synced, first_seen) VALUES ('R1', '2026-10-16T12:00:00', 0, 1, 'x')")
-            conn.execute("INSERT INTO ah_receipt_items (receipt_id, position, product_id, name, quantity, price, amount) VALUES ('R1', 0, NULL, 'AH FUSILLI', 1, 1.1, 1.1)")
+            conn.execute(
+                "INSERT INTO ah_receipts (receipt_id, date_time, total, details_synced, first_seen) VALUES ('R1', '2026-10-16T12:00:00', 0, 1, 'x')"
+            )
+            conn.execute(
+                "INSERT INTO ah_receipt_items (receipt_id, position, product_id, name, quantity, price, amount) VALUES ('R1', 0, NULL, 'AH FUSILLI', 1, 1.1, 1.1)"
+            )
         self.assertEqual([p["productId"] for p in (await prices.history("ah", "", 50, today=TODAY, bought=True))["products"]], ["2"])
         self.assertEqual((await prices.history("ah", "penne", 50, today=TODAY, bought=True))["products"], [])
 
     async def test_an_order_that_is_not_delivered_yet_does_not_count(self):
         await self.sync("2026-10-05T05:00:00+00:00", offer("1", "AH Penne"))
-        await in_db(ah_orders._connect, lambda conn: ah_orders._save_order(conn, {"id": 102, "deliveryDate": "2026-10-22"}, "open", [order_item(1, "AH Penne")]))
+        await in_db(
+            ah_orders._connect,
+            lambda conn: ah_orders._save_order(conn, {"id": 102, "deliveryDate": "2026-10-22"}, "open", [order_item(1, "AH Penne")]),
+        )
         self.assertEqual((await prices.history("ah", "", 50, today=TODAY, bought=True))["total"], 0)
 
     async def test_the_route_and_the_mcp_tool(self):
@@ -267,8 +287,11 @@ class SaveBoughtTest(Case):
 
         with mock.patch.object(product_images, "_download", side_effect=download), mock.patch.object(product_images, "DEADLINE_SECONDS", 0.2):
             started = time.monotonic()
-            await self.sync("2026-10-05T05:00:00+00:00", offer("1", "AH Penne", "https://static.ah.nl/penne.jpg"),
-                      offer("2", "AH Fusilli", "https://static.ah.nl/fusilli.jpg"))
+            await self.sync(
+                "2026-10-05T05:00:00+00:00",
+                offer("1", "AH Penne", "https://static.ah.nl/penne.jpg"),
+                offer("2", "AH Fusilli", "https://static.ah.nl/fusilli.jpg"),
+            )
         self.assertLess(time.monotonic() - started, 1.0)
         self.assertEqual([r["product_id"] for r in self.rows()], ["1"], "wat op tijd binnen was, is bewaard")
         self.assertEqual(cancelled, ["https://static.ah.nl/fusilli.jpg"], "wat na de deadline nog liep, is afgebroken")
@@ -287,7 +310,9 @@ class SaveBoughtTest(Case):
             return picture(20, 20, color=(int(url.rsplit("/", 1)[1].split(".")[0]), 0, 0))
 
         with mock.patch.object(product_images, "_download", side_effect=download):
-            await self.sync("2026-10-05T05:00:00+00:00", *(offer(str(n), f"AH Product {n}", f"https://static.ah.nl/{n}.jpg") for n in range(1, count + 1)))
+            await self.sync(
+                "2026-10-05T05:00:00+00:00", *(offer(str(n), f"AH Product {n}", f"https://static.ah.nl/{n}.jpg") for n in range(1, count + 1))
+            )
         self.assertEqual(most[0], product_images.WORKERS)
         self.assertEqual(len(self.rows()), count)
 
@@ -328,14 +353,19 @@ class DownloadTest(AppTestCase):
     def test_the_download_asks_for_an_image_with_the_fixed_user_agent_and_follows_a_redirect(self):
         with respx.mock(assert_all_called=False) as router:
             router.get(self.URL).mock(return_value=httpx.Response(302, headers={"Location": "https://static.ah.nl/elders.jpg"}))
-            moved = router.get("https://static.ah.nl/elders.jpg").mock(return_value=httpx.Response(200, content=b"jpeg", headers={"Content-Type": "image/jpeg"}))
+            moved = router.get("https://static.ah.nl/elders.jpg").mock(
+                return_value=httpx.Response(200, content=b"jpeg", headers={"Content-Type": "image/jpeg"})
+            )
             self.assertEqual(run(product_images._download(self.URL)), b"jpeg")
         request = moved.calls.last.request
         self.assertEqual((request.headers["Accept"], request.headers["User-Agent"]), ("image/*", http_client.DEFAULT_USER_AGENT))
 
     def test_an_error_status_or_text_is_not_an_image(self):
-        for reply, message in ((httpx.Response(404), "HTTP 404"), (httpx.Response(200, text="<html>", headers={"Content-Type": "text/html"}), "geen afbeelding"),
-                               (httpx.Response(200, content=b"<svg/>", headers={"Content-Type": "image/svg+xml"}), "geen afbeelding")):
+        for reply, message in (
+            (httpx.Response(404), "HTTP 404"),
+            (httpx.Response(200, text="<html>", headers={"Content-Type": "text/html"}), "geen afbeelding"),
+            (httpx.Response(200, content=b"<svg/>", headers={"Content-Type": "image/svg+xml"}), "geen afbeelding"),
+        ):
             with self.subTest(message=message), respx.mock(assert_all_called=False) as router:
                 router.get(self.URL).mock(return_value=reply)
                 with self.assertRaisesRegex(RuntimeError, message):

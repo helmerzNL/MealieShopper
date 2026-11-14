@@ -3,6 +3,7 @@
 De aanbieder levert de pogingen (`(label, functie)`), de sleutelcontrole en de fout van zijn eigen soort; hier staat wat
 voor allemaal hetzelfde is. Het antwoord van Mealie komt alleen in het logboek; de gebruiker krijgt de status.
 """
+
 from __future__ import annotations
 
 import logging
@@ -58,10 +59,12 @@ def failure(exc: Exception, error: type[Exception]) -> Exception:
     if isinstance(exc, (ValueError, error)):
         return exc
     if isinstance(exc, httpx.TimeoutException):
-        return error(tr(
-            f"Mealie antwoordde niet binnen {MEALIE_TIMEOUT} seconden. Het recept kan toch zijn aangemaakt: kijk in Mealie voordat je het opnieuw probeert",
-            f"Mealie did not answer within {MEALIE_TIMEOUT} seconds. The recipe may have been created anyway: check Mealie before trying again",
-        ))
+        return error(
+            tr(
+                f"Mealie antwoordde niet binnen {MEALIE_TIMEOUT} seconden. Het recept kan toch zijn aangemaakt: kijk in Mealie voordat je het opnieuw probeert",
+                f"Mealie did not answer within {MEALIE_TIMEOUT} seconds. The recipe may have been created anyway: check Mealie before trying again",
+            )
+        )
     if isinstance(exc, mealie.UNREACHABLE):
         return error(tr("Mealie is niet bereikbaar", "Mealie is not reachable"))
     return error(tr(f"Importeren in Mealie mislukt ({type(exc).__name__})", f"Importing into Mealie failed ({type(exc).__name__})"))

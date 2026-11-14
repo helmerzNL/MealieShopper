@@ -49,13 +49,7 @@ class ReleaseTest(unittest.TestCase):
         path.write_text(text, encoding="utf-8")
         return path
 
-    SAMPLE = (
-        "# Changelog\n\nIntro.\n\n"
-        "## v2.10.0\n\nTien.\n\n"
-        "## v2.9.1\n\nNegen-een.\n\n"
-        "## v2.9.0\n\nNegen.\n\n"
-        "## v2.8.0\n\nAcht.\n"
-    )
+    SAMPLE = "# Changelog\n\nIntro.\n\n## v2.10.0\n\nTien.\n\n## v2.9.1\n\nNegen-een.\n\n## v2.9.0\n\nNegen.\n\n## v2.8.0\n\nAcht.\n"
 
     def test_stable_release_collects_every_version_since_the_previous_one(self):
         changelog = self._changelog(self.SAMPLE)

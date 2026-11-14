@@ -1,4 +1,5 @@
 """Recepten van AH, Jumbo en Crisp in bulk in Mealie zetten (recipe_bulk.py), en de hulpfuncties in Mealie, AH en Jumbo daarvoor."""
+
 import asyncio
 import json
 import os
@@ -6,17 +7,18 @@ import re
 import tempfile
 import unittest
 from collections.abc import Iterable
-from typing import Any
 from pathlib import Path
+from typing import Any
 from unittest import mock
 
 import httpx
 
 os.environ["PASSKEY_AUTH_ENABLED"] = "false"
 
+from helpers import AppClient, routes, run, sent_json, sent_params, served  # noqa: E402
+
 from mealieshopper import ah, ah_recipes, audit, auth, auth_password, crisp, jumbo, jumbo_recipes, mealie, recipe_bulk, tasks  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
-from helpers import AppClient, routes, run, sent_json, sent_params, served  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 PASSWORD = "koffie-met-melk-42"
@@ -65,10 +67,16 @@ class BulkCase(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
-        env = mock.patch.dict(os.environ, {
-            "PASSKEY_AUTH_ENABLED": self.AUTH, "MEALIESHOPPER_DATA_DIR": tmp.name, "MEALIESHOPPER_AUTH_SECRET": "test-secret",
-            "MEALIE_URL": "http://mealie", "MEALIE_API_TOKEN": "t",
-        })
+        env = mock.patch.dict(
+            os.environ,
+            {
+                "PASSKEY_AUTH_ENABLED": self.AUTH,
+                "MEALIESHOPPER_DATA_DIR": tmp.name,
+                "MEALIESHOPPER_AUTH_SECRET": "test-secret",
+                "MEALIE_URL": "http://mealie",
+                "MEALIE_API_TOKEN": "t",
+            },
+        )
         env.start()
         self.addCleanup(env.stop)
         run(auth.init_db())
@@ -82,8 +90,15 @@ class BulkCase(unittest.IsolatedAsyncioTestCase):
             mock.patch.object(mealie, "group_slug", new_callable=mock.AsyncMock, return_value="thuis"),
             mock.patch.object(mealie, "find_recipe_summary_by_source", new_callable=mock.AsyncMock, side_effect=self.mealie.find),
             mock.patch.object(mealie, "import_via_jsonld", new_callable=mock.AsyncMock, side_effect=self.mealie.import_),
-            mock.patch.object(mealie, "ensure_tag", new_callable=mock.AsyncMock, side_effect=lambda name: {"id": f"t-{name}", "name": name, "slug": name.lower()}),
-            mock.patch.object(mealie, "ensure_category", new_callable=mock.AsyncMock, side_effect=lambda name: {"id": f"c-{name}", "name": name, "slug": name.lower()}),
+            mock.patch.object(
+                mealie, "ensure_tag", new_callable=mock.AsyncMock, side_effect=lambda name: {"id": f"t-{name}", "name": name, "slug": name.lower()}
+            ),
+            mock.patch.object(
+                mealie,
+                "ensure_category",
+                new_callable=mock.AsyncMock,
+                side_effect=lambda name: {"id": f"c-{name}", "name": name, "slug": name.lower()},
+            ),
             mock.patch.object(mealie, "add_organizers", new_callable=mock.AsyncMock, side_effect=self.mealie.organize),
             mock.patch.object(ah, "get_recipe_jsonld", side_effect=self.ah_recipe),
             mock.patch.object(ah, "get_saved_recipes", side_effect=AssertionError("de bulkimport leest de lokale kopie")),
@@ -101,8 +116,10 @@ class BulkCase(unittest.IsolatedAsyncioTestCase):
 
     async def seed_ah(self, count: int = 5, groups: Iterable[dict[str, Any]] = ()) -> None:
         recipes = [{"id": str(100 + i), "title": f"Recept {100 + i}", "image": "", "url": ah_url(100 + i)} for i in range(count)]
-        with mock.patch.object(ah_recipes, "_fetch_all", new_callable=mock.AsyncMock, return_value=recipes), \
-                mock.patch.object(ah_recipes, "_fetch_groups", new_callable=mock.AsyncMock, return_value=list(groups)):
+        with (
+            mock.patch.object(ah_recipes, "_fetch_all", new_callable=mock.AsyncMock, return_value=recipes),
+            mock.patch.object(ah_recipes, "_fetch_groups", new_callable=mock.AsyncMock, return_value=list(groups)),
+        ):
             await ah_recipes.refresh()
 
     def statuses(self, job):
@@ -209,20 +226,27 @@ class StopTest(BulkCase):
             job = await recipe_bulk.start("ah", None, "", whole=True, background=False)
         self.assertEqual((job["state"], job["error"]), ("error", "ah_blocked"))
         self.assertEqual(self.fetched, [100, 101], "na de weigering niets meer bij AH")
-        self.assertEqual(self.statuses(job), [("100", "imported", ""), ("101", "failed", "store_failed"), ("102", "skipped", "stopped"), ("103", "skipped", "stopped")])
+        self.assertEqual(
+            self.statuses(job),
+            [("100", "imported", ""), ("101", "failed", "store_failed"), ("102", "skipped", "stopped"), ("103", "skipped", "stopped")],
+        )
 
     async def test_a_recipe_without_content_is_not_a_failure_of_the_store(self):
         await self.seed_ah(count=4)
-        with mock.patch.object(recipe_bulk, "MAX_FAILURES_IN_A_ROW", 2), \
-                mock.patch.object(ah, "get_recipe_jsonld", side_effect=ah.RecipeUnavailable("leeg")):
+        with (
+            mock.patch.object(recipe_bulk, "MAX_FAILURES_IN_A_ROW", 2),
+            mock.patch.object(ah, "get_recipe_jsonld", side_effect=ah.RecipeUnavailable("leeg")),
+        ):
             job = await recipe_bulk.start("ah", None, "", whole=True, background=False)
         self.assertEqual((job["state"], job["failed"]), ("done", 4))
         self.assertEqual({item["error"] for item in job["items"]}, {"no_content"})
 
     async def test_too_many_failures_in_a_row(self):
         await self.seed_ah(count=4)
-        with mock.patch.object(recipe_bulk, "MAX_FAILURES_IN_A_ROW", 2), \
-                mock.patch.object(ah, "get_recipe_jsonld", side_effect=RuntimeError("antwoord van AH: GEHEIM")):
+        with (
+            mock.patch.object(recipe_bulk, "MAX_FAILURES_IN_A_ROW", 2),
+            mock.patch.object(ah, "get_recipe_jsonld", side_effect=RuntimeError("antwoord van AH: GEHEIM")),
+        ):
             job = await recipe_bulk.start("ah", None, "", whole=True, background=False)
         self.assertEqual((job["state"], job["error"]), ("error", "too_many_failures"))
         self.assertEqual([item["status"] for item in job["items"]], ["failed", "failed", "skipped", "skipped"])
@@ -244,7 +268,9 @@ class StopTest(BulkCase):
 
     async def test_a_tag_mealie_refuses_is_a_warning(self):
         await self.seed_ah(count=2)
-        with mock.patch.object(mealie, "ensure_tag", new_callable=mock.AsyncMock, side_effect=mealie.OrganizerError("tags aanmaken mislukt (403)", 403)):
+        with mock.patch.object(
+            mealie, "ensure_tag", new_callable=mock.AsyncMock, side_effect=mealie.OrganizerError("tags aanmaken mislukt (403)", 403)
+        ):
             job = await recipe_bulk.start("ah", ["100", "101"], background=False)
         self.assertEqual((job["state"], job["imported"], job["warnings"]), ("done", 2, ["organizers_denied"]))
         self.assertEqual(self.mealie.organized, [])
@@ -350,9 +376,11 @@ class JumboTest(BulkCase):
         return {"id": recipe_id, "name": f"Kaart {recipe_id}", "url": f"https://www.jumbo.com/recepten/kaart-{recipe_id}"}
 
     async def test_a_whole_list_is_read_page_by_page_with_its_name(self):
-        pages = {1: {"recipes": [self.card("1"), self.card("2")], "total": 3, "hasNext": True},
-                 2: {"recipes": [self.card("2"), self.card("3")], "total": 3, "hasNext": True},
-                 3: {"recipes": [self.card("3")], "total": 3, "hasNext": True}}
+        pages = {
+            1: {"recipes": [self.card("1"), self.card("2")], "total": 3, "hasNext": True},
+            2: {"recipes": [self.card("2"), self.card("3")], "total": 3, "hasNext": True},
+            3: {"recipes": [self.card("3")], "total": 3, "hasNext": True},
+        }
         with mock.patch.object(jumbo_recipes, "get_recipes_of", new_callable=mock.AsyncMock, side_effect=lambda info, page: pages[page]) as pager:
             job = await recipe_bulk.start("jumbo", None, "kerst", whole=True, background=False)
         self.assertEqual(pager.call_count, 3, "een pagina zonder nieuwe recepten stopt het bladeren")
@@ -362,7 +390,9 @@ class JumboTest(BulkCase):
         self.assertEqual(self.mealie.imported[0], "https://www.jumbo.com/recepten/iets-1")
 
     async def test_favourites_get_only_the_tag(self):
-        with mock.patch.object(jumbo_recipes, "get_recipes_of", new_callable=mock.AsyncMock, return_value={"recipes": [self.card("1")], "total": 1, "hasNext": False}):
+        with mock.patch.object(
+            jumbo_recipes, "get_recipes_of", new_callable=mock.AsyncMock, return_value={"recipes": [self.card("1")], "total": 1, "hasNext": False}
+        ):
             job = await recipe_bulk.start("jumbo", None, "fav", whole=True, background=False)
         self.assertIsNone(job["category"])
         self.assertEqual(self.mealie.organized[0][1:3], (["Jumbo"], []))
@@ -576,15 +606,20 @@ class MealieHelpersTest(unittest.TestCase):
         self.assertTrue(caught.exception.forbidden)
 
     def test_organizers_are_added_without_duplicates(self):
-        current = {"slug": "pasta", "tags": [{"id": "t0", "name": "Snel", "slug": "snel"}, {"id": "t9", "name": "albert heijn", "slug": "ah"}],
-                   "recipeCategory": []}
+        current = {
+            "slug": "pasta",
+            "tags": [{"id": "t0", "name": "Snel", "slug": "snel"}, {"id": "t9", "name": "albert heijn", "slug": "ah"}],
+            "recipeCategory": [],
+        }
         with routes() as api:
             get = api.get()
             patch = api.patch("http://m/api/recipes/pasta").mock(return_value=self.reply(body={}))
             changed = run(mealie.add_organizers("pasta", [TAG], [{"id": "c1", "name": "Kerst", "slug": "kerst"}], current))
         self.assertTrue(changed)
         self.assertFalse(get.called, "het recept uit de lijst is genoeg")
-        self.assertEqual(sent_json(patch.calls.last), {"recipeCategory": [{"id": "c1", "name": "Kerst", "slug": "kerst"}]}, "de tag stond er al (op naam)")
+        self.assertEqual(
+            sent_json(patch.calls.last), {"recipeCategory": [{"id": "c1", "name": "Kerst", "slug": "kerst"}]}, "de tag stond er al (op naam)"
+        )
         with routes() as api:
             get = api.get("http://m/api/recipes/pasta").mock(return_value=self.reply(body={"tags": [TAG], "recipeCategory": []}))
             patch = api.patch()
@@ -608,7 +643,10 @@ class MealieHelpersTest(unittest.TestCase):
 
     def test_units_and_foods_once_for_a_series_of_imports(self):
         line = {"note": "500 g melk", "originalText": "500 g melk"}
-        catalogs = {"units": [{"id": "u-g", "name": "gram", "abbreviation": "g", "aliases": []}], "foods": [{"id": "f-melk", "name": "melk", "aliases": []}]}
+        catalogs = {
+            "units": [{"id": "u-g", "name": "gram", "abbreviation": "g", "aliases": []}],
+            "foods": [{"id": "f-melk", "name": "melk", "aliases": []}],
+        }
         calls = []
 
         def get(request):
@@ -649,7 +687,10 @@ class StoreRefusalTest(unittest.TestCase):
         with mock.patch.object(jumbo, "_graphql", side_effect=jumbo._blocked("429")) as graphql, self.assertRaises(jumbo.JumboBlocked):
             run(jumbo._persisted_query("getRecipe", {"id": "1"}))
         self.assertEqual(graphql.call_count, 1)
-        with mock.patch.object(jumbo, "_graphql", side_effect=jumbo._blocked("geen JSON terug / no JSON back")) as graphql, self.assertRaises(RuntimeError):
+        with (
+            mock.patch.object(jumbo, "_graphql", side_effect=jumbo._blocked("geen JSON terug / no JSON back")) as graphql,
+            self.assertRaises(RuntimeError),
+        ):
             run(jumbo._persisted_query("getRecipe", {"id": "1"}))
         self.assertGreater(graphql.call_count, 1, "geen JSON kan aan de clientnaam liggen: dan wel de andere proberen")
 
@@ -676,7 +717,20 @@ class MarkupTest(unittest.TestCase):
         self.assertIn('crisp: "#crisp-recipes"', script)
         self.assertIn("/api/mealie/bulk-import/group", auth.ADMIN_PATHS)
         self.assertNotIn("/api/mealie/bulk-import", auth.ADMIN_PATHS, "een selectie mag iedereen")
-        for code in ("ah_blocked", "jumbo_blocked", "jumbo_auth", "crisp_blocked", "crisp_auth", "crisp_saved_failed", "mealie_denied", "mealie_lookup", "too_many_failures", "list_failed", "list_unknown", "internal"):
+        for code in (
+            "ah_blocked",
+            "jumbo_blocked",
+            "jumbo_auth",
+            "crisp_blocked",
+            "crisp_auth",
+            "crisp_saved_failed",
+            "mealie_denied",
+            "mealie_lookup",
+            "too_many_failures",
+            "list_failed",
+            "list_unknown",
+            "internal",
+        ):
             self.assertIn(f'{code}: "bulk.error.{code}"', script, "elke foutcode van de server heeft een tekst")
         for code in ("no_content", "store_failed", "mealie_failed", "limit", "cancelled", "stopped"):
             self.assertIn(f'{code}: "bulk.item.{code}"', script)

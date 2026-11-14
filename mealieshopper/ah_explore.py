@@ -9,6 +9,7 @@ worden vervangen door hun type (`str`, `int`, ...). Alleen een korte lijst velde
 vocabulaire hebben (status, bezorgwijze, betaalmethode) toont de waarde, zodat je kunt zien welke
 statussen AH kent. Zo kun je het rapport veilig delen.
 """
+
 from __future__ import annotations
 
 import inspect
@@ -22,9 +23,19 @@ from . import ah, deals
 
 # Velden met een vaste, niet-persoonlijke vocabulaire: hier tonen we de waarde, bij de rest alleen het type.
 VOCABULARY_KEYS = {
-    "state", "orderState", "statusCode", "statusDescription", "shoppingType", "deliveryType", "method", "status",
+    "state",
+    "orderState",
+    "statusCode",
+    "statusDescription",
+    "shoppingType",
+    "deliveryType",
+    "method",
+    "status",
     # Pagina's van Picnic: soorten onderdelen en analysegegevens, geen persoonlijke tekst.
-    "type", "schema", "component", "actionType",
+    "type",
+    "schema",
+    "component",
+    "actionType",
 }
 MAX_DEPTH = 7
 # Statussen waarmee we vragen naar niet-open bestellingen. Een onbekende waarde geeft een fout van AH,
@@ -203,7 +214,9 @@ async def explore() -> dict[str, Any]:
     )
     probes.append(report)
 
-    report, active = await _probe("bestelmandje: GET order/v1/summaries/active", lambda: _raw_get("/mobile-services/order/v1/summaries/active", {"sortBy": "DEFAULT"}))
+    report, active = await _probe(
+        "bestelmandje: GET order/v1/summaries/active", lambda: _raw_get("/mobile-services/order/v1/summaries/active", {"sortBy": "DEFAULT"})
+    )
     probes.append(report)
 
     report, fulfillments = await _probe("open bestellingen: GraphQL orderFulfillments(status: OPEN)", lambda: _raw_graphql(ah.FULFILLMENTS_QUERY))
@@ -226,8 +239,10 @@ async def explore() -> dict[str, Any]:
     open_id = (results_of(fulfillments) or [{}])[0].get("orderId") or (active or {}).get("id")
     for label, order_id in (("afgeleverde bestelling", (delivered or {}).get("orderId")), ("open bestelling", open_id)):
         if order_id:
-            report, _ = await _probe(f"inhoud van een {label}: GET order/v1/{{id}}/details-grouped-by-taxonomy",
-                               lambda oid=order_id: _raw_get(f"/mobile-services/order/v1/{int(oid)}/details-grouped-by-taxonomy"))
+            report, _ = await _probe(
+                f"inhoud van een {label}: GET order/v1/{{id}}/details-grouped-by-taxonomy",
+                lambda oid=order_id: _raw_get(f"/mobile-services/order/v1/{int(oid)}/details-grouped-by-taxonomy"),
+            )
         else:
             report = {"name": f"inhoud van een {label}", "ok": False, "error": "overgeslagen: er is geen bestelling om te proberen"}
         probes.append(report)
@@ -239,26 +254,34 @@ async def explore() -> dict[str, Any]:
         report, _ = await _probe("een kassabon: GraphQL posReceiptDetails", lambda: _raw_graphql(ah.RECEIPT_QUERY, {"id": str(page[0]["id"])}))
         probes.append(report)
     else:
-        probes.append({"name": "een kassabon: GraphQL posReceiptDetails", "ok": False, "error": "overgeslagen: er zijn geen kassabonnen om te proberen"})
+        probes.append(
+            {"name": "een kassabon: GraphQL posReceiptDetails", "ok": False, "error": "overgeslagen: er zijn geen kassabonnen om te proberen"}
+        )
 
     # Aanbiedingen (Bonus): werkt met het anonieme token, dus ook zonder AH-koppeling. Eerst de bonus per bonusperiode (GraphQL), die
     # MealieShopper gebruikt; per periode hoeveel acties en producten er zijn, zodat te zien is of de bonus van volgende week er al staat.
     def bonus_periods(data: Any) -> dict[str, Any]:
-        promotions = [p for p in (data or {}).get("bonusPromotions") or [] if isinstance(p, dict) and p.get("promotionType") in ah.BONUS_PROMOTION_TYPES]
+        promotions = [
+            p for p in (data or {}).get("bonusPromotions") or [] if isinstance(p, dict) and p.get("promotionType") in ah.BONUS_PROMOTION_TYPES
+        ]
         return {
             "periodes": [
                 {
-                    "week": period.get("weekNumber"), "van": period.get("startDate"), "tot": period.get("endDate"),
+                    "week": period.get("weekNumber"),
+                    "van": period.get("startDate"),
+                    "tot": period.get("endDate"),
                     "acties": sum(1 for p in promotions if p.get("periodStart") == period.get("startDate")),
                     "producten": sum(len(p.get("products") or []) for p in promotions if p.get("periodStart") == period.get("startDate")),
                 }
-                for period in (data or {}).get("bonusPeriods") or [] if isinstance(period, dict)
+                for period in (data or {}).get("bonusPeriods") or []
+                if isinstance(period, dict)
             ],
             "soorten": sorted({str(p.get("promotionType")) for p in (data or {}).get("bonusPromotions") or [] if isinstance(p, dict)}),
         }
 
-    report, _ = await _probe("aanbiedingen: GraphQL bonusPeriods en bonusPromotions",
-                       lambda: _anonymous_graphql(ah.BONUS_PROMOTIONS_QUERY), bonus_periods)
+    report, _ = await _probe(
+        "aanbiedingen: GraphQL bonusPeriods en bonusPromotions", lambda: _anonymous_graphql(ah.BONUS_PROMOTIONS_QUERY), bonus_periods
+    )
     probes.append(report)
 
     async def bonus_page() -> Any:
@@ -290,13 +313,21 @@ async def explore() -> dict[str, Any]:
     report, _ = await _probe(
         "Bonus Box: GraphQL bonusPromotions(filterSet: APP_BONUS_BOX)",
         lambda: _raw_graphql(ah.BONUS_BOX_QUERY, {"periodStart": start, "periodEnd": end, "weekNumber": monday.isocalendar()[1]}),
-        lambda data: bonus_box(list((data or {}).get("bonusPromotions") or []), ah.bonus_box_promotions((data or {}).get("bonusPromotions"), start, end)),
+        lambda data: bonus_box(
+            list((data or {}).get("bonusPromotions") or []), ah.bonus_box_promotions((data or {}).get("bonusPromotions"), start, end)
+        ),
     )
     probes.append(report)
 
     def bonus_box_rest(data: Any) -> dict[str, Any]:
         sections = data if isinstance(data, list) else [data]
-        entries = [entry for section in sections if isinstance(section, dict) for entry in section.get("bonusGroupOrProducts") or [] if isinstance(entry, dict)]
+        entries = [
+            entry
+            for section in sections
+            if isinstance(section, dict)
+            for entry in section.get("bonusGroupOrProducts") or []
+            if isinstance(entry, dict)
+        ]
         nodes = [entry.get("product") or entry.get("bonusGroup") for entry in entries]
         return bonus_box([node for node in nodes if isinstance(node, dict)], ah.bonus_box_in(data, start, end))
 

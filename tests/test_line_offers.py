@@ -22,8 +22,10 @@ class LineWordsTest(unittest.TestCase):
 
     def test_each_part_of_a_list_is_an_offer_with_the_first_word(self) -> None:
         self.assertEqual(line_alternatives("Folder: Dr. Oetker Casa di Mama en Tradizionale"), [{"dr", "oetker", "casa", "di", "mama"}])
-        self.assertEqual(line_alternatives("Folder: Alle Dr. Oetker Big Americans, Casa di Mama, en Tradizionale pizza's"),
-                         [{"dr", "oetker", "big", "american"}, {"dr", "casa", "di", "mama"}, {"dr", "tradizionale", "pizza"}])
+        self.assertEqual(
+            line_alternatives("Folder: Alle Dr. Oetker Big Americans, Casa di Mama, en Tradizionale pizza's"),
+            [{"dr", "oetker", "big", "american"}, {"dr", "casa", "di", "mama"}, {"dr", "tradizionale", "pizza"}],
+        )
 
     def test_a_part_of_a_list_needs_two_words_of_its_own(self) -> None:
         # "soep" hoort ook bij "AH Biologisch": dat deel alleen zou bij elk biologisch product van AH horen.
@@ -39,9 +41,15 @@ class LineWordsTest(unittest.TestCase):
 
 class LinesForTest(unittest.TestCase):
     def test_the_line_offers_of_a_pizza(self) -> None:
-        titles = ["Alle Dr. Oetker Casa di Mama pizza's", "Alle Dr. Oetker producten", "Casa di Mama salame pak 380 gram",
-                  "Dr. Oetker Ristorante of Casa di Mama", "Alle Dr. Oetker Ristorante pizza's", "Casa di Mama tonno",
-                  "Ristorante, Big Americans of Casa di Mama"]
+        titles = [
+            "Alle Dr. Oetker Casa di Mama pizza's",
+            "Alle Dr. Oetker producten",
+            "Casa di Mama salame pak 380 gram",
+            "Dr. Oetker Ristorante of Casa di Mama",
+            "Alle Dr. Oetker Ristorante pizza's",
+            "Casa di Mama tonno",
+            "Ristorante, Big Americans of Casa di Mama",
+        ]
         self.assertEqual(matches(titles, PIZZA), titles[:4], "het laatste deel zonder Ristorante, het eerste woord: niet")
 
     def test_the_house_brand_counts(self) -> None:
@@ -68,10 +76,13 @@ class LinesForTest(unittest.TestCase):
 
     def test_the_index_of_a_catalogue_is_not_written_after_it_is_built(self) -> None:
         # De threads van `compute.run` lezen de index tegelijk (`prices._lines_wanted`): alles staat er al in na `_line_index`.
-        index: LineIndex = prices._line_index([
-            ("folder:1", "Folder: Alle AH Bakkersbrood Les Pains heel"), ("folder:3", "Folder: AH Les Pains heel"),
-            ("folder:5", "Folder: Alle AH Bakkersbrood tijgerbrood heel"),
-        ])
+        index: LineIndex = prices._line_index(
+            [
+                ("folder:1", "Folder: Alle AH Bakkersbrood Les Pains heel"),
+                ("folder:3", "Folder: AH Les Pains heel"),
+                ("folder:5", "Folder: Alle AH Bakkersbrood tijgerbrood heel"),
+            ]
+        )
         before: dict[str, int] = {name: id(value) for name, value in vars(index).items()}
         endings: dict[str, int] = {kind: id(found) for kind, found in index._by_ending.items()}
         self.assertLessEqual({"brood", "bakkerij", "vlee"}, set(endings))
@@ -80,7 +91,6 @@ class LinesForTest(unittest.TestCase):
         self.assertEqual(index.lines_for(["ah les pains triomphe heel ah"], (), frozenset({"onbekend"})), ["folder:3"])
         self.assertEqual({name: id(value) for name, value in vars(index).items()}, before)
         self.assertEqual({kind: id(found) for kind, found in index._by_ending.items()}, endings, "een ander woord wordt niet bewaard")
-
 
 
 def line(start: str, label: str, price: float | None = None, before: float | None = None) -> dict:
@@ -106,25 +116,42 @@ class PerPieceTest(unittest.TestCase):
 
     def test_every_week_gets_the_price_per_piece(self) -> None:
         found = [(entry["start"], entry["price"], entry["priceBefore"]) for entry in per_piece([dict(item) for item in self.LINES])]
-        self.assertEqual(found, [
-            ("2024-04-02", 3.0, 4.19), ("2024-07-01", 3.0, 4.29), ("2024-09-30", 3.0, 4.29), ("2025-01-13", 1.99, 4.29),
-            ("2025-06-23", 3.0, 4.29), ("2026-01-12", 3.0, 4.29), ("2026-04-07", 3.0, 4.29), ("2026-08-31", 2.15, 4.29),
-            ("2026-10-26", 2.5, 4.29),
-        ])
+        self.assertEqual(
+            found,
+            [
+                ("2024-04-02", 3.0, 4.19),
+                ("2024-07-01", 3.0, 4.29),
+                ("2024-09-30", 3.0, 4.29),
+                ("2025-01-13", 1.99, 4.29),
+                ("2025-06-23", 3.0, 4.29),
+                ("2026-01-12", 3.0, 4.29),
+                ("2026-04-07", 3.0, 4.29),
+                ("2026-08-31", 2.15, 4.29),
+                ("2026-10-26", 2.5, 4.29),
+            ],
+        )
 
     def test_a_total_without_a_count_is_recognised_by_the_weeks_around_it(self) -> None:
-        lines = [line("2021-04-26", "Per stuk, actie 1.99, was 3.99", 1.99, 3.99), line("2022-05-02", "Alle varianten, actie 5.00, was 7.98", 5.0, 7.98),
-                 line("2022-08-08", "Bijv. Tradizionale, actie 2.59, was 3.99", 2.59, 3.99)]
+        lines = [
+            line("2021-04-26", "Per stuk, actie 1.99, was 3.99", 1.99, 3.99),
+            line("2022-05-02", "Alle varianten, actie 5.00, was 7.98", 5.0, 7.98),
+            line("2022-08-08", "Bijv. Tradizionale, actie 2.59, was 3.99", 2.59, 3.99),
+        ]
         self.assertEqual([(entry["price"], entry["priceBefore"]) for entry in per_piece(lines)], [(1.99, 3.99), (2.5, 3.99), (2.59, 3.99)])
 
     def test_an_offer_for_another_product_of_the_brand_drops_out(self) -> None:
-        lines = [line("2023-10-16", "2 voor: 5.00, was 2 stuks 8.38"), line("2023-11-06", "15 procent voordeel Bijv. brownies choco, actie 1.78, was 2.09", 1.78, 2.09),
-                 line("2023-11-13", "2 voor: 5.00 Diepvries, was 2 stuks 8.38")]
+        lines = [
+            line("2023-10-16", "2 voor: 5.00, was 2 stuks 8.38"),
+            line("2023-11-06", "15 procent voordeel Bijv. brownies choco, actie 1.78, was 2.09", 1.78, 2.09),
+            line("2023-11-13", "2 voor: 5.00 Diepvries, was 2 stuks 8.38"),
+        ]
         self.assertEqual([entry["start"] for entry in per_piece(lines)], ["2023-10-16", "2023-11-13"])
 
     def test_without_any_price_the_offer_stays_without_one(self) -> None:
-        self.assertEqual([(entry["price"], entry["priceBefore"], entry["priceSource"]) for entry in per_piece([line("2026-08-31", "1+1 gratis")])],
-                         [(None, None, None)])
+        self.assertEqual(
+            [(entry["price"], entry["priceBefore"], entry["priceSource"]) for entry in per_piece([line("2026-08-31", "1+1 gratis")])],
+            [(None, None, None)],
+        )
 
 
 if __name__ == "__main__":

@@ -15,6 +15,7 @@ back-up (`backup.DATA_TABLES`).
 Titel, merk, inhoud en foto van het gekozen product staan in de rij zelf, zodat een regel ze ook heeft als het product nergens
 anders in de app voorkomt.
 """
+
 from __future__ import annotations
 
 from collections.abc import AsyncIterator, Iterable
@@ -142,9 +143,17 @@ async def _connect() -> AsyncIterator[aiosqlite.Connection]:
 
 def link_json(row: Any) -> dict[str, Any]:
     return {
-        "store": row["store"], "kind": row["kind"], "key": row["key"], "productId": row["product_id"], "title": row["title"],
-        "brand": row["brand"] or None, "unitSize": row["unit_size"] or None, "image": row["image"] or None,
-        "name": row["source_name"] or row["key"], "createdAt": row["created_at"], "origin": row["origin"],
+        "store": row["store"],
+        "kind": row["kind"],
+        "key": row["key"],
+        "productId": row["product_id"],
+        "title": row["title"],
+        "brand": row["brand"] or None,
+        "unitSize": row["unit_size"] or None,
+        "image": row["image"] or None,
+        "name": row["source_name"] or row["key"],
+        "createdAt": row["created_at"],
+        "origin": row["origin"],
     }
 
 
@@ -202,8 +211,19 @@ async def save(store: Any, name: Any, product: Any, article: Any = None, now: st
     kind, key = ("article", article_number) if article_number else ("name", fold(source_name))
     if not key:
         raise ValueError(tr("De regel heeft geen naam om op te koppelen", "The line has no name to link by"))
-    values = (key_store, kind, key, product_id, title, _text(product.get("brand"), MAX_NAME_CHARS) or None,
-              _text(product.get("unitSize"), MAX_SIZE_CHARS) or None, _image(product.get("image")), source_name or None, now or _now(), origin)
+    values = (
+        key_store,
+        kind,
+        key,
+        product_id,
+        title,
+        _text(product.get("brand"), MAX_NAME_CHARS) or None,
+        _text(product.get("unitSize"), MAX_SIZE_CHARS) or None,
+        _image(product.get("image")),
+        source_name or None,
+        now or _now(),
+        origin,
+    )
     async with _connect() as conn:
         await conn.execute(
             """INSERT INTO product_links (store, kind, key, product_id, title, brand, unit_size, image, source_name, created_at, origin)

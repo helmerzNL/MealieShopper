@@ -120,9 +120,7 @@ _NOT_THE_PRODUCT: frozenset[str] = frozenset(
 )
 ORGANIC: frozenset[str] = frozenset({"biologisch", "biologische", "bio", "organic", "eko"})  # zoals prices.ORGANIC_WORDS
 _WORD: re.Pattern[str] = re.compile(r"[a-z0-9]+")
-_MULTIPACK: re.Pattern[str] = re.compile(
-    r"\d\s*x\s*\d|\b\d+\s*-?\s*(?:pack|packs|pak|pakken)\b|\bmultipack\b"
-)
+_MULTIPACK: re.Pattern[str] = re.compile(r"\d\s*x\s*\d|\b\d+\s*-?\s*(?:pack|packs|pak|pakken)\b|\bmultipack\b")
 
 
 @memo(STEM_SIZE)
@@ -199,9 +197,7 @@ def _size(title: str) -> tuple[float, str] | None:
 
 
 def _same_size(one: tuple[float, str], other: tuple[float, str]) -> bool:
-    return one[1] == other[1] and abs(one[0] - other[0]) <= 0.005 * max(
-        one[0], other[0]
-    )
+    return one[1] == other[1] and abs(one[0] - other[0]) <= 0.005 * max(one[0], other[0])
 
 
 # Een regel van de lijnindex: (product, de woorden die een product moet hebben, gesorteerd, de verpakking, meer verpakkingen
@@ -309,15 +305,9 @@ class LineIndex:
         )
         if line_several != several or not named or (have & ORGANIC and not ORGANIC.intersection(needed)):
             return False
-        return (
-            size is None
-            or not sizes
-            or any(_same_size(size, known) for known in sizes)
-        )
+        return size is None or not sizes or any(_same_size(size, known) for known in sizes)
 
-    def lines_for(
-        self, names: Iterable[str], sizes: Iterable[tuple[float, str]] = (), kinds: frozenset[str] = frozenset()
-    ) -> list[str]:
+    def lines_for(self, names: Iterable[str], sizes: Iterable[tuple[float, str]] = (), kinds: frozenset[str] = frozenset()) -> list[str]:
         """De folderproducten waarvan elk woord in een van de namen staat, en waarvan de verpakking (als hij er een noemt) bij
         een van de verpakkingen past (als die bekend zijn). Gesorteerd, zodat de uitkomst vastligt."""
         known_sizes: list[tuple[float, str]] = list(sizes)

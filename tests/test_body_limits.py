@@ -50,9 +50,7 @@ async def test_an_oversized_body_on_the_passkey_login_gets_413(client: TestClien
 
 async def test_a_login_body_under_the_limit_is_read(client: TestClientProtocol, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("PASSKEY_AUTH_ENABLED", "true")
-    response = await client.post(
-        "/api/auth/login/verify", json={"credential": {"id": "x" * MIB}}
-    )
+    response = await client.post("/api/auth/login/verify", json={"credential": {"id": "x" * MIB}})
     assert response.status_code != 413
 
 
@@ -68,9 +66,7 @@ async def test_an_oversized_body_on_the_oauth_token_endpoint_gets_413(
     assert response.status_code == 413
 
 
-async def test_a_price_import_above_16_mib_is_not_refused_by_the_body_limit(
-    client: TestClientProtocol, monkeypatch: pytest.MonkeyPatch
-) -> None:
+async def test_a_price_import_above_16_mib_is_not_refused_by_the_body_limit(client: TestClientProtocol, monkeypatch: pytest.MonkeyPatch) -> None:
     """Tot 5 miljoen tekens tekst (`price_import.MAX_TEXT_CHARS`): met tekens van 4 bytes ruim boven 16 MiB."""
     monkeypatch.setenv("PASSKEY_AUTH_ENABLED", "false")
     text: str = "\U0001f96c" * 4_500_000  # sla, 4 bytes in UTF-8
@@ -81,9 +77,7 @@ async def test_a_price_import_above_16_mib_is_not_refused_by_the_body_limit(
     assert "JSON" in (await response.get_json())["error"]
 
 
-async def test_a_price_import_above_its_own_limit_gets_413(
-    client: TestClientProtocol, monkeypatch: pytest.MonkeyPatch
-) -> None:
+async def test_a_price_import_above_its_own_limit_gets_413(client: TestClientProtocol, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("PASSKEY_AUTH_ENABLED", "false")
     response = await client.post(
         "/api/prices/import",
@@ -93,9 +87,7 @@ async def test_a_price_import_above_its_own_limit_gets_413(
     assert response.status_code == 413
 
 
-async def test_a_large_backup_upload_still_passes_the_body_limit(
-    client: TestClientProtocol, monkeypatch: pytest.MonkeyPatch, data_dir: Path
-) -> None:
+async def test_a_large_backup_upload_still_passes_the_body_limit(client: TestClientProtocol, monkeypatch: pytest.MonkeyPatch, data_dir: Path) -> None:
     monkeypatch.setenv("PASSKEY_AUTH_ENABLED", "false")
     response = await client.post(
         "/api/backup/stage",
@@ -104,6 +96,4 @@ async def test_a_large_backup_upload_still_passes_the_body_limit(
     )
     assert response.status_code != 413
     assert response.status_code < 500
-    assert (
-        list(data_dir.glob(".restore-*")) == []
-    )  # geen geldige back-up: niets blijft staan
+    assert list(data_dir.glob(".restore-*")) == []  # geen geldige back-up: niets blijft staan

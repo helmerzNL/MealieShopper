@@ -14,6 +14,7 @@ gebruiken we dus ook niet. Zie docs/onderzoek-lidl.md.
 - Non-food en planten (`NonFood`, `P+F`) laten we weg: MealieShopper gaat over eten.
 - Een lege lijst is een fout (`LidlError`): dan blijft de vorige kopie staan, zoals bij de andere winkels.
 """
+
 from __future__ import annotations
 
 import html
@@ -197,8 +198,10 @@ async def get_offers() -> list[dict[str, Any]]:
     """De aanbiedingen van Lidl voor `offers.sync`. Geen account nodig."""
     found = offers_from_html(await _page())
     if not found:
-        raise LidlError(tr(
-            "Lidl gaf geen aanbiedingen (de pagina is leeg of anders van vorm)",
-            "Lidl returned no offers (the page is empty or has changed)",
-        ))
+        raise LidlError(
+            tr(
+                "Lidl gaf geen aanbiedingen (de pagina is leeg of anders van vorm)",
+                "Lidl returned no offers (the page is empty or has changed)",
+            )
+        )
     return found

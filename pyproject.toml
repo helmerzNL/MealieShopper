@@ -9,3 +9,14 @@ markers = [
   "volume: de test draait op de volumedatabase van tests/volume.py (de schaal van productie)",
 ]
 filterwarnings = ["error::pytest.PytestUnraisableExceptionWarning"]
+
+[tool.ruff]
+line-length = 150
+target-version = "py312"
+
+[tool.ruff.lint]
+# Een vaste, kleine set: syntaxfouten en ongebruikte of ontbrekende namen (E4, E7, E9, F) en de volgorde van imports (I).
+# Expliciet, zodat een nieuwe versie van Ruff met een ruimere standaardset niets verandert.
+select = ["E4", "E7", "E9", "F", "I"]
+# Een lambda met een naam en een korte naam als `l` komen in de tests voor en blijven staan.
+ignore = ["E731", "E741"]

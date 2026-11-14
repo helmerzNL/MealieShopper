@@ -64,9 +64,7 @@ def test_the_rows_of_a_table_share_their_column_names() -> None:
         }
     )
     found: Any = json_pieces.loads(text, "tables")
-    names: set[int] = {
-        id(key) for rows in found["tables"].values() for row in rows for key in row
-    }
+    names: set[int] = {id(key) for rows in found["tables"].values() for row in rows for key in row}
     assert len(names) == 2  # "store" en "price", een keer elk
 
 

@@ -4,6 +4,7 @@ Elke receptbron noemt de gang anders: Jumbo geeft een `course`, Mealie categorie
 `recipeCategory` in het schema.org-recept en Picnic alleen losse labels. We brengen die vrije tekst naar een vaste lijst. De regels
 staan op volgorde: de eerste die past wint, dus een recept met "Lunch, Hoofdgerecht" valt bij Lunch. Past niets, dan is het `overig`.
 """
+
 from __future__ import annotations
 
 import re

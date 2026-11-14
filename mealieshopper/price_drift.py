@@ -27,9 +27,7 @@ def pairs(points: list[tuple[str, float]]) -> list[tuple[int, float]]:
     for (day_a, a), (day_b, b) in pairwise(points):
         if a <= 0 or b <= 0:
             continue
-        days: int = (
-            date.fromisoformat(day_b[:10]) - date.fromisoformat(day_a[:10])
-        ).days
+        days: int = (date.fromisoformat(day_b[:10]) - date.fromisoformat(day_a[:10])).days
         result.append((days, round(abs(b - a) / a, 4)))
     return result
 

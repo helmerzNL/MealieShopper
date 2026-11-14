@@ -58,9 +58,7 @@ def pool_of(path: str) -> Any:
     return readers._POOLS[(asyncio.get_running_loop(), path)]
 
 
-async def test_a_cancel_during_the_idle_sweep_closes_every_connection(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+async def test_a_cancel_during_the_idle_sweep_closes_every_connection(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Review van taak 10b: de task haalde de verlopen verbindingen in een keer uit `_idle` en sloot ze een voor een. Werd hij
     tijdens een van die sluitingen geannuleerd (`asyncio.Runner` bij het sluiten van de loop, en tot de review ook `retire`), dan
     stond de rest nergens meer: nooit gesloten, en het proces bleef bij het afsluiten hangen op hun threads."""
@@ -78,13 +76,9 @@ async def test_a_cancel_during_the_idle_sweep_closes_every_connection(
             return
         entered.set()
         try:
-            await (
-                gate.wait()
-            )  # de eerste sluiting van de ronde hangt: daar komt de annulering
+            await gate.wait()  # de eerste sluiting van de ronde hangt: daar komt de annulering
         finally:
-            await original(
-                conn
-            )  # zoals aiosqlite: ook na een annulering stopt de thread
+            await original(conn)  # zoals aiosqlite: ook na een annulering stopt de thread
 
     async with reader_threads() as started:
         await borrow_together(path, 3)
@@ -118,9 +112,7 @@ async def test_a_borrower_cancelled_while_waiting_leaves_the_pool_as_it_was(
             raise AssertionError("deze lener hoort te wachten")
 
     async with reader_threads() as started:
-        holders: list[asyncio.Task[None]] = [
-            asyncio.create_task(hold()) for _ in range(readers.READERS_KEPT)
-        ]
+        holders: list[asyncio.Task[None]] = [asyncio.create_task(hold()) for _ in range(readers.READERS_KEPT)]
         await holding.wait()
         waiter: asyncio.Task[None] = asyncio.create_task(wait_in_line())
         await asyncio.sleep(0.05)
@@ -160,9 +152,7 @@ async def test_a_borrower_cancelled_while_holding_closes_its_connection(
     assert pool_of(path)._open == 0 and pool_of(path)._idle == []
 
 
-async def test_an_idle_connection_closes_and_the_pool_goes_away(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+async def test_an_idle_connection_closes_and_the_pool_goes_away(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Na `READER_IDLE_SECONDS` vrij gaat een verbinding dicht, en de task stopt en haalt de pool weg: de loop blijft niet aan
     het register hangen."""
     monkeypatch.setattr(readers, "READER_IDLE_SECONDS", 0.05)
@@ -281,9 +271,7 @@ async def test_a_reader_offers_only_queries_that_close_their_cursor(
             "fetchall",
             "fetchone",
         ]
-        assert [
-            tuple(row) for row in await reader.fetchall("SELECT 1 UNION ALL SELECT 2")
-        ] == [(1,), (2,)]
+        assert [tuple(row) for row in await reader.fetchall("SELECT 1 UNION ALL SELECT 2")] == [(1,), (2,)]
     readers.retire_all()
 
 

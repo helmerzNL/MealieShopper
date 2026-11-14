@@ -7,8 +7,16 @@ from mealieshopper import offer_categories
 
 class SnackBrandsTest(unittest.TestCase):
     def test_chips_and_snack_brands_are_snacks_not_the_flavour_on_the_bag(self):
-        for title in ("Lay's Paprika", "Lays Paprika chips", "Doritos Nacho Cheese", "Pringles Original", "Cheetos Flamin Hot",
-                      "Bifi Roll XXL 2-pack", "Bugles Nacho Cheese", "Tostitos Salsa"):
+        for title in (
+            "Lay's Paprika",
+            "Lays Paprika chips",
+            "Doritos Nacho Cheese",
+            "Pringles Original",
+            "Cheetos Flamin Hot",
+            "Bifi Roll XXL 2-pack",
+            "Bugles Nacho Cheese",
+            "Tostitos Salsa",
+        ):
             self.assertEqual(offer_categories.categorize(title), "snacks_snoep", title)
 
     def test_real_produce_stays_produce(self):
@@ -55,10 +63,15 @@ class OfferCategoryTest(unittest.TestCase):
 
     def test_without_a_hint_the_rules_decide(self):
         self.assertEqual(offer_categories.offer_category("ah", "AH Spaghetti", None), "maaltijden")
-        self.assertEqual(offer_categories.offer_category("ah", "Lowlander Blond", "Nieuw schap"), offer_categories.categorize("Lowlander Blond", "Nieuw schap"))
+        self.assertEqual(
+            offer_categories.offer_category("ah", "Lowlander Blond", "Nieuw schap"), offer_categories.categorize("Lowlander Blond", "Nieuw schap")
+        )
 
     def test_other_stores_ignore_the_ah_taxonomy(self):
-        self.assertEqual(offer_categories.offer_category("jumbo", "Jumbo Halfvolle melk", "Diepvries"), offer_categories.categorize("Jumbo Halfvolle melk", "Diepvries"))
+        self.assertEqual(
+            offer_categories.offer_category("jumbo", "Jumbo Halfvolle melk", "Diepvries"),
+            offer_categories.categorize("Jumbo Halfvolle melk", "Diepvries"),
+        )
 
 
 class PurchaseCategoryTest(unittest.TestCase):

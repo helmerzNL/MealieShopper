@@ -31,9 +31,7 @@ def store_of(value: Any) -> str:
 def keys_of(value: Any) -> list[str]:
     """De sleutels uit een verzoek. ValueError bij iets anders dan een lijst tekst van hoogstens `MAX_KEYS` stuks."""
     if not isinstance(value, list) or not all(isinstance(key, str) for key in value):
-        raise ValueError(
-            tr("keys moet een lijst met tekst zijn", "keys must be a list of strings")
-        )
+        raise ValueError(tr("keys moet een lijst met tekst zijn", "keys must be a list of strings"))
     if len(value) > MAX_KEYS:
         raise ValueError(
             tr(
@@ -76,9 +74,7 @@ async def _own(store: str) -> tuple[dict[str, dict[str, Any]], set[str]]:
     return links.names, {name_keys.key(row["title"]) for row in rows}
 
 
-def _candidates(
-    names: dict[str, dict[str, Any]], imported: set[str]
-) -> dict[str, list[dict[str, Any]]]:
+def _candidates(names: dict[str, dict[str, Any]], imported: set[str]) -> dict[str, list[dict[str, Any]]]:
     """Per sleutel van de naam je eigen koppelingen op naam met een herkomst van een mens, voor namen uit een bestelling."""
     found: dict[str, list[dict[str, Any]]] = {}
     for link in names.values():
@@ -99,9 +95,7 @@ def _item(key: str, link: dict[str, Any]) -> dict[str, Any]:
 
 
 def _first(links: list[dict[str, Any]]) -> dict[str, Any]:
-    return min(
-        links, key=lambda link: (name_keys.fold(link["name"]), link["productId"])
-    )
+    return min(links, key=lambda link: (name_keys.fold(link["name"]), link["productId"]))
 
 
 async def pending(store: Any) -> dict[str, Any]:
@@ -154,21 +148,10 @@ async def merged(store: Any, keys: list[str]) -> str:
     key_store: str = store_of(store)
     wanted: set[str] = set(keys_of(keys))
     page: dict[str, Any] = await pending(key_store)
-    chosen: list[dict[str, Any]] = [
-        item for item in page["new"] + page["conflicts"] if item["key"] in wanted
-    ]
+    chosen: list[dict[str, Any]] = [item for item in page["new"] + page["conflicts"] if item["key"] in wanted]
     replaced: set[str] = {item["key"] for item in chosen}
-    links: list[shared_links.SharedLink] = [
-        link
-        for link in _file_links(key_store)
-        if name_keys.key(link.name) not in replaced
-    ]
-    links += [
-        shared_links.SharedLink(
-            item["name"], item["productId"], item["title"], item["unitSize"]
-        )
-        for item in chosen
-    ]
+    links: list[shared_links.SharedLink] = [link for link in _file_links(key_store) if name_keys.key(link.name) not in replaced]
+    links += [shared_links.SharedLink(item["name"], item["productId"], item["title"], item["unitSize"]) for item in chosen]
     text: str = shared_links.dump(links)
     found: list[str] = shared_links.problems(shared_links.parse(text))
     if found:

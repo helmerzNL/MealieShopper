@@ -38,9 +38,7 @@ from pathlib import Path
 from typing import Any
 
 ROOT: Path = Path(__file__).resolve().parent.parent
-sys.path.insert(
-    0, str(ROOT)
-)  # `python scripts/benchmark.py` zet alleen scripts/ op het pad, de app staat een map hoger
+sys.path.insert(0, str(ROOT))  # `python scripts/benchmark.py` zet alleen scripts/ op het pad, de app staat een map hoger
 IMAGE: str = "mealieshopper-bench"
 SEED_VOLUME: str = "mealieshopper-bench-seed"
 SERVER_NAME: str = "mealieshopper-bench-server"
@@ -178,13 +176,9 @@ def _import_times(rounds: int) -> list[float]:
     return samples
 
 
-def _get(
-    connection: http.client.HTTPConnection, path: str, token: str = ""
-) -> tuple[int, int]:
+def _get(connection: http.client.HTTPConnection, path: str, token: str = "") -> tuple[int, int]:
     """Een GET over een bestaande verbinding: de status en het aantal bytes."""
-    connection.request(
-        "GET", path, headers={"Authorization": f"Bearer {token}"} if token else {}
-    )
+    connection.request("GET", path, headers={"Authorization": f"Bearer {token}"} if token else {})
     response: http.client.HTTPResponse = connection.getresponse()
     return response.status, len(response.read())
 
@@ -194,9 +188,7 @@ def wait_until_ready(host: str, port: int, timeout: float) -> float:
     started: float = time.perf_counter()
     while time.perf_counter() - started < timeout:
         try:
-            connection: http.client.HTTPConnection = http.client.HTTPConnection(
-                host, port, timeout=5
-            )
+            connection: http.client.HTTPConnection = http.client.HTTPConnection(host, port, timeout=5)
             status, _ = _get(connection, "/healthz")
             connection.close()
             if status == 200:
@@ -204,9 +196,7 @@ def wait_until_ready(host: str, port: int, timeout: float) -> float:
         except OSError:
             pass
         time.sleep(0.005)
-    raise TimeoutError(
-        f"De server op {host}:{port} was na {timeout:.0f} seconden nog niet klaar"
-    )
+    raise TimeoutError(f"De server op {host}:{port} was na {timeout:.0f} seconden nog niet klaar")
 
 
 def _startup_times(rounds: int) -> list[float]:
@@ -221,9 +211,7 @@ def _startup_times(rounds: int) -> list[float]:
         "run:app",
     ]
     for _ in range(rounds):
-        server: subprocess.Popen[bytes] = subprocess.Popen(
-            command, cwd=ROOT, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
-        )
+        server: subprocess.Popen[bytes] = subprocess.Popen(command, cwd=ROOT, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         try:
             samples.append(wait_until_ready("127.0.0.1", PORT + 1, 120))
         finally:
@@ -245,13 +233,9 @@ async def _token() -> str:
 
     await auth.init_db()
     async with auth.connect() as conn:
-        row: Any = await auth.fetchone(
-            conn, "SELECT username FROM users WHERE id=?", (auth.OWNER_ID,)
-        )
+        row: Any = await auth.fetchone(conn, "SELECT username FROM users WHERE id=?", (auth.OWNER_ID,))
     if row is None:
-        raise SystemExit(
-            "De kopie heeft geen beheerder: zonder gebruiker is er geen sessie om mee te meten"
-        )
+        raise SystemExit("De kopie heeft geen beheerder: zonder gebruiker is er geen sessie om mee te meten")
     return await auth.create_token(auth.OWNER_ID, str(row["username"]))
 
 
@@ -301,9 +285,7 @@ def _concurrent(host: str, port: int, token: str, count: int) -> float:
     failures: list[str] = []
 
     def worker() -> None:
-        connection: http.client.HTTPConnection = http.client.HTTPConnection(
-            host, port, timeout=120
-        )
+        connection: http.client.HTTPConnection = http.client.HTTPConnection(host, port, timeout=120)
         for _ in range(count):
             for path in CONCURRENT_PATHS:
                 status, _ = _get(connection, path, token)
@@ -311,9 +293,7 @@ def _concurrent(host: str, port: int, token: str, count: int) -> float:
                     failures.append(f"{path}: {status}")
         connection.close()
 
-    workers: list[threading.Thread] = [
-        threading.Thread(target=worker) for _ in range(CONCURRENCY)
-    ]
+    workers: list[threading.Thread] = [threading.Thread(target=worker) for _ in range(CONCURRENCY)]
     started: float = time.perf_counter()
     for thread in workers:
         thread.start()
@@ -328,9 +308,7 @@ def _concurrent(host: str, port: int, token: str, count: int) -> float:
 def command_http(args: argparse.Namespace) -> None:
     host: str = "127.0.0.1"
     wait_until_ready(host, PORT, 180)
-    connection: http.client.HTTPConnection = http.client.HTTPConnection(
-        host, PORT, timeout=300
-    )
+    connection: http.client.HTTPConnection = http.client.HTTPConnection(host, PORT, timeout=300)
     started: float = time.perf_counter()
     status, _ = _get(connection, "/api/offers?store=ah", args.token)
     first_offers: float = time.perf_counter() - started
@@ -341,21 +319,15 @@ def command_http(args: argparse.Namespace) -> None:
     _settle(host, PORT, 300)
     for path in PATHS:
         result[path] = _sequential(host, PORT, args.token, path, args.requests)
-    result["requests_per_second"] = [
-        _concurrent(host, PORT, args.token, max(1, args.requests // 5))
-    ]
+    result["requests_per_second"] = [_concurrent(host, PORT, args.token, max(1, args.requests // 5))]
     print(json.dumps(result))
 
 
 # --- op de host: bouwen, meten, opruimen ----------------------------------------------------------------------------------
 
 
-def docker(
-    *args: str, stdin: bytes | None = None, check: bool = True
-) -> subprocess.CompletedProcess[bytes]:
-    return subprocess.run(
-        ["docker", *args], input=stdin, capture_output=True, check=check
-    )
+def docker(*args: str, stdin: bytes | None = None, check: bool = True) -> subprocess.CompletedProcess[bytes]:
+    return subprocess.run(["docker", *args], input=stdin, capture_output=True, check=check)
 
 
 def _last_json(output: bytes) -> dict[str, Any]:
@@ -408,9 +380,7 @@ def seed(data: Path) -> None:
 
 def _run_args(candidate: Candidate, cpus: str) -> list[str]:
     """De opties van elke meetcontainer: geen netwerk, vaste kernen, de kopie alleen-lezen en `/data` in het geheugen."""
-    env: list[str] = [
-        part for pair in (*APP_ENV, *candidate.env) for part in ("-e", pair)
-    ]
+    env: list[str] = [part for pair in (*APP_ENV, *candidate.env) for part in ("-e", pair)]
     return [
         "--network",
         "none",
@@ -425,9 +395,7 @@ def _run_args(candidate: Candidate, cpus: str) -> list[str]:
 
 
 def measure_inproc(candidate: Candidate, rounds: int) -> dict[str, Any]:
-    script: str = (
-        f"cp -a /seed/. /data/ && python scripts/benchmark.py inproc --rounds {rounds}"
-    )
+    script: str = f"cp -a /seed/. /data/ && python scripts/benchmark.py inproc --rounds {rounds}"
     return _last_json(
         docker(
             "run",
@@ -468,12 +436,7 @@ def measure_http(candidate: Candidate, requests: int) -> dict[str, Any]:
         ]
         # Pas als de server antwoordt staat de kopie in /data en kan het token gemaakt worden.
         docker(*client, "python", "scripts/benchmark.py", "wait")
-        token: str = (
-            docker("exec", SERVER_NAME, "python", "scripts/benchmark.py", "token")
-            .stdout.decode()
-            .strip()
-            .splitlines()[-1]
-        )
+        token: str = docker("exec", SERVER_NAME, "python", "scripts/benchmark.py", "token").stdout.decode().strip().splitlines()[-1]
         result: dict[str, Any] = _last_json(
             docker(
                 *client,
@@ -486,9 +449,7 @@ def measure_http(candidate: Candidate, requests: int) -> dict[str, Any]:
                 str(requests),
             ).stdout
         )
-        status: str = docker(
-            "exec", SERVER_NAME, "cat", "/proc/1/status"
-        ).stdout.decode()
+        status: str = docker("exec", SERVER_NAME, "cat", "/proc/1/status").stdout.decode()
         peak: re.Match[str] | None = re.search(r"VmHWM:\s+(\d+) kB", status)
         if peak is not None:
             result["peak_rss_mb"] = [int(peak.group(1)) / 1024]
@@ -498,11 +459,7 @@ def measure_http(candidate: Candidate, requests: int) -> dict[str, Any]:
 
 
 def measure_tests(candidate: Candidate) -> dict[str, Any]:
-    env: list[str] = [
-        part
-        for pair in ("MEALIESHOPPER_TESTING=1", *candidate.env)
-        for part in ("-e", pair)
-    ]
+    env: list[str] = [part for pair in ("MEALIESHOPPER_TESTING=1", *candidate.env) for part in ("-e", pair)]
     started: float = time.perf_counter()
     ran: subprocess.CompletedProcess[bytes] = docker(
         "run",
@@ -522,9 +479,7 @@ def measure_tests(candidate: Candidate) -> dict[str, Any]:
         check=False,
     )
     lines: list[str] = ran.stdout.decode().strip().splitlines()
-    failed: list[str] = sorted(
-        line.split(" - ")[0] for line in lines if line.startswith(("FAILED ", "ERROR "))
-    )
+    failed: list[str] = sorted(line.split(" - ")[0] for line in lines if line.startswith(("FAILED ", "ERROR ")))
     return {
         "seconds": time.perf_counter() - started,
         "exit": ran.returncode,
@@ -547,18 +502,14 @@ def _failure(error: subprocess.CalledProcessError) -> str:
 
 
 def command_run(args: argparse.Namespace) -> None:
-    chosen: list[Candidate] = [
-        c for c in CANDIDATES if not args.only or c.name in args.only
-    ]
+    chosen: list[Candidate] = [c for c in CANDIDATES if not args.only or c.name in args.only]
     results: dict[str, Any] = {}
     for candidate in chosen:
         print(f"bouwen: {candidate.name}", flush=True)
         results[candidate.name] = {"build_error": build(candidate), "samples": {}}
     seed(args.data)
     try:
-        usable: list[Candidate] = [
-            c for c in chosen if not results[c.name]["build_error"]
-        ]
+        usable: list[Candidate] = [c for c in chosen if not results[c.name]["build_error"]]
         # De rondes door elkaar: wat er in de tussentijd op de machine verandert, treft elke variant even hard.
         for round_number in range(1, args.rounds + 1):
             for candidate in usable:
@@ -579,9 +530,7 @@ def command_run(args: argparse.Namespace) -> None:
                 results[candidate.name]["tests"] = measure_tests(candidate)
                 _save(results, args.out)
     finally:
-        docker(
-            "volume", "rm", "-f", SEED_VOLUME, check=False
-        )  # de kopie bevat tokens: nooit laten staan
+        docker("volume", "rm", "-f", SEED_VOLUME, check=False)  # de kopie bevat tokens: nooit laten staan
         if not args.keep_images:
             docker("rmi", "-f", *sorted({c.tag for c in chosen}), check=False)
     _save(results, args.out)
@@ -626,12 +575,8 @@ def report(results: dict[str, Any]) -> str:
         "|---|" + "---:|" * len(names),
     ]
     for key, label, unit in ROWS:
-        baseline: list[float] | None = (
-            results[names[0]]["samples"].get(key) if names else None
-        )
-        cells: list[str] = [
-            _cell(results[name]["samples"].get(key), unit, baseline) for name in names
-        ]
+        baseline: list[float] | None = results[names[0]]["samples"].get(key) if names else None
+        cells: list[str] = [_cell(results[name]["samples"].get(key), unit, baseline) for name in names]
         lines.append(f"| {label} ({unit}) | " + " | ".join(cells) + " |")
     lines.append("")
     for name, entry in results.items():
@@ -656,13 +601,9 @@ def command_report(args: argparse.Namespace) -> None:
 
 
 def main() -> None:
-    parser: argparse.ArgumentParser = argparse.ArgumentParser(
-        description=(__doc__ or "").splitlines()[0]
-    )
+    parser: argparse.ArgumentParser = argparse.ArgumentParser(description=(__doc__ or "").splitlines()[0])
     commands = parser.add_subparsers(dest="command", required=True)
-    run = commands.add_parser(
-        "run", help="bouw de images, meet elke variant en ruim op"
-    )
+    run = commands.add_parser("run", help="bouw de images, meet elke variant en ruim op")
     run.add_argument(
         "--data",
         type=Path,
@@ -670,18 +611,14 @@ def main() -> None:
         help="map met een kopie van auth.sqlite3 en secret.key",
     )
     run.add_argument("--out", type=Path, default=Path("benchmark.json"))
-    run.add_argument(
-        "--rounds", type=int, default=3, help="hoe vaak elke variant aan de beurt komt"
-    )
+    run.add_argument("--rounds", type=int, default=3, help="hoe vaak elke variant aan de beurt komt")
     run.add_argument(
         "--task-rounds",
         type=int,
         default=5,
         help="herhalingen van het rekenwerk per ronde",
     )
-    run.add_argument(
-        "--requests", type=int, default=30, help="aanvragen per route per ronde"
-    )
+    run.add_argument("--requests", type=int, default=30, help="aanvragen per route per ronde")
     run.add_argument(
         "--only",
         nargs="*",
@@ -697,9 +634,7 @@ def main() -> None:
     inproc.add_argument("--rounds", type=int, default=5)
     inproc.set_defaults(handler=command_inproc)
     commands.add_parser("token").set_defaults(handler=command_token)
-    commands.add_parser("wait").set_defaults(
-        handler=lambda _: wait_until_ready("127.0.0.1", PORT, 180)
-    )
+    commands.add_parser("wait").set_defaults(handler=lambda _: wait_until_ready("127.0.0.1", PORT, 180))
     client = commands.add_parser("http")
     client.add_argument("--token", required=True)
     client.add_argument("--requests", type=int, default=30)

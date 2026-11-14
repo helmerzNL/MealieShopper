@@ -27,6 +27,7 @@ of gesloten is.
 
 Beide tabellen staan bewust in `backup.EXCLUDED_TABLES`: een abonnement hoort bij een browser, een timer duurt minuten.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -59,7 +60,12 @@ SETTING_VAPID_KEY = "PUSH_VAPID_PRIVATE_KEY"  # versleuteld in app_settings, zoa
 # sleutels van Google gebruikt jmt17.google.com), Mozilla (Firefox), Apple (Safari en de geïnstalleerde app op een iPhone) en
 # Microsoft (Edge op Windows). Een domein telt met zijn subdomeinen.
 PUSH_HOSTS: tuple[str, ...] = (
-    "fcm.googleapis.com", "android.googleapis.com", "jmt17.google.com", "push.services.mozilla.com", "push.apple.com", "notify.windows.com",
+    "fcm.googleapis.com",
+    "android.googleapis.com",
+    "jmt17.google.com",
+    "push.services.mozilla.com",
+    "push.apple.com",
+    "notify.windows.com",
 )
 
 MAX_ENDPOINT_CHARS = 1024
@@ -364,9 +370,7 @@ async def _session_alive(conn: aiosqlite.Connection, row: Mapping[str, Any]) -> 
 
 
 def _client() -> httpx.AsyncClient:
-    return http_client.client(
-        "push", headers={"User-Agent": f"MealieShopper/{about.version()}"}, timeout=SEND_TIMEOUT, follow_redirects=False
-    )
+    return http_client.client("push", headers={"User-Agent": f"MealieShopper/{about.version()}"}, timeout=SEND_TIMEOUT, follow_redirects=False)
 
 
 def encrypt(payload: bytes, p256dh: str, secret: str) -> bytes:

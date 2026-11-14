@@ -5,6 +5,7 @@ add-on zet) start dit direct het commando uit de Dockerfile (hypercorn) of het c
 
 Alleen de standaardbibliotheek, zodat dit ook werkt voordat de app is geladen.
 """
+
 from __future__ import annotations
 
 import json
