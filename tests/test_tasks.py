@@ -3,7 +3,7 @@
 import asyncio
 import logging
 import threading
-from collections.abc import AsyncIterator, Coroutine
+from collections.abc import AsyncIterator, Awaitable, Callable, Coroutine
 from pathlib import Path
 from typing import Any
 
@@ -345,6 +345,26 @@ async def test_after_serving_reports_that_the_app_stopped(app: Quart, caplog: py
         async with app.test_app():
             assert "afgesloten" not in caplog.text
     assert "MealieShopper afgesloten" in caplog.text
+
+
+async def test_the_stopped_line_comes_after_every_other_after_serving_step(app: Quart, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture) -> None:
+    """Taak 10b: `tasks.register` hing de regel "afgesloten" vroeg in `create_app` aan `after_serving`, en Quart draait die
+    stappen in volgorde: de regel kwam voor `compute.stop` en de andere stappen van daarna. Nu is hij de laatste stap."""
+    order: list[str] = []
+    stop: Callable[[], Awaitable[None]] = compute.stop
+
+    async def stopping() -> None:
+        order.append("compute")
+        await stop()
+
+    monkeypatch.setattr(compute, "stop", stopping)
+    with caplog.at_level(logging.WARNING, logger="mealieshopper.tasks"):
+        async with app.test_app():
+            pass
+    assert app.after_serving_funcs[-1] is tasks._log_stopped
+    assert app.after_serving_funcs.count(tasks._log_stopped) == 1
+    order += [record.getMessage()[:22] for record in caplog.records if "afgesloten" in record.getMessage()]
+    assert order == ["compute", "MealieShopper afgeslot"]
 
 
 async def test_cancel_all_waits_for_a_build_whose_callers_are_gone() -> None:

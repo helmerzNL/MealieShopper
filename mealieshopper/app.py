@@ -2375,6 +2375,7 @@ def create_app() -> Quart:
 
         return response
 
+    tasks.log_when_stopped(app)  # als laatste: de regel "afgesloten" komt na elke andere stap van `after_serving`
     return app
 
 

@@ -26,7 +26,6 @@ import logging
 import re
 import secrets
 import time
-import weakref
 from collections.abc import AsyncIterator
 from contextlib import AsyncExitStack, asynccontextmanager, contextmanager
 from dataclasses import dataclass
@@ -40,7 +39,9 @@ import httpx
 from quart import Quart, Response, has_request_context, jsonify, request
 from werkzeug.exceptions import HTTPException
 
-from . import auth, telemetry
+# `tasks` importeert http_client, en dat importeert deze module: wie als eerste geladen wordt, ziet de ander nog half. Daarom
+# gebruikt deze module `tasks` alleen binnen functies, nooit bij het laden.
+from . import auth, tasks, telemetry
 from .i18n import tr
 
 log = logging.getLogger(__name__)
@@ -304,7 +305,8 @@ async def record(
 ) -> int | None:
     """Schrijf één regel en wacht tot hij er staat (het id, of None). Mislukt het schrijven, dan gaat de aanvraag zelf gewoon
     door. De regel gaat via de schrijver van deze event loop (`_Writer`): een verbinding voor alle regels, geen nieuwe per
-    regel. Na het afsluiten (`tasks.cancel_all`) is er geen schrijver meer: dan schrijft `record` de regel zelf (`_write_direct`)."""
+    regel. Na het afsluiten (`tasks.cancel_all`, `tasks.stopped`) is er geen schrijver meer: dan schrijft `record` de regel
+    zelf (`_write_direct`)."""
     if not enabled():
         return None
     values: tuple[str | int | None, ...] = _row_values(
@@ -313,7 +315,7 @@ async def record(
         resp_bytes=resp_bytes, error=error, detail=detail,
     )
     try:
-        if asyncio.get_running_loop() in _STOPPED_LOOPS:
+        if tasks.stopped():
             return await _write_direct(values)
         return await _writer().submit(values)
     except Exception:  # noqa: BLE001 - de log mag nooit een verzoek laten mislukken
@@ -369,9 +371,6 @@ class _Writer:
         pending: _Pending = _Pending(str(auth.db_path()), values, self.loop.create_future(), telemetry.current())
         self.queue.put_nowait(pending)
         if self.task is None:
-            # lokaal: tasks importeert http_client, en dat importeert deze module
-            from . import tasks
-
             self.task = self.loop.create_task(self._drain(), name="auditlog-schrijver", context=contextvars.Context())
             tasks.wait_at_shutdown(self.task)
         return pending.done
@@ -482,8 +481,6 @@ def _settle(pending: list[_Pending]) -> None:
 
 # De schrijver per event loop. Hij haalt zichzelf hier weg als hij stopt (`_Writer._retire`), dus een loop blijft niet hangen.
 _WRITERS: dict[asyncio.AbstractEventLoop, _Writer] = {}
-# Loops die zijn afgesloten (`tasks.cancel_all`): daar schrijft `record` direct.
-_STOPPED_LOOPS: weakref.WeakSet[asyncio.AbstractEventLoop] = weakref.WeakSet()
 
 
 def _writer() -> _Writer:
@@ -491,19 +488,16 @@ def _writer() -> _Writer:
     loop: asyncio.AbstractEventLoop = asyncio.get_running_loop()
     found: _Writer | None = _WRITERS.get(loop)
     if found is None:
-        from . import tasks  # lokaal, zie `_Writer.submit`
-
         tasks.on_cancel_all(_stop_writers)
         found = _WRITERS[loop] = _Writer(loop)
     return found
 
 
 def _stop_writers() -> None:
-    """Voor `tasks.cancel_all`, op de event loop: de schrijver van deze loop schrijft wat klaarstaat en stopt, en een regel van
-    hierna schrijft `record` direct. `cancel_all` wacht op de schrijver (`tasks.wait_at_shutdown`)."""
-    loop: asyncio.AbstractEventLoop = asyncio.get_running_loop()
-    _STOPPED_LOOPS.add(loop)
-    writer: _Writer | None = _WRITERS.pop(loop, None)
+    """Voor `tasks.cancel_all`, op de event loop: de schrijver van deze loop schrijft wat klaarstaat en stopt. Een regel van
+    hierna schrijft `record` direct (`tasks.stopped`), ook als er nooit een schrijver was: dat onthoudt `cancel_all` zelf, want
+    deze haak hangt pas aan `cancel_all` bij de eerste schrijver. `cancel_all` wacht op de schrijver (`tasks.wait_at_shutdown`)."""
+    writer: _Writer | None = _WRITERS.pop(asyncio.get_running_loop(), None)
     if writer is not None:
         writer.stop()
 
@@ -754,8 +748,6 @@ async def _httpx_log(response: httpx.Response, read: bool) -> None:
         # tussenliggende `await` `response.next_request`. De eerste stap van een nieuwe task loopt in de volgende
         # ronde van de loop, dan is dat dus bekend. Volgt hij wel, dan logt de hook bij het laatste antwoord.
         # `tasks.spawn` houdt de task vast, anders kan hij halverwege worden opgeruimd.
-        from . import tasks  # lokaal: tasks importeert http_client, en dat importeert dit module
-
         tasks.spawn("audit-redirect", _record_unfollowed_redirect(response, outbound, duration_ms))
         return
     await _record_outbound(outbound, None, duration_ms)
