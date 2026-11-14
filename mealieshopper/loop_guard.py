@@ -24,8 +24,9 @@ of een thread van aiosqlite Python draait, dan krijgt de loop hem pas terug als 
 aanroepen stond onder belasting 100 tot 200 ms stil. De stack van de loop staat dan in die aanroep, en een andere thread is bezig
 (`Stall.threads`). Gevonden in taak 9c: `Path.resolve` in `auth.data_dir` (een lstat per deel van het pad, bij elke
 verbinding), de mislukte `import sniffio` van httpcore (een stat per map van sys.path, bij elke verbinding), en `Thread.start`
-in `aiosqlite.connect` (een thread per verbinding, ook per auditregel). Daarom zoekt de controle van taak 10 op de loop naar
-aanroepen die de GIL loslaten en vaak terugkomen, niet alleen naar lang rekenwerk. Sinds taak 9c zet `app.create_app` het
+in `aiosqlite.connect` (een thread per verbinding, ook per auditregel). Sinds taak 10b lezen de sessie, de instellingen en
+`image_cache.lookup` over open verbindingen (readers.py), zonder thread per aanvraag. Daarom zoekt de controle van taak 10
+op de loop naar aanroepen die de GIL loslaten en vaak terugkomen, niet alleen naar lang rekenwerk. Sinds taak 9c zet `app.create_app` het
 wisselinterval op 1 ms (`app.SWITCH_INTERVAL_SECONDS`, met de metingen): dat maakt elke overdracht korter, maar haalt het
 konvooi niet weg, want tien aanroepen kosten dan nog tot 10 ms.
 
