@@ -336,9 +336,12 @@ class LoopGuard:
                 self._settle(tick)
                 tick = None
             if tick is None:
+                # De tijd van nu, niet `now`: het melden hierboven kan lang duren (de bewaker wacht dan ook op de GIL), en die
+                # tijd is geen stilstand van de loop.
+                sent: float = time.perf_counter()
                 if not self._send_tick():
                     return
-                tick = _Tick(now)
+                tick = _Tick(sent)
             elif tick.stack is None and now - tick.sent >= self._threshold:
                 self._look(tick)
         if tick is not None and self._answered.is_set():

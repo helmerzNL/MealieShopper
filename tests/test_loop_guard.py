@@ -69,6 +69,23 @@ async def test_two_stalls_are_two_reports() -> None:
     assert len(stalls) == 2
 
 
+async def test_a_slow_report_is_not_counted_as_the_next_stall() -> None:
+    """Taak 9c: onder hypercorn kwamen twee stilstanden die elkaar overlapten, 101 en 226 ms. De tweede was het melden van de
+    eerste: de nieuwe tik kreeg de tijd van voor het melden mee. Een melding die 0,3 s duurt, geeft geen tweede stilstand."""
+    stalls: list[loop_guard.Stall] = []
+
+    def slow(stall: loop_guard.Stall) -> None:
+        stalls.append(stall)
+        time.sleep(0.3)
+
+    guard: loop_guard.LoopGuard = loop_guard.LoopGuard(asyncio.get_running_loop(), 0.05, slow)
+    guard.start()
+    time.sleep(0.15)  # noqa: ASYNC251
+    await asyncio.sleep(0.6)  # de loop wacht, terwijl de bewaker meldt
+    guard.stop()
+    assert len(stalls) == 1, [stall.seconds for stall in stalls]
+
+
 async def test_a_failing_callback_does_not_stop_the_guard() -> None:
     calls: list[loop_guard.Stall] = []
 
