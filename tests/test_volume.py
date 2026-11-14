@@ -735,13 +735,21 @@ async def test_a_cold_build_keeps_the_tracked_set_small(volume_dir: Path) -> Non
         if phase == "start" and info.get("generation") == 2:
             peaks.append(len(gc.get_objects()))
 
+    # De heap van de rest van de suite gaat in de vaste generatie: een volle ronde komt pas als er sinds de vorige een kwart van
+    # wat de oude generatie telt bij kwam, en met de hele suite erin kwam die tijdens de bouw niet (de test mat dan niets). De
+    # tweede `collect` zet die telling op wat na `freeze` over is: bijna niets. `get_objects` telt de vaste generatie niet.
     gc.collect()
-    before: int = len(gc.get_objects())
-    gc.callbacks.append(at_full_collection)
+    gc.freeze()
     try:
-        await prices.warm_catalogues(["ah"], today=volume.TODAY)
+        gc.collect()
+        before: int = len(gc.get_objects())
+        gc.callbacks.append(at_full_collection)
+        try:
+            await prices.warm_catalogues(["ah"], today=volume.TODAY)
+        finally:
+            gc.callbacks.remove(at_full_collection)
     finally:
-        gc.callbacks.remove(at_full_collection)
+        gc.unfreeze()
     assert ("ah" in {key[1] for key in prices._CATALOGUES}), "de catalogus van AH is gebouwd"
     assert peaks, "geen volle ronde van de GC tijdens de bouw: dan meet deze test niets"
     assert max(peaks) - before < BUILD_PEAK_ADDED_LIMIT, (before, peaks)
