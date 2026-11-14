@@ -1515,10 +1515,11 @@ class ConcurrencyTest(TempDataDirTest):
                 with self.assertRaises(asyncio.CancelledError):
                     await first
                 release.set()
-                for _ in range(20):  # de vernieuwing loopt nog even door na het annuleren
-                    if await picnic.configured_auth_key() == "new":
-                        break
-                    await asyncio.sleep(0)
+                # De vernieuwing loopt nog even door na het annuleren. Een grens in tijd, niet in beurten van de loop: het bewaren
+                # gaat via een thread, en op een trage runner was twintig keer `sleep(0)` te kort (PR #332, 2026-11-14).
+                deadline: float = asyncio.get_running_loop().time() + 5
+                while await picnic.configured_auth_key() != "new" and asyncio.get_running_loop().time() < deadline:
+                    await asyncio.sleep(0.001)
                 await picnic._authed("GET", "/user")
 
         run(scenario())

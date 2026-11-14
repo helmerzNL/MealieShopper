@@ -296,6 +296,7 @@ def start_fill() -> bool:
     global _fill_task
     if fill_running():
         return False
+    # Niet zwaar: hooguit FILL_PER_SYNC recepten, per recept een verzoek aan AH en een rij (taak 10 van nooit blokkeren).
     _fill_task = tasks.spawn("ah-saved-nutrition", _run_fill())
     return True
 

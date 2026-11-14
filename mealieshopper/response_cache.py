@@ -7,8 +7,10 @@ laatste lijst met zijn ETag. Is de ETag gelijk, dan is de lijst dezelfde die de 
 nooit verser of ouder dan wat de browser al deed. Vragen meer aanvragen tegelijk om dezelfde sleutel en ETag, dan rekent er een,
 en wachten de andere op die uitkomst.
 
-Een fout wordt niet bewaard: de volgende aanvraag probeert het opnieuw. Er staan hooguit `size` sleutels in, de oudste gaat er
-eerst uit. De cache hoort bij een app (`create_app`), zodat tests elkaar niets meegeven.
+De cache bewaart wat `load()` teruggeeft, ongewijzigd: voor /api/offers de bytes van de JSON (`app.json_bytes`), zodat een
+tweede aanvraag de lijst niet opnieuw naar JSON omzet. Een fout wordt niet bewaard: de volgende aanvraag probeert het opnieuw.
+Er staan hooguit `size` sleutels in, de oudste gaat er eerst uit.
+De cache hoort bij een app (`create_app`), zodat tests elkaar niets meegeven.
 """
 
 from __future__ import annotations
@@ -17,6 +19,8 @@ import asyncio
 from collections import OrderedDict
 from collections.abc import Awaitable, Callable, Hashable
 from typing import Any
+
+from . import tasks
 
 
 class ResponseCache:
@@ -34,10 +38,11 @@ class ResponseCache:
         running: asyncio.Task[Any] | None = self._running.get((key, etag))
         if running is None:
             running = asyncio.ensure_future(self._load(key, etag, load))
+            tasks.wait_at_shutdown(running)  # een lading zonder aanroeper loopt door: het afsluiten wacht erop
             self._running[(key, etag)] = running
             running.add_done_callback(lambda _: self._running.pop((key, etag), None))
-        # shield: gaat een van de wachtende aanvragen weg (de browser sluit), dan rekent de taak door voor de andere.
-        return await asyncio.shield(running)
+        # gaat een van de wachtende aanvragen weg (de browser sluit), dan rekent de taak door voor de andere
+        return await tasks.share(running)
 
     async def _load(self, key: Hashable, etag: str, load: Callable[[], Awaitable[Any]]) -> Any:
         value: Any = await load()
