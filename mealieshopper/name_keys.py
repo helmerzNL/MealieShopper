@@ -15,14 +15,16 @@ from typing import Any, Generic, NamedTuple, TypeVar
 
 from . import ah_lists
 
-MEMO_SIZE: int = 524_288  # het maximum per functie met `TextMemo`
-# De grootte per functie: 1,3 tot 1,5 keer het aantal namen dat een opbouw van de catalogus van elke winkel op de volumedatabase
-# (`tests/volume.py`, de schaal van productie) in die cache zet. Is een cache kleiner dan die opbouw, dan begint hij midden in de
-# opbouw opnieuw leeg (`TextMemo`) en komen de namen van voor dat moment niet meer terug. Een opbouw zet erin: fold 341.326,
-# near 68.249, categorize 65.870, offer_category 70.692, _parts 59.979, _size_of 96.208. `tests/test_name_memo.py` bewaakt de ruimte (1,25 keer).
-# Alles op 1,5 keer past niet: fold (1,3) en _parts (1,4) zijn kleiner gehouden, want met elke cache vol piekt de app dan op 600 MiB,
-# de ontwerpgrens. Nu 559 MiB.
-# Een volle cache kost per naam van 27 tekens: fold 235 byte, categorize 227, offer_category 387, _size_of 306, near 712, _parts 1360.
+MEMO_SIZE: int = 524_288  # de namen per generatie van `TextMemo` als een functie niets opgeeft
+# De grootte per functie, de namen per generatie: 1,3 tot 1,5 keer het aantal namen dat een opbouw van de catalogus van elke winkel
+# op de volumedatabase (`tests/volume.py`, de schaal van productie) erin zet. Een opbouw past dan in een generatie, dus een
+# volgende opbouw vindt alles terug. Een opbouw zet erin: fold 341.326, near 68.249, categorize 65.870, offer_category 70.692,
+# _parts 59.979, _size_of 96.208. `tests/test_name_memo.py` eist dat een tweede opbouw geen enkele naam opnieuw uitrekent.
+# Het geheugen: een gewone dict kost per naam de sleutel, het antwoord en een plek in de tabel, zonder de schakel van lru_cache.
+# De app op de volumedatabase met alle catalogi gebouwd en 779.468 namen in de memo's: 441 MiB (taak 9c). Een tweede opbouw zet
+# dezelfde namen in de nieuwe generatie, dan delen de twee generaties hun sleutels en antwoorden. Het slechtste geval, elke memo
+# met twee volle generaties vol verschillende namen, kost de memo's samen 354 MiB (gemeten met namen van 27 tekens): dat haalt
+# alleen een opbouw met een heel andere set namen dan de vorige.
 FOLD_SIZE: int = 450_560
 CATEGORY_SIZE: int = 98_304
 OFFER_CATEGORY_SIZE: int = 98_304
@@ -36,12 +38,13 @@ _MISSING: object = object()  # voor `dict.get`: None kan een antwoord zijn
 
 
 class MemoInfo(NamedTuple):
-    """Wat `TextMemo.cache_info` geeft, met dezelfde velden als `functools.lru_cache`."""
+    """Wat `TextMemo.cache_info` geeft: de velden van `functools.lru_cache` en `resets`."""
 
     hits: int
     misses: int
     maxsize: int
-    currsize: int
+    currsize: int  # in beide generaties samen, een naam die van de oude naar de nieuwe ging telt twee keer
+    resets: int  # hoe vaak een generatie met namen erin wegviel (`TextMemo`): binnen een opbouw hoort dat 0 te zijn
 
 
 def memo(size: int) -> Callable[[Callable[..., _Result]], "TextMemo[_Result]"]:
@@ -58,8 +61,12 @@ class TextMemo(Generic[_Result]):
     Het geheugen is een gewone dict en geen `functools.lru_cache`: die houdt per naam een schakel bij die de garbage collector bij
     elke volle ronde langsloopt (770.000 namen op de volumedatabase: 55 ms per ronde, gemeten), en zo'n ronde houdt de GIL vast
     (gc_watch.py). Een dict met tekst als sleutel en tekst of tuples van tekst als waarde slaat de GC over (3.12) of loopt hij snel
-    door. Is de dict vol (`size`), dan begint hij opnieuw leeg: de groottes hieronder zijn ruim genoeg voor de namen van een opbouw
-    van alle catalogi (`tests/test_name_memo.py`), dus binnen een opbouw gebeurt dat niet."""
+    door. Er zijn twee generaties van elk `size` namen: een naam wordt eerst in de nieuwe gezocht en dan in de oude, en een
+    treffer in de oude gaat mee naar de nieuwe. Is de nieuwe vol, dan wordt hij de oude en valt de vorige oude weg (`resets` telt
+    het, als er namen in zaten). Zo blijft wat vaak terugkomt bewaard, zoals bij lru_cache, zonder een schakel per naam, en houdt
+    de memo hooguit twee keer `size` namen vast (`MemoInfo.maxsize`). Een generatie van `size // 2` is te klein: een opbouw die
+    niet in een generatie past, laat bij de volgende opbouw een deel van zijn namen vallen. De groottes bovenaan zijn ruim genoeg
+    voor de namen van een opbouw van alle catalogi: `tests/test_name_memo.py` eist dat een tweede opbouw niets mist."""
 
     def __init__(self, function: Callable[..., _Result], size: int = MEMO_SIZE) -> None:
         update_wrapper(self, function)
@@ -67,9 +74,11 @@ class TextMemo(Generic[_Result]):
         self._defaults: tuple[Any, ...] = self._positional_defaults(self._signature)
         self.size: int = size
         self._function: Callable[..., _Result] = function
-        self._cache: dict[Any, _Result] = {}
+        self._new: dict[Any, _Result] = {}
+        self._old: dict[Any, _Result] = {}
         self._hits: int = 0
         self._misses: int = 0
+        self._resets: int = 0
 
     @staticmethod
     def _positional_defaults(signature: inspect.Signature) -> tuple[Any, ...]:
@@ -94,24 +103,38 @@ class TextMemo(Generic[_Result]):
             args = (*args, *missing)
         texts: tuple[str, ...] = tuple(arg if isinstance(arg, str) else str(arg or "") for arg in args)
         key: Any = texts[0] if len(texts) == 1 else texts  # zoals lru_cache: een enkele tekst is zelf de sleutel
-        found: Any = self._cache.get(key, _MISSING)
+        found: Any = self._new.get(key, _MISSING)
         if found is not _MISSING:
             self._hits += 1
             return found
+        found = self._old.get(key, _MISSING)
+        if found is not _MISSING:
+            self._hits += 1
+            self._keep(key, found)
+            return found
         self._misses += 1
         result: _Result = self._function(*texts)
-        if len(self._cache) >= self.size:
-            self._cache.clear()
-        self._cache[key] = result
+        self._keep(key, result)
         return result
 
+    def _keep(self, key: Any, value: _Result) -> None:
+        """Bewaart een antwoord in de nieuwe generatie. Is die vol, dan wordt hij de oude en valt de vorige oude weg."""
+        if len(self._new) >= max(1, self.size):
+            if self._old:
+                self._resets += 1
+            self._old = self._new
+            self._new = {}
+        self._new[key] = value
+
     def cache_info(self) -> MemoInfo:
-        return MemoInfo(self._hits, self._misses, self.size, len(self._cache))
+        return MemoInfo(self._hits, self._misses, 2 * self.size, len(self._new) + len(self._old), self._resets)
 
     def cache_clear(self) -> None:
-        self._cache.clear()
+        self._new = {}
+        self._old = {}
         self._hits = 0
         self._misses = 0
+        self._resets = 0
 
 
 NEAR_MARK: str = "~"  # voor een sleutel van `near`: geen gevouwen naam begint zo

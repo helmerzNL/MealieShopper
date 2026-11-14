@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import gc
 import random
 from collections.abc import Callable
 from pathlib import Path
@@ -75,7 +76,7 @@ def test_offer_category_gives_the_same_answer() -> None:
 def test_every_function_has_cache_info_and_clear(function: Callable[..., Any]) -> None:
     function.cache_clear()
     assert function.cache_info().currsize == 0
-    assert function.cache_info().maxsize == function.size
+    assert function.cache_info().maxsize == 2 * function.size  # twee generaties van `size` namen
     assert 0 < function.size <= name_keys.MEMO_SIZE
 
 
@@ -158,14 +159,29 @@ async def test_a_second_catalogue_build_hits_the_memo(volume_dir: Path) -> None:
     assert offer_categories.offer_category.cache_info().hits > 0
 
 
-#: Elke cache moet groter zijn dan wat een opbouw van alle catalogi erin zet, anders verdringt de opbouw zijn eigen namen en daalt het
-#: aantal treffers naar bijna nul. `_significant` onthoudt alleen wat vlak achter elkaar terugkomt (`_parts` vraagt dezelfde tekst
-#: drie keer) en doet niet mee.
-ROOM: float = 1.25
+def test_the_old_generation_keeps_what_comes_back() -> None:
+    """`TextMemo` met generaties van twee namen: een treffer in de oude generatie gaat mee naar de nieuwe, en `resets` telt een
+    generatie die met namen erin wegvalt."""
+    calls: list[str] = []
+
+    def shout(text: str) -> str:
+        calls.append(text)
+        return text.upper()
+
+    memo: name_keys.TextMemo[str] = name_keys.TextMemo(shout, size=2)
+    for text in ("a", "b", "c", "a", "d", "e", "a"):  # "a" komt steeds terug uit de oude generatie, "b" en "c" vallen weg
+        memo(text)
+    assert calls == ["a", "b", "c", "d", "e"]
+    assert memo("b") == "B" and calls[-1] == "b"
+    assert memo.cache_info().resets == 2
 
 
 @pytest.mark.volume
 async def test_every_cache_has_room_for_a_full_catalogue_build(volume_dir: Path) -> None:
+    """Elke cache houdt in een generatie meer dan een opbouw van alle catalogi erin zet: een tweede opbouw rekent geen enkele naam
+    opnieuw uit, en geen generatie met namen valt weg. Is een generatie te klein, dan laat de opbouw zijn eigen namen vallen en
+    rekent de volgende ze opnieuw uit. `_significant` onthoudt alleen wat vlak achter elkaar terugkomt (`_parts` vraagt dezelfde
+    tekst drie keer) en doet niet mee."""
     caches: list[Any] = [
         name_keys.fold,
         name_keys.near,
@@ -177,10 +193,30 @@ async def test_every_cache_has_room_for_a_full_catalogue_build(volume_dir: Path)
     ]
     for cache in caches:
         cache.cache_clear()
-    async with auth.connect() as conn:
-        for store in offers.STORES:
-            await prices._catalogue(conn, store, volume.TODAY)
-    for cache in caches:
-        info: Any = cache.cache_info()
-        assert info.currsize > 0, cache.__name__
-        assert info.maxsize >= ROOM * info.currsize, (cache.__name__, info.maxsize, info.currsize)
+    misses: dict[str, int] = {}
+    for _ in range(2):
+        prices._CATALOGUES.clear()
+        async with auth.connect() as conn:
+            for store in offers.STORES:
+                await prices._catalogue(conn, store, volume.TODAY)
+        for cache in caches:
+            info: Any = cache.cache_info()
+            assert info.currsize > 0, cache.__name__
+            assert info.resets == 0, (cache.__name__, info)
+            assert misses.setdefault(cache.__name__, info.misses) == info.misses, (cache.__name__, info)
+
+
+def test_the_memory_is_plain_dicts_the_collector_skips() -> None:
+    """Taak 9c: `functools.lru_cache` hield per naam een schakel bij die de GC bij elke volle ronde langsliep (55 ms op de
+    volumedatabase). Het geheugen van `TextMemo` is nu twee gewone dicts, en een antwoord van tekst of tuples volgt de GC niet."""
+    line_offers._parts.cache_clear()
+    for number in range(2000):
+        line_offers._parts(f"Folder: AH Verse kipfilet naturel {number} of soep")
+    for _ in range(3):  # een ronde laat een tuple pas los als wat erin zit al los is: per laag van de geneste tuples een ronde
+        gc.collect()
+    memo: Any = line_offers._parts
+    assert type(memo._new) is dict and type(memo._old) is dict
+    assert not any(type(item).__name__ == "_lru_cache_wrapper" for item in vars(memo).values())
+    stored: list[Any] = [*memo._new.values(), *memo._old.values()]
+    assert len(stored) == 2000
+    assert not any(gc.is_tracked(value) for value in stored)  # gesorteerde tuples van tekst
