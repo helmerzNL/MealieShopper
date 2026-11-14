@@ -694,6 +694,31 @@ async def test_offers_stay_warm_during_a_price_index_round(
     assert built.call_count == 0, "de prijzen en de prijsgeschiedenis werken de catalogus bij, zonder hem opnieuw op te bouwen"
 
 
+# Wat `_window_shape` en `_answer_ids` per winkel aan de ETag van /api/offers geven (de vorm van het venster, en een SHA-256 van
+# de ids), gemeten toen de lussen over de rijen nog op de loop liepen (f708d13). In de threadpool blijft de ETag dezelfde.
+OFFERS_ETAG_PARTS: dict[str, tuple[str, str]] = {
+    "ah": ("e6c4d0dfc4632735", "7efa9729564a6683"),
+    "aldi": ("97d170e1550eee4a", "49aae36488a53a7f"),
+    "crisp": ("97d170e1550eee4a", "4f53cda18c2baa0c"),
+    "jumbo": ("cf293a2486804a12", "bb67a046524827f0"),
+    "lidl": ("97d170e1550eee4a", "bf0ad8151e9afbd1"),
+    "picnic": ("97d170e1550eee4a", "f40971b3fba882ef"),
+}
+
+
+@pytest.mark.volume
+async def test_the_parts_of_the_offers_etag_are_unchanged(volume_dir: Path) -> None:
+    found: dict[str, tuple[str, str]] = {}
+    for store in offers.STORES:
+        async with prices._connect() as conn:
+            await prices._catalogue(conn, store, volume.TODAY)
+            version: str = await prices._catalogue_version(conn, store)
+            ids: tuple[str, ...] = await prices._answer_ids(conn, store, version, volume.TODAY)
+            shape: str = await prices._window_shape(conn, store, volume.TODAY)
+        found[store] = (shape, hashlib.sha256(json.dumps(ids).encode("utf-8")).hexdigest()[:16])
+    assert found == OFFERS_ETAG_PARTS
+
+
 # Wat alle catalogi en de memo's van hun namen aan een volle ronde van de GC toevoegen: het verschil voor en na het laden, want in
 # de hele suite leeft de rest van de tests mee (een volle ronde loopt dan ook langs hun 340.000 objecten). Gemeten na taak 9c:
 # 1.300 gevolgde objecten en 2,4 ms erbij (3.12), 17.000 en 8 ms (3.15, die ook de dicts van de bonregels volgt). Ervoor voegden

@@ -2086,9 +2086,13 @@ WHERE o.store = ? AND o.day >= ? AND o.day <= ? AND o.source != ?
 """
 
 
-def _shape_digest(rows: list[tuple[str, str, str, int]]) -> str:
-    """Puur, voor `compute.run`: een korte SHA-1 van de verzameling (naam, merk, verpakking, met prijs)."""
-    return hashlib.sha1(json.dumps(sorted(set(rows))).encode("utf-8")).hexdigest()[:16]
+def _shape_digest(rows: list[tuple[Any, ...]]) -> str:
+    """Puur, voor `compute.run`: een korte SHA-1 van de verzameling (naam, merk, verpakking, met prijs), uit de rijen van
+    `_WINDOW_SHAPE_SQL` (`_plain_rows`). Bij AH zo'n 3.000 rijen, die de loop dus niet zelf afloopt."""
+    shape: set[tuple[str, str, str, int]] = {
+        (title or "", brand or "", unit_size or "", int(priced or 0)) for title, brand, unit_size, priced in rows
+    }
+    return hashlib.sha1(json.dumps(sorted(shape)).encode("utf-8")).hexdigest()[:16]
 
 
 async def _window_shape(conn: aiosqlite.Connection, store: str, today: str) -> str:
@@ -2096,10 +2100,7 @@ async def _window_shape(conn: aiosqlite.Connection, store: str, today: str) -> s
     Ook buiten `_answer_ids` beslissen die mee: elk merk in het venster haalt `_known_pack_titles` van een naam af, en elke naam
     met een prijs per eenheid is een familie in `bases`. De prijs zelf telt alleen bij een product uit `_answer_ids`."""
     window: tuple[str, str, str] = (_days_ago(today, PACK_DAYS), today, PUBLIC_OBSERVED_UNKNOWN)
-    rows: list[tuple[str, str, str, int]] = [
-        (row["title"] or "", row["brand"] or "", row["unit_size"] or "", int(row["priced"] or 0))
-        for row in await conn.execute_fetchall(_WINDOW_SHAPE_SQL, (store, *window, *window))
-    ]
+    rows: list[tuple[Any, ...]] = await _plain_rows(conn, _WINDOW_SHAPE_SQL, (store, *window, *window))
     return await compute.run(_shape_digest, rows)
 
 
@@ -2159,11 +2160,13 @@ def _family_base(store: str, title: Any) -> str:
     return _without_house_brand(store, base) or base
 
 
-def _family_ids(store: str, listed_titles: list[str], observed: list[tuple[str, str]]) -> frozenset[str]:
-    """Puur, voor `compute.run`: de producten met een bewaarde prijs (`observed`: product, naam) waarvan een naam dezelfde
-    familienaam (`_family_base`) heeft als een aanbieding. Hun nieuwste prijs is een pak in de familie en kan `cheaperPack` zijn."""
-    wanted: set[str] = {base for title in listed_titles if (base := _family_base(store, title))}
-    return frozenset(product_id for product_id, title in observed if _family_base(store, title) in wanted)
+def _family_ids(store: str, listed: list[tuple[Any, ...]], observed: list[tuple[Any, ...]]) -> frozenset[str]:
+    """Puur, voor `compute.run`: de producten van de aanbiedingen (`listed`, de rijen van `_LISTED_SQL`) en de producten met een
+    bewaarde prijs (`observed`, de rijen van `_OBSERVED_TITLES_SQL`) waarvan een naam dezelfde familienaam (`_family_base`) heeft
+    als een aanbieding. Hun nieuwste prijs is een pak in de familie en kan `cheaperPack` zijn. Bij AH zo'n 3.000 rijen."""
+    wanted: set[str] = {base for _, title in listed if (base := _family_base(store, str(title or "")))}
+    family: set[str] = {str(product_id) for product_id, title in observed if _family_base(store, str(title or "")) in wanted}
+    return frozenset(family | {str(product_id) for product_id, _ in listed})
 
 
 def _namesakes(shared: dict[str, dict[str, tuple[float, ...]]]) -> set[str]:
@@ -2192,12 +2195,9 @@ async def _answer_ids(conn: aiosqlite.Connection, store: str, version: str, toda
     found: tuple[str, tuple[str, ...]] | None = _ANSWER_IDS.get(key)
     if found is not None and found[0] == version:
         return found[1]
-    listed: list[Any] = list(await conn.execute_fetchall(_LISTED_SQL, (store,)))
-    observed: list[tuple[str, str]] = [
-        (str(row["product_id"]), str(row["title"] or "")) for row in await conn.execute_fetchall(_OBSERVED_TITLES_SQL, (store,))
-    ]
-    titles: list[str] = [str(row["title"] or "") for row in listed]
-    near: set[str] = {str(row["product_id"]) for row in listed} | await compute.run(_family_ids, store, titles, observed)
+    listed: list[tuple[Any, ...]] = await _plain_rows(conn, _LISTED_SQL, (store,))
+    observed: list[tuple[Any, ...]] = await _plain_rows(conn, _OBSERVED_TITLES_SQL, (store,))
+    near: frozenset[str] = await compute.run(_family_ids, store, listed, observed)
     shared: dict[str, dict[str, tuple[float, ...]]] | None = _shared_groups(store, version, today)
     if shared is None:
         raise LookupError(f"geen catalogus van {store} bij versie {version}")
