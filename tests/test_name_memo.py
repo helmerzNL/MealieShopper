@@ -133,7 +133,8 @@ def test_a_cached_result_cannot_be_changed_by_a_caller() -> None:
     assert isinstance(significant, tuple)
     assert isinstance(parts, tuple)
     assert parts
-    assert all(isinstance(needed, frozenset) for needed, _ in parts)
+    # gesorteerde tuples van tekst en geen frozensets: die volgt de GC na de eerste ronde niet meer (taak 9c)
+    assert all(isinstance(needed, tuple) and list(needed) == sorted(set(needed)) for needed, _ in parts)
     assert isinstance(line_offers.words("pizza margherita"), frozenset)
     with pytest.raises(AttributeError):
         tokens.append("x")

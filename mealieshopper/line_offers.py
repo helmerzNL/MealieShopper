@@ -28,7 +28,6 @@ from __future__ import annotations
 
 import re
 from collections.abc import Iterable
-from typing import NamedTuple
 
 from . import packs, product_links
 from .name_keys import LOCAL_SIZE, PARTS_SIZE, STEM_SIZE, memo
@@ -162,17 +161,18 @@ def _significant(text: str) -> tuple[str, ...]:
 
 
 @memo(PARTS_SIZE)
-def _parts(title: str | None) -> tuple[tuple[frozenset[str], str], ...]:
-    """De delen van een foldernaam met de woorden die een product voor dat deel moet hebben, en de tekst van het deel."""
+def _parts(title: str | None) -> tuple[tuple[tuple[str, ...], str], ...]:
+    """De delen van een foldernaam met de woorden die een product voor dat deel moet hebben (gesorteerd en elk een keer), en de
+    tekst van het deel. Gewone tuples van tekst: die volgt de GC na de eerste ronde niet meer, een frozenset wel (zie `Line`)."""
     text: str = str(title or "")
     for prefix in ("Folder: ", "Archief: "):
         text = text.removeprefix(prefix)
     first: tuple[str, ...] = _significant(text)[:1]
     parts: list[str] = [part for part in _LIST.split(product_links.fold(text)) if _significant(part)]
-    found: list[tuple[frozenset[str], str]] = []
+    found: list[tuple[tuple[str, ...], str]] = []
     for part in parts:
         own: frozenset[str] = frozenset(_significant(part))
-        needed: frozenset[str] = own | frozenset(first)
+        needed: tuple[str, ...] = tuple(sorted(own | frozenset(first)))
         if len(parts) > 1 and len(own - frozenset(first)) < MIN_WORDS:
             continue
         if len(needed) >= MIN_WORDS and all(needed != other for other, _ in found):
@@ -183,7 +183,7 @@ def _parts(title: str | None) -> tuple[tuple[frozenset[str], str], ...]:
 def line_alternatives(title: str | None) -> list[frozenset[str]]:
     """De woorden die een product moet hebben om bij een folderactie te horen: een set per deel van een opsomming, elk met het
     eerste woord van de naam erbij. Een deel met te weinig woorden valt weg, een naam die te weinig zegt geeft niets."""
-    return [needed for needed, _ in _parts(title)]
+    return [frozenset(needed) for needed, _ in _parts(title)]
 
 
 def multipack(name: str | None) -> bool:
@@ -202,11 +202,11 @@ def _same_size(one: tuple[float, str], other: tuple[float, str]) -> bool:
     )
 
 
-class Line(NamedTuple):
-    product_id: str
-    words: frozenset[str]
-    size: tuple[float, str] | None
-    multipack: bool
+# Een regel van de lijnindex: (product, de woorden die een product moet hebben, gesorteerd, de verpakking, meer verpakkingen
+# samen). Een gewone tuple en geen NamedTuple of frozenset: CPython volgt een tuple met alleen tekst, getallen, None of zulke
+# tuples na de eerste ronde van de GC niet meer, en een volle ronde loopt dan niet langs de tienduizenden regels van AH
+# (gc_watch.py). Een NamedTuple en een frozenset volgt hij altijd.
+Line = tuple[str, tuple[str, ...], tuple[float, str] | None, bool]
 
 
 class LineIndex:
@@ -222,7 +222,7 @@ class LineIndex:
             seen.add(product_id)
             for needed, part in _parts(title):
                 key: str = max(needed, key=lambda word: (len(word), word))
-                self._by_word.setdefault(key, []).append(Line(product_id, needed, _size(part), multipack(part)))
+                self._by_word.setdefault(key, []).append((product_id, needed, _size(part), multipack(part)))
 
     def __len__(self) -> int:
         return sum(len(lines) for lines in self._by_word.values())
@@ -234,7 +234,7 @@ class LineIndex:
         het kijkt of het woord er al is en zet anders een lijst die al helemaal gebouwd is, en twee threads tegelijk bouwen
         dezelfde lijst. Elke winkel heeft zijn eigen index in zijn eigen catalogus."""
         if kind not in self._by_ending:
-            self._by_ending[kind] = [line for lines in self._by_word.values() for line in lines if any(word.endswith(kind) for word in line.words)]
+            self._by_ending[kind] = [line for lines in self._by_word.values() for line in lines if any(word.endswith(kind) for word in line[1])]
         return self._by_ending[kind]
 
     def _fits(
@@ -245,16 +245,17 @@ class LineIndex:
         sizes: list[tuple[float, str]],
         kinds: frozenset[str] = frozenset(),
     ) -> bool:
-        missing: frozenset[str] = line.words - have
+        _, needed, size, line_several = line
+        missing: list[str] = [word for word in needed if word not in have]
         named: bool = not missing or (
-            len(missing) == 1 and len(line.words & have) >= NAMED_WORDS and all(any(word.endswith(kind) for kind in kinds) for word in missing)
+            len(missing) == 1 and len(needed) - 1 >= NAMED_WORDS and all(any(word.endswith(kind) for kind in kinds) for word in missing)
         )
-        if line.multipack != several or not named or (have & ORGANIC and not line.words & ORGANIC):
+        if line_several != several or not named or (have & ORGANIC and not ORGANIC.intersection(needed)):
             return False
         return (
-            line.size is None
+            size is None
             or not sizes
-            or any(_same_size(line.size, size) for size in sizes)
+            or any(_same_size(size, known) for known in sizes)
         )
 
     def lines_for(
@@ -269,12 +270,12 @@ class LineIndex:
             several: bool = multipack(name)
             for word in have:
                 found.update(
-                    line.product_id
+                    line[0]
                     for line in self._by_word.get(word, ())
                     if self._fits(line, have, several, known_sizes)
                 )
             for kind in kinds:  # een woord van de regel noemt de categorie van het product (`category_words`)
-                found.update(line.product_id for line in self._ending(kind) if self._fits(line, have, several, known_sizes, kinds))
+                found.update(line[0] for line in self._ending(kind) if self._fits(line, have, several, known_sizes, kinds))
         return sorted(found)
 
 

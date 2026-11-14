@@ -20,6 +20,7 @@ import json
 import os
 import sqlite3
 import threading
+import time
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, TypeVar
@@ -664,3 +665,26 @@ async def test_offers_stay_warm_during_a_price_index_round(
         history: Any = await _get(volume_client, "/api/prices/history?store=ah&bought=1")
     assert history["products"]
     assert built.call_count == 0, "de prijzen en de prijsgeschiedenis werken de catalogus bij, zonder hem opnieuw op te bouwen"
+
+
+# Met alle catalogi geladen. Gemeten na taak 9c, met de app en de tests erbij: 118.500 gevolgde objecten en 11 ms per volle ronde
+# (3.12), 153.500 en 25 ms (3.15). Ervoor: 644.000 en 150 ms, zes tot acht keer per koude bouw van AH (gc_watch.py).
+TRACKED_LIMIT: int = 250_000
+FULL_COLLECTION_SECONDS: float = 0.05
+
+
+@pytest.mark.volume
+async def test_the_catalogues_keep_a_full_collection_short(volume_client: TestClientProtocol) -> None:
+    await prices.warm_catalogues(today=volume.TODAY)
+    for store in ("ah", "jumbo"):
+        await _get(volume_client, f"/api/offers?store={store}&week=2026-11-09")
+        await _get(volume_client, f"/api/prices/history?store={store}")
+    assert len(prices._CATALOGUES) == len(offers.STORES)
+    seconds: list[float] = []
+    for _ in range(3):  # de beste van drie: een hik van de machine telt niet
+        started: float = time.perf_counter()
+        gc.collect()
+        seconds.append(time.perf_counter() - started)
+    tracked: int = len(gc.get_objects())
+    assert tracked < TRACKED_LIMIT, tracked
+    assert min(seconds) < FULL_COLLECTION_SECONDS, seconds

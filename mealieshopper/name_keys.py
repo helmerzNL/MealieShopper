@@ -10,16 +10,16 @@ from __future__ import annotations
 
 from collections.abc import Callable
 import inspect
-from functools import lru_cache, update_wrapper
-from typing import Any, Generic, TypeVar
+from functools import update_wrapper
+from typing import Any, Generic, NamedTuple, TypeVar
 
 from . import ah_lists
 
 MEMO_SIZE: int = 524_288  # het maximum per functie met `TextMemo`
 # De grootte per functie: 1,3 tot 1,5 keer het aantal namen dat een opbouw van de catalogus van elke winkel op de volumedatabase
-# (`tests/volume.py`, de schaal van productie) in die cache zet. Is een cache kleiner dan die opbouw, dan verdringt de opbouw zijn
-# eigen namen voor ze terugkomen en daalt het aantal treffers meteen naar bijna nul. Een opbouw zet erin: fold 341.326, near 68.249,
-# categorize 65.870, offer_category 70.692, _parts 59.979, _size_of 96.208. `tests/test_name_memo.py` bewaakt de ruimte (1,25 keer).
+# (`tests/volume.py`, de schaal van productie) in die cache zet. Is een cache kleiner dan die opbouw, dan begint hij midden in de
+# opbouw opnieuw leeg (`TextMemo`) en komen de namen van voor dat moment niet meer terug. Een opbouw zet erin: fold 341.326,
+# near 68.249, categorize 65.870, offer_category 70.692, _parts 59.979, _size_of 96.208. `tests/test_name_memo.py` bewaakt de ruimte (1,25 keer).
 # Alles op 1,5 keer past niet: fold (1,3) en _parts (1,4) zijn kleiner gehouden, want met elke cache vol piekt de app dan op 600 MiB,
 # de ontwerpgrens. Nu 559 MiB.
 # Een volle cache kost per naam van 27 tekens: fold 235 byte, categorize 227, offer_category 387, _size_of 306, near 712, _parts 1360.
@@ -32,6 +32,16 @@ SIZE_OF_SIZE: int = 147_456
 STEM_SIZE: int = 32_768  # de woorden van alle namen: een paar duizend verschillende, elk kort
 LOCAL_SIZE: int = 8_192  # voor wat alleen binnen een aanroep van een andere onthouden functie terugkomt (`_significant`)
 _Result = TypeVar("_Result")
+_MISSING: object = object()  # voor `dict.get`: None kan een antwoord zijn
+
+
+class MemoInfo(NamedTuple):
+    """Wat `TextMemo.cache_info` geeft, met dezelfde velden als `functools.lru_cache`."""
+
+    hits: int
+    misses: int
+    maxsize: int
+    currsize: int
 
 
 def memo(size: int) -> Callable[[Callable[..., _Result]], "TextMemo[_Result]"]:
@@ -43,14 +53,23 @@ class TextMemo(Generic[_Result]):
     """Een functie van namen die haar antwoord per naam onthoudt. De argumenten worden eerst tekst (zoals de functie zelf al deed
     met `str(value or "")`), dus `None` en getallen kunnen erdoor, en de sleutel is altijd hashbaar. Het antwoord is een
     onveranderlijke waarde (str, tuple of frozenset): een aanroeper kan het gedeelde antwoord niet aanpassen. De functie zelf blijft
-    in `__wrapped__`, voor een vergelijking zonder geheugen."""
+    in `__wrapped__`, voor een vergelijking zonder geheugen.
+
+    Het geheugen is een gewone dict en geen `functools.lru_cache`: die houdt per naam een schakel bij die de garbage collector bij
+    elke volle ronde langsloopt (770.000 namen op de volumedatabase: 55 ms per ronde, gemeten), en zo'n ronde houdt de GIL vast
+    (gc_watch.py). Een dict met tekst als sleutel en tekst of tuples van tekst als waarde slaat de GC over (3.12) of loopt hij snel
+    door. Is de dict vol (`size`), dan begint hij opnieuw leeg: de groottes hieronder zijn ruim genoeg voor de namen van een opbouw
+    van alle catalogi (`tests/test_name_memo.py`), dus binnen een opbouw gebeurt dat niet."""
 
     def __init__(self, function: Callable[..., _Result], size: int = MEMO_SIZE) -> None:
         update_wrapper(self, function)
         self._signature: inspect.Signature = inspect.signature(function)
         self._defaults: tuple[Any, ...] = self._positional_defaults(self._signature)
         self.size: int = size
-        self._cached: Callable[..., _Result] = lru_cache(maxsize=size)(function)
+        self._function: Callable[..., _Result] = function
+        self._cache: dict[Any, _Result] = {}
+        self._hits: int = 0
+        self._misses: int = 0
 
     @staticmethod
     def _positional_defaults(signature: inspect.Signature) -> tuple[Any, ...]:
@@ -73,13 +92,26 @@ class TextMemo(Generic[_Result]):
                     break  # een verplichte parameter ontbreekt: de functie zelf geeft de fout
                 missing.append(default)
             args = (*args, *missing)
-        return self._cached(*(arg if isinstance(arg, str) else str(arg or "") for arg in args))
+        texts: tuple[str, ...] = tuple(arg if isinstance(arg, str) else str(arg or "") for arg in args)
+        key: Any = texts[0] if len(texts) == 1 else texts  # zoals lru_cache: een enkele tekst is zelf de sleutel
+        found: Any = self._cache.get(key, _MISSING)
+        if found is not _MISSING:
+            self._hits += 1
+            return found
+        self._misses += 1
+        result: _Result = self._function(*texts)
+        if len(self._cache) >= self.size:
+            self._cache.clear()
+        self._cache[key] = result
+        return result
 
-    def cache_info(self) -> Any:
-        return self._cached.cache_info()  # type: ignore[attr-defined]
+    def cache_info(self) -> MemoInfo:
+        return MemoInfo(self._hits, self._misses, self.size, len(self._cache))
 
     def cache_clear(self) -> None:
-        self._cached.cache_clear()  # type: ignore[attr-defined]
+        self._cache.clear()
+        self._hits = 0
+        self._misses = 0
 
 
 NEAR_MARK: str = "~"  # voor een sleutel van `near`: geen gevouwen naam begint zo

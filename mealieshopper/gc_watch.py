@@ -6,7 +6,10 @@ de event loop net zo goed tegen als een lange aanroep in C, en op de stack is hi
 dus deze module meet hem zelf, met `gc.callbacks`.
 
 Gemeten op de volumedatabase (Python 3.12, met drie processen die elk een kern bezet hielden): met de catalogi van vroeger volgde
-de GC zo'n 650.000 objecten, en een koude bouw van de catalogus van AH gaf zes tot acht volle rondes van 100 tot 210 ms.
+de GC zo'n 650.000 objecten, en een koude bouw van de catalogus van AH gaf zes tot acht volle rondes van 100 tot 210 ms. Nu houdt
+de catalogus bijna niets meer vast dat de GC volgt: een product en een regel van de lijnindex zijn gewone tuples van tekst
+(`prices._Known`, `line_offers.Line`), die CPython na de eerste ronde overslaat, en de memo's van de namen zijn gewone dicts
+(`name_keys.TextMemo`). Met alle catalogi volgt de GC zo'n 120.000 objecten en duurt een volle ronde 11 ms (3.12) of 25 ms (3.15).
 Bevriezen (`gc.freeze`) is geprobeerd en weer weggehaald: een verbinding die bij het bevriezen open stond, bleef na het sluiten
 voor altijd bewaard.
 

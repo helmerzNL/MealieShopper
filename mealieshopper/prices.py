@@ -31,7 +31,7 @@ import re
 import secrets
 import weakref
 from collections import Counter
-from collections.abc import AsyncIterator, Awaitable, Sequence
+from collections.abc import AsyncIterator, Awaitable, Collection, Sequence
 from contextlib import asynccontextmanager
 from datetime import date, datetime, timedelta, timezone
 from typing import Any, Callable, Iterable, NamedTuple
@@ -899,7 +899,7 @@ class _Query:
             text = f"{text[:match.start()]} {text[match.end():]}"
         self.words = re.findall(r"[a-z0-9]+", text)
 
-    def wants(self, names: set[str], sizes: set[tuple[float, str]]) -> bool:
+    def wants(self, names: Collection[str], sizes: Collection[tuple[float, str]]) -> bool:
         # Spaties tellen niet: "redband" vindt ook "Red Band Winegums" (een bon schrijft het merk vaak aan elkaar).
         if self.words and not any(all(word in name or word in name.replace(" ", "") for word in self.words) for name in names):
             return False
@@ -923,19 +923,33 @@ def _size_of(unit_size: Any, title: Any) -> tuple[float, str] | None:
 def _candidates(products: dict[str, _Known], query: _Query, always: str | None = None) -> dict[str, str]:
     """Product-id -> de laatste dag dat we iets van het product weten, voor elk product uit de catalogus (`_known_products`) dat
     bij de zoekterm past, en `always` (een product-id) ook als de naam niet past."""
-    return {product_id: known.last for product_id, known in products.items() if product_id == always or query.wants(known.names, known.sizes)}
+    return {
+        product_id: known[_LAST] for product_id, known in products.items()
+        if product_id == always or query.wants(known[_NAMES], known[_SIZES])
+    }
 
 
-class _Known(NamedTuple):
-    """Wat de catalogus van een product weet om erop te zoeken: de laatste dag, de gevouwen namen en de verpakkingen, en om erop
-    te filteren het merk en de categorie (leeg als geen bron ze noemt)."""
+# Wat de catalogus van een product weet om erop te zoeken: de laatste dag, de gevouwen namen en de verpakkingen (gesorteerd, elk
+# een keer), en om erop te filteren het merk en de categorie (leeg als geen bron ze noemt). Het laatste veld: naam, merk en
+# verpakking samen, twee productnummers met dezelfde waarde zijn hetzelfde product (`_twins`). Lees een veld met de index hieronder.
+#
+# Een gewone tuple en geen NamedTuple of frozenset: CPython volgt een tuple met alleen tekst, getallen, None of zulke tuples na de
+# eerste ronde van de GC niet meer, een NamedTuple, frozenset of set altijd. AH heeft tienduizenden producten, en een volle ronde
+# loopt langs elk gevolgd object (gc_watch.py: met de NamedTuples en frozensets van vroeger 150 ms per ronde).
+_Known = tuple[str, tuple[str, ...], tuple[tuple[float, str], ...], str, str, str]
+_LAST: int = 0
+_NAMES: int = 1
+_SIZES: int = 2
+_BRAND: int = 3
+_CATEGORY: int = 4
+_SAME: int = 5
 
-    last: str
-    names: frozenset[str]
-    sizes: frozenset[tuple[float, str]]
-    brand: str = ""
-    category: str = ""
-    same: str = ""  # naam, merk en verpakking samen: twee productnummers met dezelfde waarde zijn hetzelfde product (`_twins`)
+
+def _known(
+    last: str, names: Iterable[str], sizes: Iterable[tuple[float, str]], brand: str = "", category: str = "", same: str = ""
+) -> _Known:
+    """Een product voor de catalogus: de namen en verpakkingen gesorteerd en elk een keer, zodat twee gelijke producten gelijk zijn."""
+    return (last, tuple(sorted(set(names))), tuple(sorted(set(sizes))), brand, category, same)
 
 
 def _same_key(product_id: str, entry: dict[str, Any]) -> str:
@@ -951,8 +965,8 @@ def _twins(products: dict[str, _Known]) -> dict[str, tuple[str, ...]]:
     voert "AH Les pains triomphe heel" onder 230786 (de kassabon) en 446408 (de webwinkel en de bonus)."""
     groups: dict[str, list[str]] = {}
     for product_id, known in products.items():
-        if known.same:
-            groups.setdefault(known.same, []).append(product_id)
+        if known[_SAME]:
+            groups.setdefault(known[_SAME], []).append(product_id)
     return {product_id: tuple(sorted(group)) for group in groups.values() if len(group) > 1 for product_id in group}
 
 
@@ -991,8 +1005,8 @@ def _known_products(store: str, rows: _CatalogueRows, receipts: list[dict[str, A
     # De categorie: die de winkel bij een aanbieding meegaf, anders die van de naam (zoals de aanbiedingen en de aankopen doen).
     stored: dict[str, str] = {row["product_id"]: row["category"] for row in rows.categories}
     return {
-        product_id: _Known(
-            entry["last"], frozenset(entry["names"]), frozenset(entry["sizes"]), entry["brand"],
+        product_id: _known(
+            entry["last"], entry["names"], entry["sizes"], entry["brand"],
             stored.get(product_id) or (offer_categories.offer_category(store, entry["title"]) if entry["title"] else ""),
             _same_key(product_id, entry),
         )
@@ -1221,8 +1235,8 @@ def _with_last(catalogue: _Catalogue, rows: list[Any]) -> _Catalogue:
         product_id: str = str(row["product_id"])
         known: _Known | None = catalogue.products.get(product_id)
         last: str = str(row["last"] or "")[:10]
-        if known is not None and last > known.last:
-            later[product_id] = known._replace(last=last)
+        if known is not None and last > known[_LAST]:
+            later[product_id] = (last, *known[_NAMES:])
     return catalogue._replace(products={**catalogue.products, **later}) if later else catalogue
 
 
@@ -1237,7 +1251,7 @@ async def _catch_up(
     conn: aiosqlite.Connection, store: str, key: tuple[str, str], found: tuple[str, str, _Catalogue, _PriceState], counted: int
 ) -> _Catalogue | None:
     """Een bewaarde catalogus, bijgewerkt na prijzen van bekende producten (`prices` is `counted`, `products` gelijk). Zo'n prijs
-    voegt geen naam of verpakking toe, maar kan twee dingen veranderen: de laatste dag van een product (`_Known.last`, de volgorde
+    voegt geen naam of verpakking toe, maar kan twee dingen veranderen: de laatste dag van een product (`_Known`, de volgorde
     van de prijsgeschiedenis), bijgewerkt in de threadpool (`_with_last`) uit de laatste dag per product, en welk product met dezelfde
     naam een bonregel krijgt (`_nearest_priced`). Verschuift dat laatste, dan None: dan moet de catalogus opnieuw worden opgebouwd.
     Alleen de event loop schrijft de uitkomst in `_CATALOGUES`."""
@@ -1512,7 +1526,7 @@ def _known_pack_titles(store: str, catalogue: "_Catalogue | None", packs_known: 
     suffixes.discard("")
     found: dict[str, str] = {}
     for product_id, known in catalogue.products.items():
-        for name in known.names:
+        for name in known[_NAMES]:
             candidates = [name] + [name[: -len(suffix) - 1] for suffix in suffixes if name.endswith(f" {suffix}")]
             title = next((candidate for candidate in candidates if base_title(candidate) in bases), None)
             if title:
@@ -1562,7 +1576,7 @@ def _lines_wanted(catalogue: _Catalogue, ids: list[str], fallback: dict[str, _Kn
         known: _Known | None = catalogue.products.get(product_id) or (fallback or {}).get(product_id)
         if known is None or product_id.startswith("folder:"):
             continue
-        found: list[str] = catalogue.lines.lines_for(known.names, known.sizes, line_offers.category_words(known.category))
+        found: list[str] = catalogue.lines.lines_for(known[_NAMES], known[_SIZES], line_offers.category_words(known[_CATEGORY]))
         if found:
             wanted[product_id] = found
     return wanted
@@ -1725,7 +1739,7 @@ def _history_candidates(
         for product_id, day in _candidates(catalogue.products, wanted, always=pinned).items():
             group: tuple[str, ...] = catalogue.twins.get(product_id, (product_id,))
             asked: str | None = next((twin for twin in group if twin in (only, pinned)), None)
-            lead: str = asked or max(group, key=lambda twin: (catalogue.products[twin].last, twin))
+            lead: str = asked or max(group, key=lambda twin: (catalogue.products[twin][_LAST], twin))
             if only is not None and lead != only:
                 continue
             if keep is None or lead in keep or lead == pinned:
@@ -1747,15 +1761,15 @@ def _rank_history(
 ) -> _Ranked:
     """De keuzelijsten (`facets`), het filter op merk en categorie (het product van `pinned` blijft altijd staan) en de volgorde:
     `pinned` bovenaan, dan het laatst gezien. Puur, via `compute.run`: zonder zoekterm sorteert dit alle producten."""
-    nothing: _Known = _Known("", frozenset(), frozenset())
+    nothing: _Known = _known("", (), ())
     known: dict[tuple[str, str], _Known] = {key: catalogues[key[0]].products.get(key[1], nothing) for key in candidates}
     facets: dict[str, list[dict[str, Any]]] = {} if only is not None else {
-        "brands": _facet_counts((item.brand for item in known.values() if by_category.passes(item.category)), by_brand, FACET_BRANDS),
-        "categories": _facet_counts((item.category for item in known.values() if by_brand.passes(item.brand)), by_category),
+        "brands": _facet_counts((item[_BRAND] for item in known.values() if by_category.passes(item[_CATEGORY])), by_brand, FACET_BRANDS),
+        "categories": _facet_counts((item[_CATEGORY] for item in known.values() if by_brand.passes(item[_BRAND])), by_category),
     }
     kept: dict[tuple[str, str], str] = {
         key: day for key, day in candidates.items()
-        if key[1] == pinned or (by_brand.passes(known[key].brand) and by_category.passes(known[key].category))
+        if key[1] == pinned or (by_brand.passes(known[key][_BRAND]) and by_category.passes(known[key][_CATEGORY]))
     }
     ranked: list[tuple[str, str]] = sorted(kept, key=lambda key: (key[1] == pinned, kept[key], key[0], key[1]), reverse=True)
     return _Ranked(ranked[:limit], len(ranked), facets)
@@ -2550,8 +2564,8 @@ async def _verdict_lines(
     if catalogue is None:
         return {}
     fallback: dict[str, _Known] = {
-        str(offer.get("id")): _Known("", frozenset({_fold_name(f"{offer.get('title') or ''} {offer.get('brand') or ''}")}),
-                               frozenset(size for size in (_size_of(offer.get("unitSize"), offer.get("title")),) if size))
+        str(offer.get("id")): _known("", (_fold_name(f"{offer.get('title') or ''} {offer.get('brand') or ''}"),),
+                               [size for size in (_size_of(offer.get("unitSize"), offer.get("title")),) if size])
         for offer in items
     }
     try:
