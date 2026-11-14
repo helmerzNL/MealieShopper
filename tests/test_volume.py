@@ -743,4 +743,5 @@ async def test_a_cold_build_keeps_the_tracked_set_small(volume_dir: Path) -> Non
     finally:
         gc.callbacks.remove(at_full_collection)
     assert ("ah" in {key[1] for key in prices._CATALOGUES}), "de catalogus van AH is gebouwd"
-    assert max(peaks, default=before) - before < BUILD_PEAK_ADDED_LIMIT, (before, peaks)
+    assert peaks, "geen volle ronde van de GC tijdens de bouw: dan meet deze test niets"
+    assert max(peaks) - before < BUILD_PEAK_ADDED_LIMIT, (before, peaks)
