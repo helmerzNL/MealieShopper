@@ -539,3 +539,55 @@ async def test_the_passkey_check_runs_off_the_event_loop(data_dir: Path, check: 
         with mock.patch.object(auth, target, side_effect=verify):
             await getattr(auth, check)(*arguments)
     assert seen and seen[0] != loop_thread
+
+
+def test_the_data_dir_follows_the_environment_and_is_resolved_once(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Taak 9c: `data_dir` zocht bij elke verbinding het pad op (een lstat per deel, op de event loop). Nu een keer per waarde van
+    MEALIESHOPPER_DATA_DIR, en een andere waarde geldt meteen."""
+    first: Path = tmp_path / "eerste"
+    second: Path = tmp_path / "tweede"
+    first.mkdir()
+    second.mkdir()
+    (tmp_path / "link").symlink_to(first)
+    resolved: list[Path] = []
+    original: Any = Path.resolve
+
+    def counted(self: Path, strict: bool = False) -> Path:
+        resolved.append(self)
+        return original(self, strict)
+
+    monkeypatch.setattr(Path, "resolve", counted)
+    monkeypatch.setenv("MEALIESHOPPER_DATA_DIR", str(first))
+    assert [auth.data_dir() for _ in range(3)] == [original(first)] * 3
+    assert auth.db_path() == original(first) / "auth.sqlite3"
+    monkeypatch.setenv("MEALIESHOPPER_DATA_DIR", str(second))
+    assert auth.data_dir() == original(second)
+    monkeypatch.setenv("MEALIESHOPPER_DATA_DIR", str(tmp_path / "link"))
+    assert auth.data_dir() == original(first)  # zonder symlinks, zoals `resolve`
+    monkeypatch.setenv("MEALIESHOPPER_DATA_DIR", str(first))
+    assert auth.data_dir() == original(first)
+    assert resolved == [first, second, tmp_path / "link"]
+
+
+def test_connect_makes_the_data_dir_once_per_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Review van taak 9c: elke `auth.connect` deed `mkdir(exist_ok=True)`, een mkdir en een stat op de event loop. Nu een keer per
+    pad, en opnieuw na `forget_runtime_state` (de map kan dan weg zijn)."""
+    made: list[Path] = []
+    original: Any = Path.mkdir
+
+    def counted(self: Path, *args: Any, **kwargs: Any) -> None:
+        made.append(self)
+        original(self, *args, **kwargs)
+
+    async def three() -> None:
+        for _ in range(3):
+            async with auth.connect() as conn:
+                await conn.execute("SELECT 1")
+
+    monkeypatch.setattr(Path, "mkdir", counted)
+    monkeypatch.setenv("MEALIESHOPPER_DATA_DIR", str(tmp_path / "data"))
+    run(three())
+    assert made == [(tmp_path / "data").resolve()]
+    auth.forget_runtime_state()
+    run(three())
+    assert len(made) == 2

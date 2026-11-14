@@ -56,8 +56,41 @@ def auth_enabled() -> bool:
     }
 
 
+# (MEALIESHOPPER_DATA_DIR, de werkmap bij een relatief pad) -> de map, absoluut en zonder symlinks (`data_dir`).
+_DATA_DIRS: dict[tuple[str, str], Path] = {}
+DATA_DIRS_KEPT: int = 64  # de tests zetten elke test een eigen map: daarna begint het register opnieuw
+
+
 def data_dir() -> Path:
-    return Path(os.environ.get("MEALIESHOPPER_DATA_DIR", "data")).resolve()
+    """De map met de gegevens (MEALIESHOPPER_DATA_DIR, anders `data`), absoluut en zonder symlinks.
+
+    Een keer opgezocht per waarde van de variabele: `Path.resolve` doet een lstat per deel van het pad, en elke systeemaanroep
+    laat de GIL los. Rekent er een andere thread, dan krijgt de event loop hem pas na het wisselinterval (5 ms) terug: onder
+    belasting kostte elke lstat 5 tot 19 ms, een `data_dir` 24 tot 63 ms, en een paar verbindingen na elkaar een stilstand van
+    105 tot 204 ms (taak 9c). De sleutel is de tekst van de variabele, zodat een test die hem verandert meteen een andere map
+    krijgt, en bij een relatief pad ook de werkmap."""
+    raw: str = os.environ.get("MEALIESHOPPER_DATA_DIR", "data")
+    key: tuple[str, str] = (raw, "" if os.path.isabs(raw) else os.getcwd())
+    found: Path | None = _DATA_DIRS.get(key)
+    if found is None:
+        if len(_DATA_DIRS) >= DATA_DIRS_KEPT:
+            _DATA_DIRS.clear()
+        found = _DATA_DIRS[key] = Path(raw).resolve()
+    return found
+
+
+# De data-mappen die `ensure_data_dir` al aanmaakte (of die er al waren). Leeg na `forget_runtime_state`.
+_DIRS_MADE: set[Path] = set()
+
+
+def ensure_data_dir() -> Path:
+    """De data-map (`data_dir`), aangemaakt als hij er nog niet was. Een keer per pad: `mkdir` met `exist_ok` doet een mkdir en
+    een stat, twee systeemaanroepen op de event loop bij elke verbinding (het konvooi van loop_guard.py)."""
+    folder: Path = data_dir()
+    if folder not in _DIRS_MADE:
+        folder.mkdir(parents=True, exist_ok=True)
+        _DIRS_MADE.add(folder)
+    return folder
 
 
 def session_max_age_seconds() -> int:
@@ -192,7 +225,7 @@ async def connect() -> AsyncIterator[aiosqlite.Connection]:
     Wie schrijft, eindigt dus zelf met `await conn.commit()`. De rijen zijn `sqlite3.Row` (`aiosqlite.Row` is
     dezelfde klasse): `row["key"]` en `row[0]` werken allebei.
     """
-    data_dir().mkdir(parents=True, exist_ok=True)
+    ensure_data_dir()
     opened: float = time.perf_counter()
     async with aiosqlite.connect(db_path(), timeout=BUSY_SECONDS) as conn:
         telemetry.watch(conn, opened)  # doet niets zonder MEALIESHOPPER_TELEMETRY
@@ -737,6 +770,7 @@ def forget_runtime_state() -> None:
     global _INITIALIZED
     _INITIALIZED = False
     _SCHEMAS_READY.clear()
+    _DIRS_MADE.clear()  # de map kan weg zijn: de volgende verbinding maakt hem weer aan
     _master_secrets.clear()
     forget_cached_data()
 

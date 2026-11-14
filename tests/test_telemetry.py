@@ -8,7 +8,10 @@ een stilstaande event loop meet.
 from __future__ import annotations
 
 import asyncio
+import gc
 import logging
+import os
+import threading
 import time
 from collections.abc import AsyncIterator
 from pathlib import Path
@@ -18,7 +21,7 @@ import pytest
 from quart import Quart
 from quart.typing import TestClientProtocol
 
-from mealieshopper import auth, telemetry
+from mealieshopper import auth, gc_watch, loop_guard, telemetry
 from mealieshopper.app import create_app
 
 
@@ -181,6 +184,91 @@ async def test_blocked_event_loop_is_reported(
         and "test_telemetry.py" in record.getMessage()
         for record in caplog.records
     )
+
+
+def test_a_stall_names_the_thread_that_held_the_gil(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """De loop wachtte in de selector terwijl een rekenthread bezig was: de melding en `snapshot` noemen die thread."""
+    with open(threading.__file__, encoding="utf-8") as source:  # een regel die wacht, zoals `Condition.wait` doet
+        waiting: int = next(number for number, line in enumerate(source, 1) if "waiter.acquire()" in line)
+    stall: loop_guard.Stall = loop_guard.Stall(
+        0.177,
+        (
+            loop_guard.Frame(
+                "/usr/lib/python3.12/asyncio/selector_events.py", 132, "_read_from_self"
+            ),
+        ),
+        (
+            loop_guard.ThreadStack(
+                "compute-0", (loop_guard.Frame("/app/mealieshopper/prices.py", 1234, "_rows"),)
+            ),
+            loop_guard.ThreadStack(
+                "compute-1",
+                (loop_guard.Frame(threading.__file__, waiting, "wait"),),
+            ),
+        ),
+    )
+    measured: telemetry.Telemetry = telemetry.Telemetry(slow_seconds=60)
+    with caplog.at_level(logging.WARNING, logger="mealieshopper.telemetry"):
+        measured.stalled(stall)
+    recorded: dict[str, Any] = measured.snapshot()["stalls"][0]
+    assert recorded["threads"] == ["compute-0 prices.py:1234 _rows"]
+    assert recorded["stack"] == ["selector_events.py:132 _read_from_self"]
+    assert any(
+        "Andere threads: compute-0 prices.py:1234 _rows (1 wachtend)"
+        in record.getMessage()
+        for record in caplog.records
+    )
+
+
+def test_a_stall_in_the_app_has_no_threads() -> None:
+    measured: telemetry.Telemetry = telemetry.Telemetry(slow_seconds=60)
+    measured.stalled(
+        loop_guard.Stall(
+            0.3,
+            (loop_guard.Frame(os.path.join(loop_guard.APP_DIR, "app.py"), 9, "route"),),
+        )
+    )
+    assert measured.snapshot()["stalls"][0]["threads"] == []
+
+
+async def test_a_long_collection_is_kept_and_logged_from_the_loop(caplog: pytest.LogCaptureFixture) -> None:
+    measured: telemetry.Telemetry = telemetry.Telemetry(slow_seconds=60)
+    measured.loop = asyncio.get_running_loop()
+    with caplog.at_level(logging.WARNING, logger="mealieshopper.telemetry"):
+        measured.collected(gc_watch.Collection(2, 0.15, "compute-0", 0))
+        measured.collected(gc_watch.Collection(1, 0.03, "MainThread", 12))
+        logged: list[str] = [record.getMessage() for record in caplog.records if record.name == "mealieshopper.telemetry"]
+        assert logged == []  # niet in de callback van de GC zelf
+        await asyncio.sleep(0)
+    found: dict[str, Any] = measured.snapshot()["gc"]
+    assert [entry["ms"] for entry in found["collections"]] == [30.0, 150.0]
+    assert found["collections"][1]["thread"] == "compute-0"
+    assert found["frozen"] == gc.get_freeze_count()
+    assert len(found["counters"]) == 3
+    logged = [record.getMessage() for record in caplog.records if record.name == "mealieshopper.telemetry"]
+    assert logged == ["Een ronde van de garbage collector hield de GIL vast: GC generatie 2 150 ms in compute-0"]
+
+
+def _watches() -> int:
+    """Hoeveel metingen van de GC er hangen: de tests zelf hebben er al een (`loop_watch.GC`)."""
+    return sum(isinstance(getattr(callback, "__self__", None), gc_watch.GcWatch) for callback in gc.callbacks)
+
+
+async def test_the_gc_is_watched_only_when_asked(data_dir: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("MEALIESHOPPER_TELEMETRY", "true")
+    monkeypatch.setenv("PASSKEY_AUTH_ENABLED", "false")  # zonder inloggen is iedereen beheerder
+    before: int = _watches()
+    async with create_app().test_app():
+        assert _watches() == before  # standaard uit: de meting kost een aanroep per ronde
+    monkeypatch.setenv("MEALIESHOPPER_TELEMETRY_GC", "true")
+    app: Quart = create_app()
+    async with app.test_app() as test_app:
+        assert _watches() == before + 1
+        body: dict[str, Any] = await (await test_app.test_client().get("/api/telemetry")).get_json()
+        assert set(body["gc"]) == {"collections", "frozen", "counters"}
+    assert _watches() == before
 
 
 def test_the_stall_limit_is_a_hundred_milliseconds() -> None:

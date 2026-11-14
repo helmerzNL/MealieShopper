@@ -19,7 +19,7 @@ from collections.abc import Awaitable, Callable, Hashable
 from concurrent.futures import Future
 from typing import Generic, ParamSpec, TypeVar
 
-from mealieshopper import telemetry
+from mealieshopper import tasks, telemetry
 
 P = ParamSpec("P")
 T = TypeVar("T")
@@ -28,7 +28,7 @@ V = TypeVar("V")
 
 WORKERS: int = 2
 # Zo lang wacht `shutdown` hooguit op threads die nog bezig zijn.
-SHUTDOWN_SECONDS: float = 5.0
+SHUTDOWN_SECONDS: float = 2.5  # na `tasks.SHUTDOWN_TIMEOUT`: samen met hypercorn onder de 10 s van docker stop (tasks.py)
 PHASE: str = "compute"
 
 _Job = tuple["Future[object]", Callable[[], object]]
@@ -67,12 +67,15 @@ class _Pool:
             if job is None:
                 return
             future, call = job
-            if not future.set_running_or_notify_cancel():
-                continue  # de aanroeper is al weg
-            try:
-                future.set_result(call())
-            except BaseException as exc:  # noqa: BLE001 - de aanroeper krijgt de fout
-                future.set_exception(exc)
+            del job
+            if future.set_running_or_notify_cancel():  # anders is de aanroeper al weg
+                try:
+                    future.set_result(call())
+                except BaseException as exc:  # noqa: BLE001 - de aanroeper krijgt de fout
+                    future.set_exception(exc)
+            # Zonder dit houdt de wachtende thread de opdracht en zijn argumenten vast tot de volgende opdracht: bij een bouw van
+            # de catalogus van AH de rijen, 22.000 objecten die de GC bij elke volle ronde langsloopt (gc_watch.py).
+            del future, call
 
     def stop(self, seconds: float) -> None:
         """Annuleert wat nog wacht en wacht hooguit `seconds` op wat loopt. Een functie die dan nog loopt, kan niet gestopt worden."""
@@ -170,9 +173,9 @@ async def stop() -> None:
 class SingleFlight(Generic[K, V]):
     """Een bouw per sleutel tegelijk: wie dezelfde sleutel vraagt terwijl er een bouw loopt, wacht op diezelfde uitkomst.
 
-    Er blijft niets over na de bouw: de aanroeper schrijft de uitkomst zelf in zijn cache. De bouw is een eigen taak die achter
-    `asyncio.shield` staat, dus een aanroeper die geannuleerd wordt haalt de bouw voor de anderen niet neer. Een bouw die
-    mislukt nadat de laatste aanroeper weg is, geeft geen waarschuwing over een fout die nooit is opgehaald.
+    Er blijft niets over na de bouw: de aanroeper schrijft de uitkomst zelf in zijn cache. De bouw is een eigen taak waar elke
+    aanroeper met `tasks.share` op wacht, dus een aanroeper die geannuleerd wordt haalt de bouw voor de anderen niet neer. Een
+    bouw die mislukt nadat de laatste aanroeper weg is, geeft geen melding over een fout die nooit is opgehaald.
     """
 
     def __init__(self) -> None:
@@ -183,9 +186,10 @@ class SingleFlight(Generic[K, V]):
         if flight is None or flight.done() or flight.get_loop() is not asyncio.get_running_loop():
             # Een bouw die klaar is maar waarvan `_finished` nog niet liep, of van een andere (gesloten) loop, telt niet mee.
             flight = asyncio.ensure_future(build())
+            tasks.wait_at_shutdown(flight)  # een bouw zonder aanroeper loopt door: het afsluiten wacht erop
             self._flights[key] = flight
             flight.add_done_callback(functools.partial(self._finished, key))
-        return await asyncio.shield(flight)
+        return await tasks.share(flight)
 
     def _finished(self, key: K, flight: asyncio.Future[V]) -> None:
         """Haalt de bouw uit de lijst, nog voor de wachters verder gaan, en leest de fout zodat die nooit "niet opgehaald" is."""

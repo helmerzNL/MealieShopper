@@ -11,6 +11,7 @@ import contextvars
 import gc
 import threading
 import time
+import weakref
 from collections.abc import Iterator
 from typing import Any
 
@@ -65,6 +66,23 @@ async def test_run_counts_as_a_phase_in_the_telemetry() -> None:
         telemetry._current.reset(token)
     assert recording.phases["compute"] > 0
     assert recording.counts["compute"] == 1
+
+
+async def test_a_finished_job_is_let_go_before_the_next_one() -> None:
+    """Taak 9c: de rekenthread hield de laatste opdracht vast zolang hij op de volgende wachtte, en daarmee zijn argumenten (bij
+    een bouw van de catalogus de rijen: 22.000 objecten die de GC volgt)."""
+
+    class Rows:
+        pass
+
+    rows: Rows = Rows()
+    gone: weakref.ref[Rows] = weakref.ref(rows)
+    assert await compute.run(lambda given: given is not None, rows)
+    del rows
+    deadline: float = time.monotonic() + 5
+    while gone() is not None and time.monotonic() < deadline:  # de thread laat los na `set_result`, dus net na ons antwoord
+        await asyncio.sleep(0.01)
+    assert gone() is None
 
 
 async def test_at_most_two_run_at_once() -> None:
@@ -174,6 +192,37 @@ async def test_single_flight_leaves_nothing_behind_when_the_only_caller_is_cance
         gc.collect()
         assert flight._flights == {}
         assert await flight.get("k", working) == 9  # geen oude uitkomst, geen hang
+    finally:
+        loop.set_exception_handler(previous)
+    assert problems == []
+
+
+async def test_a_failed_build_is_not_reported_when_a_cancelled_caller_left_another_waiting() -> None:
+    """Op Python 3.15 meldde `asyncio.shield` de fout van de bouw bij de loop zodra een aanroeper geannuleerd was ("exception in
+    shielded future"), ook als de tweede aanroeper die fout zelf kreeg. Nu wacht elke aanroeper met `tasks.share`: de tweede
+    krijgt de fout en de loop meldt niets."""
+    flight: compute.SingleFlight[str, int] = compute.SingleFlight()
+    release: asyncio.Event = asyncio.Event()
+    problems: list[dict[str, Any]] = []
+    loop: asyncio.AbstractEventLoop = asyncio.get_running_loop()
+    previous: Any = loop.get_exception_handler()
+    loop.set_exception_handler(lambda _loop, context: problems.append(context))
+
+    async def failing() -> int:
+        await release.wait()
+        raise RuntimeError("mislukt")
+
+    try:
+        first: asyncio.Task[int] = asyncio.create_task(flight.get("k", failing))
+        second: asyncio.Task[int] = asyncio.create_task(flight.get("k", failing))
+        await asyncio.sleep(0)
+        first.cancel()
+        await asyncio.sleep(0)
+        release.set()
+        with pytest.raises(RuntimeError, match="mislukt"):
+            await second
+        assert first.cancelled()
+        gc.collect()
     finally:
         loop.set_exception_handler(previous)
     assert problems == []

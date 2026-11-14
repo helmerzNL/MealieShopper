@@ -14,7 +14,9 @@ log: logging.Logger = logging.getLogger(__name__)
 _tasks: dict[str, asyncio.Task[Any]] = {}
 # Afgeschermd werk (`shielded`) dat nog loopt. De set houdt een sterke verwijzing vast: een task waar niemand meer naar
 # verwijst, kan anders halverwege worden opgeruimd.
-_shielded: set[asyncio.Task[Any]] = set()
+_shielded: set[asyncio.Future[Any]] = set()
+# Wat `cancel_all` eerst aanroept, voor het annuleren: werk dat zelf netjes stopt als het dat hoort (`on_cancel_all`).
+_before_cancel: list[Callable[[], None]] = []
 
 T = TypeVar("T")
 R = TypeVar("R")
@@ -98,8 +100,9 @@ async def _stop(started: list[asyncio.Task[Any]]) -> None:
     await asyncio.gather(*started, return_exceptions=True)
 
 
-def _shielded_done(task: asyncio.Task[Any]) -> None:
-    """Vergeet afgeschermd werk dat klaar is. Een fout is dan opgehaald: wie wachtte, kreeg hem al via `asyncio.shield`."""
+def _shielded_done(task: asyncio.Future[Any]) -> None:
+    """Vergeet afgeschermd werk dat klaar is. Een fout is dan opgehaald: wie wachtte, kreeg hem al via `asyncio.shield` (`shielded`)
+    of `share` (`wait_at_shutdown`)."""
     _shielded.discard(task)
     if not task.cancelled() and task.exception() is not None:
         log.debug("Afgeschermd werk mislukt", exc_info=task.exception())
@@ -131,25 +134,65 @@ async def shielded(coro: Coroutine[Any, Any, T]) -> T:
         raise
 
 
+async def share(future: asyncio.Future[T]) -> T:
+    """Wacht op de uitkomst van `future` zonder hem te annuleren als de aanroeper geannuleerd wordt: voor werk dat meer aanroepers
+    delen (`compute.SingleFlight`, `response_cache.ResponseCache`). Wie geannuleerd wordt, krijgt zijn `CancelledError` en
+    `future` loopt door voor de anderen.
+
+    Niet `asyncio.shield`: vanaf Python 3.15 meldt die een fout van `future` bij de loop ("exception in shielded future") zodra
+    een aanroeper geannuleerd werd, ook als een andere aanroeper op dezelfde `future` die fout gewoon krijgt. `asyncio.wait`
+    annuleert wat het wacht niet en haalt bij een annulering alleen zijn eigen callback weg. Wie de fout van werk zonder
+    aanroeper ophaalt, regelt de eigenaar (`SingleFlight._finished`, `_shielded_done`)."""
+    await asyncio.wait((future,))
+    return future.result()
+
+
+def wait_at_shutdown(task: asyncio.Future[Any]) -> None:
+    """Laat `cancel_all` op `task` wachten zoals op het werk van `shielded`, zonder hem te annuleren. Voor een bouw of een lading
+    waar de aanroepers met `share` op wachten, en die doorloopt als ze weggaan (`compute.SingleFlight`,
+    `response_cache.ResponseCache`): zo leest hij niet nog in de database als de app al dicht is."""
+    _shielded.add(task)
+    task.add_done_callback(_shielded_done)
+
+
 def running() -> dict[str, asyncio.Task[Any]]:
     """Een kopie van de register: naam (zoals `Task.get_name()`) naar de nog lopende task."""
     return dict(_tasks)
 
 
+def on_cancel_all(hook: Callable[[], None]) -> None:
+    """Laat `cancel_all` eerst `hook` aanroepen, op de event loop. Voor werk dat beter zelf stopt dan geannuleerd te worden: de
+    schrijver van het auditlog schrijft dan wat klaarstaat en stopt (`audit._stop_writers`). Een keer per hook."""
+    if hook not in _before_cancel:
+        _before_cancel.append(hook)
+
+
 async def cancel_all(timeout: float = 10.0) -> None:
-    """Annuleert alle geregistreerde tasks en wacht er hoogstens `timeout` seconden op, samen met het afgeschermde werk
-    (`shielded`) dat nog loopt. Dat laatste annuleren we niet: het mag niet halverwege stoppen."""
-    pending: list[asyncio.Task[Any]] = list(_tasks.values())
+    """Roept de haken van `on_cancel_all` aan, annuleert alle geregistreerde tasks en wacht er hoogstens `timeout` seconden op,
+    samen met het afgeschermde werk (`shielded`, `wait_at_shutdown`) dat nog loopt. Dat laatste annuleren we niet: het mag
+    niet halverwege stoppen. Alleen wat bij de lopende loop hoort: een task van een andere (gesloten) loop is daar al gestopt,
+    en wachten of annuleren kan vanuit deze loop niet."""
+    for hook in _before_cancel:
+        try:
+            hook()
+        except Exception:
+            log.exception("Een haak van cancel_all faalde")
+    loop: asyncio.AbstractEventLoop = asyncio.get_running_loop()
+    pending: list[asyncio.Task[Any]] = [task for task in _tasks.values() if task.get_loop() is loop]
     for task in pending:
         task.cancel()
-    waiting: list[asyncio.Task[Any]] = pending + list(_shielded)
+    waiting: list[asyncio.Future[Any]] = pending + [task for task in _shielded if task.get_loop() is loop]
     if waiting:
         await asyncio.wait(waiting, timeout=timeout)
 
 
-# Hoe lang het afsluiten op de tasks wacht. Docker geeft een container 10 seconden tussen SIGTERM en SIGKILL, en hypercorn
-# wacht eerst tot 3 seconden (`graceful_timeout`) op lopende verzoeken: 3 plus 5 blijft daaronder.
-SHUTDOWN_TIMEOUT: float = 5.0
+# Het afsluiten moet binnen de 10 seconden die Docker een container geeft tussen SIGTERM en SIGKILL. Begrensd is: hypercorn
+# wacht tot 3 seconden (`graceful_timeout`, standaard) op lopende verzoeken, dan de tasks hooguit 3 seconden en de rekenthreads
+# hooguit `compute.SHUTDOWN_SECONDS` (2,5), samen 8,5 s (`tests/test_tasks.py` telt het na). Niet begrensd is werk in de
+# standaard-executor van de loop (`asyncio.to_thread`, zoals het terugzetten van een back-up): na `after_serving` sluit hypercorn
+# de loop met `asyncio.Runner`, en die wacht tot 300 seconden (`shutdown_default_executor`) op zo'n thread. Loopt er dan nog een,
+# dan stopt Docker de container na 10 seconden alsnog hard.
+SHUTDOWN_TIMEOUT: float = 3.0
 
 
 async def _cancel_all_hook() -> None:

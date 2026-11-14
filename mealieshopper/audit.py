@@ -26,8 +26,9 @@ import logging
 import re
 import secrets
 import time
+import weakref
 from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager, contextmanager
+from contextlib import AsyncExitStack, asynccontextmanager, contextmanager
 from dataclasses import dataclass
 from datetime import timedelta
 from os import environ
@@ -39,7 +40,7 @@ import httpx
 from quart import Quart, Response, has_request_context, jsonify, request
 from werkzeug.exceptions import HTTPException
 
-from . import auth
+from . import auth, telemetry
 from .i18n import tr
 
 log = logging.getLogger(__name__)
@@ -301,30 +302,224 @@ async def record(
     error: str = "",
     detail: dict[str, Any] | None = None,
 ) -> int | None:
-    """Schrijf één regel. Mislukt het schrijven, dan gaat de aanvraag zelf gewoon door."""
-    global _since_prune
+    """Schrijf één regel en wacht tot hij er staat (het id, of None). Mislukt het schrijven, dan gaat de aanvraag zelf gewoon
+    door. De regel gaat via de schrijver van deze event loop (`_Writer`): een verbinding voor alle regels, geen nieuwe per
+    regel. Na het afsluiten (`tasks.cancel_all`) is er geen schrijver meer: dan schrijft `record` de regel zelf (`_write_direct`)."""
     if not enabled():
         return None
+    values: tuple[str | int | None, ...] = _row_values(
+        kind=kind, service=service, action=action, method=method, url=url, status=status, ok=ok, duration_ms=duration_ms,
+        actor=actor, corr=corr, request_body=request_body, response_body=response_body, req_bytes=req_bytes,
+        resp_bytes=resp_bytes, error=error, detail=detail,
+    )
     try:
-        async with _connect() as conn:
-            cursor = await conn.execute(
-                _INSERT_SQL,
-                _row_values(
-                    kind=kind, service=service, action=action, method=method, url=url, status=status, ok=ok,
-                    duration_ms=duration_ms, actor=actor, corr=corr, request_body=request_body, response_body=response_body,
-                    req_bytes=req_bytes, resp_bytes=resp_bytes, error=error, detail=detail,
-                ),
-            )
-            row_id = cursor.lastrowid
-            _since_prune += 1
-            if _since_prune >= PRUNE_EVERY:
-                _since_prune = 0
-                await _prune(conn)
-            await conn.commit()
-        return row_id
+        if asyncio.get_running_loop() in _STOPPED_LOOPS:
+            return await _write_direct(values)
+        return await _writer().submit(values)
     except Exception:  # noqa: BLE001 - de log mag nooit een verzoek laten mislukken
         log.warning("Kon geen auditregel schrijven", exc_info=True)
         return None
+
+
+async def _write_direct(values: tuple[str | int | None, ...]) -> int | None:
+    """Een regel op een eigen verbinding, voor `record` na het afsluiten: dan is er geen schrijver die nog wacht."""
+    async with _connect() as conn:
+        cursor: aiosqlite.Cursor = await conn.execute(_INSERT_SQL, values)
+        await conn.commit()
+        return cursor.lastrowid
+
+
+# Hoe lang de schrijver zijn verbinding openhoudt zonder nieuwe regels. Daarna sluit hij hem en stopt hij: de volgende regel
+# start een nieuwe schrijver.
+WRITER_IDLE_SECONDS: float = 2.0
+_INSERT_LABEL: str = "INSERT audit_log"  # zo staat de regel in de telemetrie van de aanvraag (`telemetry.Recording.add_query`)
+
+
+@dataclass
+class _Pending:
+    """Een regel die op de schrijver wacht: de database waar hij heen moet, de waarden, de uitkomst voor `record`, en de meting
+    van de aanvraag die hem schreef (`telemetry.current`): daar telt de tijd van de regel bij."""
+
+    path: str
+    values: tuple[str | int | None, ...]
+    done: asyncio.Future[int | None]
+    recording: telemetry.Recording | None
+
+
+class _Writer:
+    """Schrijft de regels van `record` voor een event loop, met een verbinding zolang er regels komen.
+
+    Elke `aiosqlite.connect` start een eigen thread, en op de event loop wacht `Thread.start` tot die thread draait. Terwijl
+    een rekenthread de GIL heeft, kost dat de loop een wisselinterval per overdracht: met een verbinding per uitgaand verzoek gaf
+    dat stilstanden van 131 ms (taak 9c). Nu een task die de wachtrij leegmaakt, de regels die samen klaarstaan in een transactie
+    schrijft, en zijn verbinding pas na `WRITER_IDLE_SECONDS` sluit.
+
+    De task loopt in een lege context (`contextvars.Context`): anders erft hij die van de eerste aanroeper, met zijn aanvraag en
+    zijn meting, en zou `auth.connect` elke volgende regel bij die al lang klare aanvraag tellen. De tijd van een regel telt nu
+    bij de aanvraag die hem schreef (`_Pending.recording`). `tasks.cancel_all` annuleert de task niet, maar laat hem leeglopen
+    (`_stop_writers`): wat in de wachtrij staat, komt er nog in."""
+
+    def __init__(self, loop: asyncio.AbstractEventLoop) -> None:
+        self.loop: asyncio.AbstractEventLoop = loop
+        self.queue: asyncio.Queue[_Pending | None] = asyncio.Queue()
+        self.task: asyncio.Task[None] | None = None
+        self.stopping: bool = False
+
+    def submit(self, values: tuple[str | int | None, ...]) -> asyncio.Future[int | None]:
+        pending: _Pending = _Pending(str(auth.db_path()), values, self.loop.create_future(), telemetry.current())
+        self.queue.put_nowait(pending)
+        if self.task is None:
+            # lokaal: tasks importeert http_client, en dat importeert deze module
+            from . import tasks
+
+            self.task = self.loop.create_task(self._drain(), name="auditlog-schrijver", context=contextvars.Context())
+            tasks.wait_at_shutdown(self.task)
+        return pending.done
+
+    def stop(self) -> None:
+        """Laat de schrijver schrijven wat klaarstaat en dan stoppen, zonder op nieuwe regels te wachten."""
+        self.stopping = True
+        self.queue.put_nowait(None)  # maakt een schrijver wakker die op de eerste regel wacht
+
+    async def _next_batch(self) -> list[_Pending]:
+        """De regels die klaarstaan, na hooguit `WRITER_IDLE_SECONDS` wachten op de eerste. Leeg als er niets kwam. Ook wat
+        precies bij de time-out binnenkwam, hoort erbij: dat staat dan nog in de wachtrij."""
+        batch: list[_Pending | None] = []
+        if self.queue.empty() and not self.stopping:
+            try:
+                batch.append(await asyncio.wait_for(self.queue.get(), WRITER_IDLE_SECONDS))
+            except TimeoutError:
+                pass
+        batch += _left(self.queue)
+        return [pending for pending in batch if pending is not None]
+
+    async def _drain(self) -> None:
+        stack: AsyncExitStack = AsyncExitStack()
+        conn: aiosqlite.Connection | None = None
+        path: str = ""
+        batch: list[_Pending] = []
+        try:
+            while batch := await self._next_batch():
+                for group in _by_path(batch):
+                    if conn is None or group[0].path != path:
+                        await stack.aclose()
+                        conn, path = await _open(stack, group), group[0].path
+                    if conn is not None and not await _write(conn, group):
+                        await stack.aclose()
+                        conn = None
+                batch = []
+        finally:
+            self._retire()  # meteen, voor het sluiten: een regel van hierna gaat naar een nieuwe schrijver
+            _settle([*batch, *(pending for pending in _left(self.queue) if pending is not None)])
+            await stack.aclose()
+
+    def _retire(self) -> None:
+        if _WRITERS.get(self.loop) is self:
+            del _WRITERS[self.loop]
+
+
+async def _open(stack: AsyncExitStack, group: list[_Pending]) -> aiosqlite.Connection | None:
+    """Een verbinding voor de schrijver, of None als openen mislukte: dan krijgt elke aanroeper van `group` None."""
+    try:
+        return await stack.enter_async_context(_connect())
+    except Exception:  # de log mag nooit een verzoek laten mislukken
+        log.warning("Kon geen auditregel schrijven", exc_info=True)
+        _settle(group)
+        return None
+
+
+def _by_path(batch: list[_Pending]) -> list[list[_Pending]]:
+    """De regels per database, in volgorde. Er is er vrijwel altijd een: alleen tests wisselen van map."""
+    groups: list[list[_Pending]] = []
+    for pending in batch:
+        if groups and groups[-1][0].path == pending.path:
+            groups[-1].append(pending)
+        else:
+            groups.append([pending])
+    return groups
+
+
+async def _write(conn: aiosqlite.Connection, group: list[_Pending]) -> bool:
+    """Schrijft de regels in een transactie en geeft elke aanroeper zijn id, met de tijd van zijn regel in zijn meting. False
+    als het mislukte: dan krijgt elke aanroeper None en opent de schrijver een nieuwe verbinding."""
+    global _since_prune
+    try:
+        ids: list[int | None] = []
+        for pending in group:
+            started: float = time.perf_counter()
+            cursor: aiosqlite.Cursor = await conn.execute(_INSERT_SQL, pending.values)
+            if pending.recording is not None:
+                pending.recording.add_query(time.perf_counter() - started, _INSERT_LABEL)
+            ids.append(cursor.lastrowid)
+            _since_prune += 1
+        if _since_prune >= PRUNE_EVERY:
+            _since_prune = 0
+            await _prune(conn)
+        await conn.commit()
+    except Exception:  # de log mag nooit een verzoek laten mislukken
+        log.warning("Kon geen auditregel schrijven", exc_info=True)
+        _settle(group)
+        return False
+    for pending, row_id in zip(group, ids, strict=True):
+        if not pending.done.done():
+            pending.done.set_result(row_id)
+    return True
+
+
+def _left(queue: asyncio.Queue[_Pending | None]) -> list[_Pending | None]:
+    found: list[_Pending | None] = []
+    while not queue.empty():
+        found.append(queue.get_nowait())
+    return found
+
+
+def _settle(pending: list[_Pending]) -> None:
+    """Een aanroeper die nog wacht krijgt None: zijn regel is niet geschreven (een fout, of de schrijver werd gestopt)."""
+    for item in pending:
+        if not item.done.done():
+            item.done.set_result(None)
+
+
+# De schrijver per event loop. Hij haalt zichzelf hier weg als hij stopt (`_Writer._retire`), dus een loop blijft niet hangen.
+_WRITERS: dict[asyncio.AbstractEventLoop, _Writer] = {}
+# Loops die zijn afgesloten (`tasks.cancel_all`): daar schrijft `record` direct.
+_STOPPED_LOOPS: weakref.WeakSet[asyncio.AbstractEventLoop] = weakref.WeakSet()
+
+
+def _writer() -> _Writer:
+    """De schrijver van de lopende event loop. Een test heeft een eigen loop, dus een eigen schrijver."""
+    loop: asyncio.AbstractEventLoop = asyncio.get_running_loop()
+    found: _Writer | None = _WRITERS.get(loop)
+    if found is None:
+        from . import tasks  # lokaal, zie `_Writer.submit`
+
+        tasks.on_cancel_all(_stop_writers)
+        found = _WRITERS[loop] = _Writer(loop)
+    return found
+
+
+def _stop_writers() -> None:
+    """Voor `tasks.cancel_all`, op de event loop: de schrijver van deze loop schrijft wat klaarstaat en stopt, en een regel van
+    hierna schrijft `record` direct. `cancel_all` wacht op de schrijver (`tasks.wait_at_shutdown`)."""
+    loop: asyncio.AbstractEventLoop = asyncio.get_running_loop()
+    _STOPPED_LOOPS.add(loop)
+    writer: _Writer | None = _WRITERS.pop(loop, None)
+    if writer is not None:
+        writer.stop()
+
+
+def _retire_writers() -> None:
+    """Na het wissen of terugzetten van de database (`auth.forget_cached_data`): elke schrijver sluit zijn verbinding met het oude
+    bestand na wat er al klaarstond, en de volgende regel opent een nieuwe schrijver op het nieuwe bestand."""
+    for loop, writer in list(_WRITERS.items()):
+        del _WRITERS[loop]
+        try:
+            loop.call_soon_threadsafe(writer.stop)
+        except RuntimeError:  # de loop is dicht
+            continue
+
+
+auth.remember_cache(_retire_writers)
 
 
 # --- herkomst --------------------------------------------------------------------------------------

@@ -10,7 +10,10 @@ rekende of achter een andere aanvraag in de rij stond. Met de vlag aan houdt de 
 - Andere fasen die een module zelf aangeeft met `span`, zoals het verpakken met gzip (compression.py).
 - Hoe lang de event loop stilstond, en waar (`loop_guard.LoopGuard`). De app draait in een proces met een event loop: rekent
   een route daar seconden op, dan wacht elke andere aanvraag mee. Een bewakerthread leest dan de stack van de loop, dus de
-  melding noemt de functie en de regel die de loop vasthield, en de aanvragen die op dat moment liepen.
+  melding noemt de functie en de regel die de loop vasthield, en de aanvragen die op dat moment liepen. Wachtte de loop zelf,
+  dan noemt ze ook de andere threads die bezig waren: een daarvan hield de GIL vast.
+- Met `MEALIESHOPPER_TELEMETRY_GC` ook aan: elke ronde van de garbage collector van `gc_watch.GC_SECONDS` (20 ms) of langer,
+  met de generatie en de thread (`gc_watch.GcWatch`). Een volle ronde houdt de GIL vast, dus ook die houdt de loop tegen.
 
 Waar je het ziet:
 
@@ -18,7 +21,7 @@ Waar je het ziet:
 - Een regel in het log voor elke aanvraag van `MEALIESHOPPER_TELEMETRY_SLOW_MS` milliseconden of langer (standaard 500), en
   voor elke keer dat de event loop `STALL_SECONDS` (100 ms) of langer stilstond.
 - `GET /api/telemetry` (alleen de beheerder, `auth.ADMIN_PATHS`): de cijfers per route sinds de start, de laatste trage
-  aanvragen en de laatste keren dat de event loop stilstond.
+  aanvragen, de laatste keren dat de event loop stilstond en de laatste lange rondes van de GC.
 
 Alles staat in het geheugen en begint bij een herstart opnieuw. Van een adres bewaart de app het pad en alleen de parameters
 uit `SAFE_PARAMS`, van een query alleen de tekst zonder de waarden: de app geeft waarden altijd apart mee (`?`).
@@ -27,6 +30,7 @@ uit `SAFE_PARAMS`, van een query alleen de tekst zonder de waarden: de app geeft
 from __future__ import annotations
 
 import asyncio
+import gc
 import logging
 import time
 from collections import deque
@@ -41,7 +45,7 @@ from urllib.parse import parse_qsl, urlencode
 
 from quart import Quart, jsonify, request
 
-from mealieshopper import loop_guard
+from mealieshopper import gc_watch, loop_guard
 
 ON: frozenset[str] = frozenset({"1", "true", "yes", "on"})
 DEFAULT_SLOW_MS: int = 500
@@ -67,6 +71,11 @@ logger: logging.Logger = logging.getLogger("mealieshopper.telemetry")
 
 def enabled() -> bool:
     return environ.get("MEALIESHOPPER_TELEMETRY", "false").strip().lower() in ON
+
+
+def gc_enabled() -> bool:
+    """Of de telemetrie ook de rondes van de GC meet. Alleen samen met `MEALIESHOPPER_TELEMETRY`."""
+    return environ.get("MEALIESHOPPER_TELEMETRY_GC", "false").strip().lower() in ON
 
 
 def slow_ms() -> int:
@@ -273,6 +282,8 @@ class Telemetry:
         self.routes: dict[str, RouteStats] = {}
         self.slow: deque[Recording] = deque(maxlen=KEPT_SLOW)
         self.stalls: deque[dict[str, Any]] = deque(maxlen=KEPT_STALLS)
+        self.collections: deque[dict[str, Any]] = deque(maxlen=gc_watch.KEPT)
+        self.loop: asyncio.AbstractEventLoop | None = None  # waar `collected` het loggen heen stuurt
         self.active: dict[int, Recording] = {}
         self.finished: deque[tuple[float, str]] = deque(maxlen=KEPT_FINISHED)
 
@@ -309,6 +320,8 @@ class Telemetry:
                 "ms": _ms(stall.seconds),
                 "active": targets,
                 "stack": [frame.short() for frame in reversed(frames[-STALL_FRAMES:])],
+                # wachtte de loop zelf, dan de andere threads die bezig waren: een daarvan hield de GIL vast
+                "threads": [thread.short() for thread in stall.busy_threads],
             }
         )
         logger.warning(
@@ -317,6 +330,38 @@ class Telemetry:
             ", ".join(targets) or "werk op de achtergrond",
             stall.describe(STALL_FRAMES),
         )
+
+    def collected(self, collection: gc_watch.Collection) -> None:
+        """Een lange ronde van de GC (`gc_watch.GcWatch`): bewaar hem, en meld hem als hij de loop had kunnen tegenhouden.
+
+        Loopt in de callback van de GC: alleen een append, en het loggen gaat naar de loop (`call_soon_threadsafe`). Een handler
+        van het log neemt een slot, en dat hoort niet midden in de GC."""
+        self.collections.append(
+            {"at": datetime.now(UTC).isoformat(timespec="seconds"), **collection.as_dict()}
+        )
+        loop: asyncio.AbstractEventLoop | None = self.loop
+        if collection.seconds >= STALL_SECONDS and loop is not None:
+            try:
+                loop.call_soon_threadsafe(self._log_collection, collection)
+            except RuntimeError:  # de loop is dicht
+                pass
+
+    def _log_collection(self, collection: gc_watch.Collection) -> None:
+        logger.warning("Een ronde van de garbage collector hield de GIL vast: %s", collection.describe())
+
+    def gc_counts(self) -> dict[str, Any]:
+        """Voor `snapshot`: de lange rondes, en hoeveel objecten bevroren zijn. De app bevriest niets (gc_watch.py), dus `frozen`
+        blijft wat Python zelf bij het starten meegeeft: 375 bij 3.12 (ook een kale `python -I -S`), 0 bij 3.15. Stijgt het, dan
+        riep een bibliotheek `gc.freeze()` aan en volgt de GC die objecten niet meer.
+
+        `counters` zijn de tellers van `gc.get_count()`, geen aantallen objecten: voor generatie 0 de objecten erbij sinds de
+        laatste ronde, voor 1 en 2 het aantal rondes van de generatie eronder. `gc.get_freeze_count()` loopt de bevroren lijst af
+        (2,5 ms bij 600.000 objecten, gemeten): goed voor deze pagina van de beheerder, niet voor elke aanvraag."""
+        return {
+            "collections": list(reversed(self.collections)),
+            "frozen": gc.get_freeze_count(),
+            "counters": list(gc.get_count()),
+        }
 
     def snapshot(self) -> dict[str, Any]:
         routes: list[tuple[str, RouteStats]] = sorted(
@@ -331,6 +376,7 @@ class Telemetry:
             "routes": [stats.as_dict(route) for route, stats in routes],
             "slow": [recording.as_dict() for recording in reversed(self.slow)],
             "stalls": list(reversed(self.stalls)),
+            "gc": self.gc_counts(),
         }
 
 
@@ -385,6 +431,9 @@ def register(app: Quart) -> Telemetry | None:
     app.asgi_app = Middleware(app.asgi_app, telemetry)  # type: ignore[method-assign]
     app.extensions["mealieshopper_telemetry"] = telemetry
     guard: list[loop_guard.LoopGuard] = []
+    collections: gc_watch.GcWatch | None = (
+        gc_watch.GcWatch(on_collection=telemetry.collected) if gc_enabled() else None
+    )
 
     @app.before_request
     async def _name_route() -> None:
@@ -399,12 +448,17 @@ def register(app: Quart) -> Telemetry | None:
         )
         watcher.start()  # op de loop zelf, zodat de bewaker de thread van de loop kent
         guard.append(watcher)
+        if collections is not None:
+            telemetry.loop = asyncio.get_running_loop()
+            collections.start()
 
     @app.after_serving
     async def _stop_watching() -> None:
         for watcher in guard:
             watcher.stop()
         guard.clear()
+        if collections is not None:
+            collections.stop()
 
     @app.get("/api/telemetry")
     async def telemetry_snapshot():

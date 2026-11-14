@@ -14,11 +14,13 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import gc
 import hashlib
 import json
 import os
 import sqlite3
 import threading
+import time
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, TypeVar
@@ -30,7 +32,16 @@ import pytest
 import volume
 from quart import Quart, Response
 
-from mealieshopper import ah_price_index, loop_guard, offers, prices
+from mealieshopper import (
+    ah_price_index,
+    gc_watch,
+    line_offers,
+    loop_guard,
+    name_keys,
+    offer_categories,
+    offers,
+    prices,
+)
 from mealieshopper import app as app_module
 from mealieshopper.app import create_app
 
@@ -159,22 +170,26 @@ async def quiet(
     """Voert `action` uit en faalt als de event loop daarbij langer dan `loop_watch.LIMIT` stilstond.
 
     Bij een stilstand draait `action` opnieuw, tot `attempts` keer: een stilstand door de code herhaalt zich, een hik van de
-    machine niet. De test faalt pas als elke poging een stilstand had, met `describe()` van elke stilstand per poging. `prepare`
+    machine niet. De test faalt pas als elke poging een stilstand had, met `describe()` van elke stilstand per poging en de
+    lange rondes van de GC in die poging (`loop_watch.GC`): die houden de GIL vast en staan op geen stack. `prepare`
     loopt voor elke poging buiten de meting (zoals het koud maken: een grote catalogus opruimen houdt de loop zelf even vast).
     Wat `quiet` meet, haalt het zelf uit de bewaker (`loop_watch.drain`): de controle na de test ziet het niet nog eens.
     """
     seen: list[list[loop_guard.Stall]] = []
+    collected: list[list[gc_watch.Collection]] = []
     for _ in range(attempts):
         if prepare is not None:
             await prepare()
             await settle()
         loop_watch.drain()
+        loop_watch.GC.drain()
         result: T = await action()
         await settle()
         stalls: list[loop_guard.Stall] = _too_long(loop_watch.drain())
         if not stalls:
             return result
         seen.append(stalls)
+        collected.append(loop_watch.GC.drain())
     lines: list[str] = [
         f"De event loop stond in alle {attempts} pogingen langer dan {round(loop_watch.LIMIT * 1000)} ms stil:"
     ]
@@ -182,6 +197,7 @@ async def quiet(
         lines += [f"  poging {number}:"] + [
             f"    {stall.describe()}" for stall in stalls
         ]
+        lines += [f"    {collection.describe()}" for collection in collected[number - 1]]
     pytest.fail("\n".join(lines), pytrace=False)
 
 
@@ -548,6 +564,71 @@ async def test_building_the_catalogue_does_not_stall(volume_dir: Path) -> None:
     )
 
 
+class _Wrapper:
+    """Zoals hypercorn 0.18 `ProtocolWrapper`: zijn `send` is een gebonden methode van de server."""
+
+    def __init__(self, send: Callable[[object], None]) -> None:
+        self.send: Callable[[object], None] = send
+
+
+class _Server:
+    """Zoals hypercorn 0.18 `TCPServer`: `protocol` wijst naar de wrapper en de wrapper terug naar de server, een kring die bij
+    het sluiten niemand breekt. Alleen een volle ronde van de GC ruimt hem op, en dan telt `removed` hem."""
+
+    removed: int = 0
+
+    def __init__(self) -> None:
+        self.protocol: _Wrapper = _Wrapper(self.protocol_send)
+
+    def protocol_send(self, event: object) -> None:
+        del event
+
+    def __del__(self) -> None:
+        _Server.removed += 1
+
+
+def _dead_cycles_in_the_old_generation(count: int) -> None:
+    """`count` gesloten verbindingen als afval in generatie 2: eerst levend naar generatie 2 (een ronde over de jonge
+    generaties), dan los. Alleen een volle ronde ruimt zo'n kring op."""
+    servers: list[_Server] = [_Server() for _ in range(count)]
+    gc.collect(1)
+    del servers
+
+
+PRODUCT_CHANGE: str = (
+    "UPDATE price_observations SET title = title || ' (nieuw)'"
+    " WHERE rowid = (SELECT MIN(rowid) FROM price_observations WHERE store = 'ah')"
+)
+PLANTED: int = 500  # gesloten verbindingen per ronde, elk vijf objecten die de GC volgt
+
+
+@pytest.mark.volume
+async def test_rebuilds_do_not_freeze_dead_cycles(volume_client: TestClientProtocol, volume_dir: Path) -> None:
+    # Review van taak 9b: gc.collect(1) en gc.freeze() bij een bouw bevroren ook dode kringen uit generatie 2, voor de rest van
+    # het proces. Sinds taak 9c bevriest een bouw niets meer: dit houdt dat zo.
+    # Elke ronde: dode kringen zoals gesloten verbindingen van hypercorn, dan een nieuwe catalogus (koud, of na een wijziging
+    # van een product). De drempel van generatie 2 staat hoog, zodat geen volle ronde van zichzelf het afval opruimt voor de
+    # bouw: zo ligt het er nog op het moment dat de catalogus opzij gaat, zoals in productie tussen twee volle rondes.
+    thresholds: tuple[int, int, int] = gc.get_threshold()
+    removed: int = _Server.removed
+    frozen: list[int] = []
+    gc.set_threshold(thresholds[0], thresholds[1], 1_000_000)
+    try:
+        for number in range(4):
+            _dead_cycles_in_the_old_generation(PLANTED)
+            if number == 2:
+                await asyncio.to_thread(_execute, volume_dir / volume.DB_NAME, PRODUCT_CHANGE)
+            else:
+                await cold(volume_dir)()
+            await _get(volume_client, "/api/prices/history?store=ah")
+            frozen.append(gc.get_freeze_count())
+    finally:
+        gc.set_threshold(*thresholds)
+    gc.collect()
+    assert _Server.removed - removed == 4 * PLANTED  # niets van het afval is voor altijd bevroren
+    assert len(set(frozen)) == 1, frozen  # er komt niets bij in de bevroren generatie
+
+
 def _bought_outside_the_list(path: Path, count: int, reached: tuple[str, ...]) -> list[ah_price_index.Series]:
     """`count` producten van AH uit de prijsindex (dus gekocht) die het antwoord van /api/offers niet raken (niet in `reached`,
     `prices._answer_ids`: niet in de aanbiedingen, geen andere verpakking en geen naamgenoot), elk met een prijs voor vandaag. Zoals
@@ -593,3 +674,82 @@ async def test_offers_stay_warm_during_a_price_index_round(
         history: Any = await _get(volume_client, "/api/prices/history?store=ah&bought=1")
     assert history["products"]
     assert built.call_count == 0, "de prijzen en de prijsgeschiedenis werken de catalogus bij, zonder hem opnieuw op te bouwen"
+
+
+# Wat alle catalogi en de memo's van hun namen aan een volle ronde van de GC toevoegen: het verschil voor en na het laden, want in
+# de hele suite leeft de rest van de tests mee (een volle ronde loopt dan ook langs hun 340.000 objecten). Gemeten na taak 9c:
+# 1.300 gevolgde objecten en 2,4 ms erbij (3.12), 17.000 en 8 ms (3.15, die ook de dicts van de bonregels volgt). Ervoor voegden
+# de catalogi 525.000 objecten en 125 ms per ronde toe, zes tot acht keer per koude bouw van AH (gc_watch.py).
+ADDED_TRACKED_LIMIT: int = 60_000
+ADDED_COLLECTION_SECONDS: float = 0.05
+NAME_MEMOS: tuple[Any, ...] = (
+    name_keys.fold,
+    name_keys.near,
+    offer_categories.categorize,
+    offer_categories.offer_category,
+    line_offers._parts,
+    line_offers._stem,
+    line_offers._significant,
+    prices._size_of,
+)
+
+
+def _full_collection() -> tuple[float, int]:
+    """De beste van drie volle rondes van de GC (een hik van de machine telt niet), en hoeveel objecten de GC daarna volgt."""
+    seconds: list[float] = []
+    for _ in range(3):
+        started: float = time.perf_counter()
+        gc.collect()
+        seconds.append(time.perf_counter() - started)
+    return min(seconds), len(gc.get_objects())
+
+
+@pytest.mark.volume
+async def test_the_catalogues_keep_a_full_collection_short(volume_client: TestClientProtocol) -> None:
+    for memo in NAME_MEMOS:
+        memo.cache_clear()
+    before_seconds, before_tracked = _full_collection()
+    await prices.warm_catalogues(today=volume.TODAY)
+    for store in ("ah", "jumbo"):
+        await _get(volume_client, f"/api/offers?store={store}&week=2026-11-09")
+        await _get(volume_client, f"/api/prices/history?store={store}")
+    assert len(prices._CATALOGUES) == len(offers.STORES)
+    after_seconds, after_tracked = _full_collection()
+    assert after_tracked - before_tracked < ADDED_TRACKED_LIMIT, (before_tracked, after_tracked)
+    assert after_seconds - before_seconds < ADDED_COLLECTION_SECONDS, (before_seconds, after_seconds)
+
+
+# Hoeveel gevolgde objecten een koude bouw van AH er hooguit bij heeft op het moment dat een volle ronde van de GC begint: dan
+# loopt de ronde langs alles, met de GIL vast. Na taak 9c is de vaste stand met alle catalogi zo'n 120.000 (de app en de tests
+# erbij), dus dit houdt de piek ruim binnen twee keer de vaste stand. Gemeten (3.12): voor de review van taak 9c 363.590 erbij (de
+# rijen als sqlite3.Row, een dict en twee sets per product, een lijst per product in `_link_receipt_rows`), daarna 50.283. Wat
+# overblijft zijn vooral de regels van de bon als sqlite3.Row (17.000) en de tuples van de producten tot een ronde ze loslaat.
+BUILD_PEAK_ADDED_LIMIT: int = 80_000
+
+
+@pytest.mark.volume
+async def test_a_cold_build_keeps_the_tracked_set_small(volume_dir: Path) -> None:
+    peaks: list[int] = []
+
+    def at_full_collection(phase: str, info: dict[str, Any]) -> None:
+        if phase == "start" and info.get("generation") == 2:
+            peaks.append(len(gc.get_objects()))
+
+    # De heap van de rest van de suite gaat in de vaste generatie: een volle ronde komt pas als er sinds de vorige een kwart van
+    # wat de oude generatie telt bij kwam, en met de hele suite erin kwam die tijdens de bouw niet (de test mat dan niets). De
+    # tweede `collect` zet die telling op wat na `freeze` over is: bijna niets. `get_objects` telt de vaste generatie niet.
+    gc.collect()
+    gc.freeze()
+    try:
+        gc.collect()
+        before: int = len(gc.get_objects())
+        gc.callbacks.append(at_full_collection)
+        try:
+            await prices.warm_catalogues(["ah"], today=volume.TODAY)
+        finally:
+            gc.callbacks.remove(at_full_collection)
+    finally:
+        gc.unfreeze()
+    assert ("ah" in {key[1] for key in prices._CATALOGUES}), "de catalogus van AH is gebouwd"
+    assert peaks, "geen volle ronde van de GC tijdens de bouw: dan meet deze test niets"
+    assert max(peaks) - before < BUILD_PEAK_ADDED_LIMIT, (before, peaks)

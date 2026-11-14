@@ -59,5 +59,7 @@ ENTRYPOINT ["python", "/app/docker-entrypoint.py"]
 # `--workers 0`: de app draait in dit proces zelf, met de signal handlers van hypercorn. SIGTERM (`docker stop`, de herstart
 # na een fabrieksreset) sluit dan netjes af (`after_serving`), en een crash geeft een echte exitcode. Met `--workers 1`
 # draait de app in een kindproces zonder handlers dat bij SIGTERM gewoon sterft, terwijl de hoofdtaak met 0 eindigt.
-# Lopende verzoeken krijgen bij het afsluiten 3 seconden (`graceful_timeout` van hypercorn), de taken 5 (`tasks.py`).
+# Lopende verzoeken krijgen bij het afsluiten 3 seconden (`graceful_timeout` van hypercorn), de taken 3 en de rekenthreads 2,5
+# (`tasks.py`): samen 8,5, binnen de 10 seconden van `docker stop`. Werk in `asyncio.to_thread` (een back-up terugzetten) is
+# niet begrensd: loopt dat nog, dan stopt Docker de container na 10 seconden hard (`tasks.py`).
 CMD ["hypercorn", "--bind", "0.0.0.0:8000", "--workers", "0", "run:app"]

@@ -25,7 +25,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
-from mealieshopper import loop_guard
+from mealieshopper import gc_watch, loop_guard
 
 MODES: tuple[str, ...] = ("report", "enforce", "off")
 MODE: str = os.environ.get("MEALIESHOPPER_LOOP_GUARD", "report")
@@ -49,6 +49,8 @@ class Reported:
 
 
 _reported: list[Reported] = []
+# De lange rondes van de GC: een volle ronde houdt de GIL vast, dus ook de loop. `quiet` in test_volume.py noemt ze.
+GC: gc_watch.GcWatch = gc_watch.GcWatch()
 
 
 def _collect(stall: loop_guard.Stall) -> None:
@@ -72,6 +74,7 @@ def install() -> None:
     )
     if MODE == "off" or getattr(original, WRAPPED_ATTRIBUTE, False):
         return
+    GC.start()
 
     @functools.wraps(original)
     def run_forever(self: asyncio.BaseEventLoop) -> None:

@@ -4,6 +4,7 @@ import ipaddress
 import os
 import shutil
 import socket
+import sys
 import threading
 from collections.abc import AsyncIterator, Callable, Iterator
 from pathlib import Path
@@ -25,9 +26,13 @@ import loop_watch
 import volume
 
 from mealieshopper import ah_orders, auth, prices
+from mealieshopper import app as app_module
 from mealieshopper.app import create_app
 
 loop_watch.install()  # elke event loop in de tests draait onder de bewaker van de event loop
+# Het wisselinterval van de app (`app.create_app`, het konvooi van loop_guard.py) geldt vanaf de eerste test, ook voor een test
+# die geen app maakt: anders hangt de grens van 100 ms van `loop_watch` af van de volgorde van de tests.
+sys.setswitchinterval(app_module.SWITCH_INTERVAL_SECONDS)
 
 
 # Hosts die een test mag bereiken: alleen deze machine. De back-up- en TLS-tests draaien een lokale server, respx en de
