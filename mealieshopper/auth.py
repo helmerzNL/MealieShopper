@@ -249,19 +249,21 @@ async def _open_reader(path: str) -> aiosqlite.Connection:
 
 
 @asynccontextmanager
-async def read() -> AsyncIterator[aiosqlite.Connection]:
+async def read() -> AsyncIterator[readers.Reader]:
     """Een open leesverbinding uit `readers`, voor een paar korte SELECTs per aanvraag (de sessie, de instellingen): geen
-    nieuwe thread per lezing (readers.py, het konvooi van loop_guard.py). Alleen lezen, en elke cursor dicht (`fetchone`, of
-    `async with conn.execute(...)`): een open transactie of cursor laat de volgende lener een oude stand zien. Schrijven gaat
-    met `connect`."""
+    nieuwe thread per lezing (readers.py, het konvooi van loop_guard.py). Je krijgt een `readers.Reader` met alleen `fetchone`
+    en `fetchall` (ook via `fetchone(reader, ...)` hieronder): die sluiten hun cursor, en een open cursor of transactie liet de
+    volgende lener een oude stand van de WAL zien. Schrijven gaat met `connect`, en niet binnen een `read`: een tweede `read`
+    daarbinnen geeft een `RuntimeError`."""
     ensure_data_dir()
-    async with readers.borrow(str(db_path()), _open_reader) as conn:
-        yield conn
+    async with readers.borrow(str(db_path()), _open_reader) as reader:
+        yield reader
 
 
 async def close_readers() -> None:
-    """Sluit de open leesverbindingen van deze loop en wacht erop: voor wie daarna het databasebestand weghaalt (de
-    fabrieksreset). Een verbinding met het weggehaalde bestand zou bij het sluiten de WAL van een nieuw bestand kunnen wissen."""
+    """Sluit de open leesverbindingen van deze loop en wacht tot ze dicht zijn, een uitgeleende hooguit `readers.RETURN_SECONDS`:
+    voor wie daarna het databasebestand weghaalt (de fabrieksreset). Een verbinding met het weggehaalde bestand zou bij het
+    sluiten de WAL van een nieuw bestand kunnen wissen."""
     await readers.close_running_loop()
 
 
@@ -286,8 +288,11 @@ def schema_ready(name: str) -> bool:
     return (str(db_path()), name) in _SCHEMAS_READY
 
 
-async def fetchone(conn: aiosqlite.Connection, sql: str, params: tuple[Any, ...] = ()) -> aiosqlite.Row | None:
-    """De eerste rij van `sql` op `conn`, of None. Gedeeld door elke module met een eigen tabel."""
+async def fetchone(conn: aiosqlite.Connection | readers.Reader, sql: str, params: tuple[Any, ...] = ()) -> aiosqlite.Row | None:
+    """De eerste rij van `sql` op `conn` (een verbinding, of een lezer van `read`), of None. Gedeeld door elke module met een
+    eigen tabel."""
+    if isinstance(conn, readers.Reader):
+        return await conn.fetchone(sql, params)
     async with conn.execute(sql, params) as cursor:
         return await cursor.fetchone()
 
@@ -642,7 +647,7 @@ async def create_token(user_id: str, username: str, *, epoch: int | None = None,
     )
 
 
-async def _session_revoked(conn: aiosqlite.Connection, sid: Any) -> bool:
+async def _session_revoked(conn: aiosqlite.Connection | readers.Reader, sid: Any) -> bool:
     if not sid:
         return False  # een token van voor 4.10.3 heeft geen sessie-id en verloopt binnen een dag
     return await fetchone(conn, "SELECT 1 FROM revoked_sessions WHERE sid=?", (str(sid),)) is not None

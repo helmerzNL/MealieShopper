@@ -1,5 +1,5 @@
 """Leesverbindingen die openblijven, per event loop en database: voor de korte SELECTs die bij elke aanvraag lopen (de sessie
-en de instellingen in auth.py, via `auth.read`).
+en de instellingen in auth.py via `auth.read`, de foto's in `image_cache.lookup`).
 
 Elke `aiosqlite.connect` start een eigen thread, en op de event loop wacht `Thread.start` tot die draait. Rekent er een andere
 thread, dan kost elke overdracht van de GIL tot het wisselinterval (het konvooi van loop_guard.py). Gemeten in taak 10b met een
@@ -7,29 +7,60 @@ drukke rekenthread bij 1 ms: `auth.connect` met een SELECT 32 ms, waarvan de loo
 en dezelfde SELECT op een open verbinding 13 ms, zonder `Thread.start`. Een aanvraag met inloggen opende er drie tot zeven.
 
 Hooguit `READERS_KEPT` verbindingen per loop en database, elk voor een lener tegelijk: wie er geen krijgt, wacht op de eerste die
-vrijkomt. Een verbinding is alleen-lezen (`PRAGMA query_only`): een schrijfopdracht faalt. Ze gaat terug in de pool zonder open
-transactie (`in_transaction`), anders zag de volgende lener een oude stand van de WAL. Na een fout of een annulering bij de lener
-gaat ze dicht in plaats van terug. Een verbinding die `READER_IDLE_SECONDS` niet gebruikt is, sluit een task per pool (`_Pool._keep`),
-in een lege context zodat het sluiten bij geen aanvraag telt. Die task stopt als er niets meer open is, en haalt de pool dan weg.
+vrijkomt. Een lener krijgt geen verbinding maar een `Reader`, met alleen `fetchone` en `fetchall`: die sluiten hun cursor altijd,
+want een open cursor houdt een oude stand van de WAL vast zonder dat `in_transaction` het laat zien. De verbinding zelf is
+alleen-lezen (`PRAGMA query_only`), gaat zonder open transactie terug (`in_transaction`), en na een fout of een annulering bij de
+lener dicht in plaats van terug. Een tweede lening binnen een lening op dezelfde loop geeft een `RuntimeError`: met alle
+verbindingen uitgeleend zou die eeuwig wachten.
 
-Dicht gaan ze ook bij `tasks.cancel_all` (het afsluiten, `on_cancel_all`), bij het sluiten van de loop (`asyncio.Runner`
-annuleert de task), en met `retire_all` (auth.py: de database is gewist of teruggezet).
+Een task per pool (`_Pool._keep`, in een lege context zodat het sluiten bij geen aanvraag telt) sluit wat `READER_IDLE_SECONDS`
+vrij was, stopt als er niets meer open is, en haalt de pool dan weg. `retire` (bij `tasks.cancel_all`, `retire_all` en
+`close_running_loop`) wekt die task met een Event in plaats van hem te annuleren: hij sluit de vrije verbindingen en wacht
+hooguit `RETURN_SECONDS` op de uitgeleende, die bij terugkomst dichtgaan. Annuleert `asyncio.Runner` hem bij het sluiten van de
+loop, dan sluit hij wat nog in `_idle` staat. Hij haalt een verbinding pas uit `_idle` op het moment dat hij hem sluit, zodat een
+annulering halverwege er geen laat liggen: de threads van aiosqlite zijn geen daemon-threads, en een verbinding die niemand
+sluit, houdt het proces bij het afsluiten tegen.
 """
 
 from __future__ import annotations
 
 import asyncio
 import contextvars
+import math
 import time
 from collections.abc import AsyncIterator, Awaitable, Callable
-from contextlib import AbstractAsyncContextManager, asynccontextmanager
+from contextlib import asynccontextmanager
+from typing import Any, TypeAlias
 
 import aiosqlite
 
 READERS_KEPT: int = 4  # per event loop en database: zoveel threads van aiosqlite hooguit voor het lezen
 READER_IDLE_SECONDS: float = 30.0  # zo lang blijft een vrije verbinding open
+# Zo lang wacht `retire` op uitgeleende verbindingen. Ruim binnen de 3 s die `tasks.cancel_all` bij het afsluiten wacht: een
+# lezing duurt milliseconden.
+RETURN_SECONDS: float = 2.0
 
-Opener = Callable[[str], Awaitable[aiosqlite.Connection]]
+Opener: TypeAlias = Callable[[str], Awaitable[aiosqlite.Connection]]
+
+# De loop van de lening waarin de huidige code staat, of None: zo valt een lening binnen een lening op (`borrow`).
+_borrowing: contextvars.ContextVar[asyncio.AbstractEventLoop | None] = contextvars.ContextVar("readers_borrowing", default=None)
+
+
+class Reader:
+    """Wat een lener van `borrow` krijgt: een leesverbinding met alleen `fetchone` en `fetchall`, die hun cursor altijd sluiten."""
+
+    __slots__ = ("_conn",)
+
+    def __init__(self, conn: aiosqlite.Connection) -> None:
+        self._conn: aiosqlite.Connection = conn
+
+    async def fetchone(self, sql: str, params: tuple[Any, ...] = ()) -> aiosqlite.Row | None:
+        async with self._conn.execute(sql, params) as cursor:
+            return await cursor.fetchone()
+
+    async def fetchall(self, sql: str, params: tuple[Any, ...] = ()) -> list[aiosqlite.Row]:
+        async with self._conn.execute(sql, params) as cursor:
+            return list(await cursor.fetchall())
 
 
 class _Pool:
@@ -40,17 +71,19 @@ class _Pool:
         self.path: str = path
         self._opener: Opener = opener
         self._slots: asyncio.Semaphore = asyncio.Semaphore(READERS_KEPT)
-        self._idle: list[tuple[aiosqlite.Connection, float]] = []  # vrij, met het moment waarop ze vrijkwam
+        self._idle: list[tuple[aiosqlite.Connection, float]] = []  # vrij, met het moment waarop ze vrijkwam, oudste eerst
         self._open: int = 0  # vrij en uitgeleend samen
+        self._wake: asyncio.Event = asyncio.Event()  # `retire`: de task stopt meteen in plaats van na zijn wachttijd
+        self._drained: asyncio.Event = asyncio.Event()  # er staat niets meer open
         self._keeper: asyncio.Task[None] | None = None
         self.retired: bool = False
 
     @asynccontextmanager
-    async def borrow(self) -> AsyncIterator[aiosqlite.Connection]:
+    async def borrow(self) -> AsyncIterator[Reader]:
         async with self._slots:
             conn: aiosqlite.Connection = await self._take()
             try:
-                yield conn
+                yield Reader(conn)
             except BaseException:
                 await self._close(conn)  # een fout of annulering halverwege: niet terug in de pool
                 raise
@@ -61,8 +94,9 @@ class _Pool:
             return self._idle.pop()[0]
         conn: aiosqlite.Connection = await self._opener(self.path)
         self._open += 1
+        self._drained.clear()
         if self._keeper is None:
-            # lokaal: tasks importeert via http_client en audit auth.py, en auth importeert deze module
+            # lokaal: auth importeert deze module, en tasks importeert via http_client audit, dat bij het laden auth gebruikt
             from . import tasks
 
             self._keeper = self.loop.create_task(self._keep(), name="leesverbindingen", context=contextvars.Context())
@@ -78,35 +112,57 @@ class _Pool:
 
     async def _close(self, conn: aiosqlite.Connection) -> None:
         self._open -= 1
-        await conn.close()  # ook bij een annulering halverwege stopt de thread: `close` zet de stop in zijn `finally`
+        try:
+            await conn.close()  # ook bij een annulering halverwege stopt de thread: `close` zet de stop in zijn `finally`
+        finally:
+            if not self._open:
+                self._drained.set()
+
+    async def _close_idle(self, before: float) -> None:
+        """Sluit de vrije verbindingen die voor `before` vrijkwamen, een voor een: elke verbinding gaat pas uit `_idle` als hij
+        dichtgaat, dus een annulering halverwege laat de rest in `_idle` staan voor de `finally` van `_keep`."""
+        while self._idle and self._idle[0][1] <= before:
+            conn, _ = self._idle.pop(0)
+            await self._close(conn)
 
     def retire(self) -> None:
-        """Sluit de vrije verbindingen (via de task) en een uitgeleende als hij terugkomt. Op de loop van de pool."""
+        """Laat de task de vrije verbindingen sluiten en hooguit `RETURN_SECONDS` op de uitgeleende wachten, die bij terugkomst
+        dichtgaan. Op de loop van de pool."""
         self.retired = True
         _forget(self)
-        if self._keeper is not None:
-            self._keeper.cancel()
+        self._wake.set()
 
     async def _keep(self) -> None:
-        """Sluit wat `READER_IDLE_SECONDS` vrij was, tot er niets meer open is. Geannuleerd: alles wat vrij is meteen."""
+        """Sluit wat `READER_IDLE_SECONDS` vrij was, tot er niets meer open is of `retire` hem wekt."""
         try:
-            while self._open:
-                await asyncio.sleep(READER_IDLE_SECONDS / 2)
-                limit: float = time.monotonic() - READER_IDLE_SECONDS
-                old: list[aiosqlite.Connection] = [conn for conn, since in self._idle if since <= limit]
-                self._idle = [(conn, since) for conn, since in self._idle if since > limit]
-                for conn in old:
-                    await self._close(conn)
+            while self._open and not self.retired:
+                try:
+                    await asyncio.wait_for(self._wake.wait(), READER_IDLE_SECONDS / 2)
+                except TimeoutError:
+                    pass
+                await self._close_idle(time.monotonic() - READER_IDLE_SECONDS)
+            self.retired = True
+            _forget(self)
+            await self._close_idle(math.inf)
+            if self._open:
+                try:
+                    await asyncio.wait_for(self._drained.wait(), RETURN_SECONDS)
+                except TimeoutError:
+                    pass
         finally:
             self.retired = True
             _forget(self)
-            idle: list[aiosqlite.Connection] = [conn for conn, _ in self._idle]
-            self._idle = []
-            for conn in idle:
-                await self._close(conn)
+            self._stop_idle()
+
+    def _stop_idle(self) -> None:
+        """Na een annulering van `_keep`: wat nog vrij staat, krijgt de stop zonder erop te wachten, zodat zijn thread eindigt."""
+        for conn, _ in self._idle:
+            self._open -= 1
+            conn.stop()
+        self._idle = []
 
 
-# De pool per (event loop, database). Een pool haalt zichzelf weg als zijn task stopt (`_Pool._keep`).
+# De pool per (event loop, database). Een pool haalt zichzelf weg als hij stopt (`_Pool._keep`, `_Pool.retire`).
 _POOLS: dict[tuple[asyncio.AbstractEventLoop, str], _Pool] = {}
 
 
@@ -115,13 +171,22 @@ def _forget(pool: _Pool) -> None:
         del _POOLS[(pool.loop, pool.path)]
 
 
-def borrow(path: str, opener: Opener) -> AbstractAsyncContextManager[aiosqlite.Connection]:
-    """Een leesverbinding op `path` voor de lopende event loop, met `opener` als er een bij moet. Gebruik: `async with`."""
+@asynccontextmanager
+async def borrow(path: str, opener: Opener) -> AsyncIterator[Reader]:
+    """Een leesverbinding op `path` voor de lopende event loop, met `opener` als er een bij moet. Een lening binnen een lening op
+    dezelfde loop geeft een `RuntimeError` (de module-docstring)."""
     loop: asyncio.AbstractEventLoop = asyncio.get_running_loop()
+    if _borrowing.get() is loop:
+        raise RuntimeError("readers.borrow binnen een lening: lees alles in de eerste lening, anders wacht hij onder belasting eeuwig")
     pool: _Pool | None = _POOLS.get((loop, path))
     if pool is None or pool.retired:
         pool = _POOLS[(loop, path)] = _Pool(loop, path, opener)
-    return pool.borrow()
+    token: contextvars.Token[asyncio.AbstractEventLoop | None] = _borrowing.set(loop)
+    try:
+        async with pool.borrow() as reader:
+            yield reader
+    finally:
+        _borrowing.reset(token)
 
 
 def _retire_running_loop() -> None:
@@ -149,7 +214,8 @@ def retire_all() -> None:
 
 
 async def close_running_loop() -> None:
-    """Sluit de pools van de lopende loop en wacht tot hun verbindingen dicht zijn: voor wie daarna het bestand weghaalt."""
+    """Sluit de pools van de lopende loop en wacht tot hun verbindingen dicht zijn, de uitgeleende ook: hooguit `RETURN_SECONDS`
+    op een lener die zijn verbinding nog niet teruggaf. Voor wie daarna het databasebestand weghaalt (de fabrieksreset)."""
     loop: asyncio.AbstractEventLoop = asyncio.get_running_loop()
     keepers: list[asyncio.Task[None]] = []
     for pool in [pool for pool in _POOLS.values() if pool.loop is loop]:

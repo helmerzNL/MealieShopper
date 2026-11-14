@@ -628,23 +628,23 @@ async def test_a_pooled_read_sees_what_another_connection_committed(data_dir: Pa
     """Een verbinding gaat terug in de pool zonder open transactie: anders zag de volgende lezing de oude stand van de WAL. Een
     lener die er toch een liet openstaan, krijgt zijn verbinding dicht in plaats van terug."""
     assert await auth.get_setting("WEEK_START") == ""
-    async with auth.read() as conn:
-        await conn.execute("BEGIN")
-        await auth.fetchone(conn, "SELECT value FROM app_settings WHERE key = ?", ("WEEK_START",))
-        stale: Any = conn
+    async with auth.read() as reader:
+        await reader._conn.execute("BEGIN")  # wat `Reader` niet aanbiedt: een lener die toch een transactie openliet
+        await auth.fetchone(reader, "SELECT value FROM app_settings WHERE key = ?", ("WEEK_START",))
+        stale: Any = reader._conn
     await auth.set_setting("WEEK_START", "monday")  # via `auth.connect`: een andere verbinding
     assert await auth.get_setting("WEEK_START") == "monday"
-    async with auth.read() as conn:
-        assert conn is not stale
-        assert conn.in_transaction is False
+    async with auth.read() as reader:
+        assert reader._conn is not stale
+        assert reader._conn.in_transaction is False
 
 
 async def test_a_pooled_read_connection_refuses_to_write(data_dir: Path) -> None:
     """`auth.read` is alleen voor lezen (`PRAGMA query_only`): een schrijfopdracht faalt luid, en die verbinding gaat dicht."""
     await auth.ensure_db()
     with pytest.raises(sqlite3.OperationalError, match="readonly"):
-        async with auth.read() as conn:
-            await conn.execute("INSERT INTO app_settings (key, value, updated_at) VALUES ('X', 'Y', 'Z')")
+        async with auth.read() as reader:
+            await reader.fetchone("INSERT INTO app_settings (key, value, updated_at) VALUES ('X', 'Y', 'Z')")
     assert await auth.get_setting("X") == ""
 
 

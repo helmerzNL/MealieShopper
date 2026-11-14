@@ -466,5 +466,41 @@ async def test_the_wipe_closes_the_open_read_connections_before_it_removes_the_f
     assert alive_at_removal == [False]
 
 
+async def test_the_wipe_waits_for_a_read_connection_that_is_borrowed(data_dir: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Review van taak 10b: een leesverbinding die op het moment van de wipe uitgeleend is, ging pas dicht als hij terugkwam, en
+    dan kon dat na het weghalen zijn. Nu wacht de wipe hooguit `readers.RETURN_SECONDS` op hem."""
+    await auth.ensure_db()
+    inside: asyncio.Event = asyncio.Event()
+    started: list[threading.Thread] = []
+    original: Callable[[threading.Thread], None] = threading.Thread.start
+
+    def counted(thread: threading.Thread) -> None:
+        if "_connection_worker_thread" in thread.name:
+            started.append(thread)
+        original(thread)
+
+    async def reading() -> None:
+        async with auth.read() as reader:
+            inside.set()
+            await asyncio.sleep(0.1)
+            await reader.fetchone("SELECT 1")
+
+    alive_at_removal: list[bool] = []
+    remove: Callable[[], list[str]] = factory_reset._remove_files
+
+    def removing() -> list[str]:
+        alive_at_removal.append(started[0].is_alive())
+        return remove()
+
+    monkeypatch.setattr(factory_reset, "_remove_files", removing)
+    with mock.patch.object(threading.Thread, "start", counted):
+        reader_task: asyncio.Task[None] = asyncio.create_task(reading())
+        await inside.wait()
+    assert len(started) == 1
+    await factory_reset.wipe_data()
+    await reader_task
+    assert alive_at_removal == [False]
+
+
 if __name__ == "__main__":
     unittest.main()
