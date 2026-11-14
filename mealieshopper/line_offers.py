@@ -26,11 +26,13 @@ De Prijsgeschiedenis toont zo'n actie apart van de eigen aanbiedingen van het pr
 
 from __future__ import annotations
 
+import heapq
 import re
 from collections.abc import Iterable
-from typing import NamedTuple
+from itertools import combinations
 
 from . import packs, product_links
+from .name_keys import LOCAL_SIZE, PARTS_SIZE, STEM_SIZE, memo
 
 MIN_WORDS: int = 2
 
@@ -121,6 +123,7 @@ _WORD: re.Pattern[str] = re.compile(r"[a-z0-9]+")
 _MULTIPACK: re.Pattern[str] = re.compile(r"\d\s*x\s*\d|\b\d+\s*-?\s*(?:pack|packs|pak|pakken)\b|\bmultipack\b")
 
 
+@memo(STEM_SIZE)
 def _stem(word: str) -> str:
     """Enkelvoud, grof: "pizzas" en "pizza" (uit "pizza's") tellen als hetzelfde woord, net als "soepen" en "soep"."""
     if len(word) > 4 and word.endswith("en"):
@@ -139,9 +142,9 @@ def category_words(category: str | None) -> frozenset[str]:
     return frozenset(word for word in (_stem(part) for part in str(category or "").split("_")) if len(word) >= CATEGORY_WORD_LENGTH)
 
 
-def _tokens(name: str | None) -> list[str]:
+def _tokens(name: str | None) -> tuple[str, ...]:
     folded: str = product_links.fold(name or "")
-    return [word for word in _WORD.findall(folded) if len(word) > 1 and not word.isdigit()]
+    return tuple(word for word in _WORD.findall(folded) if len(word) > 1 and not word.isdigit())
 
 
 def words(name: str | None) -> frozenset[str]:
@@ -152,32 +155,35 @@ def words(name: str | None) -> frozenset[str]:
 _LIST: re.Pattern[str] = re.compile(r",|/|\s(?:en|of)\s")
 
 
-def _significant(text: str) -> list[str]:
-    return [_stem(word) for word in _tokens(text) if word not in _NOT_THE_PRODUCT]
+@memo(LOCAL_SIZE)
+def _significant(text: str) -> tuple[str, ...]:
+    return tuple(_stem(word) for word in _tokens(text) if word not in _NOT_THE_PRODUCT)
 
 
-def _parts(title: str | None) -> list[tuple[frozenset[str], str]]:
-    """De delen van een foldernaam met de woorden die een product voor dat deel moet hebben, en de tekst van het deel."""
+@memo(PARTS_SIZE)
+def _parts(title: str | None) -> tuple[tuple[tuple[str, ...], str], ...]:
+    """De delen van een foldernaam met de woorden die een product voor dat deel moet hebben (gesorteerd en elk een keer), en de
+    tekst van het deel. Gewone tuples van tekst: die volgt de GC na de eerste ronde niet meer, een frozenset wel (zie `Line`)."""
     text: str = str(title or "")
     for prefix in ("Folder: ", "Archief: "):
         text = text.removeprefix(prefix)
-    first: list[str] = _significant(text)[:1]
+    first: tuple[str, ...] = _significant(text)[:1]
     parts: list[str] = [part for part in _LIST.split(product_links.fold(text)) if _significant(part)]
-    found: list[tuple[frozenset[str], str]] = []
+    found: list[tuple[tuple[str, ...], str]] = []
     for part in parts:
         own: frozenset[str] = frozenset(_significant(part))
-        needed: frozenset[str] = own | frozenset(first)
+        needed: tuple[str, ...] = tuple(sorted(own | frozenset(first)))
         if len(parts) > 1 and len(own - frozenset(first)) < MIN_WORDS:
             continue
         if len(needed) >= MIN_WORDS and all(needed != other for other, _ in found):
             found.append((needed, part))
-    return found
+    return tuple(found)
 
 
 def line_alternatives(title: str | None) -> list[frozenset[str]]:
     """De woorden die een product moet hebben om bij een folderactie te horen: een set per deel van een opsomming, elk met het
     eerste woord van de naam erbij. Een deel met te weinig woorden valt weg, een naam die te weinig zegt geeft niets."""
-    return [needed for needed, _ in _parts(title)]
+    return [frozenset(needed) for needed, _ in _parts(title)]
 
 
 def multipack(name: str | None) -> bool:
@@ -194,19 +200,48 @@ def _same_size(one: tuple[float, str], other: tuple[float, str]) -> bool:
     return one[1] == other[1] and abs(one[0] - other[0]) <= 0.005 * max(one[0], other[0])
 
 
-class Line(NamedTuple):
-    product_id: str
-    words: frozenset[str]
-    size: tuple[float, str] | None
-    multipack: bool
+# Een regel van de lijnindex: (product, de woorden die een product moet hebben, gesorteerd, de verpakking, meer verpakkingen
+# samen). Een gewone tuple en geen NamedTuple of frozenset: CPython volgt een tuple met alleen tekst, getallen, None of zulke
+# tuples na de eerste ronde van de GC niet meer, en een volle ronde loopt dan niet langs de tienduizenden regels van AH
+# (gc_watch.py). Een NamedTuple en een frozenset volgt hij altijd.
+Line = tuple[str, tuple[str, ...], tuple[float, str] | None, bool]
+
+
+Pair = tuple[str, str]
+
+
+def _rank(word: str) -> tuple[int, str]:
+    """De volgorde van de woorden in de index: het langste eerst, bij gelijke lengte het laatste in het alfabet."""
+    return len(word), word
+
+
+def _top_two(needed: Iterable[str]) -> Pair:
+    """De eerste twee woorden op `_rank`: de sleutel van een regel in `LineIndex._pairs`. Een regel heeft er minstens twee."""
+    first, second = sorted(needed, key=_rank, reverse=True)[:2]
+    return first, second
+
+
+def _grouped(entries: Iterable[tuple[Pair, Line]]) -> dict[Pair, tuple[Line, ...]]:
+    """Regels per sleutel, in tuples: die volgt de GC na de eerste ronde niet meer, een lijst wel."""
+    found: dict[Pair, list[Line]] = {}
+    for key, line in entries:
+        found.setdefault(key, []).append(line)
+    return {key: tuple(lines) for key, lines in found.items()}
 
 
 class LineIndex:
-    """De folderproducten van een winkel, op hun langste woord: een product zoekt alleen bij zijn eigen woorden."""
+    """De folderproducten van een winkel, op hun langste woord: een product zoekt alleen bij zijn eigen woorden.
 
-    def __init__(self, folder_products: Iterable[tuple[str, str]]) -> None:
+    De index zoekt de regels ook uit op hun twee langste woorden (`_pairs`). Een product kijkt dan alleen naar de regels waarvan die
+    twee woorden in zijn naam staan, en niet naar elke regel met een van zijn woorden: op de volumedatabase scheelt dat voor de
+    aanbiedingen van een week 2,7 miljoen keer `_fits`.
+
+    Alles wordt bij het bouwen uitgezocht, ook de regels per categoriewoord van `kinds` (`_ending`): daarna leest de index alleen
+    nog. Zo schrijft een thread van `compute.run` (`prices._lines_wanted`) niet in een index die een andere thread leest. Bij AH
+    kost dat in de bouw van de catalogus (`prices._line_index`) zo'n 25 ms voor de paren en 20 tot 70 ms voor de 26 woorden."""
+
+    def __init__(self, folder_products: Iterable[tuple[str, str]], kinds: Iterable[str] = ()) -> None:
         self._by_word: dict[str, list[Line]] = {}
-        self._by_ending: dict[str, list[Line]] = {}  # categoriewoord -> de regels met een woord dat erop eindigt, zie `_ending`
         seen: set[str] = set()
         for product_id, title in folder_products:
             if product_id in seen:
@@ -214,16 +249,46 @@ class LineIndex:
             seen.add(product_id)
             for needed, part in _parts(title):
                 key: str = max(needed, key=lambda word: (len(word), word))
-                self._by_word.setdefault(key, []).append(Line(product_id, needed, _size(part), multipack(part)))
+                self._by_word.setdefault(key, []).append((product_id, needed, _size(part), multipack(part)))
+        lines: list[Line] = [line for found in self._by_word.values() for line in found]
+        self._vocabulary: frozenset[str] = frozenset(word for line in lines for word in line[1])  # elk woord van een regel
+        self._by_pair: dict[Pair, tuple[Line, ...]] = _grouped((_top_two(line[1]), line) for line in lines)  # `_pairs`
+        # Categoriewoord -> regels op hun andere woorden, zie `_ending`.
+        self._by_ending: dict[str, dict[Pair, tuple[Line, ...]]] = {kind: self._ending_lines(kind) for kind in kinds}
 
     def __len__(self) -> int:
         return sum(len(lines) for lines in self._by_word.values())
 
-    def _ending(self, kind: str) -> list[Line]:
-        """De regels met een woord dat op een categoriewoord eindigt ("bakkersbrood" op "brood"), een keer uitgezocht per woord."""
-        if kind not in self._by_ending:
-            self._by_ending[kind] = [line for lines in self._by_word.values() for line in lines if any(word.endswith(kind) for word in line.words)]
-        return self._by_ending[kind]
+    def _pairs(self) -> dict[Pair, tuple[Line, ...]]:
+        """Elke regel op zijn twee langste woorden (`_top_two`), uitgezocht bij het bouwen. Een regel past alleen als al zijn
+        woorden in de naam staan (`_fits` zonder categorie), dus ook die twee."""
+        return self._by_pair
+
+    def _ending_lines(self, kind: str) -> dict[Pair, tuple[Line, ...]]:
+        """De regels met een woord dat op een categoriewoord eindigt ("bakkersbrood" op "brood"), op de twee langste van hun andere
+        woorden. Zo'n regel past met dat ene woord buiten de naam (`_fits` met categorie), dus dan staan de andere woorden er wel
+        in. Alleen regels met genoeg andere woorden (`NAMED_WORDS`): met minder past een regel alleen met al zijn woorden in de
+        naam, en die vindt `_pairs` al."""
+        ending: frozenset[str] = frozenset(word for word in self._vocabulary if word.endswith(kind))
+        return _grouped(
+            (key, line)
+            for found in (self._by_word.values() if ending else ())
+            for line in found
+            if len(line[1]) - 1 >= NAMED_WORDS and not ending.isdisjoint(line[1])
+            for key in {_top_two(word for word in line[1] if word != outside) for outside in line[1] if outside in ending}
+        )
+
+    def _ending(self, kind: str) -> dict[Pair, tuple[Line, ...]]:
+        """`_ending_lines` van een categoriewoord: van de woorden die bij het bouwen zijn uitgezocht (`kinds`) uit de index, van een
+        ander woord (een categorie die niet in `offer_categories.CATEGORIES` staat) elke keer opnieuw, zonder het te bewaren."""
+        found: dict[Pair, tuple[Line, ...]] | None = self._by_ending.get(kind)
+        return found if found is not None else self._ending_lines(kind)
+
+    def _pairs_of(self, have: frozenset[str]) -> list[Pair]:
+        """De paren van woorden van een naam die een sleutel van `_pairs` of `_ending` kunnen zijn: alleen woorden die in een
+        regel voorkomen (`_vocabulary`), en op de volgorde van `_rank`, zoals `_top_two` ze zet."""
+        ranked: list[str] = sorted(have & self._vocabulary, key=_rank, reverse=True)
+        return list(combinations(ranked, 2))
 
     def _fits(
         self,
@@ -233,26 +298,29 @@ class LineIndex:
         sizes: list[tuple[float, str]],
         kinds: frozenset[str] = frozenset(),
     ) -> bool:
-        missing: frozenset[str] = line.words - have
+        _, needed, size, line_several = line
+        missing: list[str] = [word for word in needed if word not in have]
         named: bool = not missing or (
-            len(missing) == 1 and len(line.words & have) >= NAMED_WORDS and all(any(word.endswith(kind) for kind in kinds) for word in missing)
+            len(missing) == 1 and len(needed) - 1 >= NAMED_WORDS and all(any(word.endswith(kind) for kind in kinds) for word in missing)
         )
-        if line.multipack != several or not named or (have & ORGANIC and not line.words & ORGANIC):
+        if line_several != several or not named or (have & ORGANIC and not ORGANIC.intersection(needed)):
             return False
-        return line.size is None or not sizes or any(_same_size(line.size, size) for size in sizes)
+        return size is None or not sizes or any(_same_size(size, known) for known in sizes)
 
     def lines_for(self, names: Iterable[str], sizes: Iterable[tuple[float, str]] = (), kinds: frozenset[str] = frozenset()) -> list[str]:
         """De folderproducten waarvan elk woord in een van de namen staat, en waarvan de verpakking (als hij er een noemt) bij
         een van de verpakkingen past (als die bekend zijn). Gesorteerd, zodat de uitkomst vastligt."""
         known_sizes: list[tuple[float, str]] = list(sizes)
         found: set[str] = set()
+        by_pair: dict[Pair, tuple[Line, ...]] = self._pairs()
+        endings: list[dict[Pair, tuple[Line, ...]]] = [ending for ending in (self._ending(kind) for kind in kinds) if ending]
         for name in names:
             have: frozenset[str] = words(name)
             several: bool = multipack(name)
-            for word in have:
-                found.update(line.product_id for line in self._by_word.get(word, ()) if self._fits(line, have, several, known_sizes))
-            for kind in kinds:  # een woord van de regel noemt de categorie van het product (`category_words`)
-                found.update(line.product_id for line in self._ending(kind) if self._fits(line, have, several, known_sizes, kinds))
+            for pair in self._pairs_of(have):
+                found.update(line[0] for line in by_pair.get(pair, ()) if self._fits(line, have, several, known_sizes))
+                for ending in endings:  # een woord van de regel noemt de categorie van het product (`category_words`)
+                    found.update(line[0] for line in ending.get(pair, ()) if self._fits(line, have, several, known_sizes, kinds))
         return sorted(found)
 
 
@@ -330,11 +398,13 @@ def _median(values: list[float]) -> float | None:
     return ordered[middle] if len(ordered) % 2 else (ordered[middle - 1] + ordered[middle]) / 2
 
 
-def _local_regular(regulars: list[tuple[str, float]], day: str) -> float | None:
-    """De gewone prijs rond een dag: de mediaan van de `NEIGHBOURS` lijnacties met een gewone prijs die er het dichtst bij liggen."""
+def _local_regular(regulars: list[tuple[int, float]], day: int) -> float | None:
+    """De gewone prijs rond een dag: de mediaan van de `NEIGHBOURS` lijnacties met een gewone prijs die er het dichtst bij liggen.
+    De dagen zijn al getallen (`_days`): `per_piece` rekent ze een keer uit en niet bij elke vergelijking. `heapq.nsmallest` geeft
+    dezelfde buren als `sorted(...)[:NEIGHBOURS]`, bij een gelijke afstand ook de eerste in de lijst."""
     if not regulars:
         return None
-    nearest = sorted(regulars, key=lambda item: abs(_days(item[0]) - _days(day)))[:NEIGHBOURS]
+    nearest: list[tuple[int, float]] = heapq.nsmallest(NEIGHBOURS, regulars, key=lambda item: abs(item[0] - day))
     return _median([value for _, value in nearest])
 
 
@@ -370,10 +440,10 @@ def per_piece(lines: list[dict]) -> list[dict]:
         first.append(({**line, "priceSource": source}, price, regular, free, factor))
     plain = [(str(line["start"]), regular) for line, _, regular, _, _ in first if regular is not None]
     typical_all = _median([value for _, value in plain])
-    corrected = [(day, _as_pieces(value, typical_all)[0]) for day, value in plain]
+    corrected: list[tuple[int, float]] = [(_days(day), _as_pieces(value, typical_all)[0]) for day, value in plain]
     result: list[dict] = []
     for line, price, regular, free, factor in first:
-        typical = _local_regular(corrected, str(line["start"]))
+        typical = _local_regular(corrected, _days(str(line["start"])))
         regular, pieces = _as_pieces(regular, typical)
         if price is not None and pieces > 1 and line["priceSource"] == "total":
             price = price / pieces

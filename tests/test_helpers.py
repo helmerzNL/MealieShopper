@@ -2,9 +2,12 @@
 
 import asyncio
 import io
+import unittest
 
 from helpers import AppClient, AppTestCase
 from quart import Quart, Response, make_response, request
+
+from mealieshopper import tasks
 
 
 def echo_app() -> Quart:
@@ -80,3 +83,22 @@ class AppClientTest(AppTestCase):
         other: AppClient = self.client_for(self.app)
         first, second = await asyncio.gather(self.client.get("/echo"), other.get("/echo"))
         self.assertEqual((first.get_json()["started"], second.get_json()["started"]), (1, 1), "een start, en die is klaar")
+
+
+def test_a_background_task_is_stopped_before_the_cleanups() -> None:
+    """Taak 9c: een test van de dagelijkse run (`offers_schedule.run_all`) start tasks die hij niet afwacht (`warm-offers`,
+    `loose-names`). Die liepen nog toen de opruimer van de test zijn tijdelijke map weggooide, en hun verbinding met de database
+    maakte daar net een WAL-bestand: "Directory not empty". `AppTestCase` stopt ze nu eerst (`tasks.cancel_all`)."""
+    seen: list[bool] = []
+
+    class Case(AppTestCase):
+        def setUp(self) -> None:
+            self.addCleanup(lambda: seen.append(self.task.done()))  # zoals `tmp.cleanup`: loopt na de test
+
+        async def test_spawn(self) -> None:
+            self.task: asyncio.Task[object] = tasks.spawn("lang", asyncio.Event().wait())
+
+    result: unittest.TestResult = unittest.TestResult()
+    Case("test_spawn").run(result)
+    assert result.wasSuccessful(), result.errors
+    assert seen == [True]

@@ -1,7 +1,9 @@
 import hashlib
 import inspect
+import json
 import mimetypes
 import sqlite3
+import sys
 from collections.abc import Awaitable, Callable, Iterable
 from datetime import date, timedelta
 from os import environ
@@ -11,6 +13,7 @@ from urllib.parse import quote_plus
 
 import httpx
 from quart import Quart, Response, jsonify, redirect, render_template, request, send_file, send_from_directory
+from quart.json.provider import DefaultJSONProvider
 
 from . import (
     about,
@@ -28,6 +31,8 @@ from . import (
     auth_password,
     backup,
     cart_memory,
+    compression,
+    compute,
     crisp,
     crisp_orders,
     deals,
@@ -68,6 +73,7 @@ from . import (
     shared_links,
     shared_links_export,
     tasks,
+    telemetry,
     updates,
     urls,
     users,
@@ -130,6 +136,19 @@ AH_PROXY_BLOCKED_RESPONSE_HEADERS: frozenset[str] = frozenset(
 )
 
 
+def json_bytes(data: Any) -> bytes:
+    """`data` als JSON-bytes, precies zoals `jsonify` ze buiten de debugmodus verstuurt: met de instellingen van de standaard
+    JSON-provider (ASCII, gesorteerde sleutels en de extra typen van Quart), zonder spaties en met een regeleinde erachter. In de
+    debugmodus springt `jsonify` in, dit niet.
+
+    De winst zit in de cache: /api/offers maakt de bytes een keer per ETag en `ResponseCache` bewaart ze, zodat elke volgende
+    aanvraag ze alleen verstuurt. Dat het in een thread van `compute.run` loopt, scheelt minder dan het lijkt: de encoder van
+    `json` is in C geschreven en houdt de GIL vast zolang hij een lijst omzet."""
+    provider: type[DefaultJSONProvider] = DefaultJSONProvider
+    text: str = json.dumps(data, default=provider.default, ensure_ascii=provider.ensure_ascii, sort_keys=provider.sort_keys, separators=(",", ":"))
+    return f"{text}\n".encode()
+
+
 def _ah_proxy_cookie(headers: Iterable[str]) -> str | None:
     """De Cookie-header voor AH uit alle Cookie-headers van de browser (over HTTP/2 elke cookie apart): zonder de eigen
     cookies van MealieShopper (`ms_`), of None als er niets overblijft."""
@@ -145,7 +164,18 @@ def _ah_proxy_cookie(headers: Iterable[str]) -> str | None:
     return "; ".join(kept) or None
 
 
+# Het wisselinterval van de GIL (`sys.setswitchinterval`), standaard 5 ms. Laat de event loop de GIL los in een
+# systeemaanroep terwijl een rekenthread of een thread van aiosqlite Python draait, dan krijgt de loop hem pas na dit interval
+# terug: het konvooi van loop_guard.py. Gemeten onder hypercorn op de volumedatabase met drie processen die elk een kern bezet
+# hielden, vijf runs per waarde (taak 9c): de langste vasthouding van de loop ging op 3.15 van 94,7 ms (5 ms) naar 64,6 ms
+# (1 ms), en de vasthoudingen van 50 ms of langer van 7,0 naar 1,2 per run. Op 3.12 van 73,6 naar 39,9 ms. Zonder belasting
+# bleven de koude aanbiedingen van AH, het opnieuw beoordelen, de prijsgeschiedenis en de bouw van de catalogi binnen 3 %.
+# 0,5 ms was op 3.15 niet beter (76,8 ms), en een rekenpool van een thread slechter.
+SWITCH_INTERVAL_SECONDS: float = 0.001
+
+
 def create_app() -> Quart:
+    sys.setswitchinterval(SWITCH_INTERVAL_SECONDS)  # hier, want run.py en hypercorn (run:app) starten allebei via create_app
     app = Quart(__name__, template_folder="../templates", static_folder="../static")
     # De versie van de statische bestanden: uit hun inhoud (assets.py), tenzij MEALIESHOPPER_ASSET_VERSION hem vastzet.
     app.config["ASSET_VERSION"] = environ.get("MEALIESHOPPER_ASSET_VERSION") or assets.asset_version(Path(app.static_folder or "static"))
@@ -159,10 +189,14 @@ def create_app() -> Quart:
     app.request_class = SizedRequest
     app.config["MAX_CONTENT_LENGTH"] = DEFAULT_MAX_BODY
     app.config["BODY_TIMEOUT"] = 120
+    # Tekst (JSON, scripts, stijlen) gaat met gzip naar de browser: de lijst met aanbiedingen is anders 3,7 MB (compression.py).
+    compression.register(app)
     app.config["RESPONSE_TIMEOUT"] = 120
     # Achter de reverse proxy: schema, host en client-adres uit X-Forwarded-* (een hop), zoals ProxyFix voorheen. Daarbinnen,
     # direct om Quart: een handler maakt zijn werk af als de client weggaat (keep_running.py), zoals een thread onder 3.x.
     app.asgi_app = ForwardedHeaders(FinishAfterDisconnect(app.asgi_app))  # type: ignore[method-assign]
+    # Met MEALIESHOPPER_TELEMETRY: de duur van elke aanvraag, buiten om de rest heen en voor de eerste before_request (telemetry.py).
+    telemetry.register(app)
     # De receptvoorstellen bij Aanbiedingen staan standaard verborgen zolang de koppelingen niet goed genoeg zijn.
     app.config["OFFERS_RECIPES"] = environ.get("MEALIESHOPPER_OFFERS_RECIPES", "false").strip().lower() in {"1", "true", "yes", "on"}
 
@@ -804,13 +838,25 @@ def create_app() -> Quart:
     # --- aanbiedingen en receptvoorstellen: lezen uit de lokale kopie, vernieuwen op verzoek ----------------
 
     offers_cache = ResponseCache()
+    app.extensions["mealieshopper_offers_cache"] = offers_cache
+    offers_cache_release: list[Callable[[], None]] = []
+
+    @app.before_serving
+    async def _remember_offers_cache() -> None:
+        # Na het terugzetten van een back-up of een fabrieksreset staat er geen lijst van de oude database meer in het geheugen.
+        offers_cache_release.append(auth.remember_cache(offers_cache.clear))
+
+    @app.after_serving
+    async def _release_offers_cache() -> None:
+        while offers_cache_release:
+            offers_cache_release.pop()()
 
     async def offers_action(action: Callable[[], Any], error_text: str) -> Response | tuple[Response, int]:
         try:
             result: Any = action()
             if inspect.isawaitable(result):
                 result = await result
-            return jsonify(result)
+            return result if isinstance(result, Response) else jsonify(result)
         except ValueError as exc:
             return jsonify({"error": str(exc)}), 400
         except Exception as exc:  # noqa: BLE001 - winkels zijn onofficieel; toon de fout, de bewaarde kopie blijft staan
@@ -822,8 +868,10 @@ def create_app() -> Quart:
         return request.args.get("week") or date.today().isoformat()
 
     async def offers_etag(store: str, week: str) -> str:
-        """De ETag van de lijst: de synchronisatie, de dag, de week, de build en de catalogus van de prijsgeschiedenis."""
-        return hashlib.sha1(f"{await offers.signature(store, week)}|{await prices.signature(store)}".encode("utf-8")).hexdigest()
+        """De ETag van de lijst: de synchronisatie, de dag, de week, de build, de catalogus van de prijsgeschiedenis van de winkel en
+        de prijzen die het oordeel raken (`prices.offers_signature`). Een prijs van een ander product laat hem staan."""
+        listed: str = await offers.signature(store, week)
+        return hashlib.sha1(f"{listed}|{await prices.offers_signature(store)}".encode("utf-8")).hexdigest()
 
     def offers_cache_key(store: str, week: str) -> tuple[str, str]:
         """De sleutel van de cache: de maandag van de week, want de browser vraagt ?week=<maandag> en de opwarmer rekent met vandaag."""
@@ -835,6 +883,15 @@ def create_app() -> Quart:
         data["packMargin"] = prices.PACK_MARGIN  # de client vergelijkt verpakkingen per eenheid met dezelfde marge
         return data
 
+    async def offers_body(store: str, week: str) -> bytes:
+        """De lijst met oordeel als de bytes die /api/offers verstuurt: een keer naar JSON per ETag, buiten de event loop."""
+        return await compute.run(json_bytes, await offers_with_verdicts(store, week))
+
+    async def offers_response(store: str, week: str, etag: str) -> Response:
+        """De lijst uit de cache van /api/offers (response_cache.py), of uitgerekend als die er voor deze ETag nog niet is."""
+        body: bytes = await offers_cache.get(offers_cache_key(store, week), etag, lambda: offers_body(store, week))
+        return Response(body, mimetype="application/json")
+
     async def warm_offers(stores: tuple[str, ...] | None = None) -> None:
         """Rekent de lijst met oordeel van elke winkel (of van `stores`) alvast uit voor deze week en de volgende, in de cache van
         /api/offers. Na een synchronisatie (offers_schedule, of de knop per winkel) en bij de start, zodat de eerste bezoeker er
@@ -844,7 +901,7 @@ def create_app() -> Quart:
             for week in (today.isoformat(), (today + timedelta(days=7)).isoformat()):
                 try:
                     etag = await offers_etag(store, week)
-                    await offers_cache.get(offers_cache_key(store, week), etag, lambda: offers_with_verdicts(store, week))
+                    await offers_cache.get(offers_cache_key(store, week), etag, lambda: offers_body(store, week))
                 except Exception:  # noqa: BLE001 - opwarmen is een extraatje
                     app.logger.warning("Aanbiedingen van %s opwarmen mislukt", store, exc_info=True)
 
@@ -856,6 +913,10 @@ def create_app() -> Quart:
         # Een gestopte app laat haar opwarmer los, zodat de tests (veel apps na elkaar) niet met een oude blijven zitten.
         if offers_schedule._warmer is warm_offers:
             offers_schedule.set_warmer(None)
+
+    @app.after_serving
+    async def _stop_compute() -> None:
+        await compute.stop()
 
     async def warm_at_start() -> None:
         await prices.warm_catalogues()
@@ -877,10 +938,7 @@ def create_app() -> Quart:
 
         # Dezelfde ETag is dezelfde lijst: een tweede browser of apparaat, en aanvragen die tegelijk binnenkomen, krijgen de lijst die
         # er al ligt of op komst is, in plaats van het prijsoordeel opnieuw uit te rekenen (response_cache.py).
-        response = await offers_action(
-            lambda: offers_cache.get(offers_cache_key(store, week), etag, lambda: offers_with_verdicts(store, week)),
-            tr("Aanbiedingen laden mislukt", "Loading the offers failed"),
-        )
+        response = await offers_action(lambda: offers_response(store, week, etag), tr("Aanbiedingen laden mislukt", "Loading the offers failed"))
         if isinstance(response, Response) and response.status_code == 200:
             response.headers.update(headers)
         return response
@@ -2422,6 +2480,7 @@ def create_app() -> Quart:
 
         return response
 
+    tasks.log_when_stopped(app)  # als laatste: de regel "afgesloten" komt na elke andere stap van `after_serving`
     return app
 
 

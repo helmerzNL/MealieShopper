@@ -528,6 +528,7 @@ def start() -> None:
     if _task is not None and not _task.done():
         return
     _wake = asyncio.Event()
+    # Niet zwaar: de lopende kooktimers (een handvol rijen), per timer een push over het netwerk en een rij (taak 10).
     _task = tasks.spawn("cook-push", _loop(_wake))
 
 

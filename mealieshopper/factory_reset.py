@@ -24,7 +24,7 @@ from typing import Any
 
 from quart import Quart, jsonify
 
-from . import auth, auth_password, backup, price_archive, request_body
+from . import audit, auth, auth_password, backup, price_archive, request_body
 from .i18n import tr
 
 CONFIRM_PHRASE = "RESET"
@@ -52,6 +52,10 @@ async def wipe_data() -> list[str]:
     Het werk op schijf loopt in een thread: de afbeeldingencache kan duizenden bestanden bevatten. Daarna vergeet auth
     wat het onthield, op de event loop.
     """
+    # Voor het weghalen: een open verbinding met het oude bestand kan bij het sluiten de nieuwe WAL wissen. Een uitgeleende
+    # leesverbinding wacht hij hooguit `readers.RETURN_SECONDS` af, de schrijver van het auditlog `audit.CLOSE_WRITER_SECONDS`.
+    await auth.close_readers()
+    await audit.close_writer()
     removed: list[str] = await asyncio.to_thread(_remove_files)
     auth.forget_runtime_state()  # zonder herstart maakt de volgende aanvraag een nieuwe, lege database
     return removed

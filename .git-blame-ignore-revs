@@ -4,3 +4,6 @@
 
 # style: het hele project door ruff check --fix en ruff format, zonder handwerk
 83cd257ffb50631fb2c3b675a0287679498b522d
+
+# style: opmaak zoals beta (ruff), dezelfde opmaak op de branch prijsindex-ah voor het samenvoegen met beta
+7305fd4a44eb843b55f688dda3b152f3364019ce

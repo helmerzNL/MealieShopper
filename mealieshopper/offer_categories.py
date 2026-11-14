@@ -11,6 +11,8 @@ import re
 import unicodedata
 from typing import Any
 
+from .name_keys import CATEGORY_SIZE, OFFER_CATEGORY_SIZE, TextMemo, memo
+
 # De volgorde van deze lijst is de volgorde waarin categorieën met hetzelfde aantal aanbiedingen worden getoond.
 CATEGORIES = (
     "groente_fruit",
@@ -142,6 +144,7 @@ def _fold(value: Any) -> str:
     return "".join(ch for ch in text if not unicodedata.combining(ch))
 
 
+@memo(CATEGORY_SIZE)
 def categorize(title: Any, hint: Any = "") -> str:
     """De categorie van een aanbieding: eerst op de titel, daarna op de hint van de winkel, anders `overig`."""
     for text in (_fold(title), _fold(hint)):
@@ -177,6 +180,11 @@ def offer_category(store: str, title: Any, hint: Any = "") -> str:
         if found:
             return found
     return categorize(title, hint)
+
+
+# De winkel, de titel en de hint geven samen een categorie. Een hint die geen tekst is (nooit: de winkels geven tekst) wordt hier tekst
+# voordat `_taxonomy_category` hem ziet, en dat zoekt dan een taxonomienaam als "5" zonder treffer.
+offer_category = TextMemo(offer_category, OFFER_CATEGORY_SIZE)
 
 
 def purchase_category(store: str, taxonomy: Any, title: Any, hint: Any = "") -> str:

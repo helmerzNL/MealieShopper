@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import sys
 from collections.abc import AsyncIterator, Callable, Iterator
 from pathlib import Path
 
@@ -212,3 +213,20 @@ async def test_a_session_cookie_never_reaches_the_shared_client(respx_mock: resp
         await page.get(CONSENT)
         await http_client.client("test").get(PAGE)
     assert "Cookie" not in shared.calls.last.request.headers
+
+
+def test_httpcore_does_not_search_sys_path_for_sniffio_on_every_call(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Taak 9c: zonder sniffio zocht `current_async_library` van httpcore bij elke aanroep sys.path af, met een stat per map op
+    de event loop. Na het laden van http_client raakt die vraag de import-machine niet meer."""
+    searched: list[str] = []
+
+    class Spy:
+        @staticmethod
+        def find_spec(name: str, path: object = None, target: object = None) -> None:
+            searched.append(name)
+
+    monkeypatch.setattr(sys, "meta_path", [Spy, *sys.meta_path])
+    from httpcore._synchronization import current_async_library
+
+    assert [current_async_library() for _ in range(3)] == ["asyncio"] * 3
+    assert "sniffio" not in searched

@@ -4,6 +4,7 @@ import unittest
 
 from helpers import db  # noqa: F401 - zet het pad naar de app
 
+from mealieshopper import line_offers, prices
 from mealieshopper.line_offers import LineIndex, line_alternatives, per_piece
 
 PIZZA: str = "Dr. Oetker Casa di Mama pizza salame extra piccante"
@@ -72,6 +73,24 @@ class LinesForTest(unittest.TestCase):
         titles = ["Alle Coca-Cola 4-packs", "Coca-Cola 6 x 330 ml", "Coca-Cola"]
         self.assertEqual(matches(titles, "Coca-Cola Original 1,5 liter", ((1500.0, "volume"),)), ["Coca-Cola"])
         self.assertEqual(matches(titles, "Coca-Cola Original 4 x 1,5 liter", ((6000.0, "volume"),)), ["Alle Coca-Cola 4-packs"])
+
+    def test_the_index_of_a_catalogue_is_not_written_after_it_is_built(self) -> None:
+        # De threads van `compute.run` lezen de index tegelijk (`prices._lines_wanted`): alles staat er al in na `_line_index`.
+        index: LineIndex = prices._line_index(
+            [
+                ("folder:1", "Folder: Alle AH Bakkersbrood Les Pains heel"),
+                ("folder:3", "Folder: AH Les Pains heel"),
+                ("folder:5", "Folder: Alle AH Bakkersbrood tijgerbrood heel"),
+            ]
+        )
+        before: dict[str, int] = {name: id(value) for name, value in vars(index).items()}
+        endings: dict[str, int] = {kind: id(found) for kind, found in index._by_ending.items()}
+        self.assertLessEqual({"brood", "bakkerij", "vlee"}, set(endings))
+        bread: frozenset[str] = line_offers.category_words("brood_bakkerij")
+        self.assertEqual(index.lines_for(["ah les pains triomphe heel ah"], (), bread), ["folder:1", "folder:3"])
+        self.assertEqual(index.lines_for(["ah les pains triomphe heel ah"], (), frozenset({"onbekend"})), ["folder:3"])
+        self.assertEqual({name: id(value) for name, value in vars(index).items()}, before)
+        self.assertEqual({kind: id(found) for kind, found in index._by_ending.items()}, endings, "een ander woord wordt niet bewaard")
 
 
 def line(start: str, label: str, price: float | None = None, before: float | None = None) -> dict:

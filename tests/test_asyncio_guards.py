@@ -32,6 +32,14 @@ SOURCE: Path = Path(__file__).resolve().parent.parent / "mealieshopper"
 # Wat in geen enkele module meer mag staan: requests, threads en een slaap die de event loop vasthoudt.
 FORBIDDEN: tuple[str, ...] = ("import requests", "from requests", "threading.Thread(", "threading.Lock(", "ThreadPoolExecutor", "time.sleep(")
 
+# De bewaker van de event loop (loop_guard.py) draait juist in een eigen thread: een taak op de loop kan zichzelf niet betrappen.
+THREAD_ALLOWED: frozenset[str] = frozenset({"loop_guard.py", "compute.py", "name_keys.py"})
+# Wat die modules daarvoor mogen gebruiken. compute.py heeft een eigen pool van daemonthreads (`compute.run`) met een slot om het
+# maken ervan, dat alleen microseconden wordt vastgehouden. name_keys.py heeft een slot in `TextMemo` om het weghalen en wisselen
+# van een generatie, alleen bij een misser: twee rekenthreads mogen de volgorde niet tegelijk inkorten. Het slot wordt hooguit een
+# paar ms vastgehouden (de kopie van een volle generatie als tuple). Een `ThreadPoolExecutor` of `time.sleep` blijft ook daar verboden.
+THREAD_PATTERNS: tuple[str, ...] = ("threading.Thread(", "threading.Lock(")
+
 # Waar `asyncio.to_thread` mag: alleen rond rekenwerk en ander werk dat geen await kent (zie regels.md).
 TO_THREAD_ALLOWED: dict[str, str] = {
     "image_cache.py": "Pillow meet een afbeelding",
@@ -42,9 +50,11 @@ TO_THREAD_ALLOWED: dict[str, str] = {
     "about.py": "git rev-parse (subprocess) voor de commit",
     "audit.py": "de export van tot 5000 regels als JSON of CSV",
     "factory_reset.py": "de afbeeldingencache wissen (shutil.rmtree over duizenden bestanden)",
+    "compression.py": "een antwoord met tekst verpakken met gzip (de lijst met aanbiedingen is 3,7 MB)",
     "price_archive_sync.py": "begrensde JSON-documenten valideren en per document in SQLite invoegen, met checkpoints en lease",
     "price_archive.py": "een prijsarchief uitpakken en controleren, invoegen en exporteren (zip, tar, gzip, tot een miljoen regels)",
     "uploads.py": "een stuk van een upload (tot 4 MB) naar schijf schrijven",
+    "telemetry.py": "bij het afsluiten wachten tot de thread van de bewaker stopt (Thread.join, hooguit loop_guard.JOIN_TIMEOUT)",
 }
 
 # Waar `sqlite3.connect(` mag: in thread_db, de verbinding voor de fasen van de back-up en het prijsarchief, die als geheel in
@@ -91,11 +101,13 @@ THREAD_ONLY: frozenset[str] = frozenset(
                 "replace_everything",
                 "read_plan",
                 "read_file",
+                "_read_file",
                 "_schema_copy",
                 "unseal",
                 "_check_staged",
             )
         ),
+        "json_pieces.loads",
         *(f"price_archive_sync.{name}" for name in ("_claim", "_renew", "_release", "_unchanged", "_document_rows", "_import_document")),
         "thread_db.connect",
         "price_archive.apply",
@@ -214,7 +226,7 @@ def test_no_module_uses_requests_threading_or_blocking_sleep() -> None:
         f"{name}:{number}: {code.strip()}"
         for name, text in modules()
         for number, code in code_lines(text)
-        if any(pattern in code for pattern in FORBIDDEN)
+        if any(pattern in code for pattern in FORBIDDEN if not (name in THREAD_ALLOWED and pattern in THREAD_PATTERNS))
     ]
     assert found == []
     # Ook als requests ergens anders in de omgeving staat: met requests onvindbaar laadt de app gewoon.

@@ -20,7 +20,7 @@ os.environ["PASSKEY_AUTH_ENABLED"] = "false"
 
 from helpers import AppTestCase, db, in_db, run, start_app  # noqa: E402
 
-from mealieshopper import ah, ah_orders, auth, image_cache, offers, tasks  # noqa: E402
+from mealieshopper import ah, ah_orders, auth, image_cache, offers, readers, tasks  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
 
 AH = "https://static.ah.nl/dam/product/AHI_4354523130323030333238?revLabel=1&rendition=800x800_WEBP&fileType=binary"
@@ -104,6 +104,27 @@ class StoreOffTheLoopTest(FetchCase):
         self.assertTrue(row and row["path"])
         self.assertEqual(len(seen), 1)
         self.assertNotEqual(seen[0], loop_thread)
+
+
+class LookupThreadsTest(Case):
+    async def test_twenty_lookups_start_at_most_a_few_threads(self) -> None:
+        """Taak 10b: een pagina met aanbiedingen vraagt honderden foto's, en `lookup` opende per foto een eigen `auth.connect`,
+        dus een thread (op de loop wacht `Thread.start` tot die draait). Nu leest hij over `auth.read`: twintig lookups, tegelijk
+        en na elkaar, starten hooguit `readers.READERS_KEPT` threads."""
+        await image_cache.lookup(AH)  # het schema, een keer per database
+        started: list[threading.Thread] = []
+        original = threading.Thread.start
+
+        def counted(thread: threading.Thread) -> None:
+            if "_connection_worker_thread" in thread.name:
+                started.append(thread)
+            original(thread)
+
+        with mock.patch.object(threading.Thread, "start", counted):
+            await asyncio.gather(*(image_cache.lookup(f"{AH}?n={number}") for number in range(10)))
+            for number in range(10):
+                await image_cache.lookup(f"{AH}?m={number}")
+        self.assertLessEqual(len(started), readers.READERS_KEPT, started)
 
 
 class HostsAndTokensTest(Case):

@@ -318,6 +318,7 @@ async def start(
         finishedAt="",
     )
     if background:
+        # Niet zwaar: per gekozen recept verzoeken aan de winkel en aan Mealie, de stand staat in het geheugen (taak 10).
         tasks.spawn("recipe-bulk", _run(plan)).add_done_callback(_on_cancelled)
     else:
         await _run(plan)

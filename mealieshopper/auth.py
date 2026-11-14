@@ -3,8 +3,11 @@ from __future__ import annotations
 import asyncio
 import base64
 import hashlib
+import logging
 import os
 import secrets
+import sqlite3
+import time
 import weakref
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
@@ -19,7 +22,7 @@ from quart import Quart, g, jsonify, make_response, request
 from webauthn import verify_authentication_response, verify_registration_response
 from webauthn.helpers.cose import COSEAlgorithmIdentifier
 
-from . import request_body
+from . import readers, request_body, telemetry
 from .i18n import tr
 
 OWNER_ID = "owner"  # de eerste gebruiker is de beheerder; alle anderen zijn gewone gebruikers
@@ -31,12 +34,17 @@ SESSION_RENEW_AFTER_SECONDS = 24 * 60 * 60
 # Hoe lang een sessie hooguit verlengd wordt, gerekend vanaf de inlog (`auth_time`): daarna log je hoe dan ook opnieuw in.
 SESSION_ABSOLUTE_SECONDS = 365 * 24 * 60 * 60
 _INITIALIZED = False
+BUSY_SECONDS: float = 30.0  # zo lang wacht een verbinding op het slot van een andere schrijver (sqlite3 zelf: 5 s)
+log: logging.Logger = logging.getLogger(__name__)
 
 # De schema's die dit proces al aanmaakte, per database-pad: elke module maakt haar tabellen, indexen en migraties een keer per
 # proces, niet bij elke verbinding. `forget_runtime_state` wist het, zodat een nieuwe database na een fabrieksreset het schema
 # weer krijgt. Twee coroutines die tegelijk de eerste zijn, draaien de opzet allebei: die is `IF NOT EXISTS` en de migraties
 # controleren zelf nog eens achter een schrijfslot.
 _SCHEMAS_READY: set[tuple[str, str]] = set()
+# Wat andere modules uit de gegevens afleiden en in het geheugen bewaren (de catalogus van de prijzen, de lijst van /api/offers),
+# als functie die het wist. `forget_cached_data` roept ze aan na het terugzetten van een back-up en na een fabrieksreset.
+_DATA_CACHES: list[Callable[[], None]] = []
 
 
 def auth_enabled() -> bool:
@@ -48,8 +56,41 @@ def auth_enabled() -> bool:
     }
 
 
+# (MEALIESHOPPER_DATA_DIR, de werkmap bij een relatief pad) -> de map, absoluut en zonder symlinks (`data_dir`).
+_DATA_DIRS: dict[tuple[str, str], Path] = {}
+DATA_DIRS_KEPT: int = 64  # de tests zetten elke test een eigen map: daarna begint het register opnieuw
+
+
 def data_dir() -> Path:
-    return Path(os.environ.get("MEALIESHOPPER_DATA_DIR", "data")).resolve()
+    """De map met de gegevens (MEALIESHOPPER_DATA_DIR, anders `data`), absoluut en zonder symlinks.
+
+    Een keer opgezocht per waarde van de variabele: `Path.resolve` doet een lstat per deel van het pad, en elke systeemaanroep
+    laat de GIL los. Rekent er een andere thread, dan krijgt de event loop hem pas na het wisselinterval (5 ms) terug: onder
+    belasting kostte elke lstat 5 tot 19 ms, een `data_dir` 24 tot 63 ms, en een paar verbindingen na elkaar een stilstand van
+    105 tot 204 ms (taak 9c). De sleutel is de tekst van de variabele, zodat een test die hem verandert meteen een andere map
+    krijgt, en bij een relatief pad ook de werkmap."""
+    raw: str = os.environ.get("MEALIESHOPPER_DATA_DIR", "data")
+    key: tuple[str, str] = (raw, "" if os.path.isabs(raw) else os.getcwd())
+    found: Path | None = _DATA_DIRS.get(key)
+    if found is None:
+        if len(_DATA_DIRS) >= DATA_DIRS_KEPT:
+            _DATA_DIRS.clear()
+        found = _DATA_DIRS[key] = Path(raw).resolve()
+    return found
+
+
+# De data-mappen die `ensure_data_dir` al aanmaakte (of die er al waren). Leeg na `forget_runtime_state`.
+_DIRS_MADE: set[Path] = set()
+
+
+def ensure_data_dir() -> Path:
+    """De data-map (`data_dir`), aangemaakt als hij er nog niet was. Een keer per pad: `mkdir` met `exist_ok` doet een mkdir en
+    een stat, twee systeemaanroepen op de event loop bij elke verbinding (het konvooi van loop_guard.py)."""
+    folder: Path = data_dir()
+    if folder not in _DIRS_MADE:
+        folder.mkdir(parents=True, exist_ok=True)
+        _DIRS_MADE.add(folder)
+    return folder
 
 
 def session_max_age_seconds() -> int:
@@ -184,10 +225,46 @@ async def connect() -> AsyncIterator[aiosqlite.Connection]:
     Wie schrijft, eindigt dus zelf met `await conn.commit()`. De rijen zijn `sqlite3.Row` (`aiosqlite.Row` is
     dezelfde klasse): `row["key"]` en `row[0]` werken allebei.
     """
-    data_dir().mkdir(parents=True, exist_ok=True)
-    async with aiosqlite.connect(db_path()) as conn:
+    ensure_data_dir()
+    opened: float = time.perf_counter()
+    async with aiosqlite.connect(db_path(), timeout=BUSY_SECONDS) as conn:
+        telemetry.watch(conn, opened)  # doet niets zonder MEALIESHOPPER_TELEMETRY
         conn.row_factory = aiosqlite.Row
         yield conn
+
+
+async def _open_reader(path: str) -> aiosqlite.Connection:
+    """Een nieuwe verbinding voor `readers`: alleen-lezen (`PRAGMA query_only`), zodat een schrijfopdracht via `read` faalt."""
+    opened: float = time.perf_counter()
+    conn: aiosqlite.Connection = await aiosqlite.connect(path, timeout=BUSY_SECONDS)
+    try:
+        conn.row_factory = aiosqlite.Row
+        async with conn.execute("PRAGMA query_only = ON"):
+            pass
+    except BaseException:
+        await conn.close()
+        raise
+    telemetry.watch_each(conn, opened)  # een bewerking telt voor de aanvraag die op dat moment leest
+    return conn
+
+
+@asynccontextmanager
+async def read() -> AsyncIterator[readers.Reader]:
+    """Een open leesverbinding uit `readers`, voor een paar korte SELECTs per aanvraag (de sessie, de instellingen): geen
+    nieuwe thread per lezing (readers.py, het konvooi van loop_guard.py). Je krijgt een `readers.Reader` met alleen `fetchone`
+    en `fetchall` (ook via `fetchone(reader, ...)` hieronder): die sluiten hun cursor, en een open cursor of transactie liet de
+    volgende lener een oude stand van de WAL zien. Schrijven gaat met `connect`, en niet binnen een `read`: een tweede `read`
+    daarbinnen geeft een `RuntimeError`."""
+    ensure_data_dir()
+    async with readers.borrow(str(db_path()), _open_reader) as reader:
+        yield reader
+
+
+async def close_readers() -> None:
+    """Sluit de open leesverbindingen van deze loop en wacht tot ze dicht zijn, een uitgeleende hooguit `readers.RETURN_SECONDS`:
+    voor wie daarna het databasebestand weghaalt (de fabrieksreset). Een verbinding met het weggehaalde bestand zou bij het
+    sluiten de WAL van een nieuw bestand kunnen wissen."""
+    await readers.close_running_loop()
 
 
 async def ensure_schema(conn: aiosqlite.Connection, name: str, setup: str | Callable[[aiosqlite.Connection], Awaitable[None]]) -> None:
@@ -206,8 +283,16 @@ async def ensure_schema(conn: aiosqlite.Connection, name: str, setup: str | Call
     _SCHEMAS_READY.add(key)
 
 
-async def fetchone(conn: aiosqlite.Connection, sql: str, params: tuple[Any, ...] = ()) -> aiosqlite.Row | None:
-    """De eerste rij van `sql` op `conn`, of None. Gedeeld door elke module met een eigen tabel."""
+def schema_ready(name: str) -> bool:
+    """Of `ensure_schema` het schema van `name` in dit proces al op deze database zette: dan kan een lezer (`read`) meteen."""
+    return (str(db_path()), name) in _SCHEMAS_READY
+
+
+async def fetchone(conn: aiosqlite.Connection | readers.Reader, sql: str, params: tuple[Any, ...] = ()) -> aiosqlite.Row | None:
+    """De eerste rij van `sql` op `conn` (een verbinding, of een lezer van `read`), of None. Gedeeld door elke module met een
+    eigen tabel."""
+    if isinstance(conn, readers.Reader):
+        return await conn.fetchone(sql, params)
     async with conn.execute(sql, params) as cursor:
         return await cursor.fetchone()
 
@@ -299,9 +384,33 @@ async def init_db() -> None:
     via `ensure_db`, nooit per verzoek."""
     global _INITIALIZED
     async with connect() as conn:
+        await _set_journal_mode(conn)
         await conn.executescript(_SCHEMA)
         await _migrate(conn)
     _INITIALIZED = True
+
+
+def wal_enabled() -> bool:
+    return os.environ.get("MEALIESHOPPER_SQLITE_WAL", "true").strip().lower() not in {"0", "false", "no", "off"}
+
+
+async def _set_journal_mode(conn: aiosqlite.Connection) -> None:
+    """Zet de database in WAL (of terug in `delete` met `MEALIESHOPPER_SQLITE_WAL=false`). De keuze staat in het bestand en geldt
+    daarna voor elke verbinding, ook die van een tweede proces.
+
+    Zonder WAL houdt een schrijver elke lezer tegen en omgekeerd: een pagina wachtte op de nachtelijke synchronisatie of op
+    een auditregel, en wie te lang wachtte kreeg `database is locked`. Met WAL lezen en schrijven ze naast elkaar. Lukt het
+    wisselen niet (een andere verbinding is bezig, of het bestandssysteem kan het niet), dan blijft de database zoals ze was."""
+    wanted: str = "wal" if wal_enabled() else "delete"
+    try:
+        row = await fetchone(conn, "PRAGMA journal_mode")
+        if row is not None and str(row[0]).lower() == wanted:
+            return
+        row = await fetchone(conn, f"PRAGMA journal_mode = {wanted}")
+        if row is None or str(row[0]).lower() != wanted:
+            log.warning("De database blijft in journal_mode %s: %s kan hier niet", row[0] if row else "?", wanted)
+    except sqlite3.Error:
+        log.warning("Kon journal_mode %s niet instellen", wanted, exc_info=True)
 
 
 async def _has_session_epoch(conn: aiosqlite.Connection) -> bool:
@@ -359,7 +468,7 @@ async def _count(table: str, user_id: str | None, extra: str = "") -> int:
     await ensure_db()
     where = [clause for clause in (extra, "user_id = ?" if user_id else "") if clause]
     sql = f"SELECT COUNT(*) AS count FROM {table}" + (" WHERE " + " AND ".join(where) if where else "")
-    async with connect() as conn:
+    async with read() as conn:
         row = await fetchone(conn, sql, (user_id,) if user_id else ())
     return int(row["count"] if row else 0)
 
@@ -388,7 +497,7 @@ async def credentials_exist() -> bool:
 # Instellingen zonder geheim (keuzes, vlaggen): onversleuteld in app_settings.
 async def get_setting(key: str, default: str = "") -> str:
     await ensure_db()
-    async with connect() as conn:
+    async with read() as conn:
         row = await fetchone(conn, "SELECT value FROM app_settings WHERE key=?", (key,))
     return str(row["value"]) if row else default
 
@@ -425,7 +534,7 @@ async def auth_required() -> bool:
 
 async def session_epoch(user_id: str = OWNER_ID) -> int:
     await ensure_db()
-    async with connect() as conn:
+    async with read() as conn:
         row = await fetchone(conn, "SELECT session_epoch FROM users WHERE id = ?", (user_id,))
     return int(row["session_epoch"]) if row else 0
 
@@ -504,7 +613,7 @@ async def delete_secret(key: str) -> None:
 
 async def get_secret(key: str) -> str:
     await ensure_db()
-    async with connect() as conn:
+    async with read() as conn:
         row = await fetchone(conn, "SELECT value FROM app_settings WHERE key=?", (key,))
     if not row:
         return ""
@@ -536,7 +645,7 @@ async def create_token(user_id: str, username: str, *, epoch: int | None = None,
     )
 
 
-async def _session_revoked(conn: aiosqlite.Connection, sid: Any) -> bool:
+async def _session_revoked(conn: aiosqlite.Connection | readers.Reader, sid: Any) -> bool:
     if not sid:
         return False  # een token van voor 4.10.3 heeft geen sessie-id en verloopt binnen een dag
     return await fetchone(conn, "SELECT 1 FROM revoked_sessions WHERE sid=?", (str(sid),)) is not None
@@ -598,7 +707,7 @@ async def current_user() -> dict[str, Any] | None:
         return None
     if payload.get("purpose"):
         return None  # een kaartje voor een tussenstap (bijvoorbeeld MFA) is geen sessie
-    async with connect() as conn:
+    async with read() as conn:
         row = await fetchone(conn, "SELECT id, username, created_at, session_epoch FROM users WHERE id=?", (payload.get("sub"),))
         if not row or int(payload.get("ep") or 0) != int(row["session_epoch"]) or await _session_revoked(conn, payload.get("sid")):
             return None
@@ -709,7 +818,29 @@ def forget_runtime_state() -> None:
     global _INITIALIZED
     _INITIALIZED = False
     _SCHEMAS_READY.clear()
+    _DIRS_MADE.clear()  # de map kan weg zijn: de volgende verbinding maakt hem weer aan
     _master_secrets.clear()
+    forget_cached_data()
+
+
+def remember_cache(clear: Callable[[], None]) -> Callable[[], None]:
+    """Laat `clear` lopen bij `forget_cached_data`. Geeft de functie die hem weer loslaat (een app die stopt)."""
+    _DATA_CACHES.append(clear)
+
+    def release() -> None:
+        if clear in _DATA_CACHES:
+            _DATA_CACHES.remove(clear)
+
+    return release
+
+
+def forget_cached_data() -> None:
+    """Wist wat de modules uit de gegevens van de database afleidden (`remember_cache`): de gegevens zijn veranderd, het schema niet.
+    Ook de open leesverbindingen gaan dicht (`readers.retire_all`): na een fabrieksreset hebben ze het oude bestand nog open, en
+    na het terugzetten van een back-up begint de volgende lezing op een nieuwe verbinding."""
+    readers.retire_all()
+    for clear in _DATA_CACHES[:]:
+        clear()
 
 
 def set_session_cookie(response: Any, token: str) -> None:
@@ -1047,6 +1178,7 @@ ADMIN_PATHS = {
     "/api/crisp/auth",
     "/api/crisp/explore",
     "/api/shared-links/export",
+    "/api/telemetry",
 }
 ADMIN_EXCEPTIONS = {"/api/ah/auth/status", "/api/picnic/auth/status", "/api/jumbo/auth/status", "/api/crisp/auth/status"}
 

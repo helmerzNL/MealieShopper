@@ -1,16 +1,17 @@
 """Tests voor mealieshopper/tasks.py en de levenscyclus van de app."""
 
+import ast
 import asyncio
 import logging
 import threading
-from collections.abc import AsyncIterator, Coroutine
+from collections.abc import AsyncIterator, Awaitable, Callable, Coroutine
 from pathlib import Path
 from typing import Any
 
 import pytest
 from quart import Quart
 
-from mealieshopper import tasks
+from mealieshopper import compute, response_cache, tasks
 
 
 @pytest.fixture(autouse=True)
@@ -273,6 +274,62 @@ async def test_a_failed_shielded_task_without_a_caller_is_logged_as_a_warning(ca
     assert any(record.levelno == logging.WARNING and "niet bewaard" in str(record.exc_info[1]) for record in caplog.records if record.exc_info)
 
 
+def _loop_errors() -> list[dict[str, Any]]:
+    """Wat de event loop zelf meldt (`call_exception_handler`), zoals "exception in shielded future" van `asyncio.shield`."""
+    found: list[dict[str, Any]] = []
+    asyncio.get_running_loop().set_exception_handler(lambda loop, context: found.append(context))
+    return found
+
+
+async def test_a_failed_shielded_task_without_a_caller_is_logged_once(caplog: pytest.LogCaptureFixture) -> None:
+    """Taak 10b: `shielded` wachtte met `asyncio.shield`, en vanaf Python 3.15 meldt die een fout van de task ook zelf bij de loop
+    ("exception in shielded future") zodra de aanroeper geannuleerd is. De fout stond dan twee keer in het logboek, naast de
+    waarschuwing van `_orphan_done`. Nu wacht `shielded` met `share`: een melding, de waarschuwing."""
+    errors: list[dict[str, Any]] = _loop_errors()
+    release: asyncio.Event = asyncio.Event()
+
+    async def store() -> None:
+        await release.wait()
+        raise RuntimeError("niet bewaard")
+
+    caller: asyncio.Task = asyncio.create_task(tasks.shielded(store()))
+    await _yield(2)
+    caller.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await caller
+    with caplog.at_level(logging.WARNING, logger=tasks.log.name):
+        release.set()
+        await tasks.cancel_all()
+        await _yield(2)
+    assert errors == []
+    warned: list[logging.LogRecord] = [record for record in caplog.records if record.levelno >= logging.WARNING]
+    assert len(warned) == 1 and "niet bewaard" in str(warned[0].exc_info[1] if warned[0].exc_info else "")
+
+
+def _shield_calls(path: Path) -> list[int]:
+    """De regels waar `path` `asyncio.shield(...)` aanroept."""
+    found: list[int] = []
+    for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+        function: ast.expr | None = node.func if isinstance(node, ast.Call) else None
+        if (
+            isinstance(function, ast.Attribute)
+            and function.attr == "shield"
+            and isinstance(function.value, ast.Name)
+            and function.value.id == "asyncio"
+        ):
+            found.append(node.lineno)
+    return found
+
+
+def test_no_module_waits_with_asyncio_shield() -> None:
+    """Taak 10b: vanaf Python 3.15 meldt `asyncio.shield` een fout van wat hij afschermt bij de loop zodra de aanroeper geannuleerd
+    is, ook als een ander de fout gewoon ophaalt (de upload die wacht op zijn thread, de import van een prijsarchief, de ronde
+    van de calorieën). Wachten zonder te annuleren gaat met `tasks.share`, afschermen met `tasks.shielded`."""
+    package: Path = Path(tasks.__file__).parent
+    found: dict[str, list[int]] = {path.name: _shield_calls(path) for path in sorted(package.glob("*.py"))}
+    assert {name: lines for name, lines in found.items() if lines} == {}
+
+
 async def test_a_failed_shielded_task_with_its_caller_waiting_is_no_warning(caplog: pytest.LogCaptureFixture) -> None:
     """Wacht de aanroeper nog, dan krijgt die de fout zelf: geen waarschuwing erbij."""
 
@@ -285,8 +342,15 @@ async def test_a_failed_shielded_task_with_its_caller_waiting_is_no_warning(capl
     assert not [record for record in caplog.records if record.levelno >= logging.WARNING]
 
 
-async def test_shutdown_waits_at_most_five_seconds_for_tasks_so_docker_does_not_kill_the_app(monkeypatch: pytest.MonkeyPatch) -> None:
-    """3 seconden van hypercorn voor lopende verzoeken plus deze 5 blijft onder de 10 seconden van `docker stop`."""
+async def test_shutdown_waits_at_most_three_seconds_for_tasks_so_docker_does_not_kill_the_app(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Na de overdracht door hypercorn wachten de tasks hooguit 3 seconden en de rekenthreads 2,5, en hypercorn zelf daarvoor
+    hooguit `graceful_timeout` (3) op zijn eigen taken: samen onder de 9 seconden, binnen de 10 van `docker stop`. Review van
+    taak 9c: het waren er 3 plus 5 plus 5. Niet begrensd zijn verzoeken die nog lopen: hypercorn 0.18 wacht eerst tot hun
+    verbinding dicht is (`server.wait_closed()`), en een verzoek van 20 seconden hield `after_serving` 19,5 seconden op (eindreview)."""
+    from hypercorn.config import Config
+
+    from mealieshopper import compute
+
     seen: list[float] = []
 
     async def record(timeout: float = 10.0) -> None:
@@ -294,7 +358,52 @@ async def test_shutdown_waits_at_most_five_seconds_for_tasks_so_docker_does_not_
 
     monkeypatch.setattr(tasks, "cancel_all", record)
     await tasks._cancel_all_hook()
-    assert seen == [5.0]
+    assert seen == [3.0]
+    assert Config().graceful_timeout + tasks.SHUTDOWN_TIMEOUT + compute.SHUTDOWN_SECONDS < 9
+
+
+def test_the_read_connections_close_within_the_wait_of_cancel_all() -> None:
+    """Taak 10b: bij `cancel_all` wacht de task van readers.py hooguit `RETURN_SECONDS` op uitgeleende leesverbindingen, en
+    `cancel_all` wacht `SHUTDOWN_TIMEOUT` op die task: anders sluit de loop voor de verbindingen dicht zijn."""
+    from mealieshopper import readers
+
+    assert readers.RETURN_SECONDS < tasks.SHUTDOWN_TIMEOUT
+
+
+async def test_cancel_all_leaves_work_of_another_loop_alone() -> None:
+    """Review van taak 9c: afgeschermd werk van een gesloten loop bleef in `_shielded`, en `cancel_all` wachtte erop vanuit een
+    andere loop. Nu alleen het werk van de lopende loop."""
+    other: asyncio.AbstractEventLoop = asyncio.new_event_loop()
+    try:
+        stranger: asyncio.Future[None] = other.create_future()
+        tasks.wait_at_shutdown(stranger)
+        await asyncio.wait_for(tasks.cancel_all(timeout=5), 1)
+    finally:
+        tasks._shielded.discard(stranger)
+        other.close()
+
+
+async def test_cancel_all_calls_its_hooks_first() -> None:
+    order: list[str] = []
+
+    async def work() -> None:
+        try:
+            await asyncio.Event().wait()
+        finally:
+            order.append("geannuleerd")
+
+    tasks.spawn("werk", work())
+    await asyncio.sleep(0)
+
+    def hook() -> None:
+        order.append("haak")
+
+    tasks.on_cancel_all(hook)
+    try:
+        await tasks.cancel_all(timeout=5)
+    finally:
+        tasks._before_cancel.remove(hook)
+    assert order == ["haak", "geannuleerd"]
 
 
 async def test_after_serving_reports_that_the_app_stopped(app: Quart, caplog: pytest.LogCaptureFixture) -> None:
@@ -302,3 +411,50 @@ async def test_after_serving_reports_that_the_app_stopped(app: Quart, caplog: py
         async with app.test_app():
             assert "afgesloten" not in caplog.text
     assert "MealieShopper afgesloten" in caplog.text
+
+
+async def test_the_stopped_line_comes_after_every_other_after_serving_step(
+    app: Quart, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Taak 10b: `tasks.register` hing de regel "afgesloten" vroeg in `create_app` aan `after_serving`, en Quart draait die
+    stappen in volgorde: de regel kwam voor `compute.stop` en de andere stappen van daarna. Nu is hij de laatste stap."""
+    order: list[str] = []
+    stop: Callable[[], Awaitable[None]] = compute.stop
+
+    async def stopping() -> None:
+        order.append("compute")
+        await stop()
+
+    monkeypatch.setattr(compute, "stop", stopping)
+    with caplog.at_level(logging.WARNING, logger="mealieshopper.tasks"):
+        async with app.test_app():
+            pass
+    assert app.after_serving_funcs[-1] is tasks._log_stopped
+    assert app.after_serving_funcs.count(tasks._log_stopped) == 1
+    order += [record.getMessage()[:22] for record in caplog.records if "afgesloten" in record.getMessage()]
+    assert order == ["compute", "MealieShopper afgeslot"]
+
+
+async def test_cancel_all_waits_for_a_build_whose_callers_are_gone() -> None:
+    """Een bouw van `compute.SingleFlight` en een lading van `response_cache.ResponseCache` lopen door als hun aanroeper wordt
+    geannuleerd. `cancel_all` wacht er nu op, zoals op `shielded`: anders las zo'n bouw nog in de database als de app dicht was,
+    of als een test zijn map al weggooide (taak 9c: "Directory not empty")."""
+    release: asyncio.Event = asyncio.Event()
+    finished: list[str] = []
+
+    async def build(name: str) -> str:
+        await release.wait()
+        finished.append(name)
+        return name
+
+    flights: compute.SingleFlight[str, str] = compute.SingleFlight()
+    cache: response_cache.ResponseCache = response_cache.ResponseCache()
+    callers: list[asyncio.Task[Any]] = [
+        tasks.spawn("catalogus", flights.get("ah", lambda: build("bouw"))),
+        tasks.spawn("aanbiedingen", cache.get("ah", "etag", lambda: build("lading"))),
+    ]
+    await asyncio.sleep(0)
+    asyncio.get_running_loop().call_later(0.05, release.set)
+    await tasks.cancel_all(timeout=5)
+    assert all(caller.cancelled() for caller in callers)
+    assert sorted(finished) == ["bouw", "lading"]

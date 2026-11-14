@@ -1,7 +1,8 @@
 name: Tests
 
-# Draait de testsuite op elke pull request naar beta en main en op elke push naar beta.
+# Draait de testsuite op elke pull request naar beta en main, op elke push naar beta en met de hand (workflow_dispatch).
 on:
+  workflow_dispatch:
   pull_request:
     branches:
       - beta
@@ -27,5 +28,16 @@ jobs:
         run: |
           ruff check .
           ruff format --check .
+      # Twee workers, een per fysieke core van de runner (4 vCPU's op 2 cores). `-n auto` telt zonder psutil de vCPU's: met vier
+      # workers en hun threads op twee cores haalt het OS een worker soms ruim 100 ms van de processor, en dat telt de
+      # bewaking als stilstand van de event loop (PR #332: tien stilstanden van 104 tot 301 ms, lokaal nagedaan met twee
+      # workers per core). Ook met twee workers haalt de gedeelde VM een worker soms 100 tot 190 ms van de processor, op
+      # willekeurige regels (een GC-ronde, sqlite connect, een write van 1 KB). Daarom telt hier een stilstand pas vanaf 250 ms
+      # (`MEALIESHOPPER_LOOP_GUARD_MS`). Lokaal en in de volumetests blijft de grens 100 ms.
       - name: Tests draaien
-        run: MEALIESHOPPER_TESTING=1 python -m pytest -q
+        run: MEALIESHOPPER_TESTING=1 MEALIESHOPPER_LOOP_GUARD_MS=250 python -m pytest -q -n 2 -m "not volume"
+      # De volumetests draaien de zware paden op een database van productieschaal (een paar minuten): een eigen stap, zodat
+      # een stilstand van de event loop daar los te zien is van een gewone fout. Deze stap draait serieel (zonder `-n`): de tests
+      # meten stilstanden van de event loop en mogen de processor niet delen.
+      - name: Volumetests draaien
+        run: MEALIESHOPPER_TESTING=1 python -m pytest -q -m volume

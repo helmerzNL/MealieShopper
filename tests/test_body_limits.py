@@ -6,7 +6,9 @@ back-up en de prijsimport van de beheerder krijgen meer ruimte.
 
 from __future__ import annotations
 
+import asyncio
 import json
+import time
 from pathlib import Path
 from typing import TYPE_CHECKING
 from unittest import mock
@@ -20,6 +22,16 @@ if TYPE_CHECKING:  # niet bij de import: pytest zou TestClientProtocol voor een 
     from quart.typing import TestClientProtocol
 
 MIB: int = 1024 * 1024
+
+
+async def _until_staged(data_dir: Path, size: int, timeout: float = 5) -> None:
+    """Wacht tot er een bestand van een upload naar /api/backup/stage staat met minstens `size` bytes op schijf."""
+    deadline: float = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if any(path.stat().st_size >= size for path in data_dir.glob(".restore-*")):
+            return
+        await asyncio.sleep(0.001)
+    pytest.fail(f"na {timeout} s staan er nog geen {size} bytes van de upload op schijf")
 
 
 def test_the_default_limit_is_16_mib_and_only_three_routes_get_more(app: Quart) -> None:
@@ -89,11 +101,15 @@ async def test_a_price_import_above_its_own_limit_gets_413(client: TestClientPro
 
 async def test_a_large_backup_upload_still_passes_the_body_limit(client: TestClientProtocol, monkeypatch: pytest.MonkeyPatch, data_dir: Path) -> None:
     monkeypatch.setenv("PASSKEY_AUTH_ENABLED", "false")
-    response = await client.post(
-        "/api/backup/stage",
-        data=bytes(100 * MIB),
-        headers={"Content-Type": "application/octet-stream"},
-    )
+    # In stukken van 1 MiB, elk op schijf voor het volgende komt, zoals een server het aflevert. In een keer kopieert Quart de
+    # hele 100 MiB op de event loop (`bytes(self._data)` in `Body.__anext__`), en dat kan op een trage runner 100 ms duren.
+    piece: bytes = bytes(MIB)
+    async with client.request("/api/backup/stage", method="POST", headers={"Content-Type": "application/octet-stream"}) as connection:
+        for sent in range(MIB, 100 * MIB + 1, MIB):
+            await connection.send(piece)
+            await _until_staged(data_dir, sent)
+        await connection.send_complete()
+    response = await connection.as_response()
     assert response.status_code != 413
     assert response.status_code < 500
     assert list(data_dir.glob(".restore-*")) == []  # geen geldige back-up: niets blijft staan

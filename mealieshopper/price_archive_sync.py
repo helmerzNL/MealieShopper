@@ -17,7 +17,7 @@ from contextlib import closing
 from os import environ
 from typing import Any
 
-from . import auth, price_archive, prices, thread_db
+from . import auth, price_archive, prices, tasks, thread_db
 
 log: logging.Logger = logging.getLogger(__name__)
 MAX_DOCUMENT_BYTES: int = 4 * 1024 * 1024
@@ -152,7 +152,9 @@ async def _thread(function: Any, *args: Any) -> Any:
     # A cancelled to_thread call still runs. Wait for its transaction before releasing the lease.
     work: asyncio.Task[Any] = asyncio.create_task(asyncio.to_thread(function, *args))
     try:
-        return await asyncio.shield(work)
+        # Niet `asyncio.shield`: die meldt een fout van `work` na de annulering vanaf Python 3.15 ook zelf bij de loop, en
+        # hieronder halen we hem al op (zoals uploads.append en price_archive.run_job).
+        return await tasks.share(work)
     except asyncio.CancelledError:
         try:
             await work
