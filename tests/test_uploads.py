@@ -67,6 +67,35 @@ async def _once(data: bytes) -> AsyncIterator[bytes]:
     yield data
 
 
+async def test_a_cancelled_write_that_fails_is_not_reported_by_asyncio(data_dir: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Taak 10b: `append` wachtte met `asyncio.shield` op de thread. Werd het verzoek geannuleerd en faalde het schrijven daarna,
+    dan meldde Python 3.15 de fout bij de loop ("exception in shielded future"), al haalt `append` hem zelf op: het verzoek is
+    weg. Nu wacht `append` met `tasks.share`."""
+    errors: list[dict[str, Any]] = []
+    asyncio.get_running_loop().set_exception_handler(lambda loop, context: errors.append(context))
+    token: str = (await uploads.begin(backup.STAGE_PREFIX, 100, 100))["token"]
+    entered: threading.Event = threading.Event()
+    release: threading.Event = threading.Event()
+
+    def refused(path: Path, offset: Any, data: bytes, limit: int) -> int:
+        entered.set()
+        release.wait(10)
+        raise uploads.UploadError("out_of_order", 409, received=0)
+
+    monkeypatch.setattr(uploads, "_write_chunk", refused)
+    try:
+        first: asyncio.Task[dict[str, int]] = asyncio.create_task(uploads.append(backup.STAGE_PREFIX, token, 0, _once(b"{" * 10), 10, 100))
+        assert await asyncio.to_thread(entered.wait, 5)
+        first.cancel()
+        await asyncio.sleep(0.05)
+    finally:
+        release.set()
+    with pytest.raises(asyncio.CancelledError):
+        await first
+    await asyncio.sleep(0.05)
+    assert errors == []
+
+
 async def test_a_cancelled_write_keeps_the_lock_until_its_thread_is_done(data_dir: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Een annulering (het afsluiten) tijdens het schrijven: de thread schrijft door, dus het slot blijft tot hij klaar is.
     Anders kon een volgend stuk tegelijk in hetzelfde bestand schrijven."""

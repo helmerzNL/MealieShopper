@@ -234,6 +234,29 @@ def watch(conn: Any, opened: float | None = None) -> None:
     conn._execute = timed
 
 
+def watch_each(conn: Any, opened: float | None = None) -> None:
+    """Zoals `watch`, voor een verbinding die openblijft (readers.py): het openen telt voor de aanvraag van nu, en elke bewerking
+    voor de aanvraag die op dat moment loopt, niet voor de aanvraag die de verbinding opende."""
+    recording: Recording | None = _current.get()
+    if recording is not None:
+        recording.connections += 1
+        if opened is not None:
+            recording.add_query(time.perf_counter() - opened, "connect")
+    inner: Callable[..., Awaitable[Any]] = conn._execute
+
+    async def timed(function: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
+        current: Recording | None = _current.get()
+        if current is None:
+            return await inner(function, *args, **kwargs)
+        started: float = time.perf_counter()
+        try:
+            return await inner(function, *args, **kwargs)
+        finally:
+            current.add_query(time.perf_counter() - started, _query_label(function, args))
+
+    conn._execute = timed
+
+
 @dataclass
 class RouteStats:
     count: int = 0

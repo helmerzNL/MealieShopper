@@ -70,9 +70,13 @@ class TextMemo(Generic[_Result]):
     Zijn er na een misser samen meer dan `size` namen, dan gaat er een naam uit de oude generatie: de oudste die sinds de
     wissel niet terugkwam (`evicted` telt ze). Is de oude leeg, dan wordt eerst de nieuwe de oude. Zo houdt de memo `size` namen
     met hun antwoord vast en gaat bij een volle memo telkens een naam weg die het langst niet terugkwam, ongeveer zoals bij
-    lru_cache, zonder een schakel per naam. De volgorde van de oude generatie staat in een tuple van haar sleutels (`_order`): een
-    tuple van tekst volgt de GC niet, en zo kost het weghalen van de oudste geen zoektocht door de dict. Niet `dict.popitem`: dat
-    haalt de jongste weg, en na een wissel zijn dat net de namen van de opbouw die nog bezig is.
+    lru_cache, zonder een schakel per naam. Met rekenthreads die tegelijk missen of een treffer verhuizen, kan er tot de volgende
+    misser een naam per thread meer in staan: een treffer neemt het slot niet, en verhuist hij net tijdens een wissel, dan komt
+    zijn naam in de nieuwe generatie zonder dat er een uit gaat.
+
+    De volgorde van de oude generatie staat in een tuple van haar sleutels (`_order`): een tuple van tekst volgt de GC niet, en zo
+    kost het weghalen van de oudste geen zoektocht door de dict. Niet `dict.popitem`: dat haalt de jongste weg, en na een wissel
+    zijn dat net de namen van de opbouw die nog bezig is.
 
     De tuple houdt de sleutels voor de cursor (`_next`) nog vast, ook als ze uit de memo zijn. Zodra de cursor voorbij een kwart
     van de tuple is, gaat dat stuk weg (`ORDER_SLACK`): zo houdt hij hooguit een kwart van `size` aan weggehaalde sleutels vast, en
@@ -81,7 +85,12 @@ class TextMemo(Generic[_Result]):
     meet het. Zonder het inkorten was dat 1,6 keer.
 
     De groottes bovenaan zijn ruim genoeg voor de namen van een opbouw van alle catalogi: `tests/test_name_memo.py` eist dat een
-    tweede opbouw niets mist, ook als de memo's al vol zaten met andere namen."""
+    tweede opbouw niets mist, ook als de memo's al vol zaten met andere namen.
+
+    Zonder slot, en dat mag alleen met de GIL: een treffer (`dict.get`, `dict.pop` en een toewijzing zijn elk een stap in C), en
+    `tuple(full)` en `tuple(self._old)` in `_evict`, die een dict kopiëren terwijl een andere thread er een treffer uit haalt. De
+    GIL laat zo'n kopie in een keer lopen. Op een Python zonder GIL (free-threaded) kan een kopie dan halverwege een gewijzigde
+    dict zien: daar is deze memo niet op gemaakt."""
 
     def __init__(self, function: Callable[..., _Result], size: int = MEMO_SIZE) -> None:
         update_wrapper(self, function)
@@ -94,6 +103,8 @@ class TextMemo(Generic[_Result]):
         self._order: tuple[Any, ...] = ()  # de sleutels van de oude generatie op volgorde van binnenkomst, bij de wissel vastgelegd
         self._next: int = 0  # waar `_evict` in `_order` verder zoekt
         self._lock: threading.Lock = threading.Lock()  # voor `_evict`: de rekenthreads missen tegelijk, een treffer wacht er niet op
+        # Tellers voor `cache_info`, zonder slot: `+= 1` uit twee threads tegelijk kan een tel verliezen. Alleen statistiek, geen
+        # beslissing hangt ervan af.
         self._hits: int = 0
         self._misses: int = 0
         self._evicted: int = 0
@@ -183,10 +194,12 @@ class TextMemo(Generic[_Result]):
         return MemoInfo(self._hits, self._misses, self.size, current, self._evicted)
 
     def cache_clear(self) -> None:
-        self._new = {}
-        self._old = {}
-        self._order = ()
-        self._next = 0
+        """Leegt de memo, onder `_lock`: anders kan een rekenthread in `_evict` de cursor van de oude tuple in de lege zetten."""
+        with self._lock:
+            self._new = {}
+            self._old = {}
+            self._order = ()
+            self._next = 0
         self._hits = 0
         self._misses = 0
         self._evicted = 0

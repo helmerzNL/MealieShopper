@@ -23,7 +23,7 @@ from webauthn import verify_authentication_response, verify_registration_respons
 from webauthn.helpers.cose import COSEAlgorithmIdentifier
 
 from .i18n import tr
-from . import request_body, telemetry
+from . import readers, request_body, telemetry
 
 OWNER_ID = "owner"  # de eerste gebruiker is de beheerder; alle anderen zijn gewone gebruikers
 SESSION_COOKIE_NAME = "ms_session"
@@ -233,6 +233,40 @@ async def connect() -> AsyncIterator[aiosqlite.Connection]:
         yield conn
 
 
+async def _open_reader(path: str) -> aiosqlite.Connection:
+    """Een nieuwe verbinding voor `readers`: alleen-lezen (`PRAGMA query_only`), zodat een schrijfopdracht via `read` faalt."""
+    opened: float = time.perf_counter()
+    conn: aiosqlite.Connection = await aiosqlite.connect(path, timeout=BUSY_SECONDS)
+    try:
+        conn.row_factory = aiosqlite.Row
+        async with conn.execute("PRAGMA query_only = ON"):
+            pass
+    except BaseException:
+        await conn.close()
+        raise
+    telemetry.watch_each(conn, opened)  # een bewerking telt voor de aanvraag die op dat moment leest
+    return conn
+
+
+@asynccontextmanager
+async def read() -> AsyncIterator[readers.Reader]:
+    """Een open leesverbinding uit `readers`, voor een paar korte SELECTs per aanvraag (de sessie, de instellingen): geen
+    nieuwe thread per lezing (readers.py, het konvooi van loop_guard.py). Je krijgt een `readers.Reader` met alleen `fetchone`
+    en `fetchall` (ook via `fetchone(reader, ...)` hieronder): die sluiten hun cursor, en een open cursor of transactie liet de
+    volgende lener een oude stand van de WAL zien. Schrijven gaat met `connect`, en niet binnen een `read`: een tweede `read`
+    daarbinnen geeft een `RuntimeError`."""
+    ensure_data_dir()
+    async with readers.borrow(str(db_path()), _open_reader) as reader:
+        yield reader
+
+
+async def close_readers() -> None:
+    """Sluit de open leesverbindingen van deze loop en wacht tot ze dicht zijn, een uitgeleende hooguit `readers.RETURN_SECONDS`:
+    voor wie daarna het databasebestand weghaalt (de fabrieksreset). Een verbinding met het weggehaalde bestand zou bij het
+    sluiten de WAL van een nieuw bestand kunnen wissen."""
+    await readers.close_running_loop()
+
+
 async def ensure_schema(conn: aiosqlite.Connection, name: str, setup: str | Callable[[aiosqlite.Connection], Awaitable[None]]) -> None:
     """Draai `setup` (een SQL-script, of een coroutine met het schema en de migraties van `name`) een keer per proces en database.
 
@@ -249,8 +283,16 @@ async def ensure_schema(conn: aiosqlite.Connection, name: str, setup: str | Call
     _SCHEMAS_READY.add(key)
 
 
-async def fetchone(conn: aiosqlite.Connection, sql: str, params: tuple[Any, ...] = ()) -> aiosqlite.Row | None:
-    """De eerste rij van `sql` op `conn`, of None. Gedeeld door elke module met een eigen tabel."""
+def schema_ready(name: str) -> bool:
+    """Of `ensure_schema` het schema van `name` in dit proces al op deze database zette: dan kan een lezer (`read`) meteen."""
+    return (str(db_path()), name) in _SCHEMAS_READY
+
+
+async def fetchone(conn: aiosqlite.Connection | readers.Reader, sql: str, params: tuple[Any, ...] = ()) -> aiosqlite.Row | None:
+    """De eerste rij van `sql` op `conn` (een verbinding, of een lezer van `read`), of None. Gedeeld door elke module met een
+    eigen tabel."""
+    if isinstance(conn, readers.Reader):
+        return await conn.fetchone(sql, params)
     async with conn.execute(sql, params) as cursor:
         return await cursor.fetchone()
 
@@ -428,7 +470,7 @@ async def _count(table: str, user_id: str | None, extra: str = "") -> int:
     await ensure_db()
     where = [clause for clause in (extra, "user_id = ?" if user_id else "") if clause]
     sql = f"SELECT COUNT(*) AS count FROM {table}" + (" WHERE " + " AND ".join(where) if where else "")
-    async with connect() as conn:
+    async with read() as conn:
         row = await fetchone(conn, sql, (user_id,) if user_id else ())
     return int(row["count"] if row else 0)
 
@@ -457,7 +499,7 @@ async def credentials_exist() -> bool:
 # Instellingen zonder geheim (keuzes, vlaggen): onversleuteld in app_settings.
 async def get_setting(key: str, default: str = "") -> str:
     await ensure_db()
-    async with connect() as conn:
+    async with read() as conn:
         row = await fetchone(conn, "SELECT value FROM app_settings WHERE key=?", (key,))
     return str(row["value"]) if row else default
 
@@ -494,7 +536,7 @@ async def auth_required() -> bool:
 
 async def session_epoch(user_id: str = OWNER_ID) -> int:
     await ensure_db()
-    async with connect() as conn:
+    async with read() as conn:
         row = await fetchone(conn, "SELECT session_epoch FROM users WHERE id = ?", (user_id,))
     return int(row["session_epoch"]) if row else 0
 
@@ -573,7 +615,7 @@ async def delete_secret(key: str) -> None:
 
 async def get_secret(key: str) -> str:
     await ensure_db()
-    async with connect() as conn:
+    async with read() as conn:
         row = await fetchone(conn, "SELECT value FROM app_settings WHERE key=?", (key,))
     if not row:
         return ""
@@ -605,7 +647,7 @@ async def create_token(user_id: str, username: str, *, epoch: int | None = None,
     )
 
 
-async def _session_revoked(conn: aiosqlite.Connection, sid: Any) -> bool:
+async def _session_revoked(conn: aiosqlite.Connection | readers.Reader, sid: Any) -> bool:
     if not sid:
         return False  # een token van voor 4.10.3 heeft geen sessie-id en verloopt binnen een dag
     return await fetchone(conn, "SELECT 1 FROM revoked_sessions WHERE sid=?", (str(sid),)) is not None
@@ -665,7 +707,7 @@ async def current_user() -> dict[str, Any] | None:
         return None
     if payload.get("purpose"):
         return None  # een kaartje voor een tussenstap (bijvoorbeeld MFA) is geen sessie
-    async with connect() as conn:
+    async with read() as conn:
         row = await fetchone(conn, "SELECT id, username, created_at, session_epoch FROM users WHERE id=?", (payload.get("sub"),))
         if not row or int(payload.get("ep") or 0) != int(row["session_epoch"]) or await _session_revoked(conn, payload.get("sid")):
             return None
@@ -787,7 +829,10 @@ def remember_cache(clear: Callable[[], None]) -> Callable[[], None]:
 
 
 def forget_cached_data() -> None:
-    """Wist wat de modules uit de gegevens van de database afleidden (`remember_cache`): de gegevens zijn veranderd, het schema niet."""
+    """Wist wat de modules uit de gegevens van de database afleidden (`remember_cache`): de gegevens zijn veranderd, het schema niet.
+    Ook de open leesverbindingen gaan dicht (`readers.retire_all`): na een fabrieksreset hebben ze het oude bestand nog open, en
+    na het terugzetten van een back-up begint de volgende lezing op een nieuwe verbinding."""
+    readers.retire_all()
     for clear in _DATA_CACHES[:]:
         clear()
 

@@ -831,6 +831,19 @@ async def test_cancel_all_writes_what_is_queued_and_record_writes_directly_after
     assert [entry["action"] for entry in (await audit.list_entries())["entries"]] == ["na", "r2", "r1", "r0"]
 
 
+async def test_a_row_after_shutdown_starts_no_writer_also_when_none_was_written_before(
+    audit_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Taak 10b: `_stop_writers` hing pas aan `cancel_all` bij de eerste schrijver (`_writer`). Schreef een proces voor het
+    afsluiten nog geen regel, dan wist `record` daarna niet dat de loop gestopt was en startte hij een schrijver waar niemand op
+    wachtte. Nu onthoudt `tasks.cancel_all` zelf welke loop gestopt is. Het lege register van haken is dat van een vers proces."""
+    monkeypatch.setattr(tasks, "_before_cancel", [])
+    await tasks.cancel_all(timeout=5)
+    assert isinstance(await audit.record(kind="outbound", service="ah", action="na"), int)
+    assert asyncio.get_running_loop() not in audit._WRITERS
+    assert [entry["action"] for entry in (await audit.list_entries())["entries"]] == ["na"]
+
+
 async def test_an_idle_writer_lets_go_of_its_loop(audit_dir: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Review van taak 9c: `_WRITERS` hield elke loop vast (de schrijver verwijst via zijn task naar de loop). Een schrijver die
     stopt, haalt zichzelf weg, en de volgende regel start een nieuwe."""

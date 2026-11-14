@@ -40,7 +40,7 @@ import aiosqlite
 import httpx
 from PIL import Image, UnidentifiedImageError
 
-from . import ah, audit, auth, http_client, tasks
+from . import ah, audit, auth, http_client, readers, tasks
 
 log = logging.getLogger(__name__)
 
@@ -167,6 +167,18 @@ async def _connect() -> AsyncIterator[aiosqlite.Connection]:
     async with auth.connect() as conn:
         await auth.ensure_schema(conn, "image_cache", SCHEMA)
         yield conn
+
+
+@asynccontextmanager
+async def _read() -> AsyncIterator[readers.Reader]:
+    """Een leesverbinding (`auth.read`) voor de SELECT van `lookup`: een pagina met aanbiedingen vraagt honderden foto's, en een
+    eigen `auth.connect` per foto start een thread per verzoek (het konvooi van loop_guard.py). Het schema eerst een keer via
+    `_connect`: een leesverbinding kan geen tabel maken."""
+    if not auth.schema_ready("image_cache"):
+        async with _connect():
+            pass
+    async with auth.read() as reader:
+        yield reader
 
 
 def images_dir() -> Path:
@@ -306,8 +318,8 @@ async def register(url: str, now: str | None = None) -> int:
 
 async def lookup(url: str) -> dict[str, Any] | None:
     """De rij van een adres als dict, of None."""
-    async with _connect() as conn, conn.execute("SELECT * FROM image_cache WHERE url = ?", (url,)) as cursor:
-        row: aiosqlite.Row | None = await cursor.fetchone()
+    async with _read() as reader:
+        row: aiosqlite.Row | None = await reader.fetchone("SELECT * FROM image_cache WHERE url = ?", (url,))
     return dict(row) if row else None
 
 

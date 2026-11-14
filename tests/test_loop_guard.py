@@ -7,9 +7,15 @@ wanneer dat toch gebeurt en welke regels er toen liepen. De tests blokkeren de l
 from __future__ import annotations
 
 import asyncio
+import linecache
 import os
+import sys
 import threading
 import time
+import traceback
+from typing import Any
+
+import pytest
 
 from mealieshopper import loop_guard
 
@@ -330,6 +336,53 @@ def test_describe_names_the_busy_threads_and_counts_the_waiting_ones() -> None:
     assert loop_guard.Stall(0.2, ()).describe() == "200 ms: "
 
 
+def _stuck_until(release: threading.Event, ready: threading.Event) -> None:
+    """De "loop" van de test hieronder: staat stil in `Event.wait`, zoals een loop die op de GIL wacht."""
+    ready.set()
+    release.wait()
+
+
+def test_looking_during_a_stall_reads_no_files(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Taak 10b: `_look` loopt terwijl de loop vastzit, en las de stacks met `traceback.extract_stack`. Dat roept per bestand
+    `linecache.checkcache` aan (een stat) en leest de regels uit het bestand: elke stat laat de GIL los, en met een drukke
+    rekenthread kostte `_look` zo 25 tot 45 ms, binnen de stilstand die de bewaker meet. Nu legt `_look` alleen de bestanden,
+    regelnummers en functies vast, en maakt de melding ze pas op na het antwoord van de loop."""
+    release: threading.Event = threading.Event()
+    ready: threading.Event = threading.Event()
+    stuck: threading.Thread = threading.Thread(target=_stuck_until, args=(release, ready), name="vast")
+    other: threading.Thread = threading.Thread(target=release.wait, name="ander")
+    stuck.start()
+    other.start()
+    ready.wait()
+    loop: asyncio.AbstractEventLoop = asyncio.new_event_loop()
+    guard: loop_guard.LoopGuard = loop_guard.LoopGuard(loop, 0.05, lambda stall: None)
+    guard._loop_thread = stuck.ident
+    tick: loop_guard._Tick = loop_guard._Tick(time.perf_counter())
+
+    def no_files(*args: Any, **kwargs: Any) -> Any:
+        raise AssertionError("de bewaker las een bestand terwijl de loop vastzat")
+
+    try:
+        with monkeypatch.context() as patched:
+            for name in ("checkcache", "getline", "getlines", "updatecache", "lazycache"):
+                patched.setattr(linecache, name, no_files)
+            guard._look(tick)
+        stack, threads = guard._witnesses(tick)
+        assert stuck.ident is not None
+        expected: list[tuple[str, int, str]] = [
+            (entry.filename, entry.lineno or 0, entry.name) for entry in traceback.extract_stack(sys._current_frames()[stuck.ident])
+        ]
+    finally:
+        release.set()
+        stuck.join()
+        other.join()
+        loop.close()
+    assert [(frame.path, frame.line, frame.function) for frame in stack] == expected
+    assert "_stuck_until" in [frame.function for frame in stack]
+    names: list[str] = [thread.name for thread in threads]
+    assert "ander" in names and "vast" not in names, names  # de loop zelf hoort niet bij de andere threads
+
+
 def test_a_busy_thread_on_a_lookup_line_is_not_taken_for_waiting() -> None:
     """Review van taak 9c: de bewaker zocht `.get(` in de tekst van de binnenste regel, dus een thread die in een lus `x = d.get(k)`
     deed, telde als wachtend en verdween uit het log. Nu telt alleen een functie die echt wacht (`WAITING_FRAMES`)."""
@@ -348,6 +401,9 @@ def test_a_busy_thread_on_a_lookup_line_is_not_taken_for_waiting() -> None:
     seen: list[loop_guard.ThreadStack] = []
     try:
         for _ in range(200):  # de thread staat afwisselend op de regel van de lus en op die van `found.get`
+            # Even wachten: het lezen leest sinds taak 10b geen bestanden meer en laat de GIL dus niet los, en zonder pauze lezen
+            # de 200 rondes allemaal dezelfde stilstaande regel als de machine druk is.
+            time.sleep(0.001)
             threads: dict[int, loop_guard.ThreadStack] = loop_guard.current_threads([threading.get_ident()])
             seen += [thread for thread in threads.values() if thread.name == "opzoeker"]
     finally:

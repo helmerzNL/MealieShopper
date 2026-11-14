@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import weakref
 from collections.abc import Awaitable, Callable, Coroutine, Iterable
 from typing import Any, TypeVar
 
@@ -17,6 +18,8 @@ _tasks: dict[str, asyncio.Task[Any]] = {}
 _shielded: set[asyncio.Future[Any]] = set()
 # Wat `cancel_all` eerst aanroept, voor het annuleren: werk dat zelf netjes stopt als het dat hoort (`on_cancel_all`).
 _before_cancel: list[Callable[[], None]] = []
+# De loops waarop `cancel_all` liep (`stopped`). Zwak: een gesloten loop verdwijnt vanzelf.
+_stopped_loops: weakref.WeakSet[asyncio.AbstractEventLoop] = weakref.WeakSet()
 
 T = TypeVar("T")
 R = TypeVar("R")
@@ -101,8 +104,8 @@ async def _stop(started: list[asyncio.Task[Any]]) -> None:
 
 
 def _shielded_done(task: asyncio.Future[Any]) -> None:
-    """Vergeet afgeschermd werk dat klaar is. Een fout is dan opgehaald: wie wachtte, kreeg hem al via `asyncio.shield` (`shielded`)
-    of `share` (`wait_at_shutdown`)."""
+    """Vergeet afgeschermd werk dat klaar is. Een fout is dan opgehaald: wie wachtte, kreeg hem al via `share` (`shielded`,
+    `wait_at_shutdown`)."""
     _shielded.discard(task)
     if not task.cancelled() and task.exception() is not None:
         log.debug("Afgeschermd werk mislukt", exc_info=task.exception())
@@ -122,13 +125,14 @@ async def shielded(coro: Coroutine[Any, Any, T]) -> T:
     heeft het oude dan misschien al vervangen. Quart annuleert een verzoek als de browser weggaat terwijl het lichaam nog
     binnenkomt of het antwoord al loopt (daartussen houdt `keep_running` de melding weg), `cancel_all` bij het afsluiten,
     `map_bounded` de andere items bij een fout. De aanroeper krijgt dan zelf een `CancelledError`, de task loopt door.
-    `cancel_all` wacht er ook op.
+    `cancel_all` wacht er ook op. Een fout van de task na de annulering komt een keer in het logboek (`_orphan_done`): de aanroeper
+    wacht met `share`, niet met `asyncio.shield`, dat hem vanaf Python 3.15 ook zelf bij de loop meldt.
     """
     task: asyncio.Task[T] = asyncio.create_task(coro)
     _shielded.add(task)
     task.add_done_callback(_shielded_done)
     try:
-        return await asyncio.shield(task)
+        return await share(task)
     except asyncio.CancelledError:
         task.add_done_callback(_orphan_done)
         raise
@@ -167,11 +171,18 @@ def on_cancel_all(hook: Callable[[], None]) -> None:
         _before_cancel.append(hook)
 
 
+def stopped() -> bool:
+    """Of `cancel_all` op de lopende event loop al liep: de app sluit af. Wie dan nog werk heeft, doet het zelf in plaats van een
+    task te starten waar niemand meer op wacht (`audit.record`). Moet binnen een lopende event loop worden aangeroepen."""
+    return asyncio.get_running_loop() in _stopped_loops
+
+
 async def cancel_all(timeout: float = 10.0) -> None:
     """Roept de haken van `on_cancel_all` aan, annuleert alle geregistreerde tasks en wacht er hoogstens `timeout` seconden op,
     samen met het afgeschermde werk (`shielded`, `wait_at_shutdown`) dat nog loopt. Dat laatste annuleren we niet: het mag
     niet halverwege stoppen. Alleen wat bij de lopende loop hoort: een task van een andere (gesloten) loop is daar al gestopt,
-    en wachten of annuleren kan vanuit deze loop niet."""
+    en wachten of annuleren kan vanuit deze loop niet. Vanaf nu geeft `stopped` True op deze loop."""
+    _stopped_loops.add(asyncio.get_running_loop())
     for hook in _before_cancel:
         try:
             hook()
@@ -206,7 +217,13 @@ async def _log_stopped() -> None:
 
 
 def register(app: Quart) -> None:
-    """Hangt het opruimen van tasks en httpx-clients aan het afsluiten van de app, en meldt daarna dat hij is afgesloten."""
+    """Hangt het opruimen van tasks en httpx-clients aan het afsluiten van de app. De melding dat hij is afgesloten, hangt
+    `log_when_stopped` er als laatste aan."""
     app.after_serving(_cancel_all_hook)
     app.after_serving(http_client.aclose_all)
+
+
+def log_when_stopped(app: Quart) -> None:
+    """Meldt na het afsluiten dat de app gestopt is. Roep dit als laatste aan in `create_app`: Quart draait de stappen van
+    `after_serving` in de volgorde waarin ze erbij kwamen, en de regel hoort na de laatste (`compute.stop`)."""
     app.after_serving(_log_stopped)
