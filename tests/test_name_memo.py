@@ -159,31 +159,66 @@ async def test_a_second_catalogue_build_hits_the_memo(volume_dir: Path) -> None:
     assert offer_categories.offer_category.cache_info().hits > 0
 
 
-def test_the_old_generation_keeps_what_comes_back() -> None:
-    """`TextMemo` van drie namen: een treffer in de oude generatie verhuist naar de nieuwe, en bij meer dan drie namen valt de
-    oude weg (`resets`, als er namen in zaten). Wat sinds de vorige wissel terugkwam, blijft."""
+def shouting(size: int) -> tuple[name_keys.TextMemo[str], list[str]]:
+    """Een `TextMemo` van `size` namen om `str.upper` heen, met de lijst van wat hij echt uitrekende."""
     calls: list[str] = []
 
     def shout(text: str) -> str:
         calls.append(text)
         return text.upper()
 
-    memo: name_keys.TextMemo[str] = name_keys.TextMemo(shout, size=3)
-    # na "d" zijn het er vier: de nieuwe wordt de oude. "a" komt terug en verhuist, bij "e" valt de oude (b, c, d) weg.
-    for text in ("a", "b", "c", "d", "a", "e", "a"):
+    return name_keys.TextMemo(shout, size=size), calls
+
+
+def test_a_full_memo_drops_the_oldest_name_that_did_not_come_back() -> None:
+    """`TextMemo` van drie namen: bij de vierde wordt de nieuwe generatie de oude, en gaat de oudste eruit. Een naam die terugkwam
+    (verhuisd naar de nieuwe) blijft, de volgende misser haalt de oudste die niet terugkwam weg."""
+    memo, calls = shouting(3)
+    for text in ("a", "b", "c", "d"):  # "a" gaat eruit
         memo(text)
-    assert calls == ["a", "b", "c", "d", "e"]
-    assert memo.cache_info().resets == 1
-    assert memo("b") == "B" and calls[-1] == "b"
-    assert memo.cache_info().currsize <= 3
+    memo("c")  # komt terug: verhuist naar de nieuwe generatie
+    memo("e")  # "b" gaat eruit, niet "c"
+    assert memo.cache_info().evicted == 2
+    assert memo.cache_info().currsize == 3
+    calls.clear()
+    for text in ("c", "d", "e"):
+        memo(text)
+    assert calls == []
+    memo("a")
+    assert calls == ["a"]
+
+
+def test_a_full_memo_stays_full_instead_of_starting_over() -> None:
+    """Review van taak 9c: na een wissel bij `size` gooide de memo de hele oude generatie weg, dus een volle memo hield na de
+    volgende misser bijna niets over. Nu gaat er per misser een naam uit en blijft hij vol."""
+    memo, _ = shouting(1000)
+    for number in range(5000):
+        memo(f"naam {number}")
+        if number >= 1000:
+            assert memo.cache_info().currsize == 1000, number
+    assert memo.cache_info().evicted == 4000
+
+
+def test_a_build_after_unrelated_names_keeps_its_own_names() -> None:
+    """Een volle memo met andere namen, en dan twee keer dezelfde opbouw van zes namen: de tweede rekent niets opnieuw uit. De
+    namen die eruit gaan, zijn de oude andere, niet die van de opbouw (zoals `dict.popitem` zou doen)."""
+    memo, calls = shouting(10)
+    for number in range(10):
+        memo(f"ander {number}")
+    build: list[str] = [f"opbouw {number}" for number in range(6)]
+    for text in build:
+        memo(text)
+    calls.clear()
+    for text in build:
+        memo(text)
+    assert calls == []
 
 
 @pytest.mark.volume
 async def test_every_cache_has_room_for_a_full_catalogue_build(volume_dir: Path) -> None:
-    """Elke cache houdt in een generatie meer dan een opbouw van alle catalogi erin zet: een tweede opbouw rekent geen enkele naam
-    opnieuw uit, en geen generatie met namen valt weg. Is een generatie te klein, dan laat de opbouw zijn eigen namen vallen en
-    rekent de volgende ze opnieuw uit. `_significant` onthoudt alleen wat vlak achter elkaar terugkomt (`_parts` vraagt dezelfde
-    tekst drie keer) en doet niet mee."""
+    """Elke cache houdt meer dan een opbouw van alle catalogi erin zet: een tweede opbouw rekent geen enkele naam opnieuw uit, en
+    er gaat geen naam uit. Is een cache te klein, dan laat de opbouw zijn eigen namen vallen en rekent de volgende ze opnieuw uit.
+    `_significant` onthoudt alleen wat vlak achter elkaar terugkomt (`_parts` vraagt dezelfde tekst drie keer) en doet niet mee."""
     caches: list[Any] = [
         name_keys.fold,
         name_keys.near,
@@ -204,8 +239,55 @@ async def test_every_cache_has_room_for_a_full_catalogue_build(volume_dir: Path)
         for cache in caches:
             info: Any = cache.cache_info()
             assert info.currsize > 0, cache.__name__
-            assert info.resets == 0, (cache.__name__, info)
+            assert info.evicted == 0, (cache.__name__, info)
             assert misses.setdefault(cache.__name__, info.misses) == info.misses, (cache.__name__, info)
+
+
+# Om een memo te vullen met namen die niet in de catalogus staan: per memo de aanroep met een tekst.
+FILLERS: dict[str, Callable[[str], Any]] = {
+    "fold": name_keys.fold,
+    "near": name_keys.near,
+    "categorize": offer_categories.categorize,
+    "offer_category": lambda text: offer_categories.offer_category("ah", text),
+    "_parts": line_offers._parts,
+    "_stem": line_offers._stem,
+    "_size_of": lambda text: prices._size_of(text, text),
+}
+
+
+@pytest.mark.volume
+async def test_a_full_build_keeps_its_hits_when_the_memos_were_already_full(volume_dir: Path) -> None:
+    """Review van taak 9c: in een proces dat dagen draait, zijn de memo's vol met namen van eerder. Dan moet een opbouw nog steeds
+    zijn eigen namen houden: de memo's beginnen vol met andere namen, en een tweede opbouw rekent geen naam opnieuw uit."""
+    caches: dict[str, Any] = {
+        "fold": name_keys.fold,
+        "near": name_keys.near,
+        "categorize": offer_categories.categorize,
+        "offer_category": offer_categories.offer_category,
+        "_parts": line_offers._parts,
+        "_stem": line_offers._stem,
+        "_size_of": prices._size_of,
+    }
+    for name, cache in caches.items():
+        cache.cache_clear()
+    for name, cache in caches.items():
+        number: int = 0
+        while cache.cache_info().currsize < cache.cache_info().maxsize:
+            FILLERS[name](f"Zzz ander product {number:07d} 250 g")
+            number += 1
+    before: dict[str, int] = {}
+    for round_ in range(2):
+        prices._CATALOGUES.clear()
+        async with auth.connect() as conn:
+            for store in offers.STORES:
+                await prices._catalogue(conn, store, volume.TODAY)
+        for name, cache in caches.items():
+            misses: int = cache.cache_info().misses
+            if round_ == 1:
+                assert misses == before[name], (name, cache.cache_info())
+            before[name] = misses
+    for cache in caches.values():
+        cache.cache_clear()
 
 
 def test_the_memory_is_plain_dicts_the_collector_skips() -> None:

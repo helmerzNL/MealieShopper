@@ -37,13 +37,13 @@ _MISSING: object = object()  # voor `dict.get`: None kan een antwoord zijn
 
 
 class MemoInfo(NamedTuple):
-    """Wat `TextMemo.cache_info` geeft: de velden van `functools.lru_cache` en `resets`."""
+    """Wat `TextMemo.cache_info` geeft: de velden van `functools.lru_cache` en `evicted`."""
 
     hits: int
     misses: int
     maxsize: int
     currsize: int  # de namen in beide generaties samen: een naam staat in een van de twee
-    resets: int  # hoe vaak een generatie met namen erin wegviel (`TextMemo`): binnen een opbouw hoort dat 0 te zijn
+    evicted: int  # hoeveel namen eruit gingen omdat de memo vol was (`TextMemo`): binnen een opbouw hoort dat 0 te zijn
 
 
 def memo(size: int) -> Callable[[Callable[..., _Result]], "TextMemo[_Result]"]:
@@ -61,11 +61,17 @@ class TextMemo(Generic[_Result]):
     elke volle ronde langsloopt (770.000 namen op de volumedatabase: 55 ms per ronde, gemeten), en zo'n ronde houdt de GIL vast
     (gc_watch.py). Een dict met tekst als sleutel en tekst of tuples van tekst als waarde slaat de GC over (3.12) of loopt hij snel
     door. Er zijn twee generaties: een naam wordt eerst in de nieuwe gezocht en dan in de oude, en een treffer in de oude verhuist
-    naar de nieuwe. Een naam staat dus in een van de twee, en de nieuwe heeft alles wat sinds de laatste wissel terugkwam. Zijn
-    er samen meer dan `size` namen, dan valt de oude weg (`resets` telt het, als er namen in zaten) en wordt de nieuwe de oude:
-    weg is alleen wat sinds de vorige wissel niet terugkwam. Zo blijft wat vaak terugkomt bewaard, zoals bij lru_cache, zonder een
-    schakel per naam, en houdt de memo hooguit `size` namen vast (een meer op het moment van de wissel). De groottes bovenaan zijn
-    ruim genoeg voor de namen van een opbouw van alle catalogi: `tests/test_name_memo.py` eist dat een tweede opbouw niets mist."""
+    naar de nieuwe. Een naam staat dus in een van de twee, en de nieuwe heeft alles wat sinds de laatste wissel terugkwam.
+
+    Zijn er na een misser samen meer dan `size` namen, dan gaat er een naam uit de oude generatie: de oudste die sinds de
+    wissel niet terugkwam (`evicted` telt ze). Is de oude leeg, dan wordt eerst de nieuwe de oude. Zo houdt de memo `size` namen
+    vast en gaat bij een volle memo telkens een naam weg die het langst niet terugkwam, ongeveer zoals bij lru_cache, zonder
+    een schakel per naam. De volgorde van de oude generatie staat in een tuple van haar sleutels (`_order`): een tuple van tekst
+    volgt de GC niet, en zo kost het weghalen van de oudste geen zoektocht door de dict. Niet `dict.popitem`: dat haalt de
+    jongste weg, en na een wissel zijn dat net de namen van de opbouw die nog bezig is.
+
+    De groottes bovenaan zijn ruim genoeg voor de namen van een opbouw van alle catalogi: `tests/test_name_memo.py` eist dat een
+    tweede opbouw niets mist, ook als de memo's al vol zaten met andere namen."""
 
     def __init__(self, function: Callable[..., _Result], size: int = MEMO_SIZE) -> None:
         update_wrapper(self, function)
@@ -75,9 +81,11 @@ class TextMemo(Generic[_Result]):
         self._function: Callable[..., _Result] = function
         self._new: dict[Any, _Result] = {}
         self._old: dict[Any, _Result] = {}
+        self._order: tuple[Any, ...] = ()  # de sleutels van de oude generatie op volgorde van binnenkomst, bij de wissel vastgelegd
+        self._next: int = 0  # waar `_evict` in `_order` verder zoekt
         self._hits: int = 0
         self._misses: int = 0
-        self._resets: int = 0
+        self._evicted: int = 0
 
     @staticmethod
     def _positional_defaults(signature: inspect.Signature) -> tuple[Any, ...]:
@@ -117,24 +125,34 @@ class TextMemo(Generic[_Result]):
         return result
 
     def _keep(self, key: Any, value: _Result) -> None:
-        """Bewaart een nieuw antwoord. Zijn er samen meer dan `size` namen, dan valt de oude generatie weg en wordt de nieuwe de
-        oude."""
+        """Bewaart een nieuw antwoord. Zijn er dan samen meer dan `size` namen, dan gaat er een naam uit (`_evict`)."""
         self._new[key] = value
         if len(self._new) + len(self._old) > self.size:
-            if self._old:
-                self._resets += 1
-            self._old = self._new
-            self._new = {}
+            self._evict()
+
+    def _evict(self) -> None:
+        """Haalt de oudste naam uit de oude generatie die er nog in staat. Is de oude leeg, dan wordt eerst de nieuwe de oude."""
+        if not self._old:
+            self._old, self._new = self._new, {}
+            self._order, self._next = tuple(self._old), 0
+        while self._next < len(self._order):
+            key: Any = self._order[self._next]
+            self._next += 1
+            if self._old.pop(key, _MISSING) is not _MISSING:  # anders kwam hij terug en staat hij in de nieuwe
+                self._evicted += 1
+                return
 
     def cache_info(self) -> MemoInfo:
-        return MemoInfo(self._hits, self._misses, self.size, len(self._new) + len(self._old), self._resets)
+        return MemoInfo(self._hits, self._misses, self.size, len(self._new) + len(self._old), self._evicted)
 
     def cache_clear(self) -> None:
         self._new = {}
         self._old = {}
+        self._order = ()
+        self._next = 0
         self._hits = 0
         self._misses = 0
-        self._resets = 0
+        self._evicted = 0
 
 
 NEAR_MARK: str = "~"  # voor een sleutel van `near`: geen gevouwen naam begint zo
