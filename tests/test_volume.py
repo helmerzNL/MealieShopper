@@ -38,6 +38,8 @@ from mealieshopper import (
     ah,
     ah_orders,
     ah_price_index,
+    ai_match,
+    ai_review,
     backup,
     gc_watch,
     image_cache,
@@ -721,13 +723,15 @@ def _full_collection() -> tuple[float, int]:
 async def test_the_catalogues_keep_a_full_collection_short(volume_client: TestClientProtocol) -> None:
     for memo in NAME_MEMOS:
         memo.cache_clear()
-    before_seconds, before_tracked = _full_collection()
+    # In een thread: een volle ronde op de loop telde bij de bewaker als stilstand van de app (de callback van gc_watch is de
+    # eerste regel van de app na de ronde), met de hele suite erbij 270 ms op 3.15. De ronde zelf is hier wat de test meet.
+    before_seconds, before_tracked = await asyncio.to_thread(_full_collection)
     await prices.warm_catalogues(today=volume.TODAY)
     for store in ("ah", "jumbo"):
         await _get(volume_client, f"/api/offers?store={store}&week=2026-11-09")
         await _get(volume_client, f"/api/prices/history?store={store}")
     assert len(prices._CATALOGUES) == len(offers.STORES)
-    after_seconds, after_tracked = _full_collection()
+    after_seconds, after_tracked = await asyncio.to_thread(_full_collection)
     assert after_tracked - before_tracked < ADDED_TRACKED_LIMIT, (before_tracked, after_tracked)
     assert after_seconds - before_seconds < ADDED_COLLECTION_SECONDS, (before_seconds, after_seconds)
 
@@ -1224,3 +1228,77 @@ async def test_a_price_archive_import_does_not_stall(volume_client: TestClientPr
     finally:
         made.unlink(missing_ok=True)
     assert job["status"] == "done", job
+AI_RECIPES: int = (
+    1_000  # recepten in de receptindex (`offer_recipes`), elk met tien regels
+)
+_RECIPE_NUMBER: re.Pattern[str] = re.compile(r"^RECIPE (\d+):", re.MULTILINE)
+
+
+def _recipe_rows(path: Path) -> list[tuple[str, str, str, str]]:
+    """`AI_RECIPES` recepten voor de receptindex, met regels uit de namen van de aanbiedingen van AH: (bron, id, titel, regels)."""
+    with contextlib.closing(sqlite3.connect(path)) as conn:
+        titles: list[str] = [
+            row[0]
+            for row in conn.execute(
+                "SELECT title FROM offers WHERE store = 'ah' ORDER BY position"
+            )
+        ]
+    return [
+        ("mealie", f"recept-{number:04d}", f"Recept {number}",
+         json.dumps([f"{100 + line} g {titles[(number * 10 + line) % len(titles)].lower()}" for line in range(10)]))
+        for number in range(AI_RECIPES)
+    ]  # fmt: skip
+
+
+async def _ai_answer(
+    provider: str, key: str, model: str, system: str, payload: str, **options: Any
+) -> tuple[Any, int]:
+    """`ai_review._call` zonder AI: elk recept van de groep krijgt twee regels aan een aanbieding gekoppeld."""
+    del provider, key, model, system, options
+    numbers: list[int] = [int(found) for found in _RECIPE_NUMBER.findall(payload)]
+    answer: list[dict[str, Any]] = [
+        {
+            "recipe": number,
+            "matches": [
+                {"line": 1, "product": number},
+                {"line": 2, "product": number + 40},
+            ],
+        }
+        for number in numbers
+    ]
+    return {"recipes": answer}, 1000 * len(numbers)
+
+
+@pytest.mark.volume
+async def test_an_ai_match_round_does_not_stall(
+    volume_client: TestClientProtocol, volume_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # De ronde van de AI langs de recepten (`ai-match`): de aanbiedingen van deze week, de recepten die nog moeten, en per groep
+    # van veertig recepten een antwoord om te bewaren. Elke poging doet de volgende `MAX_RECIPES` recepten.
+    path: Path = volume_dir / volume.DB_NAME
+    async with offers._connect():
+        pass  # de tabellen van de receptindex
+    with contextlib.closing(sqlite3.connect(path)) as conn:
+        conn.executemany(
+            "INSERT INTO offer_recipes (source, recipe_id, title, ingredients) VALUES (?, ?, ?, ?)",
+            _recipe_rows(path),
+        )
+        conn.commit()
+    monkeypatch.setattr(
+        ai_review, "active_provider", lambda: helpers.returned("openai")
+    )
+    monkeypatch.setattr(
+        ai_review, "api_key", lambda provider: helpers.returned(("sleutel", "env"))
+    )
+    monkeypatch.setattr(
+        ai_review, "model_of", lambda provider: helpers.returned("model")
+    )
+    monkeypatch.setattr(ai_review, "_call", _ai_answer)
+
+    async def ai_round() -> Any:
+        await ai_match.start("ah", ai_match.MAX_RECIPES)
+        await _finished("ai-match")
+        return ai_match.progress()
+
+    result: Any = await quiet(ai_round)
+    assert result["state"] == "done" and result["result"]["matched"], result
