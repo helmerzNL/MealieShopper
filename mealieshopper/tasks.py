@@ -101,7 +101,8 @@ async def _stop(started: list[asyncio.Task[Any]]) -> None:
 
 
 def _shielded_done(task: asyncio.Future[Any]) -> None:
-    """Vergeet afgeschermd werk dat klaar is. Een fout is dan opgehaald: wie wachtte, kreeg hem al via `asyncio.shield`."""
+    """Vergeet afgeschermd werk dat klaar is. Een fout is dan opgehaald: wie wachtte, kreeg hem al via `asyncio.shield` (`shielded`)
+    of `share` (`wait_at_shutdown`)."""
     _shielded.discard(task)
     if not task.cancelled() and task.exception() is not None:
         log.debug("Afgeschermd werk mislukt", exc_info=task.exception())
@@ -148,8 +149,8 @@ async def share(future: asyncio.Future[T]) -> T:
 
 def wait_at_shutdown(task: asyncio.Future[Any]) -> None:
     """Laat `cancel_all` op `task` wachten zoals op het werk van `shielded`, zonder hem te annuleren. Voor een bouw of een lading
-    die achter `asyncio.shield` doorloopt als zijn aanroeper weggaat (`compute.SingleFlight`, `response_cache.ResponseCache`):
-    zo leest hij niet nog in de database als de app al dicht is."""
+    waar de aanroepers met `share` op wachten, en die doorloopt als ze weggaan (`compute.SingleFlight`,
+    `response_cache.ResponseCache`): zo leest hij niet nog in de database als de app al dicht is."""
     _shielded.add(task)
     task.add_done_callback(_shielded_done)
 
@@ -185,9 +186,12 @@ async def cancel_all(timeout: float = 10.0) -> None:
         await asyncio.wait(waiting, timeout=timeout)
 
 
-# Het afsluiten moet binnen de 10 seconden die Docker een container geeft tussen SIGTERM en SIGKILL, met marge: hypercorn
-# wacht eerst tot 3 seconden (`graceful_timeout`, standaard) op lopende verzoeken, dan wachten de tasks hooguit 3 seconden en de
-# rekenthreads hooguit `compute.SHUTDOWN_SECONDS` (2,5). Samen 8,5 s. `tests/test_tasks.py` telt het na.
+# Het afsluiten moet binnen de 10 seconden die Docker een container geeft tussen SIGTERM en SIGKILL. Begrensd is: hypercorn
+# wacht tot 3 seconden (`graceful_timeout`, standaard) op lopende verzoeken, dan de tasks hooguit 3 seconden en de rekenthreads
+# hooguit `compute.SHUTDOWN_SECONDS` (2,5), samen 8,5 s (`tests/test_tasks.py` telt het na). Niet begrensd is werk in de
+# standaard-executor van de loop (`asyncio.to_thread`, zoals het terugzetten van een back-up): na `after_serving` sluit hypercorn
+# de loop met `asyncio.Runner`, en die wacht tot 300 seconden (`shutdown_default_executor`) op zo'n thread. Loopt er dan nog een,
+# dan stopt Docker de container na 10 seconden alsnog hard.
 SHUTDOWN_TIMEOUT: float = 3.0
 
 
