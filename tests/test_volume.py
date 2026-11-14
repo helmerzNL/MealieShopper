@@ -717,3 +717,29 @@ async def test_the_catalogues_keep_a_full_collection_short(volume_client: TestCl
     after_seconds, after_tracked = _full_collection()
     assert after_tracked - before_tracked < ADDED_TRACKED_LIMIT, (before_tracked, after_tracked)
     assert after_seconds - before_seconds < ADDED_COLLECTION_SECONDS, (before_seconds, after_seconds)
+
+
+# Hoeveel gevolgde objecten een koude bouw van AH er hooguit bij heeft op het moment dat een volle ronde van de GC begint: dan
+# loopt de ronde langs alles, met de GIL vast. Na taak 9c is de vaste stand met alle catalogi zo'n 120.000 (de app en de tests
+# erbij), dus dit houdt de piek binnen twee keer de vaste stand. Voor de review van taak 9c: 200.000 tot 300.000 erbij (de rijen als
+# sqlite3.Row, een dict en twee sets per product).
+BUILD_PEAK_ADDED_LIMIT: int = 120_000
+
+
+@pytest.mark.volume
+async def test_a_cold_build_keeps_the_tracked_set_small(volume_dir: Path) -> None:
+    peaks: list[int] = []
+
+    def at_full_collection(phase: str, info: dict[str, Any]) -> None:
+        if phase == "start" and info.get("generation") == 2:
+            peaks.append(len(gc.get_objects()))
+
+    gc.collect()
+    before: int = len(gc.get_objects())
+    gc.callbacks.append(at_full_collection)
+    try:
+        await prices.warm_catalogues(["ah"], today=volume.TODAY)
+    finally:
+        gc.callbacks.remove(at_full_collection)
+    assert ("ah" in {key[1] for key in prices._CATALOGUES}), "de catalogus van AH is gebouwd"
+    assert max(peaks, default=before) - before < BUILD_PEAK_ADDED_LIMIT, (before, peaks)
