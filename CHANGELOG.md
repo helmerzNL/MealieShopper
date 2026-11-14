@@ -8,6 +8,8 @@ Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar
 
 ### Nieuw in 4.28.0
 
+Pull request: [#336](https://github.com/helmerzNL/MealieShopper/pull/336).
+
 - **Een product volgen vanaf de aanbiedingen.** Op elke aanbiedingskaart, in de compacte lijst en in het venster van een aanbieding staat een oog: **Prijs volgen (elke nacht)** (`offerWatchButton` in `static/offers.js`). Een gevolgd product heeft een gekleurd oog (`aria-pressed="true"`, *Gevolgd · niet meer volgen*); nog eens klikken laat het los. Een toast zegt wat er gebeurde. De hover-popup heeft geen knop: de muis gaat erdoorheen.
   - **Waarom.** De app bewaarde de gewone prijs van een product buiten de aanbieding alleen als je het opzocht, het kocht of (bij Albert Heijn) ooit kocht: dan haalt ze eens per twee weken de weekprijs bij ahprijsindex.nl. Een product dat je alleen in de aanbieding zag, vroeg de app na de actie niet meer op. Een gevolgd product vraagt ze elke nacht op, in of buiten de aanbieding.
   - De kaart geeft de naam, het merk, de maat, de afbeelding en het adres mee, voor als de winkel op dat moment niet antwoordt; de prijs niet: de actieprijs is geen gewone prijs, die haalt de server zelf bij de winkel.
