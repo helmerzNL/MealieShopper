@@ -1201,7 +1201,12 @@ class StagedLinesTest(unittest.TestCase):
     """Taak 10: het klaargezette bestand wordt in blokken gelezen (`price_archive._staged_lines`), met dezelfde regels als `for line in handle`."""
 
     def test_the_lines_are_those_of_the_file_whatever_the_block(self) -> None:
-        texts: tuple[str, ...] = ('["o", [1]]\n["p", [2]]\n', '["o", [1]]\r\n["p", [2]]', "", '["c", []]\n' * 50)
+        texts: tuple[str, ...] = (
+            '["o", [1]]\n["p", [2]]\n', '["o", [1]]\r\n["p", [2]]', "", '["c", []]\n' * 50,
+            '["o", ["Crème fraîche", "Paté", "😀"]]\n["p", ["ß€"]]\n',  # tekens van twee, drie en vier bytes in UTF-8
+            '["o", [1]]\r["p", [2]]\r',  # een losse \r is ook een regeleinde
+            "abcdef\r\nghijkl\r\n",  # met blok 7 valt \r op teken 7 en \n op teken 8: precies op de grens
+        )
         with tempfile.TemporaryDirectory() as folder:
             path: Path = Path(folder) / "staged.rows"
             for text in texts:

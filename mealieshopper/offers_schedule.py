@@ -229,5 +229,5 @@ def start() -> None:
     global _task
     if (_task is not None and not _task.done()) or not enabled():
         return
-    # Elk kwartier een controle; de run zelf (`run_all`) heeft een volumetest: test_the_nightly_tasks_do_not_stall (taak 10).
+    # Elk kwartier een controle. De run zelf (`run_all`) heeft een volumetest: test_the_nightly_tasks_do_not_stall (taak 10).
     _task = tasks.spawn("offers-schedule", _loop())
