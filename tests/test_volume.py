@@ -1185,7 +1185,6 @@ async def _file_chunks(path: Path) -> AsyncIterator[bytes]:
 
 
 @pytest.mark.volume
-@stalls_until("taak 10a: json.loads van het hele bestand houdt de GIL vast")
 async def test_a_backup_and_its_restore_do_not_stall(volume_client: TestClientProtocol, volume_dir: Path) -> None:
     # Wat de knoppen onder Instellingen > Back-up doen: het bestand maken (in een thread, zoals de route), het klaarzetten en
     # controleren, en het terugzetten als achtergrondtask (`backup-restore-<id>`).
