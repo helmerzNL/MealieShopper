@@ -3,10 +3,15 @@
 Het volgt het patroon in `shared/guidelines/backup-restore.md` van Flux76HQ/App-Guidance (back-up en herstel in de app,
 met zichtbare voortgang). Kort:
 
-* Het bestand is één JSON-bestand: de koppelingen met Mealie en de supermarkten, de instellingen en alle tabellen met
-  gegevens (lijstjes, bestellingen, kassabonnen, aanbiedingen en de hele historie daarvan, de bewaarde afbeeldingen van
-  aanbiedingen die je kocht, de beoordelingen van aanbiedingen bij recepten, de profielen). Afbeeldingen staan er als
-  base64 in en worden bij het terugzetten opnieuw gelezen.
+* Het bestand is één JSON-bestand, met gzip ingepakt (`.json.gz`): de koppelingen met Mealie en de supermarkten, de
+  instellingen en alle tabellen met gegevens (lijstjes, bestellingen, kassabonnen, aanbiedingen en de hele historie daarvan,
+  de bewaarde afbeeldingen van aanbiedingen die je kocht, de beoordelingen van aanbiedingen bij recepten, de profielen).
+  Afbeeldingen staan er als base64 in en worden bij het terugzetten opnieuw gelezen. Het inpakken gebeurt op de server,
+  tijdens het schrijven, dus er staat nooit een groot ongecomprimeerd bestand op schijf en de download is klein. Bij het
+  terugzetten beslist `read_file` op de eerste bytes: een gzip-bestand wordt (begrensd) uitgepakt, een gewoon JSON-bestand
+  (een back-up van voor 4.25.0) werkt zoals het deed.
+* De beheerder kiest welke onderdelen (`PARTS`) er in de back-up komen en welke hij terugzet. Een onderdeel dat er niet in
+  zit of niet wordt teruggezet, blijft op deze installatie zoals het is.
 * **De koppelingen zijn de uitzondering op "een back-up opent nooit de app".** Mealie-token, AH-, Picnic- en
   Jumbo-sessie en AI-sleutels staan alleen in het bestand als je er bij het maken een wachtwoord voor kiest; ze zijn
   daarmee versleuteld (scrypt + Fernet). Zonder dat wachtwoord is het bestand zonder koppelingen terug te zetten niet
@@ -25,11 +30,14 @@ Buiten de back-up blijven: het auditlog (een logboek dat na 30 dagen vanzelf wor
 Mealie-afbeeldingen (een cache die vanzelf weer wordt gevuld) en het webadres dat de beheerder voor deze server instelde
 (dat hoort bij de server, niet bij de gegevens).
 """
+
 from __future__ import annotations
 
 import asyncio
 import base64
 import binascii
+import gzip
+import io
 import json
 import logging
 import os
@@ -37,18 +45,52 @@ import re
 import secrets
 import sqlite3
 import time
+import zlib
 from collections.abc import AsyncIterable, AsyncIterator, Callable, Iterator
 from contextlib import aclosing, asynccontextmanager, closing
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any
+from typing import IO, Any
 
 import aiosqlite
 from cryptography.fernet import Fernet, InvalidToken
 from cryptography.hazmat.primitives.kdf.scrypt import Scrypt
 from quart import Quart, Response, jsonify, request
 
-from . import about, ah_lists, ah_orders, ah_recipes, ai_review, auth, cart_memory, crisp, crisp_orders, hellofresh, jumbo, jumbo_lists, jumbo_orders, marleyspoon, mealie, offers, offers_schedule, picnic, picnic_orders, price_import, prices, product_images, product_links, profile, request_body, server_settings, tasks, thread_db, uploads
+from . import (
+    about,
+    ah_lists,
+    ah_orders,
+    ah_recipes,
+    ai_review,
+    auth,
+    cart_memory,
+    crisp,
+    crisp_orders,
+    hellofresh,
+    jumbo,
+    jumbo_lists,
+    jumbo_orders,
+    loose_names,
+    marleyspoon,
+    mealie,
+    offers,
+    offers_schedule,
+    picnic,
+    picnic_orders,
+    price_archive_sync,
+    price_import,
+    prices,
+    product_images,
+    product_links,
+    profile,
+    request_body,
+    server_settings,
+    shared_links,
+    tasks,
+    thread_db,
+    uploads,
+)
 from .i18n import tr
 
 log = logging.getLogger(__name__)
@@ -56,7 +98,12 @@ log = logging.getLogger(__name__)
 FORMAT = "mealieshopper-backup"
 FORMAT_VERSION = 1
 
-MAX_STAGE_BYTES = 200 * 1024 * 1024  # één bestand; een back-up van jaren aanbiedingen is enkele megabytes
+MAX_STAGE_BYTES = 200 * 1024 * 1024  # één bestand, zoals het binnenkomt (ingepakt); een back-up van jaren aanbiedingen is enkele megabytes
+# Wat een ingepakt bestand uitgepakt hoogstens mag zijn: de grootte staat in het (niet vertrouwde) bestand, en de JSON gaat
+# helemaal door het geheugen. Een gewone back-up van 200 MB (de grens van voor 4.25.0) past er ruim in.
+MAX_UNPACKED_BYTES = 512 * 1024 * 1024
+GZIP_LEVEL = 6  # het zlib-gemiddelde: JSON met veel herhaling wint er het meeste mee, hoger kost tijd voor een paar procent
+GZIP_MAGIC = b"\x1f\x8b"
 CHUNK = 1024 * 1024
 STAGE_TTL_SECONDS = 3600  # een bestand dat niet gebruikt wordt, ruimen we na een uur op
 JOB_STALE_SECONDS = 15 * 60  # een klus die zo lang niet bewoog, is z'n task kwijt (herstart)
@@ -69,45 +116,88 @@ SCRYPT_MAX_N = 2**16  # wat een bestand ons hoogstens laat doen: de kosten staan
 
 # Tabellen met gegevens, ouders vóór kinderen. Een nieuwe tabel met gegevens hoort hier én in de round-trip-test.
 DATA_TABLES = (
-    "ah_lists", "ah_list_items",
-    "ah_basket", "ah_basket_items",
-    "ah_orders", "ah_order_items",
-    "ah_receipts", "ah_receipt_items",
+    "ah_lists",
+    "ah_list_items",
+    "ah_basket",
+    "ah_basket_items",
+    "ah_orders",
+    "ah_order_items",
+    "ah_receipts",
+    "ah_receipt_items",
     "ah_orders_meta",
-    "ah_saved_recipes", "ah_saved_recipes_meta", "ah_saved_recipe_groups", "ah_saved_recipe_group_items",
-    "jumbo_lists", "jumbo_list_items",
-    "jumbo_orders", "jumbo_order_items", "jumbo_orders_meta",
-    "picnic_orders", "picnic_order_items", "picnic_orders_meta",
-    "crisp_orders", "crisp_order_items", "crisp_orders_meta",
-    "offers", "offer_history", "offers_meta",
-    "price_observations", "product_images", "imported_purchases",
+    "ah_saved_recipes",
+    "ah_saved_recipes_meta",
+    "ah_saved_recipe_groups",
+    "ah_saved_recipe_group_items",
+    "jumbo_lists",
+    "jumbo_list_items",
+    "jumbo_orders",
+    "jumbo_order_items",
+    "jumbo_orders_meta",
+    "picnic_orders",
+    "picnic_order_items",
+    "picnic_orders_meta",
+    "crisp_orders",
+    "crisp_order_items",
+    "crisp_orders_meta",
+    "offers",
+    "offer_history",
+    "offers_meta",
+    "price_observations",
+    "product_images",
+    "imported_purchases",
     "product_links",  # je eigen koppelingen van bonregels en ingelezen aankopen aan een product (#238): werk van de gebruiker
-    "offer_recipes", "offer_recipes_meta",
-    "offer_rejections", "offer_verdicts",
-    "ai_recipe_matches", "ai_recipe_runs",
+    "shared_link_rejections",  # de gedeelde koppelingen die je afwees met Klopt niet (shared_links.py): ook werk van de gebruiker
+    "loose_names",  # de stand per losse aankoopnaam (loose_names.py): de afwijzingen zijn werk van de gebruiker, en de rest is klein
+    "offer_recipes",
+    "offer_recipes_meta",
+    "offer_rejections",
+    "offer_verdicts",
+    "ai_recipe_matches",
+    "ai_recipe_runs",
     "offers_schedule",
     "user_profiles",
-    "cart_choices", "pantry_items",  # per gebruiker: het product dat je bij een ingrediënt koos en wat je altijd in huis hebt (cart_memory.py)
+    "cart_choices",
+    "pantry_items",  # per gebruiker: het product dat je bij een ingrediënt koos en wat je altijd in huis hebt (cart_memory.py)
 )
 # Tabellen met een rij per gebruiker (`user_id`): een rij van iemand die op deze installatie niet bestaat, gaat niet terug.
 USER_TABLES = frozenset({"user_profiles", "cart_choices", "pantry_items"})
 # Tabellen die er bewust niet in zitten: de inloggegevens van de app, tijdelijke staat, caches en logboeken.
-EXCLUDED_TABLES = frozenset({
-    "users", "passkey_credentials", "auth_challenges", "revoked_sessions", "password_credentials", "mfa_totp", "mfa_recovery_codes",
-    "login_attempts", "invites", "oauth_clients", "oauth_codes", "oauth_tokens",
-    "app_settings",  # staat er wel in, maar apart: zie SECRET_KEYS en PLAIN_SETTINGS
-    "audit_log", "mealie_images", "backup_jobs", "sqlite_sequence",
-    "hellofresh_menus",  # kopie van openbare menu's van HelloFresh: herlaadbaar, dus niet in de back-up
-    "marleyspoon_menus",  # idem voor Marley Spoon
-    "ah_receipt_products",  # koppeling artikelnummer -> product, zoekt de volgende synchronisatie van de bonnen opnieuw op
-    "image_cache",  # cache van winkelfoto's op schijf (image_cache.py), opnieuw op te bouwen
-    "mealie_recipe_nutrition", "mealie_recipe_nutrition_meta",  # calorieën van de recepten in Mealie (recipe_nutrition.py), herlaadbaar
-    "price_archive_jobs",  # de import van een prijsarchief die loopt (price_archive.py): tijdelijke staat
-    "catalogue_changes",  # de versie van de catalogus van de prijzen (prices._catalogue_version): bijhouden, niet bewaren
-    # De push van de kooktimers (push.py): een abonnement hoort bij een browser en bij de VAPID-sleutel van deze installatie
-    # (die zit er ook niet in), een timer duurt minuten. Na het terugzetten vraagt de app bij de volgende timer een nieuw aan.
-    "push_subscriptions", "cook_timers",
-})
+EXCLUDED_TABLES = frozenset(
+    {
+        "users",
+        "passkey_credentials",
+        "auth_challenges",
+        "revoked_sessions",
+        "password_credentials",
+        "mfa_totp",
+        "mfa_recovery_codes",
+        "login_attempts",
+        "invites",
+        "oauth_clients",
+        "oauth_codes",
+        "oauth_tokens",
+        "app_settings",  # staat er wel in, maar apart: zie SECRET_KEYS en PLAIN_SETTINGS
+        "audit_log",
+        "mealie_images",
+        "backup_jobs",
+        "sqlite_sequence",
+        "hellofresh_menus",  # kopie van openbare menu's van HelloFresh: herlaadbaar, dus niet in de back-up
+        "marleyspoon_menus",  # idem voor Marley Spoon
+        "ah_receipt_products",  # koppeling artikelnummer -> product, zoekt de volgende synchronisatie van de bonnen opnieuw op
+        "image_cache",  # cache van winkelfoto's op schijf (image_cache.py), opnieuw op te bouwen
+        "mealie_recipe_nutrition",
+        "mealie_recipe_nutrition_meta",  # calorieën van de recepten in Mealie (recipe_nutrition.py), herlaadbaar
+        "shared_price_documents",
+        "shared_price_sync",  # derived document hashes and scheduler state
+        "price_archive_jobs",  # de import van een prijsarchief die loopt (price_archive.py): tijdelijke staat
+        "catalogue_changes",  # de versie van de catalogus van de prijzen (prices._catalogue_version): bijhouden, niet bewaren
+        # De push van de kooktimers (push.py): een abonnement hoort bij een browser en bij de VAPID-sleutel van deze installatie
+        # (die zit er ook niet in), een timer duurt minuten. Na het terugzetten vraagt de app bij de volgende timer een nieuw aan.
+        "push_subscriptions",
+        "cook_timers",
+    }
+)
 
 # Opgeslagen koppelingen (versleuteld in app_settings) en bij welke koppeling ze horen.
 SECRET_KEYS: dict[str, str] = {
@@ -122,24 +212,72 @@ SECRET_KEYS: dict[str, str] = {
 }
 # Keuzes zonder geheim die mee teruggaan. Alles wat hier niet staat (AUTH_MODE, SESSION_EPOCH, ONBOARDING_*,
 # PUBLIC_BASE_URL, halve inlogpogingen) blijft zoals het is, ook als een bewerkt bestand het probeert mee te geven.
-PLAIN_SETTINGS = frozenset({
-    ai_review.SETTING_PROVIDER,
-    *(info["model_setting"] for info in ai_review.PROVIDERS.values()),
-    server_settings.SETTING_MCP,
-    server_settings.SETTING_TOOLS_OFF,
-    mealie.SETTING_WEEK_START,
-})
+PLAIN_SETTINGS = frozenset(
+    {
+        ai_review.SETTING_PROVIDER,
+        *(info["model_setting"] for info in ai_review.PROVIDERS.values()),
+        server_settings.SETTING_MCP,
+        server_settings.SETTING_TOOLS_OFF,
+        mealie.SETTING_WEEK_START,
+    }
+)
 MAX_SETTING_CHARS = 20_000
 
-# Onderdelen die de beheerder bij het maken kan weglaten en bij het terugzetten kan overslaan (naast de koppelingen). Een
-# onderdeel dat niet in het bestand zit of niet wordt teruggezet, blijft op deze installatie zoals het is, net als de
-# koppelingen. De aanbiedingen van nu haalt de app bij de volgende synchronisatie ook weer op; de historie niet.
-OPTIONAL_PARTS: dict[str, tuple[str, ...]] = {
-    "offers": ("offers", "offers_meta"),  # de aanbiedingen van nu en wanneer ze per winkel zijn opgehaald
-    "offerHistory": ("offer_history",),
+# De onderdelen waaruit een back-up bestaat. De beheerder kan er bij het maken elk van weglaten en bij het terugzetten elk van
+# overslaan (naast de koppelingen, die een eigen vinkje en wachtwoord hebben). Een onderdeel dat niet in het bestand zit of niet
+# wordt teruggezet, blijft op deze installatie zoals het is, net als de koppelingen. De volgorde is die op het scherm.
+#
+# Elke tabel van DATA_TABLES staat in precies één onderdeel (een test dwingt dat af), en de tabellen van één onderdeel horen
+# bij elkaar (een lijstje met zijn artikelen, een bestelling met zijn regels), zodat een onderdeel los terug te zetten is.
+# Tussen onderdelen staan geen sleutels: de verbinding in de thread dwingt geen foreign keys af, dus het leegmaken van het ene
+# onderdeel raakt het andere niet.
+#
+# Verander de tabellen van een bestaand onderdeel niet zomaar: een bestand van een eerdere versie zegt in `left_out` welke
+# onderdelen er niet in zitten, en `prepare` weigert zo'n bestand als er toch tabellen van dat onderdeel in staan. Een
+# tabel die er later bij komt, hoort bij een onderdeel dat bij het maken niet kon worden weggelaten, of in een nieuw onderdeel.
+PARTS: dict[str, tuple[str, ...]] = {
+    "lists": ("ah_lists", "ah_list_items", "jumbo_lists", "jumbo_list_items"),
+    "orders": (
+        "ah_basket",
+        "ah_basket_items",
+        "ah_orders",
+        "ah_order_items",
+        "ah_orders_meta",
+        "jumbo_orders",
+        "jumbo_order_items",
+        "jumbo_orders_meta",
+        "picnic_orders",
+        "picnic_order_items",
+        "picnic_orders_meta",
+        "crisp_orders",
+        "crisp_order_items",
+        "crisp_orders_meta",
+    ),
+    "receipts": ("ah_receipts", "ah_receipt_items"),
+    "recipes": (
+        "ah_saved_recipes",
+        "ah_saved_recipes_meta",
+        "ah_saved_recipe_groups",
+        "ah_saved_recipe_group_items",
+        "offer_recipes",
+        "offer_recipes_meta",
+    ),
+    "offers": ("offers", "offers_meta"),  # de aanbiedingen van nu en wanneer ze per winkel zijn opgehaald; de app haalt ze zelf weer op
+    "offerHistory": ("offer_history",),  # de historie haalt de app niet opnieuw op
+    "judgements": ("offer_rejections", "offer_verdicts", "ai_recipe_matches", "ai_recipe_runs"),
+    "prices": ("price_observations",),
+    "productImages": ("product_images",),
+    "importedPurchases": ("imported_purchases",),
+    "productLinks": ("product_links", "shared_link_rejections", "loose_names"),
+    "profiles": ("user_profiles",),
+    "cartMemory": ("cart_choices", "pantry_items"),
+    # De keuzes zonder geheim (PLAIN_SETTINGS) en de stand van de automatische synchronisatie van de aanbiedingen.
+    "settings": ("offers_schedule",),
 }
+SETTINGS_PART = "settings"  # dit onderdeel heeft ook de PLAIN_SETTINGS uit app_settings, niet alleen tabellen
 
-# Wat de beheerder ziet: tabellen samengevoegd tot een paar regels.
+# Wat de beheerder ziet: tabellen samengevoegd tot een paar regels. Elke groep is een onderdeel van PARTS (zonder groep, zoals
+# `settings`, valt er niets te tellen) en telt alleen de hoofdtabellen: een lijstje, niet zijn artikelen.
 COUNT_GROUPS: dict[str, tuple[str, ...]] = {
     "lists": ("ah_lists", "jumbo_lists"),
     "orders": ("ah_orders", "jumbo_orders", "picnic_orders", "crisp_orders"),
@@ -149,14 +287,33 @@ COUNT_GROUPS: dict[str, tuple[str, ...]] = {
     "prices": ("price_observations",),
     "productImages": ("product_images",),
     "importedPurchases": ("imported_purchases",),
-    "productLinks": ("product_links",),
+    "productLinks": ("product_links", "shared_link_rejections"),
     "recipes": ("ah_saved_recipes", "offer_recipes"),
     "judgements": ("offer_rejections", "offer_verdicts", "ai_recipe_matches"),
     "profiles": ("user_profiles",),
     "cartMemory": ("cart_choices", "pantry_items"),
 }
 
-SCHEMA_OWNERS = (ah_lists, ah_orders, ah_recipes, cart_memory, crisp_orders, hellofresh, jumbo_lists, jumbo_orders, marleyspoon, offers, offers_schedule, picnic_orders, price_import, prices, product_links, profile)
+SCHEMA_OWNERS = (
+    ah_lists,
+    ah_orders,
+    ah_recipes,
+    cart_memory,
+    crisp_orders,
+    hellofresh,
+    jumbo_lists,
+    jumbo_orders,
+    loose_names,
+    marleyspoon,
+    offers,
+    offers_schedule,
+    picnic_orders,
+    price_import,
+    prices,
+    product_links,
+    profile,
+    shared_links,
+)
 
 JOB_SCHEMA = """
 CREATE TABLE IF NOT EXISTS backup_jobs (
@@ -203,6 +360,22 @@ MESSAGES: dict[str, tuple[str, str]] = {
         "This is not a MealieShopper backup. Choose a file you made with Make backup.",
     ),
     "too_large": ("Het bestand is groter dan {limit} MB.", "The file is larger than {limit} MB."),
+    "too_large_unpacked": (
+        "Het bestand is uitgepakt groter dan {limit} MB.",
+        "The file is larger than {limit} MB once unpacked.",
+    ),
+    "bad_gzip": (
+        "Het gecomprimeerde bestand is beschadigd of niet compleet. Download de back-up opnieuw, of kies een andere.",
+        "The compressed file is damaged or incomplete. Download the backup again, or choose another one.",
+    ),
+    "nothing_selected": (
+        "Kies minstens één onderdeel om in de back-up te zetten.",
+        "Choose at least one part to put in the backup.",
+    ),
+    "nothing_to_restore": (
+        "Kies minstens één onderdeel om terug te zetten.",
+        "Choose at least one part to restore.",
+    ),
     "newer_version": (
         "Deze back-up is gemaakt met een nieuwere versie van MealieShopper ({app_version}, back-upformaat {found}; deze versie kent formaat {supported}). Werk MealieShopper eerst bij.",
         "This backup was made by a newer version of MealieShopper ({app_version}, backup format {found}; this version knows format {supported}). Update MealieShopper first.",
@@ -330,8 +503,13 @@ def seal(payload: dict[str, str], passphrase: str) -> dict[str, Any]:
     salt = os.urandom(16)
     token = Fernet(_derive_key(passphrase, salt, SCRYPT_N)).encrypt(json.dumps(payload, ensure_ascii=False).encode("utf-8"))
     return {
-        "cipher": "fernet", "kdf": "scrypt", "n": SCRYPT_N, "r": SCRYPT_R, "p": SCRYPT_P,
-        "salt": base64.b64encode(salt).decode("ascii"), "token": token.decode("ascii"),
+        "cipher": "fernet",
+        "kdf": "scrypt",
+        "n": SCRYPT_N,
+        "r": SCRYPT_R,
+        "p": SCRYPT_P,
+        "salt": base64.b64encode(salt).decode("ascii"),
+        "token": token.decode("ascii"),
     }
 
 
@@ -372,9 +550,7 @@ def _stored_secrets(conn: sqlite3.Connection, box: Fernet) -> tuple[dict[str, st
     """De opgeslagen koppelingen, ontsleuteld; en hoeveel er onleesbaar waren (andere sleutel: opnieuw koppelen)."""
     found: dict[str, str] = {}
     unreadable = 0
-    rows = conn.execute(
-        f"SELECT key, value FROM app_settings WHERE key IN ({','.join('?' for _ in SECRET_KEYS)})", tuple(SECRET_KEYS)
-    ).fetchall()
+    rows = conn.execute(f"SELECT key, value FROM app_settings WHERE key IN ({','.join('?' for _ in SECRET_KEYS)})", tuple(SECRET_KEYS)).fetchall()
     for row in rows:
         value = str(row["value"] or "")
         try:
@@ -395,18 +571,21 @@ def _rows(conn: sqlite3.Connection, table: str, names: list[str]) -> Iterator[st
 
 
 def write_backup(target: Path, *, links: bool, box: Fernet | None, passphrase: str = "", leave_out: Any = ()) -> dict[str, Any]:
-    """Schrijft de back-up naar `target` en geeft een samenvatting (aantallen en koppelingen).
+    """Schrijft de back-up naar `target`, met gzip ingepakt, en geeft een samenvatting (aantallen, koppelingen en de grootte
+    uitgepakt: `rawBytes`).
 
-    `leave_out`: onderdelen uit OPTIONAL_PARTS die niet meegaan; het bestand zegt welke (`left_out`), zodat het terugzetten
-    die onderdelen laat zoals ze zijn. Alles komt uit één leestransactie, dus het bestand is een samenhangend beeld ook als
-    de app ondertussen doorwerkt. `box` ontsleutelt de opgeslagen koppelingen (`auth.secret_box`). Eerst `ensure_schemas`.
+    `leave_out`: onderdelen uit PARTS die niet meegaan; het bestand zegt welke (`left_out`), zodat het terugzetten die
+    onderdelen laat zoals ze zijn. Alles komt uit één leestransactie, dus het bestand is een samenhangend beeld ook als de
+    app ondertussen doorwerkt. `box` ontsleutelt de opgeslagen koppelingen (`auth.secret_box`). Eerst `ensure_schemas`.
     """
     if links and len(passphrase) < MIN_PASSPHRASE_LENGTH:
         raise BackupError("passphrase_short", minimum=MIN_PASSPHRASE_LENGTH)
     left_out = sorted(set(leave_out))
-    if any(part not in OPTIONAL_PARTS for part in left_out):
-        raise BackupError("bad_part", part=str(next(part for part in left_out if part not in OPTIONAL_PARTS))[:40])
-    skipped_tables = {table for part in left_out for table in OPTIONAL_PARTS[part]}
+    if any(part not in PARTS for part in left_out):
+        raise BackupError("bad_part", part=str(next(part for part in left_out if part not in PARTS))[:40])
+    if not links and len(left_out) == len(PARTS):
+        raise BackupError("nothing_selected")
+    skipped_tables = {table for part in left_out for table in PARTS[part]}
     counts: dict[str, int] = {}
     with closing(thread_db.connect()) as conn:
         conn.execute("BEGIN")
@@ -414,7 +593,7 @@ def write_backup(target: Path, *, links: bool, box: Fernet | None, passphrase: s
         plain = {
             row["key"]: row["value"]
             for row in conn.execute("SELECT key, value FROM app_settings ORDER BY key")
-            if row["key"] in PLAIN_SETTINGS
+            if row["key"] in PLAIN_SETTINGS and SETTINGS_PART not in left_out
         }
         header = {
             "format": FORMAT,
@@ -424,24 +603,35 @@ def write_backup(target: Path, *, links: bool, box: Fernet | None, passphrase: s
             "includes_links": bool(links),
             "left_out": left_out,
         }
-        with target.open("w", encoding="utf-8") as handle:
-            handle.write(json.dumps(header, ensure_ascii=False)[:-1])
-            handle.write(',"settings":' + json.dumps(plain, ensure_ascii=False))
-            secrets_block = {"links": sorted({SECRET_KEYS[key] for key in stored}), "sealed": seal(stored, passphrase) if stored else None}
-            handle.write(',"secrets":' + json.dumps(secrets_block, ensure_ascii=False))
-            handle.write(',"tables":{')
-            for number, table in enumerate(table for table in DATA_TABLES if table not in skipped_tables):
-                names = [column["name"] for column in _columns(conn, table)]
-                handle.write(("," if number else "") + json.dumps(table) + ":[")
-                count = 0
-                for line in _rows(conn, table, names):
-                    handle.write(("," if count else "") + line)
-                    count += 1
-                handle.write("]")
-                counts[table] = count
-            handle.write("}}")
+        # filename="": zonder naam van het tijdelijke bestand in de kop van het gzip-bestand. De tekst gaat in stukken door de
+        # compressor, dus het ongecomprimeerde bestand staat nergens op schijf of in het geheugen.
+        with target.open("wb") as raw, gzip.GzipFile(filename="", mode="wb", fileobj=raw, compresslevel=GZIP_LEVEL) as packed:
+            with io.TextIOWrapper(packed, encoding="utf-8") as handle:
+                handle.write(json.dumps(header, ensure_ascii=False)[:-1])
+                handle.write(',"settings":' + json.dumps(plain, ensure_ascii=False))
+                secrets_block = {"links": sorted({SECRET_KEYS[key] for key in stored}), "sealed": seal(stored, passphrase) if stored else None}
+                handle.write(',"secrets":' + json.dumps(secrets_block, ensure_ascii=False))
+                handle.write(',"tables":{')
+                for number, table in enumerate(table for table in DATA_TABLES if table not in skipped_tables):
+                    names = [column["name"] for column in _columns(conn, table)]
+                    handle.write(("," if number else "") + json.dumps(table) + ":[")
+                    count = 0
+                    for line in _rows(conn, table, names):
+                        handle.write(("," if count else "") + line)
+                        count += 1
+                    handle.write("]")
+                    counts[table] = count
+                handle.write("}}")
+                handle.flush()
+                raw_bytes = packed.tell()  # bij schrijven: het aantal bytes dat erin ging, niet wat eruit komt
         conn.rollback()
-    return {"counts": _group_counts(counts), "links": secrets_block["links"], "unreadableLinks": unreadable, "leftOut": left_out}
+    return {
+        "counts": _group_counts(counts),
+        "links": secrets_block["links"],
+        "unreadableLinks": unreadable,
+        "leftOut": left_out,
+        "rawBytes": raw_bytes,
+    }
 
 
 def _group_counts(per_table: dict[str, int]) -> dict[str, int]:
@@ -455,18 +645,47 @@ def _reject_constant(name: str) -> Any:
     raise ValueError(f"unsupported number {name}")
 
 
+def _looks_like_json(head: bytes) -> bool:
+    """Of het bestand met een JSON-object begint (spaties ervoor mogen); dat zegt `read_file` zonder alles te lezen."""
+    return head.lstrip().startswith(b"{")
+
+
+def _unpack(handle: IO[bytes]) -> bytes:
+    """De uitgepakte inhoud van een gzip-bestand, hoogstens `MAX_UNPACKED_BYTES`: de grootte staat in het bestand zelf."""
+    try:
+        with gzip.GzipFile(fileobj=handle, mode="rb") as unpacked:
+            data = unpacked.read(MAX_UNPACKED_BYTES + 1)
+    except (OSError, EOFError, zlib.error):  # BadGzipFile is een OSError; EOFError: het bestand houdt te vroeg op
+        raise BackupError("bad_gzip") from None
+    if len(data) > MAX_UNPACKED_BYTES:
+        raise BackupError("too_large_unpacked", 413, limit=MAX_UNPACKED_BYTES // (1024 * 1024))
+    return data
+
+
 def read_file(path: Path) -> dict[str, Any]:
-    """Het bestand als JSON, na controle van formaat en versie. Beslist op de eerste bytes, niet op de naam."""
+    """Het bestand als JSON, na controle van formaat en versie.
+
+    Beslist op de eerste bytes, niet op de naam: gzip (`1f 8b`, wat Back-up maken sinds 4.25.0 maakt) wordt uitgepakt, en
+    een gewoon JSON-bestand (een back-up van eerder, of met de hand uitgepakt) wordt gelezen zoals het is. Wat uit een
+    gzip-bestand komt, gaat door dezelfde controles als een gewoon bestand.
+    """
     try:
         size = path.stat().st_size
         with path.open("rb") as handle:
-            head = handle.read(4)
+            packed = handle.read(len(GZIP_MAGIC)) == GZIP_MAGIC
             handle.seek(0)
             if size > MAX_STAGE_BYTES:
                 raise BackupError("too_large", 413, limit=MAX_STAGE_BYTES // (1024 * 1024))
-            if head[:2] == b"PK" or not head.lstrip().startswith(b"{"):
-                raise BackupError("not_a_backup")
-            data = json.loads(handle.read().decode("utf-8-sig"), parse_constant=_reject_constant)
+            if packed:
+                content = _unpack(handle)
+                if not _looks_like_json(content[:4]):
+                    raise BackupError("not_a_backup")
+            else:
+                if not _looks_like_json(handle.read(4)):
+                    raise BackupError("not_a_backup")
+                handle.seek(0)
+                content = handle.read()
+            data = json.loads(content.decode("utf-8-sig"), parse_constant=_reject_constant)
     except (ValueError, UnicodeDecodeError, RecursionError):
         raise BackupError("not_a_backup") from None
     if not isinstance(data, dict) or data.get("format") != FORMAT:
@@ -510,12 +729,14 @@ class Plan:
         if links:
             self.links, self.sealed = [], None
         for part in parts:
-            if part not in OPTIONAL_PARTS:
+            if part not in PARTS:
                 raise BackupError("bad_part", part=str(part)[:40])
             if part not in self.left_out and part not in self.skipped:
                 self.skipped.append(part)
-                for table in OPTIONAL_PARTS[part]:
+                for table in PARTS[part]:
                     self.tables.pop(table, None)
+                if part == SETTINGS_PART:
+                    self.plain = {}
         self.skipped.sort()
 
     def kept_parts(self) -> list[str]:
@@ -523,7 +744,11 @@ class Plan:
         return sorted(set(self.left_out) | set(self.skipped))
 
     def kept_tables(self) -> set[str]:
-        return {table for part in self.kept_parts() for table in OPTIONAL_PARTS[part]}
+        return {table for part in self.kept_parts() for table in PARTS[part]}
+
+    def restores_anything(self) -> bool:
+        """Of er na `skip` iets overblijft om terug te zetten: een onderdeel, of de koppelingen."""
+        return len(self.kept_parts()) < len(PARTS) or bool(self.links)
 
     def counts(self) -> dict[str, int]:
         return _group_counts({table: len(rows) for table, rows in self.tables.items()})
@@ -557,10 +782,12 @@ def prepare(data: dict[str, Any]) -> Plan:
         raise BackupError("bad_structure", detail="secrets")
 
     left_out = data.get("left_out") or []
-    if not isinstance(left_out, list) or not all(isinstance(part, str) and part in OPTIONAL_PARTS for part in left_out):
+    if not isinstance(left_out, list) or not all(isinstance(part, str) and part in PARTS for part in left_out):
         raise BackupError("bad_structure", detail="left_out")
     plan.left_out = sorted(set(left_out))
-    absent = {table for part in plan.left_out for table in OPTIONAL_PARTS[part]}
+    absent = {table for part in plan.left_out for table in PARTS[part]}
+    if SETTINGS_PART in plan.left_out and plan.plain:  # net als bij de tabellen: het bestand zegt dat het er niet in zit
+        raise BackupError("bad_structure", detail="left_out")
 
     tables = data.get("tables", {})
     if not isinstance(tables, dict):
@@ -684,6 +911,7 @@ def replace_everything(
     try:
         conn.execute("PRAGMA busy_timeout = 30000")  # een lopende synchronisatie mag even afmaken
         conn.execute("BEGIN IMMEDIATE")
+        price_archive_sync.reset(conn)
         kept = plan.kept_tables()  # niet in het bestand of overgeslagen: blijft zoals het is
         for table in reversed(DATA_TABLES):
             if table not in kept:
@@ -710,10 +938,11 @@ def replace_everything(
                     for _ in batch:
                         conn.execute(f"INSERT INTO {_quote(table)} DEFAULT VALUES")
         now = _now()
-        for key in PLAIN_SETTINGS:
-            conn.execute("DELETE FROM app_settings WHERE key = ?", (key,))
-        for key, value in plan.plain.items():
-            conn.execute("INSERT INTO app_settings (key, value, updated_at) VALUES (?, ?, ?)", (key, value, now))
+        if SETTINGS_PART not in plan.kept_parts():  # de instellingen horen bij een onderdeel, net als de tabellen
+            for key in PLAIN_SETTINGS:
+                conn.execute("DELETE FROM app_settings WHERE key = ?", (key,))
+            for key, value in plan.plain.items():
+                conn.execute("INSERT INTO app_settings (key, value, updated_at) VALUES (?, ?, ?)", (key, value, now))
         if plan.secrets is not None:
             if box is None:
                 raise ValueError("replace_everything: koppelingen terugzetten vraagt om `box`")
@@ -784,6 +1013,9 @@ async def stage(body: AsyncIterable[bytes], content_length: int | None) -> dict[
                 if received > MAX_STAGE_BYTES:
                     raise BackupError("too_large", 413, limit=MAX_STAGE_BYTES // (1024 * 1024))
                 handle.write(chunk)  # lokale schijf en stukken van hoogstens een paar MB: dat mag op de loop
+                # Elk stuk meteen naar schijf: de buffer van een bestand is sinds Python 3.15 128 KB (was 8 KB), en zonder
+                # flush bleven stukken tot die grootte in het geheugen staan.
+                handle.flush()
         await ensure_schemas()
         summary = await asyncio.to_thread(_check_staged, path)
     except BaseException:
@@ -903,7 +1135,8 @@ async def dismiss_job(job_id: str) -> bool:
 async def start_job(token: str, passphrase: str, *, skip_links: bool = False, skip_parts: Any = ()) -> dict[str, Any]:
     """Controleert het wachtwoord, neemt het klaargezette bestand over en start het terugzetten op de achtergrond.
 
-    `skip_links` en `skip_parts` (uit OPTIONAL_PARTS): wat de beheerder niet terugzet; dat blijft zoals het is.
+    `skip_links` en `skip_parts` (uit PARTS): wat de beheerder niet terugzet; dat blijft zoals het is. Blijft er niets over,
+    dan weigert de server (het bestand en het token blijven staan: de beheerder kiest opnieuw).
     """
     path: Path = _stage_path(token)
     if not path.is_file():
@@ -911,6 +1144,8 @@ async def start_job(token: str, passphrase: str, *, skip_links: bool = False, sk
     skip_parts = tuple(skip_parts)
     plan: Plan = await asyncio.to_thread(read_plan, path)  # het bestand dat nu staat, niet wat een uur geleden is gecontroleerd
     plan.skip(links=skip_links, parts=skip_parts)
+    if not plan.restores_anything():
+        raise BackupError("nothing_to_restore")
     if plan.needs_passphrase:
         await asyncio.to_thread(unseal, plan.sealed, passphrase)  # een verkeerd wachtwoord laat het bestand en het token staan
     running: Path = path.with_name(path.name + ".job")
@@ -936,9 +1171,7 @@ async def start_job(token: str, passphrase: str, *, skip_links: bool = False, sk
         except BaseException:
             await conn.rollback()
             raise
-    tasks.spawn(
-        f"backup-restore-{job_id}", run_job(job_id, running, passphrase, skip_links=skip_links, skip_parts=skip_parts)
-    )
+    tasks.spawn(f"backup-restore-{job_id}", run_job(job_id, running, passphrase, skip_links=skip_links, skip_parts=skip_parts))
     return {"id": job_id}
 
 
@@ -1009,28 +1242,28 @@ def register_routes(app: Quart) -> None:
     # Alleen de beheerder: /api/backup staat in auth.ADMIN_PREFIXES.
     @app.get("/api/backup")
     async def backup_info() -> Response:
-        return jsonify({"maxBytes": MAX_STAGE_BYTES, "minPassphraseLength": MIN_PASSPHRASE_LENGTH})
+        return jsonify({"maxBytes": MAX_STAGE_BYTES, "minPassphraseLength": MIN_PASSPHRASE_LENGTH, "parts": list(PARTS)})
 
     @app.post("/api/backup")
     async def backup_create() -> Response | tuple[Response, int]:
         body = await request_body.json_object()
         links = bool(body.get("links", True))
         passphrase = str(body.get("passphrase") or "")
-        leave_out = [part for part in OPTIONAL_PARTS if body.get(part, True) is False]  # standaard gaat alles mee
+        leave_out = [part for part in PARTS if body.get(part, True) is False]  # standaard gaat alles mee
         started = time.monotonic()
         auth.data_dir().mkdir(parents=True, exist_ok=True)
-        path = auth.data_dir() / f".backup-{secrets.token_hex(8)}.json"  # op schijf: zo kent het scherm de grootte van de download
+        path = auth.data_dir() / f".backup-{secrets.token_hex(8)}.json.gz"  # op schijf: zo kent het scherm de grootte van de download
         try:
             await ensure_schemas()
             box = await auth.secret_box() if links else None  # zonder koppelingen hoeft er niets ontsleuteld
-            await asyncio.to_thread(write_backup, path, links=links, box=box, passphrase=passphrase, leave_out=leave_out)
+            summary = await asyncio.to_thread(write_backup, path, links=links, box=box, passphrase=passphrase, leave_out=leave_out)
         except BackupError as exc:
             path.unlink(missing_ok=True)
             return _error(exc)
         except BaseException:
             path.unlink(missing_ok=True)
             raise
-        name = "mealieshopper-backup-" + datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S") + ".json"
+        name = "mealieshopper-backup-" + datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S") + ".json.gz"
         # Het bestand is al van het bestandssysteem af zodra het open is: er blijft niets staan, ook niet als de download wordt afgebroken.
         handle = path.open("rb")
         size = os.fstat(handle.fileno()).st_size
@@ -1044,14 +1277,16 @@ def register_routes(app: Quart) -> None:
             finally:
                 handle.close()
 
+        # Geen Content-Encoding: het gzip-bestand is de download zelf en moet zo op schijf komen, niet door de browser worden uitgepakt.
         response = Response(
             stream(),
-            mimetype="application/json",
+            mimetype="application/gzip",
             headers={
                 "Content-Length": str(size),
                 "Content-Disposition": f'attachment; filename="{name}"',
                 "Cache-Control": "no-store",
                 "X-Backup-Seconds": f"{time.monotonic() - started:.2f}",
+                "X-Backup-Raw-Bytes": str(summary["rawBytes"]),  # wat het uitgepakt is: het scherm toont wat inpakken opleverde
             },
         )
         # Geen RESPONSE_TIMEOUT: Quart breekt een gestreamd antwoord daarna stil af, en een grote back-up over een trage
@@ -1094,9 +1329,10 @@ def register_routes(app: Quart) -> None:
         body = await request_body.json_object()
         try:
             job = await start_job(
-                str(body.get("token") or ""), str(body.get("passphrase") or ""),
+                str(body.get("token") or ""),
+                str(body.get("passphrase") or ""),
                 skip_links=body.get("links", True) is False,  # standaard zet je alles terug wat in het bestand zit
-                skip_parts=[part for part in OPTIONAL_PARTS if body.get(part, True) is False],
+                skip_parts=[part for part in PARTS if body.get(part, True) is False],
             )
         except BackupError as exc:
             return _error(exc)

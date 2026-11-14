@@ -15,6 +15,7 @@ recept openen, de receptindex van de aanbiedingen), en na een vernieuwing haalt
 `start_fill` er telkens een deel bij, met de pauzes van de bulkimport. Een vernieuwing
 laat ze staan.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -129,22 +130,32 @@ async def load() -> dict[str, Any] | None:
         meta = next(iter(found), None)
         if not meta:
             return None
-        rows = await conn.execute_fetchall(
-            "SELECT recipe_id, title, image, url, nutrition FROM ah_saved_recipes ORDER BY position"
-        )
+        rows = await conn.execute_fetchall("SELECT recipe_id, title, image, url, nutrition FROM ah_saved_recipes ORDER BY position")
         groups = await _groups(conn, [row["recipe_id"] for row in rows])
     recipes = []
     for row in rows:
         found = _nutrition_of(row["nutrition"])
         kcal = found.get("calories")
-        recipes.append({
-            "id": row["recipe_id"], "title": row["title"], "image": row["image"] or "", "url": row["url"] or "",
-            # Per portie, zoals bij de andere recepten (nutrition.items); leeg zolang ze niet zijn opgehaald.
-            "kcal": round(kcal) if kcal is not None else None, "nutrition": nutrition.items(found),
-        })
+        recipes.append(
+            {
+                "id": row["recipe_id"],
+                "title": row["title"],
+                "image": row["image"] or "",
+                "url": row["url"] or "",
+                # Per portie, zoals bij de andere recepten (nutrition.items); leeg zolang ze niet zijn opgehaald.
+                "kcal": round(kcal) if kcal is not None else None,
+                "nutrition": nutrition.items(found),
+            }
+        )
     pending = sum(1 for row in rows if row["nutrition"] is None)
-    return {"recipes": recipes, "total": len(recipes), "groups": groups, "syncedAt": meta["synced_at"], "source": "local",
-            "nutritionPending": pending}
+    return {
+        "recipes": recipes,
+        "total": len(recipes),
+        "groups": groups,
+        "syncedAt": meta["synced_at"],
+        "source": "local",
+        "nutritionPending": pending,
+    }
 
 
 async def _fetch_all() -> list[dict[str, Any]]:

@@ -42,12 +42,10 @@ class ReceiptPaperTest(unittest.TestCase):
 
     def test_the_box_scrolls_inside_on_a_wide_screen_instead_of_the_page(self):
         box = function_source("fitReceiptBox")
-        self.assertIn("pageFitHeight(box)", box)
+        self.assertIn("pageFitHeight(box, { min: PURCHASE_MIN_HEIGHT })", box)
         self.assertIn("orderPage.purchase", box, "voor elke weergave van een geopende aankoop")
         self.assertIn('box.classList.toggle("order-items--fit", height !== null)', box)
-        self.assertIn(
-            "if (ordersState.loaded) fitPurchaseTable();\n  fitReceiptBox();", ORDERS
-        )
+        self.assertIn("if (ordersState.loaded) fitPurchaseTable();\n  fitReceiptBox();", ORDERS)
         self.assertNotIn("fitReceiptPaper", ORDERS)
         self.assertRegex(CSS, r"\.order-items--fit \{\n  overflow-y: auto;")
 
@@ -55,7 +53,9 @@ class ReceiptPaperTest(unittest.TestCase):
 class ReceiptViewSwitchTest(unittest.TestCase):
     def test_the_bar_of_the_order_page_has_the_paper_view_for_a_receipt_only(self):
         self.assertNotIn('id="receipt-view"', HTML, "geen eigen schakelaar meer in de kop van de bon")
-        self.assertIn('const ORDER_SCOPE_VIEWS = { order: ["category", "cards", "table"], receipt: ["category", "cards", "table", "paper"] };', ORDER_VIEWS)
+        self.assertIn(
+            'const ORDER_SCOPE_VIEWS = { order: ["category", "cards", "table"], receipt: ["category", "cards", "table", "paper"] };', ORDER_VIEWS
+        )
         spec = function_source("orderBarSpec", ORDER_VIEWS)
         self.assertIn('if (kind === "receipt") views.push({ id: "paper", icon: MDI_RECEIPT, label: t("orders.view.paper") });', spec)
 

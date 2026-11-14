@@ -2,6 +2,253 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub; een stabiele release krijgt de teksten van alle versies sinds de vorige stabiele release.
 
+## v4.25.1
+
+*English summary: The Orders and receipts screen gives its boxes more room on a wide screen, like the Price history did in 4.23.1. The table of purchases, the cards, the overview, and the products or the receipt of an opened purchase used to get only the height from where they start to the bottom of the page, and above them sit the title, the explanation, the search box, the filters, a notice and the view bar, so on a laptop each box was down to the 240 px minimum: about three rows. They now get at least 640 px, about ten rows or the whole receipt; when that does not fit under the header, the page scrolls along. A taller screen still fits exactly, and a narrow screen keeps the page scroll. All other lists with a scrollbar of their own (the recipe picker of the plan dialog, the link and compare dialogs, the import reports, the brand, category and tag lists in the filters, the audit log and the list of the Price history on a narrow screen) used to have a size of their own, from 220 to 420 px or 40 to 60% of the screen; they now share one maximum, 640 px and never more than 60% of the screen, so everything looks the same. A short list stays short.*
+
+### Verbeterd in 4.25.1
+
+Pull request: [#330](https://github.com/helmerzNL/MealieShopper/pull/330).
+
+Het scherm Bestellingen en kassabonnen geeft zijn vakken op een breed scherm meer ruimte, na de melding dat het veel te klein was, net als de Prijsgeschiedenis in 4.23.1. Daarna zijn alle lijsten met een eigen schuifbalk gelijkgetrokken.
+
+- **De vakken met aankopen zijn minstens 640 px hoog.** De tabel met aankopen, de kaarten, het overzicht, en het vak met de producten of de bon van een geopende aankoop kregen alleen de hoogte van waar ze beginnen tot de onderkant van de pagina, en `pageFitHeight` gaf niet minder dan 240 px. Boven de tabel staan de kop, de uitleg, de zoekbalk, de filters, een melding en de weergavebalk, en boven de producten van een aankoop de kop, de badges, de melding en de balk. Op een laptop (een scherm van zo'n 650 px hoog) en zelfs op 1920 × 950 bleef zo elk vak op 240 tot 380 px hangen: ongeveer drie rijen. Nu is dat minstens 640 px, ongeveer tien rijen of de hele bon (`PURCHASE_MIN_HEIGHT` in `static/orders.js`). Past het niet onder de kop, dan scrolt de pagina mee. Een hoger scherm blijft precies passen, en op een smal scherm (onder 1200 px) scrolt de pagina zoals eerst.
+- **Alle lijsten met een eigen schuifbalk delen één maximum.** Elke lijst had een eigen maat: 220 px (de importrapporten en de opdracht bij het importeren van oude aankopen), 230 en 300 px (de lijsten met merken, categorieën en tags in de filters, in en buiten het filterpaneel), 320 px (het logboek), 420 px (de lijst in de prijsgeschiedenis op een smal scherm) en 40, 50 en 60% van het scherm (de receptkiezer in het plandialoog, het bulk-importrapport, het koppeldialoog en verpakkingen vergelijken). Ze gebruiken nu allemaal `--scroll-list-max` in `static/styles.css`: hooguit 640 px, de maat van de vakken hierboven en van de prijsgeschiedenis, en op een laag scherm hooguit 60% ervan, zodat een dialoog met zo'n lijst niet uit beeld loopt. Op een scherm van 950 px hoog is dat 570 px, op een telefoon van 813 px 488 px. Een korte lijst blijft kort: het is een maximum, geen vaste hoogte. De extra beperking van de filterlijsten in het filterpaneel en de regel `.bulk-report` zijn vervallen. Alleen het onderpaneel van de kookmodus (65%) en de grote productfoto houden hun eigen verhouding tot het scherm.
+
+### Tests in 4.25.1
+
+- `tests/test_reported_bugs.py`: elk vak krijgt op een scherm van 1080 px 640 px (eerst 240 px of minder), op een hoog scherm blijft het precies passen, een smal scherm houdt de paginascroll en een vak dat dicht is blijft ongemoeid; gemeten met de echte `pageFitHeight`, `fitPurchaseTable`, `fitReceiptBox` en `purchaseViewFit`.
+- `tests/test_reported_bugs.py` (`ScrollListsAreUniformTest`): elke lijst met een eigen schuifbalk gebruikt `--scroll-list-max`, dat token is 640 px of 60% van het scherm, `PURCHASE_MIN_HEIGHT` en `OFFER_HISTORY_MIN_HEIGHT` zijn dezelfde 640 px, en er komt geen vaste hoogte van eigen maat bij.
+- `tests/test_nav_tree.py`, `tests/test_receipt_views.py` en `tests/test_i18n.py`: de aanroepen met het minimum, de lijst in de prijsgeschiedenis met het token, en het token als maat bij de kleurtokens.
+
+## v4.25.0
+
+*English summary: Backups are now compressed, and you choose what goes into them. **Make backup** gives a `.json.gz` (packed with gzip while the server writes it, so a large uncompressed file never sits on disk): a backup with over 300,000 prices went from 67 MB of JSON to 7.6 MB. **Restore** recognises a compressed file by its first bytes, not by its name, and still reads a plain `.json` backup from an older version; a damaged or incomplete gzip file, one that holds no backup, and one that inflates past 512 MB unpacked are refused. Every part of a backup is now a tick box, when making it and when restoring it: lists, orders, receipts, saved recipes, the current offers, the offer history, the judgements of offers, the tracked prices, the product images, the imported purchases, your own product links, the profiles, the remembered product choices and the settings, next to the links with their password. **All** and **None** tick them in one go, a part that is not in the file is shown but cannot be chosen, and choosing nothing is refused on the screen and on the server. What you leave out, or untick when restoring, stays on the server as it is. An older version of MealieShopper does not recognise a `.json.gz`; unpack it first.*
+
+### Nieuw in 4.25.0
+
+Pull request: [#329](https://github.com/helmerzNL/MealieShopper/pull/329).
+
+- **Een back-up is gecomprimeerd.** *Back-up maken* geeft nu `mealieshopper-backup-….json.gz` in plaats van een gewoon JSON-bestand. De server pakt het in terwijl hij het schrijft (gzip, niveau 6, in stukken door de compressor), dus er staat nooit een groot ongecomprimeerd bestand in de data-map, en `Content-Length` blijft kloppen voor de balk van de download. Een back-up met ruim 300.000 prijzen (en twee lijstjes) werd zo van 67,1 MB aan JSON een bestand van 7,6 MB, in 2,8 s op de server. De kop van het gzip-bestand bevat niet de naam van het tijdelijke bestand.
+  - **Terugzetten herkent het.** `read_file` beslist op de eerste bytes (`1f 8b`), niet op de naam: een gzip-bestand wordt uitgepakt en gaat daarna door dezelfde controles als altijd, en een gewoon `.json`-bestand (van vóór 4.25.0, of met `gunzip` uitgepakt, zoals de fixture van 3.13.1) werkt ongewijzigd. Dat geldt voor het uploaden in stukken en voor de rechtstreekse route.
+  - **Het bestand wordt niet vertrouwd.** Een gzip-bestand dat beschadigd is, te vroeg ophoudt, een verkeerde controlesom heeft of rommel achter zich heeft, wordt geweigerd met een eigen melding (`bad_gzip`: download de back-up opnieuw). Een gzip-bestand dat geen back-up bevat, of gzip in gzip, geeft `not_a_backup`. Uitgepakt mag het hoogstens 512 MB zijn (`MAX_UNPACKED_BYTES`): de grootte staat in het bestand zelf, dus er worden nooit meer dan die grens plus één byte gelezen, en een bestand dat zich verder opblaast geeft `too_large_unpacked` (413). Het bestand zoals het binnenkomt blijft hoogstens 200 MB. Een geweigerd bestand verandert niets en blijft niet staan.
+  - **Wat het scherm toont.** Na het downloaden staat er de grootte ingepakt en uitgepakt (`X-Backup-Raw-Bytes`), naast de tijden. De download heet `.json.gz`, heeft het type `application/gzip` en geen `Content-Encoding`, zodat de browser hem niet zelf uitpakt. Het bestandsvak voor terugzetten neemt `.gz` en `.json` aan.
+- **Je kiest welke onderdelen er in de back-up komen en welke je terugzet.** Tot nu toe kon dat alleen voor de aanbiedingen van nu en de historie; nu is elk onderdeel een vinkje, bij het maken en bij het terugzetten, naast de koppelingen (die hun eigen vinkje en wachtwoord houden).
+  - **De onderdelen** (`backup.PARTS`, in de volgorde van het scherm): lijstjes, bestellingen (met het mandje van AH), kassabonnen, bewaarde recepten en receptindex, aanbiedingen van nu, historie van aanbiedingen, beoordelingen van aanbiedingen bij recepten, bijgehouden prijzen, bewaarde productafbeeldingen, ingelezen aankopen, eigen koppelingen van producten (met de afgewezen gedeelde koppelingen en de losse namen), profielen, onthouden productkeuzes en voorraadkast, en de instellingen (de AI-keuze, MCP en het begin van de week, met de stand van de synchronisatie van de aanbiedingen). Elke tabel met gegevens staat in precies één onderdeel; een test dwingt dat af.
+  - **Wat je weglaat, blijft zoals het is.** Bij het maken komt een weggelaten onderdeel niet in het bestand (`left_out` in de kop zegt welke), en het bestand wordt kleiner. Bij het terugzetten blijft zo'n onderdeel op de server zoals het is, net als een onderdeel dat je uitvinkt; de melding na afloop noemt ze (*Niet teruggezet, gebleven zoals het was*). De onderdelen onderling hebben geen sleutels naar elkaar, dus het vervangen van het ene raakt het andere niet.
+  - **Eén lijst bij het terugzetten.** De losse samenvatting en de twee vinkjes voor de aanbiedingen zijn samengevoegd tot één lijst: elk onderdeel een regel met het aantal en een vinkje. Een onderdeel dat niet in het bestand zit staat er wel bij, maar valt niet te kiezen. **Alles** en **Niets** zetten de lijst in één keer aan of uit, bij maken en bij terugzetten. De lijsten komen uit `GET /api/backup` (`parts`), dus een onderdeel erbij is geen werk in het scherm; wisselt de taal, dan krijgen ze hun tekst opnieuw met dezelfde vinkjes.
+  - **Niets kiezen kan niet.** Een back-up zonder onderdelen en zonder koppelingen geeft `nothing_selected`, terugzetten waarvan niets overblijft geeft `nothing_to_restore`; beide al op het scherm, en op de server als de API rechtstreeks wordt gebruikt. Bij het terugzetten blijft het bestand dan staan: je kiest opnieuw met hetzelfde token. Alleen de koppelingen is wel een back-up (en terugzetten).
+  - **Bestanden van eerder blijven werken.** `left_out` in een bestand van 3.19.0 tot en met 4.24.0 noemt alleen `offers` en `offerHistory`; die onderdelen hebben dezelfde tabellen als toen, zodat zo'n bestand niet als bewerkt wordt geweigerd. De API-sleutels zijn gelijk gebleven (`offers: false`, `offerHistory: false`), nu voor elk onderdeel. `FORMAT_VERSION` blijft 1.
+- De handleiding in de README's beschrijft het gecomprimeerde bestand, de keuze van onderdelen en de limieten als getallen (200 MB binnen, 512 MB uitgepakt), en noemt het gzip-bestand als derde afwijking van het patroon in `backup-restore.md` van App-Guidance.
+
+### Database en back-up in 4.25.0
+
+- Geen nieuwe tabellen en geen wijziging in wat er in een back-up zit: dezelfde tabellen en instellingen, in dezelfde JSON, alleen ingepakt en per onderdeel te kiezen. Geen wijziging in Compose- of `.env`-bestanden.
+
+### Tests in 4.25.0
+
+- `tests/test_backup.py`:
+  - `CompressionTest`: de download is gzip met eigen naam en type, zonder `Content-Encoding` en zonder naam van het tijdelijke bestand in de kop; een ingepakte en een gewone back-up zetten allebei terug en geven dezelfde samenvatting; de naam van het bestand doet er niet toe; ook in stukken uploaden werkt ingepakt.
+  - `RefusalTest`: een beschadigd of onvolledig gzip-bestand (vijf soorten) wordt geweigerd; gzip zonder back-up erin ook; een bestand dat zich opblaast geeft `too_large_unpacked`, en er wordt nooit meer dan de grens plus één byte gelezen.
+  - `PartsTest`: elke tabel staat in precies één onderdeel; de tellingen horen bij de onderdelen; elk onderdeel heeft een naam in beide talen; een back-up bevat alleen de gekozen onderdelen (voor elk van de 14); elk onderdeel zet alleen terug en laat de rest zoals het is (voor elk van de 14, met de instellingen erbij); wat een bestand wegliet blijft staan; de instellingen links laten of uitvinken; een bewerkt bestand dat de instellingen verbergt wordt geweigerd; niets kiezen, bij maken en bij terugzetten (het bestand blijft staan); alleen de koppelingen.
+  - `OptionalPartsTest`: een bestand dat de aanbiedingen wegliet houdt de tabellen die het altijd had. `PageTest`: de lijsten komen van de server, de oude vaste vinkjes zijn weg, het bestandsvak neemt `.gz` aan en de taalwissel bouwt de lijsten opnieuw.
+  - De bestaande tests lezen de download nu uitgepakt (`unpacked`, `document`, `tweak`); de twee die witruimte achter de JSON plakken om veel stukken te krijgen, gebruiken een gewoon JSON-bestand, want achter een gzip-bestand is dat geen geldig bestand.
+- Elke nieuwe bewaking is gecontroleerd door haar kapot te maken (de instellingen altijd vervangen, `restores_anything` altijd waar, onbegrensd uitpakken, gzip behandeld als gewoon bestand): de tests faalden.
+- `tests/test_i18n.py`: de voorvoegsels `backup.count.` en `backup.restore_part.` bestaan niet meer.
+
+## v4.24.0
+
+*English summary: The shopping list in the week menu is no longer open below the days. It is hidden by default, and the **Shopping** button next to the week now opens it in place of the week menu, with a **<** arrow before its title to go back. The list, the check list and the result after filling the basket are one view, so the week menu is a short page again. The list itself did not change: the days, the ticks, Already at home and the saved check list work as before. Going back puts you at the top of the week menu with the focus on the Shopping button; choosing another week or tapping Week menu in the menu also closes the list.*
+
+### Nieuw in 4.24.0
+
+Pull request: [#328](https://github.com/helmerzNL/MealieShopper/pull/328).
+
+- **De boodschappenlijst staat achter de knop Boodschappen.** Onder het weekmenu stond de boodschappenlijst altijd open, en daaronder de controlelijst: een lange pagina met een tweede pagina erachter. Nu staat de lijst standaard verborgen en opent de knop **Boodschappen (n)** naast de week hem op de plek van het weekmenu. Voor de titel van de lijst staat een pijltje **<**: dat brengt je terug naar het weekmenu, bovenaan, met de focus op de knop Boodschappen.
+  - **Eén weergave.** De lijst met de dagen en de vinkjes, de controlelijst voor het mandje en het resultaat na het vullen van het mandje (met **Bekijk mandje**) horen bij die weergave. Ga je terug naar het weekmenu en open je haar weer, dan staat alles er nog zoals je het liet. Een controlelijst die je herlaadt of die bij een week hoort waar je terugbladert, staat ook achter de knop, niet meer onder het weekmenu.
+  - **Wanneer de lijst dichtgaat.** Met het pijltje, met **Weekmenu** in het menu (in het zijmenu of in de balk boven de inhoud), en zodra het weekmenu opnieuw laadt: een andere week kiezen (ook bij Aanbiedingen) of een andere Mealie-koppeling. Is er geen maaltijd met ingrediënten meer, dan is er geen lijst en staat het weekmenu er weer.
+  - **Het weekmenu zelf** (de kop met de week, de meldingen en de dagkaarten) is één blok geworden, `#week-view`; de lijst heeft `#shop-view`. De melding bij **Liever biologisch** staat nu in de lijst zelf, omdat de meldingen van het weekmenu dan uit beeld zijn.
+- De schermafbeeldingen van de boodschappenlijst en de controlelijst in de handleiding zijn opnieuw gemaakt, en de scenario's in `scripts/screenshots/scenarios/10-week-and-basket.js` openen de lijst eerst met de knop.
+
+### Tests in 4.24.0
+
+- `tests/test_shopping_js.py`: de lijst is standaard verborgen en heeft een eigen weergave (de controlelijst erbij, het weekmenu niet); openen laat het weekmenu verdwijnen, begint bovenaan en zet de focus op de kop; het pijltje gaat terug naar het weekmenu en naar de knop; sluiten zonder pijltje scrolt niet en verplaatst de focus niet; zonder lijst gebeurt er niets; een week laden en Weekmenu in het menu sluiten de lijst; de melding bij Liever biologisch staat in de lijst.
+
+## v4.23.1
+
+### Verbeterd in 4.23.1
+
+*English summary: The Price history gives the product and its chart more room on a wide screen. The list and the product used to get only the height from where they start to the bottom of the page, and above them sit the search box, the switch, the filters and the count, so on a screen of about 1080 px only some 360 px were left and the chart was half out of view. They now get at least 640 px, enough for the header, the key figures, the chart and the legend together; when that does not fit under the header, the page scrolls along. A taller screen still fits exactly.*
+
+De Prijsgeschiedenis geeft het product met de grafiek op een breed scherm meer ruimte, na de melding dat het vlak met de grafiek te klein was om de grafiek mooi te tonen.
+
+- **Het product met de grafiek is minstens 640 px hoog.** De lijst en het product kregen alleen de hoogte van waar ze beginnen tot de onderkant van de pagina. Daarboven staan de zoekbalk, de schakelaar *Alleen eerder gekocht*, de filters en de telling, dus op een scherm van zo'n 1080 px bleef er ongeveer 360 px over en stond de grafiek half buiten beeld. Nu passen de kop, de kerngetallen, de grafiek en de legenda er samen in. Past dat niet meer onder de kop, dan scrolt de pagina een stuk mee, en daarbinnen scrollen de lijst en het product nog steeds in hun eigen vak. Een hoger scherm vult het vak nog steeds precies tot de onderkant.
+- De lijst links krijgt dezelfde hoogte als het product.
+
+## v4.23.0
+
+*English summary: Shared AH weekly prices are imported automatically without a linked account. The app checks the native JSON index, downloads only changed documents and verifies their size and SHA-256. Per-document checkpoints survive restarts. Successful checks repeat after 24 hours, failures after 15 minutes. Direct observations take priority over weekly prices, whose original source, week and capture time are preserved. Set `MEALIESHOPPER_SHARED_PRICES=false` to disable the import.*
+
+### Nieuw in 4.23.0
+
+- Gedeelde AH-weekprijzen worden automatisch ingelezen, ook zonder gekoppelde supermarkt. De eerste controle volgt ongeveer een minuut na het starten.
+- Alleen nieuwe of gewijzigde JSON-documenten worden opgehaald, met controle van de index, grootte en SHA-256. De stand per document blijft na een herstart bewaard.
+- Na een geslaagde controle volgt de volgende na 24 uur. Een fout wordt na 15 minuten opnieuw geprobeerd, zonder bestellingen opnieuw op te halen. Met `MEALIESHOPPER_SHARED_PRICES=false` zet je de import uit.
+- De oorspronkelijke bron, week en het verzameltijdstip blijven behouden. Gecorrigeerde weekprijzen worden bijgewerkt, zelf waargenomen prijzen gaan voor. Na terugzetten of wissen wordt de afgeleide importstand ongeldig gemaakt.
+
+## v4.22.0
+
+*English summary: Find recipes filters every source on course, vegetarian or vegan and cooking time, and Mealie and Albert Heijn also on meat, fish or poultry (follow-up to issue #322). **Per source**: Albert Heijn filters itself (course, dish type, special wishes, recipes with, and its quick filter for up to 15 minutes); a longer time at AH and the course and time at Jumbo are filtered by MealieShopper over a few pages at a time, with "12 recipes in the first 96 hits" instead of a total; Picnic, Crisp, HelloFresh and Marley Spoon are filtered on their labels and times. A source that does not know a chosen filter is left out, and the results say which. **Mealie**: the course comes from your categories and tags (no course counts as a main course), and MealieShopper works out from the ingredients whether a recipe is vegetarian or vegan, or has meat, fish or poultry; a vegetarian or vegan tag of your own comes first. **Tags in Mealie**: after every round MealieShopper adds the tags Vegetarisch, Veganistisch, Vlees, Vis and Gevogelte to your recipes; your own tags always stay, a tag of MealieShopper that no longer fits is removed, and one you removed is not added again. It can be turned off under Settings, Link, Mealie.*
+
+### Nieuw in 4.22.0
+
+Pull request: [#325](https://github.com/helmerzNL/MealieShopper/pull/325). Vervolg op issue [#322](https://github.com/helmerzNL/MealieShopper/issues/322).
+
+- **Filters voor alle bronnen.** Onder *Soort gerecht, tijd en tags* bij Recepten zoeken kies je een menugang (ontbijt, lunch, voorgerecht, soep, hoofdgerecht, bijgerecht, dessert of snack), vegetarisch of veganistisch, en vlees, vis of gevogelte. Samen met de bereidingstijd gelden ze nu ook voor de winkels en maaltijdboxen, voor zover die het in hun zoekresultaten geven:
+  - **Albert Heijn** filtert zelf, met de groepen van zijn eigen zoekfunctie. *Tot 15 minuten* is het filter *snel* van AH. Bij een ruimere tijd bekijkt MealieShopper 48 recepten per keer en houdt hij wat binnen de tijd valt.
+  - **Jumbo**: de menugang en de tijd, die MealieShopper zelf filtert over tot drie pagina's per keer. Bij AH en Jumbo staat dan *12 recepten in de eerste 96 treffers* in plaats van een totaal.
+  - **Picnic, HelloFresh en Marley Spoon**: de menugang, vegetarisch via hun labels, en de tijd. **Crisp**: de menugang en de tijd. Picnic, Crisp en de maaltijdboxen geven geen menugang: hun recepten tellen als hoofdgerecht, tenzij een label iets anders zegt.
+  - Een bron die een gekozen filter niet kent, doet niet mee, en boven de resultaten staat welke. Met een filter op tags of categorieën zoekt nog steeds alleen Mealie.
+- **Mealie: vegetarisch, vlees, vis en gevogelte uit de ingrediënten.** MealieShopper leidt uit de ingrediënten af of een recept vegetarisch of veganistisch is, of vlees, vis of gevogelte bevat (een woordenlijst, geen AI). Een bouillon, vissaus of gelatine maakt een recept niet vegetarisch, maar geeft geen tag Vlees of Vis. Een vegetarische of veganistische tag van jezelf gaat voor. De menugang komt uit je categorieën en tags; zonder menugang telt een recept als hoofdgerecht.
+- **Tags in Mealie.** Na elke ronde door je recepten zet MealieShopper de tags *Vegetarisch*, *Veganistisch*, *Vlees*, *Vis* en *Gevogelte* bij je recepten in Mealie, hooguit 300 recepten per keer. Een tag die je zelf zette, blijft altijd staan. Klopt een tag van MealieShopper niet meer omdat het recept veranderde, dan haalt hij hem weg; haal jij er een weg, dan zet hij hem bij dat recept niet opnieuw. Uitzetten kan onder *Instellingen, Koppelen, Mealie*; dan blijven de tags die er staan.
+- De eerste ronde na de update haalt elk recept in Mealie één keer opnieuw op, om de ingrediënten te lezen.
+- **API**: `GET /api/mealie/recipes` neemt ook `course`, `diet` en `protein`; de zoekroutes van de winkels en maaltijdboxen nemen `course`, `diet`, `protein` en `maxMinutes`, en geven bij een filter over meer pagina's `total: null` met `scanned` en `page` of `nextOffset`. De instelling is `dietTags` in `/api/server-settings`; `/api/mealie/status` geeft hem ook.
+## v4.21.0
+
+*English summary: With a recipe open you can browse to the previous or next recipe of the list you opened it from, with the chevrons, the arrow keys or a swipe. **Where**: the detail of Find recipes, under Stores (your saved AH recipes, the AH week planner, Jumbo, Picnic, Crisp), under Meal kits and the window of a meal in the week menu. **The list is the screen**: the sequence is the cards on the screen when you opened the recipe, in the same order, so a search term, a filter, a chosen week or list is what you browse through; in the week menu it is the meals that have a recipe (a note has none and is skipped). **Controls**: two chevrons with your place next to them (*3 of 24*) above the recipe (next to the meal type in the week menu window), Previous and Next below the recipe, the left and right arrow keys, and on a touch screen a swipe to the left (next) or right (previous); up and down still scroll. **At the end of a page**: without a search term Find recipes, and the Jumbo favourites, load the next page when you go on from the last loaded recipe. **Fixed**: a recipe opened while a page of your Mealie recipes was loading no longer made the hidden list load page after page.*
+
+### Nieuw in 4.21.0
+
+Pull request: [#324](https://github.com/helmerzNL/MealieShopper/pull/324).
+
+- **Bladeren van recept naar recept.** Staat een recept open, dan ga je naar het vorige of volgende recept van de lijst waar je het uit opende, zonder eerst terug te gaan. Dat werkt bij het detail van Recepten zoeken, onder Winkels (je bewaarde AH-recepten, de weekplanner van de AH-app, Jumbo, Picnic en Crisp), bij Maaltijdboxen en in het venster van een maaltijd in het weekmenu.
+- **De lijst is wat er op het scherm staat.** De reeks is de kaarten die op het scherm stonden toen je het recept opende, in dezelfde volgorde. Met een zoekterm, een filter, een gekozen week, een receptgroep of een lijst bladert het dus precies daardoorheen. In het weekmenu zijn het de maaltijden met een recept, in de volgorde van het scherm; een notitie als *Uit eten* heeft geen recept en wordt overgeslagen.
+- **Pijltjes, toetsen en vegen.** Bovenaan het recept staan twee pijltjes met je plek erachter (*3 van 24*; in het venster van een maaltijd naast de maaltijdsoort), en onder het recept **Vorige** en **Volgende**, zodat je na een lang recept niet naar boven hoeft. Met een toetsenbord gebruik je de pijltjestoetsen links en rechts, behalve in een invulveld of terwijl de kookmodus openstaat. Op een telefoon of tablet veeg je naar links (volgende) of rechts (vorige); omhoog en omlaag blijft scrollen, en een veeg op een brede tabel scrolt de tabel. Het nieuwe recept schuift in vanaf de kant waar je naartoe gaat (niet als je beweging beperkt hebt in je apparaat), de pagina springt naar boven, en bij het eerste of laatste recept valt het pijltje uit.
+- **Aan het eind van een pagina.** Zonder zoekterm staan je recepten bij Recepten zoeken niet allemaal op het scherm, en de favorieten van Jumbo ook niet. Ga je door vanaf het laatste geladen recept, dan laadt **Volgende** de volgende pagina en gaat het gewoon door. De plek toont dan het totaal van de hele lijst (*30 van 187*). Met een zoekterm staan de winkels erna op het scherm, dus daar is de lijst wat er staat.
+
+### Opgelost in 4.21.0
+
+- Opende je een recept terwijl een pagina van je Mealie-recepten nog laadde, dan bleef de verborgen lijst pagina na pagina laden. Een verborgen knop *Meer recepten* telt nu niet meer als in beeld.
+
+## v4.20.0
+
+*English summary: Find recipes lets you browse your recipes in Mealie, with filters on tags, categories and cooking time (issue #322). **Browse**: with an empty search field your recipes in Mealie are there at once, under Your recipes in Mealie, and scrolling down loads the next page by itself; with a search term the screen also searches the stores and menus, as before, and it says so. **Filters**: under Tags, categories and time you choose tags and categories from Mealie with the number of recipes, plus means must have (Pasta and Vegetarian gives vegetarian pasta) and minus hides, a cooking time up to 15, 30, 45, 60 or 90 minutes, and the order: name, newest first or rating. The filters work with a search term and with the nutrition filters; with a filter on tags, categories or time only Mealie is searched. **Cooking time**: the total time from Mealie, or else preparation plus cooking time; recipe cards show the same time. **Recipe cache**: per recipe the tags, categories, cooking time, date added and rating, updated from Mealie's list for every recipe in each round, and once a day by the daily run.*
+
+### Nieuw in 4.20.0
+
+Pull request: [#323](https://github.com/helmerzNL/MealieShopper/pull/323). Issue: [#322](https://github.com/helmerzNL/MealieShopper/issues/322).
+
+- **Bladeren door je recepten in Mealie.** Laat je het zoekveld van Recepten zoeken leeg, dan staan je recepten in Mealie er meteen, onder *Je recepten in Mealie*. Scroll je naar onderen, dan laadt de volgende pagina vanzelf; de knop *Meer recepten* blijft. Met een zoekterm zoekt het scherm net als voorheen ook bij de winkels en in de weekmenu's, en dat staat er nu bij.
+- **Filters op tags, categorieën en bereidingstijd.** Onder *Tags, categorieën en tijd* kies je tags en categorieën uit Mealie, met het aantal recepten erbij. Plus betekent *moet erbij*: *Pasta* en *Vegetarisch* geeft vegetarische pasta. Min verbergt recepten met die tag. Daarnaast een bereidingstijd tot 15, 30, 45, 60 of 90 minuten, en de volgorde: op naam, nieuwste eerst of op waardering. De filters werken samen met een zoekterm en met de filters op voedingswaarden. Met een filter op tags, categorieën of tijd zoekt alleen Mealie, want de winkels kennen die niet; alleen een volgorde laat de winkels meedoen.
+- **Bereidingstijd.** De tijd van een recept is de totale tijd uit Mealie, of anders de voorbereiding plus de kooktijd. De receptkaarten tonen nu ook die tijd. Een recept zonder tijd valt bij de filter op tijd weg; hoeveel dat er zijn, staat boven de resultaten.
+- **De receptencache** bewaart per recept ook de tags, de categorieën, de bereidingstijd, de datum waarop het in Mealie kwam en de waardering. Die staan in de lijst van Mealie, dus elke ronde werkt ze voor alle recepten bij zonder elk recept op te halen. De dagelijkse run van de aanbiedingen start nu ook een ronde, zodat de cache elke dag bij is.
+- **API**: `GET /api/mealie/recipes` neemt `tags`, `tagsOut`, `categories`, `categoriesOut`, `maxMinutes` en `sort` (`name`, `newest` of `rating`), en geeft `withoutTime`. Nieuw is `GET /api/mealie/recipes/facets`: de tags en categorieën met het aantal recepten per stuk.
+
+## v4.19.0
+
+*English summary: The image runs Python 3.15 instead of 3.12, and measured on a copy of real data it is 20 to 35% faster on the heavy routes. **Python**: CPython 3.15 from uv (python-build-standalone) on Debian trixie-slim instead of the official `python:3.12-slim` image, which on the same 3.15 was 20 to 25% slower. **Start**: the bytecode of the app and its packages is in the image, so a start no longer compiles every module and takes about 0.75 s instead of 1 s. **Fixed**: saving an uploaded backup or price archive writes each piece to disk straight away again, also with the larger file buffer of Python 3.15. **Benchmark**: `scripts/benchmark.py` measures the app on several Python builds in Docker, JIT and free-threaded measured too and not chosen.*
+
+### Nieuw in 4.19.0
+
+Pull request: [#321](https://github.com/helmerzNL/MealieShopper/pull/321), van wolph.
+
+- Het image draait Python 3.15 in plaats van 3.12. Gemeten op een kopie van echte gegevens zijn de zware routes 20 tot 35% sneller: het prijsoordeel bij de aanbiedingen van AH 1,0 s in plaats van 1,6 s, de prijsgeschiedenis van gekochte producten 230 ms in plaats van 320 ms, en de server verwerkt een derde meer aanvragen per seconde. Het geheugen blijft gelijk.
+- Python komt van uv (python-build-standalone) op Debian trixie-slim, niet meer uit het officiele image `python:3.12-slim`: op dezelfde versie 3.15 was het officiele image 20 tot 25% trager, en op de aanbiedingengeschiedenis zelfs trager dan 3.12. uv zelf staat niet in het image.
+- De bytecode van de app en de pakketten staat in het image, zodat een start niet meer elke module compileert: de eerste pagina staat er na ongeveer 0,75 s in plaats van 1 s.
+- `scripts/benchmark.py` meet de app op meerdere Python-builds, elk in een eigen Docker-image zonder netwerk, op een kopie van de gegevens. De uitkomst, ook van de JIT en van Python zonder GIL (allebei gemeten en niet gekozen), staat in `docs/python-benchmark.md`.
+- De tests draaien in GitHub Actions op Python 3.15.
+
+### Opgelost in 4.19.0
+
+- Een geüploade back-up of prijsarchief gaat weer stuk voor stuk meteen naar schijf. Python 3.15 vergroot de buffer van een bestand van 8 KB naar 128 KB, en zonder `flush` bleven stukken tot die grootte in het geheugen staan.
+
+## v4.18.0
+
+*English summary: The regular price a verdict compares with now comes from every source MealieShopper has, with its date and source in the tooltip of a dashed badge. **Sources**: receipts, confirmation emails, orders, measured prices and the from-price of earlier offers. **Fresh and old**: a price of the last 30 days is fresh (the lowest counts), an older price still counts up to a year, and a price older than a year is shown as *Last known regular price* without a verdict of its own, under the dashed badge of the store's claim when the offer states a from-price. **Confirmed links only**: a receipt line or confirmation email counts for the verdict and for the regular price of a purchase only through your own link, a shared link or AH's article number link, not through a name match or an article number that happens to equal a webshop product id, which stays in the price history. **Badge**: on a dashed badge with an older price or the from-price of an earlier offer the tooltip names the regular price, its source and its date, and the dashed border now means the price is older than 30 days or a claim of the store. **Never more generous than the store**: when the store's from-price is lower than the regular price MealieShopper knows, the verdict uses the store's from-price, and the tooltip names the higher known price with its date. **Card**: the struck-through price is the lowest of 30 days only when it comes from a fresh purchase or measurement, otherwise the store's from-price. **Own from-price**: the from-price of a running offer is no source for its own verdict, also when the offer changed halfway. **Purchases**: the regular price of a purchase uses the same sources, up to a year before the purchase, and its badge no longer mentions 30 days. Opening a purchase reads the catalogue only when a line needs it. **Price history**: the key figure Regular price names its source and date.*
+
+### Nieuw in 4.18.0
+
+Pull request: [#319](https://github.com/helmerzNL/MealieShopper/pull/319), van wolph.
+
+- De gewone prijs waarmee het oordeel vergelijkt komt uit alle bronnen die MealieShopper heeft: kassabonnen, bevestigingsmails, bestellingen, gemeten prijzen en de van-prijs van eerdere aanbiedingen. Bij een gestippelde badge met een oudere prijs of de van-prijs van een eerdere aanbieding noemt de tooltip de gewone prijs met de bron en de datum.
+- Een prijs van de laatste 30 dagen is vers, en van de verse prijzen telt de laagste. Zonder verse prijs telt de nieuwste prijs tot een jaar terug. Is die ouder, dan staat op de kaart *Laatst bekende gewone prijs ... Te oud voor een oordeel.* Noemt de winkel bij de aanbieding een van-prijs, dan staat erboven de gestippelde badge met de claim van de winkel, net als bij een product zonder bekende prijs. Zonder van-prijs is er geen badge.
+- Een regel van een kassabon of bevestigingsmail telt voor het oordeel en voor de gewone prijs van een aankoop alleen met een bevestigde koppeling: je eigen koppeling, een gedeelde koppeling of de koppeling van AH op het artikelnummer. Een regel die alleen op naam bij het product hoort kan een andere verpakking zijn, en een artikelnummer dat toevallig gelijk is aan het nummer van een product in de webwinkel kan een ander product zijn: zulke regels staan alleen in de prijsgeschiedenis.
+- De gestippelde rand van de badge betekent nu dat de gewone prijs ouder is dan 30 dagen of de van-prijs van een eerdere aanbieding is, of dat het percentage een claim van de winkel is. In de sortering op korting komt een badge met een verse prijs voor een met een oudere prijs, en die voor een claim.
+- Op de pagina Prijsgeschiedenis staat onder het kerncijfer *Gewone prijs* de bron en de datum.
+
+### Opgelost in 4.18.0
+
+- De van-prijs van een lopende aanbieding telt niet meer als bron voor het oordeel over diezelfde aanbieding, ook niet als de aanbieding halverwege wijzigde.
+- Het oordeel rekent met de nieuwste gewone prijs uit elke bron in plaats van alleen met de laagste van de laatste 30 dagen.
+- De gewone prijs bij een aankoop komt uit dezelfde bronnen als het oordeel, uit hooguit een jaar voor de aankoop. Een al bewaarde prijs blijft staan als er alleen nog een oudere bron is.
+- Noemt de winkel een van-prijs die lager is dan de gewone prijs die MealieShopper kent, dan rekent het oordeel met die van-prijs: een oudere prijs maakt het oordeel nooit ruimer dan de winkel zelf. De badge is dan gestippeld en de tooltip noemt de hogere bekende prijs met de bron en de datum.
+- Op de kaart en in de popup staat de laagste gewone prijs van 30 dagen alleen doorgestreept als die uit een verse aankoop of meting komt, anders de van-prijs van de winkel. Een oude prijs stond er zonder datum, alsof hij van nu was.
+- De tooltip zegt *laatst bekende gewone prijs* alleen bij een prijs van meer dan 30 dagen oud. Is de van-prijs van een eerdere aanbieding de laagste van de laatste 30 dagen, dan krijgt hij de tekst met de 30 dagen, met de bron en de datum erbij.
+- De kortingsbadge bij een regel van een aankoop noemt geen 30 dagen meer: de gewone prijs van een aankoop kan tot een jaar ouder zijn dan de aankoop.
+- Een bestelling of kassabon openen leest de catalogus pas als er een regel te vullen is. Is de catalogus niet te lezen, dan wordt geen regel met een product als bepaald gemarkeerd, zodat hij later alsnog met de bonnen en bevestigingsmails wordt gevuld.
+
+## v4.17.0
+
+### Nieuw in 4.17.0
+
+Pull request: [#318](https://github.com/helmerzNL/MealieShopper/pull/318), van wolph.
+
+*English summary: Loose purchases (old product names from your confirmation emails that belong to no product) can now be linked in bulk, with a list shared through the repository. **Page**: under Stores, per store (Albert Heijn, Picnic, Jumbo, Crisp), administrator only, with a card per name and the store's products to choose from. **Nightly round and Fetch now**: at most 100 searches per store per round, a name is looked up again after 90 days, and at Albert Heijn every search goes through the same brake and pause as receipt linking. **Shared list**: a file per store in the app, with a Not right button that stays after an update. **Origin of a link**: own, confirmed or exact. **AI suggestions**: a new setting, off by default, that preselects a product on a card and never links without a click. **Export**: your own links as a file for a pull request that you make yourself, the app sends nothing to GitHub. **Backup**: the new tables `shared_link_rejections` and `loose_names`, and the new column `origin` on `product_links`. **Fixed**: a block at Albert Heijn now sets the pause at once for every caller.*
+
+- **De pagina Losse aankopen.** Een losse aankoop is een regel uit een bevestigingsmail die bij geen product hoort. Onder **Winkels** staat per winkel (Albert Heijn, Picnic, Jumbo en Crisp) een subtab **Losse aankopen**, alleen voor de beheerder. Per naam een kaart met hoe vaak en in welke jaren je het kocht, wat je betaalde en de producten van de winkel. **Koppel gekozen product** maakt de koppeling, **Zoek zelf** opent het koppelvenster en **Geen van deze** zet de naam bij Afgewezen, waar **Terugzetten** hem vrijgeeft. Een naam waar de winkel niets voor vond staat in een eigen lijst.
+- **De nachtelijke ronde en Nu ophalen.** Na de nachtelijke run zoekt de app de losse namen op bij elke gekoppelde winkel, de vaakst gekochte eerst. Per winkel hooguit 100 zoekopdrachten per ronde, een naam wordt na 90 dagen opnieuw opgezocht, en de ronde stopt voor een winkel bij de eerste fout van die winkel. Bij AH gaat elke zoekopdracht door dezelfde rem en pauze als het koppelen van kassabonregels (hooguit 120 per uur, twaalf uur stil na een 403 of 429). De andere winkels krijgen hetzelfde tempo en een eigen pauze van twaalf uur. Precies één resultaat met dezelfde naam, dezelfde getallen en dezelfde verpakking als elke schrijfwijze uit de mails wordt bij de eerste zoekopdracht naar die naam meteen gekoppeld. Een koppeling die je weghaalt, komt niet vanzelf terug: de naam wordt dan een kaart. **Nu ophalen** start de ronde voor die winkel op verzoek.
+- **De gedeelde lijst.** Elke versie van de app heeft per winkel een bestand met koppelingen van oude namen aan producten (`mealieshopper/shared_link_data/<winkel>.json`). Een naam uit dat bestand is gekoppeld zonder zoekopdracht en zonder klik. In het koppelvenster staat *Gekoppeld via de gedeelde lijst* met de knop **Klopt niet**, die de koppeling voor dat product op jouw installatie uitzet. De volgorde is: je eigen koppeling, de gedeelde lijst, de naamherkenning. De bestanden zijn bij deze versie nog leeg.
+- **De herkomst van een koppeling.** Een koppeling onthoudt of je hem zelf maakte, op een kaart bevestigde, of dat de naam letterlijk klopt (`exact`). Een koppeling met herkomst `exact` overschrijft een eigen of bevestigde koppeling nooit.
+- **Voorstellen van de AI.** Nieuwe instelling onder **Instellingen, Koppelen, AI-beoordeling van koppelingen**: *Laat de AI 's nachts voorstellen doen voor losse aankopen*. Hij staat uit, ook na de update voor wie al een sleutel heeft. Staat hij aan, dan gaan aan het eind van de ronde groepen van 20 namen naar de aanbieder, per naam alleen de oude naam, hoe vaak je hem kocht, de laagste en hoogste prijs per stuk, het eerste en het laatste jaar en per kandidaat een volgnummer, de titel, het merk, de inhoud en de prijs. Staat hij uit en is er een sleutel, dan doet de knop **Vraag de AI om voorstellen** hetzelfde voor de kaarten zonder voorstel. Het voorstel is alleen een voorgeselecteerde keuze: er wordt niets gekoppeld zonder klik.
+- **Exporteren voor een pull request.** **Exporteer voor GitHub** op de pagina maakt het bestand van de winkel met je eigen en bevestigde koppelingen erbij, met per koppeling alleen `name`, `productId`, `title` en `unitSize`. Je downloadt het bestand, vervangt de inhoud op GitHub en stelt zelf een pull request naar `beta` voor: de app stuurt niets naar GitHub. Koppelingen met herkomst `exact` gaan niet mee. Een naam die al met een ander product in het bestand staat komt onder *Wijkt af van het bestand* en gaat alleen mee als je hem aanvinkt.
+
+### Opgelost in 4.17.0
+
+- Een 403 of 429 van AH zet de pauze nu meteen, nog onder de rem, voor elke aanroeper. Een wachtende zoeker (het koppelen van kassabonnen of de ronde voor losse namen) stuurt daardoor geen verzoek meer achter een blokkade aan.
+
+### Database en back-up in 4.17.0
+
+- Twee nieuwe tabellen, beide in `backup.DATA_TABLES`: `shared_link_rejections` (je **Klopt niet**) en `loose_names` (de stand per losse naam, waaronder je afwijzingen).
+- De tabel `product_links` krijgt de kolom `origin` (`manual`, `confirmed` of `exact`, standaard `manual`). Bestaande koppelingen worden `manual`. Een eigen koppeling en een **Klopt niet** blijven staan bij een update van de app.
+
+## v4.16.0
+
+### Nieuw in 4.16.0
+
+Pull request: [#317](https://github.com/helmerzNL/MealieShopper/pull/317), van wolph.
+
+*English summary: The offers page gets a basket control, filter lists and a lighter popup, and the Price history counts what a piece really costs. **Basket on every offer**: Albert Heijn, Picnic and Crisp show a minus, the quantity already in your basket and a plus, and a change is sent as an exact quantity. Jumbo cannot set an exact quantity and keeps the single basket button of 4.13.0. **Lists with plus and minus**: categories and brands are lists with a plus (only this one), a minus (hide this one) and a count, on the offers, on an order or receipt, in the purchase search, in the Price history and for the recipes with the offers. They replace the category chips of 4.13.0. The offers use the full width of the screen and the next ones load by themselves. **The popup on an offer** appears after 100 ms, lets the mouse through, shows the legend of the chart and has no buttons or links any more. **Prices**: an offer with a condition (second one half price) is counted per piece in the Price history, an offer "per 100 gram" is converted to the price of the pack instead of showing a 90% discount, a price within 3 percent (5 cents at most) of the year's lowest counts as the lowest, two product numbers for the same product are one row, and a purchase from an old confirmation mail with the name in the singular joins its product.*
+
+Het werk aan de aanbiedingen en de Prijsgeschiedenis dat op de installatie van wolph al draaide, samengevoegd met 4.15.0.
+
+**Aanbiedingen**
+
+- **Het mandje bij een aanbieding.** Op elke kaart en in elke compacte rij staan een min, het aantal dat al in het mandje van de winkel zit en een plus. Een wijziging gaat als exact aantal naar de winkel, 0 haalt het product weg. Bij Albert Heijn is het mandje de boodschappenlijst, Picnic en Crisp gebruiken hun eigen mandje. Jumbo kent geen exact aantal en houdt de mandknop van 4.13.0.
+- **Categorieën en merken als lijst.** De filterzijbalk heeft een lijst met alle categorieën en een lijst met alle merken, met een zoekveld boven de merken. Per regel een plus (alleen deze tonen), een min (verbergen, dat wint) en het aantal aanbiedingen, daarop gesorteerd met de gekozen regels bovenaan. De chips met categorieën boven de producten uit 4.13.0 zijn daarmee weg. *Alles tonen* bij een lege uitkomst en de onthouden zoekopdracht blijven.
+- **Schermbreed en vanzelf verder.** Het overzicht gebruikt de hele schermbreedte, de zijbalk loopt mee, en de volgende aanbiedingen komen er vanzelf bij als het einde van de lijst in de buurt komt. De knop *Meer tonen* is weg.
+- **De popup bij een aanbieding.** Hij komt na 100 ms (40 ms als er al een open is) en haalt de geschiedenis op zodra de muis op de kaart komt. De muis gaat erdoorheen, zodat de kaart eronder reageert. De knoppen en links staan er daarom niet meer in, de kop noemt de verpakking en de legenda van de grafiek staat eronder. Het venster op een aanraakscherm houdt alles, en met het toetsenbord blijft de wachttijd 400 ms.
+- **Naar de prijsgeschiedenis.** De foto en de titel van een aanbieding openen de prijsgeschiedenis. Naar de winkel gaat een eigen winkelicoon onderaan de kaart en in de compacte rij.
+- **De laagste prijs een keer.** Naast *Laagste prijs in een jaar* stond ook *Laagste in 12 mnd*. Dat tweede label is weg, en *Laagste prijs ooit* vervangt de regel van het jaar.
+- **Een paar cent boven de laagste.** Drie broden met *1+1 gratis* voor 1,20 per stuk kregen *0,03 boven de laagste van het jaar (aug)*, terwijl het in augustus dezelfde actie was. De folder gaf toen geen prijs, dus de app rekende met de gewone prijs van de weken eromheen (2,34, dus 1,17 per stuk) en nu met 2,39 (1,195). Een verschil van hooguit 3 procent, en nooit meer dan 5 cent, telt nu als dezelfde prijs: de kaart toont *Laagste prijs in een jaar*, en het filter en *Beste eerst* rekenen ermee.
+- **Een aanbieding per 100 gram.** Albert Heijn geeft bij *per 100 GRAM voor 1.59* de prijs per 100 gram door als prijs van het product, naast de gewone prijs van het hele pak. Dat gaf 90% korting. De app rekent de prijs nu om naar de inhoud van het pak en herstelt bij het starten de rijen die al zo waren opgeslagen. Zonder leesbare inhoud blijft de prijs per gewicht staan, zonder gewone prijs ernaast.
+
+**Prijsgeschiedenis**
+
+- **De stukprijs bij een actie met een voorwaarde.** Bij *2e halve prijs* of *1+1 gratis* noemt Albert Heijn de gewone prijs als prijs. De grafiek, de tabel, de kerncijfers en de kop van de popup rekenen nu met wat een stuk kost, net als de kaart al deed.
+- **Twee productnummers, een product.** Albert Heijn voert sommige producten onder een nummer op de kassabon en een ander in de webwinkel. Producten met dezelfde naam, hetzelfde merk en dezelfde verpakking zijn nu een rij, met de aankopen en de gewone prijzen van elk nummer.
+- **Een folderactie die de categorie noemt.** *Alle AH Bakkersbrood Les Pains heel* hoort nu bij het brood: een woord dat de categorie noemt, mag in de productnaam ontbreken als de andere woorden er staan.
+- **De naam in enkelvoud.** Een ingelezen aankoop of bonregel hoort ook bij een product als de woorden in enkelvoud gelijk zijn en er maar een product met die woorden is (*Les pain* in een mail van 2022, *Les pains* in de winkel van nu).
+- **Filteren op merk en categorie.** De lijsten met plus en min staan ook hier. De server filtert en telt over alle gevonden producten, met hooguit 500 merken.
+
+**Bestellingen, kassabonnen en recepten**
+
+- **Dezelfde lijsten.** Een bestelling of bon filtert op categorie en merk, het zoeken in de aankopen toont de gevonden producten als lijst, en de recepten bij de aanbiedingen kiezen meer dan een soort gerecht en kunnen soorten verbergen. De lijst staat los in `static/facets.js`.
+
+**Samengevoegd met beta**
+
+- De mandknop van 4.13.0 en de knoppen met min en plus doen hetzelfde werk. Een winkel die een exact aantal aanneemt, krijgt de knoppen, Jumbo de mandknop (`offerCartSlot`).
+- De functie die het minimum van een actie uitrekent, heet nu `offerCartMinimum`. De naam `offerCartQuantity` is van het aantal in het mandje.
+
 ## v4.15.0
 
 ### Nieuw in 4.15.0

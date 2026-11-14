@@ -8,6 +8,7 @@ Gebruik:
     python scripts/ha_addon.py           schrijf de add-ons bij
     python scripts/ha_addon.py --check   controleer alleen (exitcode 1 bij een verschil); de tests doen dit ook
 """
+
 from __future__ import annotations
 
 import re

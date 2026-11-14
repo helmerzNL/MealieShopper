@@ -14,8 +14,19 @@ from urllib.parse import urlsplit
 
 # Namen die alleen binnen je eigen netwerk bestaan (ook onboarding.py gebruikt deze lijst voor de passkey-uitleg).
 PRIVATE_SUFFIXES: tuple[str, ...] = (
-    ".localhost", ".local", ".lan", ".home", ".home.arpa", ".internal", ".localdomain", ".intranet", ".private", ".corp", ".box",
-    ".svc", ".cluster.local",
+    ".localhost",
+    ".local",
+    ".lan",
+    ".home",
+    ".home.arpa",
+    ".internal",
+    ".localdomain",
+    ".intranet",
+    ".private",
+    ".corp",
+    ".box",
+    ".svc",
+    ".cluster.local",
 )
 
 SCHEME_MESSAGE: str = "Geef een recept-URL op die met http:// of https:// begint"

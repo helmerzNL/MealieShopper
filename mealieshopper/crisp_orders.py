@@ -11,6 +11,7 @@ Crisp, dus de bestelhistorie is ook te bekijken als Crisp niet bereikbaar is. Al
 - Het adres, het IBAN, de betaalwijze, de factuur en de track-and-trace bewaren we bewust niet; alleen dag, tijdvak,
   status, totaal en de producten (zie `crisp._order_header`).
 """
+
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
@@ -70,13 +71,26 @@ def _now() -> str:
 
 
 def _item_values(item: dict[str, Any]) -> tuple[Any, ...]:
-    return (item.get("id"), item.get("title"), item.get("unitSize"), item.get("quantity"), item.get("price"), item.get("listPrice"), item.get("image"))
+    return (
+        item.get("id"),
+        item.get("title"),
+        item.get("unitSize"),
+        item.get("quantity"),
+        item.get("price"),
+        item.get("listPrice"),
+        item.get("image"),
+    )
 
 
 def _item_json(row: Any) -> dict[str, Any]:
     return {
-        "id": row["product_id"], "title": row["title"], "unitSize": row["unit_size"], "quantity": row["quantity"],
-        "price": row["price"], "listPrice": row["list_price"], "image": row["image"],
+        "id": row["product_id"],
+        "title": row["title"],
+        "unitSize": row["unit_size"],
+        "quantity": row["quantity"],
+        "price": row["price"],
+        "listPrice": row["list_price"],
+        "image": row["image"],
     }
 
 
@@ -107,9 +121,17 @@ async def _save_order(conn: aiosqlite.Connection, header: dict[str, Any], items:
           slot_end = COALESCE(NULLIF(excluded.slot_end, ''), crisp_orders.slot_end),
           items_synced = excluded.items_synced, synced_at = excluded.synced_at
         """,
-        (header["id"], header.get("status"), header.get("total"), header.get("deliveryDate"), header.get("windowStart"),
-         header.get("windowEnd"), 1 if items is not None else (existing["items_synced"] if existing else 0),
-         existing["first_seen"] if existing else now, now),
+        (
+            header["id"],
+            header.get("status"),
+            header.get("total"),
+            header.get("deliveryDate"),
+            header.get("windowStart"),
+            header.get("windowEnd"),
+            1 if items is not None else (existing["items_synced"] if existing else 0),
+            existing["first_seen"] if existing else now,
+            now,
+        ),
     )
     if items is not None:
         await conn.execute("DELETE FROM crisp_order_items WHERE order_id = ?", (header["id"],))
@@ -181,9 +203,14 @@ async def sync_orders() -> dict[str, Any]:
 
 def _order_json(row: Any, count: int | None = None, quantity: int | None = None) -> dict[str, Any]:
     return {
-        "id": row["order_id"], "status": row["status"], "total": row["total"], "deliveryDate": row["delivery_date"],
-        "windowStart": row["slot_start"], "windowEnd": row["slot_end"],
-        "itemsSynced": bool(row["items_synced"]), "syncedAt": row["synced_at"],
+        "id": row["order_id"],
+        "status": row["status"],
+        "total": row["total"],
+        "deliveryDate": row["delivery_date"],
+        "windowStart": row["slot_start"],
+        "windowEnd": row["slot_end"],
+        "itemsSynced": bool(row["items_synced"]),
+        "syncedAt": row["synced_at"],
         **({"lineCount": count} if count is not None else {}),
         **({"itemCount": quantity} if quantity is not None else {}),
     }
@@ -225,8 +252,14 @@ async def search_purchases(query: Any, limit: int = 50) -> dict[str, Any]:
             """
         ):
             if all(word in _fold(row["title"]) for word in words):
-                occurrences.append({"product": row["title"], "quantity": row["quantity"],
-                                    "date": (row["delivery_date"] or row["first_seen"] or "")[:10], "id": str(row["order_id"])})
+                occurrences.append(
+                    {
+                        "product": row["title"],
+                        "quantity": row["quantity"],
+                        "date": (row["delivery_date"] or row["first_seen"] or "")[:10],
+                        "id": str(row["order_id"]),
+                    }
+                )
         counted = await auth.fetchone(conn, "SELECT COUNT(*) FROM crisp_orders WHERE items_synced = 0")
     unsearched: int = counted[0] if counted else 0
     occurrences.sort(key=lambda entry: entry["date"], reverse=True)

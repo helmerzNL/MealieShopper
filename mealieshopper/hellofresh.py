@@ -11,6 +11,7 @@ de pagina om voor Mealie. Zie docs/onderzoek-hellofresh.md.
 - We vragen zuinig (één verzoek tegelijk, met een pauze ertussen), noemen ons in de User-Agent en komen alleen op de
   paden die `robots.txt` niet uitsluit: `/menus/<week>` en `/recipes/<recept>`.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -28,7 +29,7 @@ from urllib.parse import urlsplit
 import aiosqlite
 import httpx
 
-from . import about, auth, http_client, mealie, mealkit_import, nutrition
+from . import about, auth, http_client, mealie, mealkit_import, nutrition, recipe_diet
 from .ah_lists import _fold
 from .i18n import tr
 
@@ -57,6 +58,7 @@ CREATE TABLE IF NOT EXISTS hellofresh_menus (
   payload TEXT NOT NULL
 );
 """
+
 
 class HelloFreshError(RuntimeError):
     """Een fout met een tekst van onszelf (nooit het antwoord van HelloFresh), die de gebruiker mag zien."""
@@ -122,7 +124,9 @@ async def _get(path: str) -> str:
     if response.status_code == 404:
         raise ValueError(tr("HelloFresh heeft dit niet (meer)", "HelloFresh does not have this (any more)"))
     if response.status_code != 200:
-        raise HelloFreshError(tr(f"HelloFresh antwoordde met status {response.status_code}", f"HelloFresh answered with status {response.status_code}"))
+        raise HelloFreshError(
+            tr(f"HelloFresh antwoordde met status {response.status_code}", f"HelloFresh answered with status {response.status_code}")
+        )
     return response.text
 
 
@@ -211,7 +215,7 @@ def recipe_key(url: Any) -> str | None:
     parts = urlsplit(str(url or ""))
     if (parts.hostname or "").lower() not in {HOST, f"www.{HOST}"} or not parts.path.startswith("/recipes/"):
         return None
-    key = parts.path[len("/recipes/"):].strip("/")
+    key = parts.path[len("/recipes/") :].strip("/")
     return key if _KEY.match(key) else None
 
 
@@ -302,7 +306,7 @@ async def get_menu(week: Any = None, refresh: bool = False) -> dict[str, Any]:
     }
 
 
-async def search(query: Any, load: int = 0) -> dict[str, Any]:
+async def search(query: Any, load: int = 0, wanted: Any = None) -> dict[str, Any]:
     """Zoek in alle bewaarde menu's; alle woorden moeten voorkomen in naam, kop, keuken of label. Zonder `load` vraagt dit
     HelloFresh niets; met `load` worden eerst de komende weken opgehaald (en bewaard) die er nog niet zijn."""
     words = _fold(query).split()
@@ -323,7 +327,8 @@ async def search(query: Any, load: int = 0) -> dict[str, Any]:
             text = _fold(" ".join((recipe.get("name", ""), recipe.get("headline", ""), recipe.get("cuisine", ""), recipe.get("label", ""))))
             if recipe.get("key") not in found and all(word in text for word in words):
                 found[recipe["key"]] = {**recipe, "week": row["week"]}
-    results = list(found.values())
+    # Met filters (recipe_diet.Wanted: menugang, dieet, tijd) vóór het afkappen, zodat het totaal klopt (4.22.0).
+    results = recipe_diet.filter_cards("hellofresh", list(found.values()), wanted) if wanted is not None else list(found.values())
     return {"weeks": len(rows), "total": len(results), "recipes": results[:MAX_RESULTS]}
 
 
@@ -437,8 +442,14 @@ async def detail(key: Any) -> dict[str, Any]:
     """Het recept in de vorm van het zoekscherm (ingrediënten als regels), zoals Jumbo en Picnic, met de voedingswaarden per portie."""
     recipe = await get_recipe(key)
     return {
-        "id": recipe["key"], "name": recipe["name"], "description": recipe["description"], "image": recipe["image"],
-        "minutes": recipe["minutes"], "portions": recipe["portions"], "url": source_url(recipe["key"]),
-        "ingredients": [{"line": line} for line in recipe["ingredients"]], "steps": recipe["steps"],
+        "id": recipe["key"],
+        "name": recipe["name"],
+        "description": recipe["description"],
+        "image": recipe["image"],
+        "minutes": recipe["minutes"],
+        "portions": recipe["portions"],
+        "url": source_url(recipe["key"]),
+        "ingredients": [{"line": line} for line in recipe["ingredients"]],
+        "steps": recipe["steps"],
         "nutrition": nutrition.items(recipe.get("nutrition")),
     }

@@ -12,9 +12,10 @@ import httpx
 
 os.environ.setdefault("MEALIESHOPPER_DATA_DIR", tempfile.mkdtemp())
 
+from helpers import AppTestCase, run, sent_json, sent_url, served  # noqa: E402
+
 from mealieshopper import auth, jumbo, jumbo_explore  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
-from helpers import AppTestCase, run, sent_json, sent_url, served  # noqa: E402
 
 
 def reply(data=None, *, status=200, text=None, content_type="application/json"):
@@ -27,9 +28,15 @@ TOKENS = {"access_token": "acc", "refresh_token": "ref", "expires_in": 86400}
 
 
 def product(sku, title, price=299, promo=None, **extra):
-    return {"sku": sku, "title": title, "link": f"/producten/{sku}",
-            "price": {"price": price, "promoPrice": promo, "pricePerUnit": {"price": 100}},
-            "availability": {"isAvailable": True}, "promotions": [], **extra}
+    return {
+        "sku": sku,
+        "title": title,
+        "link": f"/producten/{sku}",
+        "price": {"price": price, "promoPrice": promo, "pricePerUnit": {"price": 100}},
+        "availability": {"isAvailable": True},
+        "promotions": [],
+        **extra,
+    }
 
 
 class TempDataDirTest(AppTestCase):
@@ -128,7 +135,9 @@ class LoginTest(TempDataDirTest):
         run(jumbo.start_login())
         jumbo._access_cache["token"] = "x"
         self.assertEqual(run(jumbo.unlink()), {"connected": False})
-        self.assertEqual((run(jumbo.configured_refresh_token()), run(auth.get_secret(jumbo.PENDING_SECRET)), jumbo._access_cache["token"]), ("", "", ""))
+        self.assertEqual(
+            (run(jumbo.configured_refresh_token()), run(auth.get_secret(jumbo.PENDING_SECRET)), jumbo._access_cache["token"]), ("", "", "")
+        )
 
 
 class AccessTokenTest(TempDataDirTest):
@@ -251,7 +260,7 @@ class GraphqlTest(TempDataDirTest):
                 run(jumbo._graphql("query Q { x }", None, "Q"))
 
     def test_unknown_fields_are_a_schema_error(self):
-        errors = {"errors": [{"message": "Cannot query field \"subtitle\" on type \"Product\"."}]}
+        errors = {"errors": [{"message": 'Cannot query field "subtitle" on type "Product".'}]}
         with served(return_value=reply(errors)):
             with self.assertRaises(jumbo.JumboSchemaError):
                 run(jumbo._graphql("query Q { x }", None, "Q"))
@@ -380,10 +389,14 @@ class SearchTest(TempDataDirTest):
 
 
 class BasketTest(TempDataDirTest):
-    BASKET = {"id": "b1", "totalProductCount": 3, "lines": [
-        {"sku": "1", "id": "l1", "quantity": 2, "details": {"title": "Melk", "price": {"price": 150, "promoPrice": 100}}},
-        {"sku": "2", "id": "l2", "quantity": 1, "details": {"title": "Brood", "price": {"price": 250}}},
-    ]}
+    BASKET = {
+        "id": "b1",
+        "totalProductCount": 3,
+        "lines": [
+            {"sku": "1", "id": "l1", "quantity": 2, "details": {"title": "Melk", "price": {"price": 150, "promoPrice": 100}}},
+            {"sku": "2", "id": "l2", "quantity": 1, "details": {"title": "Brood", "price": {"price": 250}}},
+        ],
+    }
 
     def setUp(self):
         super().setUp()
@@ -400,8 +413,12 @@ class BasketTest(TempDataDirTest):
             self.assertIn("items", jumbo.basket_summary(basket))
 
     def test_get_cart(self):
-        data = {"activeBasket": {"__typename": "ActiveBasketResult", "basket": {
-            **self.BASKET, "calculation": {"totals": {"totalToPay": {"amount": 450, "currency": "EUR"}}}}}}
+        data = {
+            "activeBasket": {
+                "__typename": "ActiveBasketResult",
+                "basket": {**self.BASKET, "calculation": {"totals": {"totalToPay": {"amount": 450, "currency": "EUR"}}}},
+            }
+        }
         with mock.patch.object(jumbo, "_graphql", return_value=data):
             cart = run(jumbo.get_cart())
         self.assertEqual((cart["totalPrice"], len(cart["items"])), (4.5, 2))
@@ -426,7 +443,8 @@ class BasketTest(TempDataDirTest):
 
     def test_all_products_go_in_one_request_with_clamped_quantities(self):
         result, graphql = self.add(
-            [{"productId": "1", "quantity": 500}, {"productId": "2", "quantity": 0}, {"productId": "", "quantity": 1}], [self.ok()])
+            [{"productId": "1", "quantity": 500}, {"productId": "2", "quantity": 0}, {"productId": "", "quantity": 1}], [self.ok()]
+        )
         self.assertEqual(graphql.call_count, 1)
         sent = graphql.call_args.args[1]["input"]
         self.assertEqual(sent, {"lines": [{"sku": "1", "quantity": 99}, {"sku": "2", "quantity": 1}], "type": "ECOMMERCE"})
@@ -435,8 +453,7 @@ class BasketTest(TempDataDirTest):
 
     def test_a_refused_batch_is_retried_per_product(self):
         error = {"addBasketLines": {"__typename": "AddBasketLinesError"}}
-        result, graphql = self.add(
-            [{"productId": "1", "quantity": 1}, {"productId": "2", "quantity": 1}], [error, error, self.ok()])
+        result, graphql = self.add([{"productId": "1", "quantity": 1}, {"productId": "2", "quantity": 1}], [error, error, self.ok()])
         self.assertEqual(graphql.call_count, 3)
         self.assertEqual([f["productId"] for f in result["failed"]], ["1"])
         self.assertEqual([a["productId"] for a in result["added"]], ["2"])
@@ -502,30 +519,35 @@ class JumboRoutesTest(TempDataDirTest):
     async def test_preview_uses_jumbo_candidates(self):
         products = [{"id": "1", "title": "Eieren", "unitSize": "10 stuks", "price": 2.49, "image": None, "url": "https://www.jumbo.com/p/1"}]
         with mock.patch.object(jumbo, "search_products", return_value=products):
-            body = (await self.client.post("/api/jumbo/cart/preview", json={"items": [{"query": "eieren", "quantity": 12, "unit": "stuks"}]})).get_json()
+            body = (
+                await self.client.post("/api/jumbo/cart/preview", json={"items": [{"query": "eieren", "quantity": 12, "unit": "stuks"}]})
+            ).get_json()
         candidate = body["items"][0]["candidates"][0]
         self.assertEqual((candidate["productId"], candidate["packs"], candidate["url"]), ("1", 2, "https://www.jumbo.com/p/1"))
 
     async def test_cart_searches_and_adds(self):
         found = {"id": "1", "title": "Eieren", "unitSize": "10 stuks", "price": 2.49}
         result = {"added": [{"productId": "1", "quantity": 2}], "failed": [], "cart": {"items": []}}
-        with mock.patch.object(jumbo, "search_product", return_value=found), \
-                mock.patch.object(jumbo, "add_to_cart", return_value=result) as add:
+        with mock.patch.object(jumbo, "search_product", return_value=found), mock.patch.object(jumbo, "add_to_cart", return_value=result) as add:
             body = (await self.client.post("/api/jumbo/cart", json={"items": [{"query": "eieren", "quantity": 12, "unit": "stuks"}]})).get_json()
         self.assertEqual(add.call_args.args[0][0]["quantity"], 2)
         self.assertEqual((body["added"], body["skipped"]), (1, 0))
 
     async def test_cart_reports_failed_and_missing_products(self):
         result = {"added": [], "failed": [{"productId": "9", "error": "x"}], "cart": None}
-        with mock.patch.object(jumbo, "search_product", return_value=None), \
-                mock.patch.object(jumbo, "add_to_cart", return_value=result):
-            body = (await self.client.post("/api/jumbo/cart", json={"items": [
-                {"query": "iets", "quantity": 1}, {"query": "zout", "productId": "9", "quantity": 1}]})).get_json()
+        with mock.patch.object(jumbo, "search_product", return_value=None), mock.patch.object(jumbo, "add_to_cart", return_value=result):
+            body = (
+                await self.client.post(
+                    "/api/jumbo/cart", json={"items": [{"query": "iets", "quantity": 1}, {"query": "zout", "productId": "9", "quantity": 1}]}
+                )
+            ).get_json()
         self.assertEqual(body["skippedItems"], ["iets", "zout"])
 
     async def test_cart_with_nothing_found_is_404(self):
-        with mock.patch.object(jumbo, "search_product", return_value=None), \
-                mock.patch.object(jumbo, "add_to_cart", side_effect=AssertionError("niets toevoegen")):
+        with (
+            mock.patch.object(jumbo, "search_product", return_value=None),
+            mock.patch.object(jumbo, "add_to_cart", side_effect=AssertionError("niets toevoegen")),
+        ):
             self.assertEqual((await self.client.post("/api/jumbo/cart", json={"items": [{"query": "iets"}]})).status_code, 404)
 
     async def test_empty_requests_are_400(self):
@@ -539,11 +561,13 @@ class ExploreTest(TempDataDirTest):
         jumbo._access_cache.update(token="acc", expires_at=jumbo.time.time() + 3600)
         blocked = httpx.Response(403, headers={"content-type": "text/html"})
         found = [{"id": "SECRET-SKU", "title": "Geheime Melk", "price": 1.23, "unitSize": "1 l", "image": None, "isBonus": False, "url": None}]
-        with served(blocked), \
-                mock.patch.object(jumbo, "get_access_token", return_value="acc"), \
-                mock.patch.object(jumbo, "search_products", return_value=found), \
-                mock.patch.object(jumbo, "get_cart", return_value={"items": [], "totalCount": 0, "totalPrice": None}), \
-                mock.patch.object(jumbo, "_graphql", return_value={"addBasketLines": {"__typename": "AddBasketLinesError"}}):
+        with (
+            served(blocked),
+            mock.patch.object(jumbo, "get_access_token", return_value="acc"),
+            mock.patch.object(jumbo, "search_products", return_value=found),
+            mock.patch.object(jumbo, "get_cart", return_value={"items": [], "totalCount": 0, "totalPrice": None}),
+            mock.patch.object(jumbo, "_graphql", return_value={"addBasketLines": {"__typename": "AddBasketLinesError"}}),
+        ):
             report = run(jumbo_explore.explore())
         names = [p["name"] for p in report["probes"]]
         self.assertTrue(names[0].startswith("bereikbaar"))

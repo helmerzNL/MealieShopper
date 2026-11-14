@@ -12,7 +12,7 @@ function ordersAreJumbo() {
 
 // `open`: de bestelling of kassabon die open staat ({ kind, id }), voor het adres (router.js).
 // `imported`: de ingelezen oude bestellingen van deze winkel (zie price_import.py), die bij de afgelopen bestellingen staan.
-const ordersState = { basket: null, orders: [], imported: [], receipts: [], ordersSyncedAt: null, receiptsSyncedAt: null, query: "", loaded: false, open: null };
+const ordersState = { basket: null, orders: [], imported: [], receipts: [], ordersSyncedAt: null, receiptsSyncedAt: null, query: "", loaded: false, open: null, products: facetSelection() };
 
 function dayLabel(value) {
   const date = new Date(String(value || "").length === 10 ? `${value}T12:00:00` : value);
@@ -245,6 +245,7 @@ function purchaseHits() {
   if (!ordersState.query.trim() || !hits) return null;
   const map = new Map();
   for (const entry of hits.occurrences) {
+    if (!facetPasses(ordersState.products, entry.product)) continue; // de lijst "Gevonden producten"
     const key = `${entry.source === "kassabon" ? "receipt" : entry.imported ? "imported" : "order"}:${entry.id}`;
     if (!map.has(key)) map.set(key, []);
     map.get(key).push(entry);
@@ -294,14 +295,31 @@ function renderOrders() {
   else if (query && !hits) empty = escapeHtml(t("orders.searching"));
   else if (!visible.length) empty = query ? th("orders.search_none", { query }) : escapeHtml(t("orders.filter_none"));
   ordersState.empty = empty;
+  renderPurchaseFacets();
   const page = purchasePage(visible);
   renderPurchaseView(page.shown, hits);
   const more = $("#ah-purchase-more");
   if (more) more.hidden = !page.rest;
   const notes = [rows.length ? t("orders.shown", { shown: I18N.formatNumber(visible.length), total: I18N.formatNumber(rows.length) }) : ""];
-  if (hits) notes.push(t("orders.search_summary", { products: I18N.formatNumber(ordersState.hits.products.length), total: I18N.formatNumber(hits.size) }));
+  if (hits) notes.push(t("orders.search_summary", { products: I18N.formatNumber(ordersState.hits.products.filter((item) => facetPasses(ordersState.products, item.product)).length), total: I18N.formatNumber(hits.size) }));
   if (hits && ordersState.hits.unsearched) notes.push(tn("orders.search_unsearched", ordersState.hits.unsearched));
   $("#ah-purchase-status").textContent = notes.filter(Boolean).join(" · ");
+}
+
+// Na een zoekopdracht: de gevonden producten als keuzelijst (facets.js), met hoe vaak je elk kocht. Zoek je "cola", dan zet een
+// plus op het ene product of een min op de andere de aankopen op precies dat product.
+function purchaseProductRows(hits = ordersState.hits, selection = ordersState.products) {
+  const counts = ((hits && hits.products) || []).map((item) => ({ value: item.product, count: item.times }));
+  return facetRows(counts, selection);
+}
+
+function renderPurchaseFacets() {
+  const panel = $("#purchase-facets");
+  const searching = Boolean(ordersState.query.trim() && ordersState.hits);
+  const rows = searching ? purchaseProductRows() : [];
+  panel.hidden = rows.length < 2; // met een product valt er niets te kiezen
+  $("#purchase-products").innerHTML = facetListHtml("product", rows);
+  facetPanelCount(panel, facetActive(ordersState.products));
 }
 
 // De tabel: een rij per aankoop, of de melding waarom er niets staat (ordersState.empty, gezet door renderOrders).
@@ -312,19 +330,28 @@ function renderPurchaseTable(visible, hits) {
   window.requestAnimationFrame(fitPurchaseTable);
 }
 
-// De tabel vult het scherm tot onderaan en scrolt in zijn eigen vak (pageFitHeight in app.js); op een smal scherm scrolt de pagina.
+// Zo hoog is een vak met aankopen minstens: de tabel, de kaarten en het overzicht, en de producten of de bon van een geopende aankoop.
+// Boven de tabel staan de kop, de uitleg, de zoekbalk, de filters, een melding en de weergavebalk, en boven de producten van een
+// aankoop de kop, de badges, de melding en de balk, dus op een scherm van gemiddelde hoogte bleef er eerst maar 240 px over (het
+// minimum van pageFitHeight): zo'n 3 rijen van de tabel. Nu zijn dat er zo'n 10, of de hele bon. Past het niet onder de kop, dan
+// scrolt de pagina mee (zoals bij de prijsgeschiedenis, OFFER_HISTORY_MIN_HEIGHT). Dezelfde 640 px als --scroll-list-max in styles.css.
+const PURCHASE_MIN_HEIGHT = 640;
+
+// De tabel vult het scherm tot onderaan, maar niet minder dan PURCHASE_MIN_HEIGHT, en scrolt in zijn eigen vak (pageFitHeight in
+// app.js); op een smal scherm scrolt de pagina.
 function fitPurchaseTable() {
   const wrap = $("#ah-purchase-table-wrap");
-  const height = pageFitHeight(wrap);
+  const height = pageFitHeight(wrap, { min: PURCHASE_MIN_HEIGHT });
   wrap.style.maxHeight = height === null ? "" : `${height}px`;
 }
 
-// Het vak met de producten of de bon van een geopende aankoop zo hoog als er onder de kop past, en het scrolt zelf (op een breed
-// scherm, gemeten door pageFitHeight), zodat de pagina niet schuift. Op een smal scherm doet de pagina het.
+// Het vak met de producten of de bon van een geopende aankoop zo hoog als er onder de kop past, maar niet minder dan
+// PURCHASE_MIN_HEIGHT, en het scrolt zelf (op een breed scherm, gemeten door pageFitHeight), zodat de pagina niet schuift. Op een
+// smal scherm doet de pagina het.
 function fitReceiptBox() {
   const box = $("#ah-order-items");
   if (!orderPage.purchase || $("#ah-order-detail").hidden) return;
-  const height = pageFitHeight(box);
+  const height = pageFitHeight(box, { min: PURCHASE_MIN_HEIGHT });
   box.classList.toggle("order-items--fit", height !== null);
   box.style.maxHeight = height === null ? "" : `${height}px`;
 }
@@ -438,6 +465,7 @@ $("#ah-purchase-filter").addEventListener("input", (event) => {
   purchaseLimit = PURCHASE_PAGE;
   purchaseFiltersSave();
   ordersState.hits = null;
+  ordersState.products = facetSelection(); // een andere zoekterm vindt andere producten
   purchaseSeq++;
   clearTimeout(purchaseTimer);
   if (!ordersState.query.trim()) {
@@ -446,6 +474,15 @@ $("#ah-purchase-filter").addEventListener("input", (event) => {
   }
   $("#ah-purchase-status").textContent = t("orders.searching");
   purchaseTimer = setTimeout(searchPurchases, 250);
+});
+
+$("#purchase-facets").addEventListener("click", (event) => {
+  const click = event.target.closest("[data-facet-clear]") ? null : facetClick(event);
+  if (click) ordersState.products = facetToggled(ordersState.products, click.value, click.mode);
+  else if (event.target.closest("[data-facet-clear]")) ordersState.products = facetSelection();
+  else return;
+  renderOrders();
+  if (click) facetRefocus($("#purchase-products"), click);
 });
 
 for (const [id, key] of [["ah-filter-orders", "orders"], ["ah-filter-receipts", "receipts"]]) {
@@ -766,7 +803,7 @@ function importedOrderMeta(order, status = importedOrderStatus(order)) {
 function importedLinkLine(item, store) {
   return {
     store, name: item.title, article: null, product: item.productId ? item.productTitle || item.title : null,
-    productId: item.productId ?? null, link: item.link || null,
+    productId: item.productId ?? null, link: item.link || null, shared: Boolean(item.shared),
   };
 }
 

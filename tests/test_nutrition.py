@@ -41,23 +41,36 @@ class ConvertTest(unittest.TestCase):
 
 class ItemsTest(unittest.TestCase):
     MEALIE = {
-        "calories": "490", "fatContent": "23", "proteinContent": "27", "sodiumContent": "200", "sugarContent": "0",
-        "carbohydrateContent": None, "cholesterolContent": "", "fiberContent": "geen",
+        "calories": "490",
+        "fatContent": "23",
+        "proteinContent": "27",
+        "sodiumContent": "200",
+        "sugarContent": "0",
+        "carbohydrateContent": None,
+        "cholesterolContent": "",
+        "fiberContent": "geen",
     }
 
     def test_items_in_the_order_of_the_screen_with_units(self):
-        self.assertEqual(nutrition.items(self.MEALIE), [
-            {"key": "calories", "quantity": 490, "unit": "kcal"},
-            {"key": "proteinContent", "quantity": 27, "unit": "g"},
-            {"key": "fatContent", "quantity": 23, "unit": "g"},
-            {"key": "sugarContent", "quantity": 0, "unit": "g"},  # 0 g suiker is een waarde, geen leeg veld
-            {"key": "sodiumContent", "quantity": 200, "unit": "mg"},
-        ])
+        self.assertEqual(
+            nutrition.items(self.MEALIE),
+            [
+                {"key": "calories", "quantity": 490, "unit": "kcal"},
+                {"key": "proteinContent", "quantity": 27, "unit": "g"},
+                {"key": "fatContent", "quantity": 23, "unit": "g"},
+                {"key": "sugarContent", "quantity": 0, "unit": "g"},  # 0 g suiker is een waarde, geen leeg veld
+                {"key": "sodiumContent", "quantity": 200, "unit": "mg"},
+            ],
+        )
 
     def test_schema_org_text_reads_the_same(self):
-        self.assertEqual(nutrition.items({"calories": "600 kcal", "fatContent": "20.5 g"}), [
-            {"key": "calories", "quantity": 600, "unit": "kcal"}, {"key": "fatContent", "quantity": 20.5, "unit": "g"},
-        ])
+        self.assertEqual(
+            nutrition.items({"calories": "600 kcal", "fatContent": "20.5 g"}),
+            [
+                {"key": "calories", "quantity": 600, "unit": "kcal"},
+                {"key": "fatContent", "quantity": 20.5, "unit": "g"},
+            ],
+        )
 
     def test_kcal_is_per_serving_and_zero_or_nonsense_is_unknown(self):
         self.assertEqual(nutrition.kcal(self.MEALIE), 490)

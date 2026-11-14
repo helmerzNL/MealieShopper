@@ -12,11 +12,14 @@ wat een stuk dan kost. Deze module zet wat de winkels leveren om naar één vorm
 Wat we niet met zekerheid kunnen lezen blijft `unknown`: liever een aanbieding zonder rekenwerk dan een
 verkeerde prijs.
 """
+
 from __future__ import annotations
 
 import re
 from datetime import date, datetime, timedelta
 from typing import Any
+
+from . import packs
 
 # Soorten aanbieding.
 PERCENT = "percent"  # "25% korting"
@@ -26,6 +29,7 @@ NTH_PERCENT = "nth_percent"  # "2e = 50% korting": het n-de stuk met korting
 NTH_FREE = "nth_free"  # "2e gratis", "1+1 gratis", "2+1 gratis"
 X_FOR_Y = "x_for_y"  # "2 voor 5,00"
 FIXED = "fixed"  # alleen een lagere prijs, zonder voorwaarde
+PER_MEASURE = "per_measure"  # "per 100 gram voor 1,59": een prijs per gewicht of inhoud, niet per pak
 UNKNOWN = "unknown"
 
 # Geldigheid.
@@ -46,6 +50,10 @@ _NOW_PRICE_RE = re.compile(rf"\b(?:nu|voor)\s*{_EURO}{_NUMBER}(?![\d%])(?!\s*%)"
 _PERCENT_RE = re.compile(rf"{_NUMBER}\s*%")
 _AMOUNT_OFF_RE = re.compile(rf"{_EURO}{_NUMBER}\s*(?:euro\s*)?korting|korting\s*{_EURO}{_NUMBER}")
 _FROM_QUANTITY_RE = re.compile(r"\bvanaf\s*(\d+)\s*(?:stuks?|st)\b")
+# "per 100 gram voor 1.59", "per kilo voor 9,99": het bedrag geldt voor dat gewicht of die inhoud.
+_PER_MEASURE_RE = re.compile(
+    rf"\bper\s*(\d+(?:[.,]\d+)?)?\s*(kilogram|kilo|kg|gram|gr|g|milliliter|liter|ml|cl|dl|l)\s*voor\s*{_EURO}{_NUMBER}(?![\d%])(?!\s*%)"
+)
 
 
 def _number(text: str) -> float:
@@ -63,6 +71,14 @@ def parse_mechanic(*texts: Any) -> dict[str, Any]:
         text = re.sub(r"\s+", " ", str(raw or "").strip().lower())
         if not text:
             continue
+        match = _PER_MEASURE_RE.search(text)
+        if match:
+            return {
+                "type": PER_MEASURE,
+                "minQuantity": 1,
+                "measure": f"{match.group(1) or '1'} {match.group(2)}",
+                "measurePrice": _number(match.group(3)),
+            }
         match = _BUY_GET_FREE_RE.search(text)
         if match:
             pay, free = int(match.group(1)), int(match.group(2))
@@ -96,9 +112,30 @@ def parse_mechanic(*texts: Any) -> dict[str, Any]:
     return {"type": UNKNOWN, "minQuantity": 1}
 
 
-def effective_unit_price(
-    mechanic: dict[str, Any], price_before: float | None, price_now: float | None
-) -> float | None:
+def pack_price(mechanic: dict[str, Any], unit_size: Any) -> float | None:
+    """Wat een pak kost bij een aanbieding per gewicht of inhoud ("per 100 gram voor 1,59" op een pak van ca. 755 g: 12,00), of
+    None als de aanbieding er geen is of de inhoud van het pak niet in dezelfde maat te lezen is."""
+    if mechanic.get("type") != PER_MEASURE:
+        return None
+    measure, size = packs.parse_pack_size(mechanic.get("measure")), packs.parse_pack_size(unit_size)
+    if not measure or not size or measure[1] != size[1] or measure[1] == "count" or measure[0] <= 0:
+        return None
+    return round(mechanic["measurePrice"] * size[0] / measure[0], 2)
+
+
+def measure_priced(label: Any, unit_size: Any, price: Any) -> float | None:
+    """De prijs van het pak als `price` de prijs per gewicht uit de actietekst is, anders None. AH geeft bij "per 100 GRAM voor
+    1.59" die 1,59 door als prijs van het product, naast de gewone prijs van het hele pak: dat leest als 90% korting."""
+    return pack_price(parse_mechanic(label), unit_size) if is_measure_price(label, price) else None
+
+
+def is_measure_price(label: Any, price: Any) -> bool:
+    """Is `price` de prijs per gewicht of inhoud uit de actietekst, en dus niet die van het pak?"""
+    mechanic = parse_mechanic(label)
+    return mechanic["type"] == PER_MEASURE and isinstance(price, (int, float)) and abs(price - mechanic["measurePrice"]) <= 0.005
+
+
+def effective_unit_price(mechanic: dict[str, Any], price_before: float | None, price_now: float | None) -> float | None:
     """Wat één stuk kost als je de voorwaarde van de aanbieding haalt, of None als dat niet te weten is.
 
     `price_before` is de gewone prijs. `price_now` is de prijs die de winkel noemt; bij een aanbieding met
@@ -128,7 +165,7 @@ def effective_unit_price(
         return computed
     if kind == FIXED and mechanic.get("fixedPrice") is not None:
         return round(mechanic["fixedPrice"], 2)
-    if kind == FIXED and price_now is not None:
+    if kind in (FIXED, PER_MEASURE) and price_now is not None:  # per gewicht: de winkelprijs is al die van het pak (`measure_priced`)
         return round(price_now, 2)
     return None
 
@@ -279,8 +316,13 @@ def make_deal(store: str, product: dict[str, Any], today: date | None = None) ->
     price_now = price_now.get("now") if isinstance(price_now, dict) else price_now
     price_before = promo.get("priceBefore")
     described = describe(
-        promo.get("mechanism"), promo.get("label"), price_now=price_now, price_before=price_before,
-        valid_from=promo.get("validFrom"), valid_until=promo.get("validUntil"), today=today,
+        promo.get("mechanism"),
+        promo.get("label"),
+        price_now=price_now,
+        price_before=price_before,
+        valid_from=promo.get("validFrom"),
+        valid_until=promo.get("validUntil"),
+        today=today,
     )
     return {
         "store": store,

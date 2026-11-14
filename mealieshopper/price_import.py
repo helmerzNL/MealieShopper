@@ -19,6 +19,7 @@ AH geeft in de app en de API alleen de bestellingen van de laatste maanden. Wat 
   in. Elke regel koppelen we bij het lezen op naam aan een product van de winkel (`prices.link_names`, dezelfde koppeling als in de
   Prijsgeschiedenis), zodat een ingelezen bestelling dezelfde foto's, merken en inhoud heeft als een bestelling uit je account.
 """
+
 from __future__ import annotations
 
 import json
@@ -70,8 +71,10 @@ _ADDED_COLUMNS = (("status", "TEXT"), ("slot_start", "TEXT"), ("slot_end", "TEXT
 # afgehaald is, heet "delivered"; een geannuleerde lezen we niet in.
 STATUS_DELIVERED, STATUS_CANCELLED = "delivered", "cancelled"
 _STATUS_WORDS = {
-    **dict.fromkeys(("delivered", "collected", "picked up", "picked_up", "completed", "done", "bezorgd", "afgeleverd", "geleverd",
-                     "afgehaald", "opgehaald"), STATUS_DELIVERED),
+    **dict.fromkeys(
+        ("delivered", "collected", "picked up", "picked_up", "completed", "done", "bezorgd", "afgeleverd", "geleverd", "afgehaald", "opgehaald"),
+        STATUS_DELIVERED,
+    ),
     **dict.fromkeys(("cancelled", "canceled", "cancel", "geannuleerd"), STATUS_CANCELLED),
 }
 
@@ -315,8 +318,12 @@ def parse(data: Any, store: Any, today: date | None = None) -> tuple[str, list[d
             continue
         day = _day(raw.get("date"), today)
         if day is None:
-            problems.append(tr(f"Bestelling {index}: geen geldige datum (JJJJ-MM-DD, niet in de toekomst).",
-                               f"Order {index}: no valid date (YYYY-MM-DD, not in the future)."))
+            problems.append(
+                tr(
+                    f"Bestelling {index}: geen geldige datum (JJJJ-MM-DD, niet in de toekomst).",
+                    f"Order {index}: no valid date (YYYY-MM-DD, not in the future).",
+                )
+            )
             continue
         status, known = _status(raw.get("status"))
         if status == STATUS_CANCELLED:
@@ -327,17 +334,28 @@ def parse(data: Any, store: Any, today: date | None = None) -> tuple[str, list[d
         if not items:
             problems.append(tr(f"Bestelling {index} ({day}): geen bruikbare producten.", f"Order {index} ({day}): no usable products."))
             continue
-        notes = [] if known else [tr(f"status \"{str(raw.get('status'))[:40]}\" onbekend, leeg gelaten",
-                                     f"status \"{str(raw.get('status'))[:40]}\" unknown, left empty")]
+        notes = (
+            []
+            if known
+            else [tr(f'status "{str(raw.get("status"))[:40]}" onbekend, leeg gelaten', f'status "{str(raw.get("status"))[:40]}" unknown, left empty')]
+        )
         slot_start, slot_end, readable = _window(raw.get("deliveryWindow"))
         if not readable:
             notes.append(tr("bezorgmoment niet te lezen, leeg gelaten", "delivery time not readable, left empty"))
         total = _amount(raw.get("total"))
-        orders.append({
-            "ref": _order_ref(raw.get("orderNumber"), day, total), "number": str(raw.get("orderNumber") or "") or None,
-            "date": day, "total": round(total, 2) if total is not None else None, "items": items,
-            "status": status, "slotStart": slot_start, "slotEnd": slot_end, "notes": notes,
-        })
+        orders.append(
+            {
+                "ref": _order_ref(raw.get("orderNumber"), day, total),
+                "number": str(raw.get("orderNumber") or "") or None,
+                "date": day,
+                "total": round(total, 2) if total is not None else None,
+                "items": items,
+                "status": status,
+                "slotStart": slot_start,
+                "slotEnd": slot_end,
+                "notes": notes,
+            }
+        )
     return key, orders, problems
 
 
@@ -351,8 +369,11 @@ async def _tables(conn: aiosqlite.Connection) -> set[str]:
 def _account_orders_sql(store: str) -> tuple[set[str], str]:
     """(de tabellen die er moeten zijn, de SQL) voor `account_orders`: per bestelling met producten het nummer en de dag."""
     table, items = f"{store}_orders", f"{store}_order_items"
-    return {table, items}, f"""SELECT CAST(o.order_id AS TEXT) AS id, substr(COALESCE(o.delivery_date, ''), 1, 10) AS day FROM {table} o
-            WHERE EXISTS (SELECT 1 FROM {items} i WHERE i.order_id = o.order_id)"""
+    return (
+        {table, items},
+        f"""SELECT CAST(o.order_id AS TEXT) AS id, substr(COALESCE(o.delivery_date, ''), 1, 10) AS day FROM {table} o
+            WHERE EXISTS (SELECT 1 FROM {items} i WHERE i.order_id = o.order_id)""",
+    )
 
 
 def _account_sets(rows: Iterable[Any]) -> tuple[set[str], set[str]]:
@@ -378,9 +399,7 @@ async def account_orders(conn: aiosqlite.Connection, store: str) -> tuple[set[st
     return _account_sets(await conn.execute_fetchall(sql))
 
 
-async def _duplicate(
-    conn: aiosqlite.Connection, store: str, order: dict[str, Any], seen: set[str], numbers: set[str], days: set[str]
-) -> str | None:
+async def _duplicate(conn: aiosqlite.Connection, store: str, order: dict[str, Any], seen: set[str], numbers: set[str], days: set[str]) -> str | None:
     """Waarom een bestelling er al is, of None als ze nieuw is."""
     if order["ref"] in seen:
         return tr("staat twee keer in deze JSON", "is twice in this JSON")
@@ -405,9 +424,20 @@ async def run(data: Any, store: Any, dry_run: bool = False, now: str | None = No
         for order in orders:
             reason = await _duplicate(conn, key, order, seen, numbers, days)
             seen.add(order["ref"])
-            report.append({"ref": order["ref"], "date": order["date"], "total": order["total"], "items": len(order["items"]),
-                           "status": order["status"], "slotStart": order["slotStart"], "slotEnd": order["slotEnd"],
-                           "notes": order["notes"], "new": reason is None, "reason": reason})
+            report.append(
+                {
+                    "ref": order["ref"],
+                    "date": order["date"],
+                    "total": order["total"],
+                    "items": len(order["items"]),
+                    "status": order["status"],
+                    "slotStart": order["slotStart"],
+                    "slotEnd": order["slotEnd"],
+                    "notes": order["notes"],
+                    "new": reason is None,
+                    "reason": reason,
+                }
+            )
             if reason is None:
                 fresh.append(order)
         if not dry_run and fresh:
@@ -415,14 +445,36 @@ async def run(data: Any, store: Any, dry_run: bool = False, now: str | None = No
                 """INSERT INTO imported_purchases (store, order_ref, position, day, title, quantity, paid, regular, order_total,
                                                    imported_at, status, slot_start, slot_end)
                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                [(key, order["ref"], position, order["date"], item["title"], item["quantity"], item["paid"], item["regular"],
-                  order["total"], now, order["status"], order["slotStart"], order["slotEnd"])
-                 for order in fresh for position, item in enumerate(order["items"])],
+                [
+                    (
+                        key,
+                        order["ref"],
+                        position,
+                        order["date"],
+                        item["title"],
+                        item["quantity"],
+                        item["paid"],
+                        item["regular"],
+                        order["total"],
+                        now,
+                        order["status"],
+                        order["slotStart"],
+                        order["slotEnd"],
+                    )
+                    for order in fresh
+                    for position, item in enumerate(order["items"])
+                ],
             )
             await conn.commit()
     return {
-        "store": key, "dryRun": bool(dry_run), "orders": report, "new": len(fresh), "duplicates": len(report) - len(fresh),
-        "lines": sum(len(order["items"]) for order in fresh), "problems": problems[:MAX_PROBLEMS], "problemCount": len(problems),
+        "store": key,
+        "dryRun": bool(dry_run),
+        "orders": report,
+        "new": len(fresh),
+        "duplicates": len(report) - len(fresh),
+        "lines": sum(len(order["items"]) for order in fresh),
+        "problems": problems[:MAX_PROBLEMS],
+        "problemCount": len(problems),
         "imported": 0 if dry_run else sum(len(order["items"]) for order in fresh),
     }
 
@@ -453,6 +505,7 @@ async def remove(store: Any, ref: Any = None) -> dict[str, Any]:
 
 
 # --- ingelezen bestellingen bij Bestellingen ------------------------------------------------------
+
 
 def _quantity(value: Any) -> int | float:
     """2.0 wordt 2: zo staat een aantal ook in de bestellingen uit je account."""
@@ -500,22 +553,35 @@ def _order_json(store: str, row: Any, summary: bool = False) -> dict[str, Any]:
     ref = row["order_ref"]
     total = row["order_total"] if row["order_total"] is not None else round(row["paid_total"] or 0, 2)
     return {
-        "id": ref, "ref": ref, "store": store, "imported": True, "kind": "imported", "number": None if ref.startswith("dag:") else ref,
-        "date": row["day"], "deliveryDate": row["day"], "total": total, "itemCount": row["lines"], "units": _quantity(row["units"]),
+        "id": ref,
+        "ref": ref,
+        "store": store,
+        "imported": True,
+        "kind": "imported",
+        "number": None if ref.startswith("dag:") else ref,
+        "date": row["day"],
+        "deliveryDate": row["day"],
+        "total": total,
+        "itemCount": row["lines"],
+        "units": _quantity(row["units"]),
         # Een ingelezen bestelling is altijd een aankoop die je deed: ze telt in de Prijsgeschiedenis als gekocht, en een geannuleerde
         # lezen we niet in. Zonder status uit de mail (zoals bij een import van vóór 3.5.0) is ze dus afgeleverd, zoals elke
         # afgelopen bestelling uit je account.
         "status": row["status"] or STATUS_DELIVERED,
-        "slotStart": _moment(row["day"], row["slot_start"]), "slotEnd": _moment(row["day"], row["slot_end"]),
-        "importedAt": row["imported_at"], **({"productNames": split_lines(row["summary_names"])} if summary else {}),
+        "slotStart": _moment(row["day"], row["slot_start"]),
+        "slotEnd": _moment(row["day"], row["slot_end"]),
+        "importedAt": row["imported_at"],
+        **({"productNames": split_lines(row["summary_names"])} if summary else {}),
     }
 
 
 async def _lines(conn: aiosqlite.Connection, store: str, ref: str | None = None) -> list[Any]:
     where, args = ("store = ? AND order_ref = ?", (store, ref)) if ref is not None else ("store = ?", (store,))
-    return list(await conn.execute_fetchall(
-        f"SELECT order_ref, title, quantity, paid, regular FROM imported_purchases WHERE {where} ORDER BY order_ref, position", args
-    ))
+    return list(
+        await conn.execute_fetchall(
+            f"SELECT order_ref, title, quantity, paid, regular FROM imported_purchases WHERE {where} ORDER BY order_ref, position", args
+        )
+    )
 
 
 def _summary(lines: list[Any], linked: dict[str, dict[str, Any]]) -> dict[str, Any]:
@@ -547,16 +613,14 @@ async def list_orders(store: Any, summary: bool = False) -> dict[str, Any]:
         for line in await _lines(conn, key):
             per_order.setdefault(line["order_ref"], []).append(line)
     linked = await prices.link_names(key, {line["title"] for lines in per_order.values() for line in lines})
-    return {"store": key, "orders": [
-        {**_order_json(key, row, summary), **_summary(per_order.get(row["order_ref"], []), linked)} for row in rows
-    ]}
+    return {"store": key, "orders": [{**_order_json(key, row, summary), **_summary(per_order.get(row["order_ref"], []), linked)} for row in rows]}
 
 
 async def get_order(store: Any, ref: Any) -> dict[str, Any] | None:
     """Eén ingelezen bestelling met de producten uit de mail, of None als die er niet (meer) is. Elke regel heeft, als de naam bij
     een product van de winkel hoort, ook `productId`, `image`, `brand` en `unitSize` van dat product (zie `prices.link_names`), en
     `link` als je die naam zelf koppelde (#238), en de velden van `purchase_lines.enrich`: de korting is die tegen de prijs uit de mail
-    (`price`, `discountSource` `store`), want voor deze regels bewaren we geen gewone prijs van 30 dagen. `status` blijft die uit de mail,
+    (`price`, `discountSource` `store`), want voor deze regels bewaart `prices.fill_regular_prices` geen gewone prijs. `status` blijft die uit de mail,
     `statusKind` is `imported`."""
     from . import prices
 
@@ -571,16 +635,25 @@ async def get_order(store: Any, ref: Any) -> dict[str, Any] | None:
     items = []
     for line in lines:
         product = linked.get(line["title"], {})
-        items.append({
-            "title": line["title"], "quantity": _quantity(line["quantity"]), "paid": line["paid"], "price": line["regular"],
-            "amount": round(line["paid"] * line["quantity"], 2) if line["paid"] is not None else None,
-            "bonus": _bonus(line["paid"], line["regular"]),
-            "productId": product.get("productId"), "image": product.get("image"), "brand": product.get("brand"),
-            "unitSize": product.get("unitSize"),
-            # De naam van het product in de winkel, en je eigen koppeling van deze naam (#238): zo kan het scherm *Ander product
-            # kiezen* en *Ontkoppelen* tonen.
-            "productTitle": product.get("title"), "link": product.get("link"),
-        })
+        items.append(
+            {
+                "title": line["title"],
+                "quantity": _quantity(line["quantity"]),
+                "paid": line["paid"],
+                "price": line["regular"],
+                "amount": round(line["paid"] * line["quantity"], 2) if line["paid"] is not None else None,
+                "bonus": _bonus(line["paid"], line["regular"]),
+                "productId": product.get("productId"),
+                "image": product.get("image"),
+                "brand": product.get("brand"),
+                "unitSize": product.get("unitSize"),
+                # De naam van het product in de winkel, en je eigen koppeling van deze naam (#238): zo kan het scherm *Ander product
+                # kiezen* en *Ontkoppelen* tonen.
+                "productTitle": product.get("title"),
+                "link": product.get("link"),
+                "shared": bool(product.get("shared")),
+            }
+        )
     async with _connect() as conn:
         totals = await purchase_lines.enrich(conn, key, "imported", rows[0]["day"], items)
     kind, text = purchase_lines.status_kind("imported", rows[0])
@@ -597,9 +670,17 @@ async def search_lines(conn: aiosqlite.Connection, store: str, words: list[str],
     for row in await conn.execute_fetchall("SELECT order_ref, day, title, quantity, paid FROM imported_purchases WHERE store = ?", (store,)):
         if row["order_ref"] in numbers or row["day"] in days or not all(word in fold(row["title"]) for word in words):
             continue
-        found.append({
-            "source": "bestelling", "imported": True, "product": row["title"], "brand": None, "quantity": _quantity(row["quantity"]),
-            "amount": round(row["paid"] * row["quantity"], 2) if row["paid"] is not None else None, "date": row["day"],
-            "id": row["order_ref"], "open": False,
-        })
+        found.append(
+            {
+                "source": "bestelling",
+                "imported": True,
+                "product": row["title"],
+                "brand": None,
+                "quantity": _quantity(row["quantity"]),
+                "amount": round(row["paid"] * row["quantity"], 2) if row["paid"] is not None else None,
+                "date": row["day"],
+                "id": row["order_ref"],
+                "open": False,
+            }
+        )
     return found

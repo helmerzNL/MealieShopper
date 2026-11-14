@@ -8,6 +8,7 @@ geprobeerd, om te zien of die route en het invoertype bestaan.
 Zoals bij `ah_explore` bevat het rapport bewust geen persoonlijke gegevens: namen, prijzen, producten en
 id's worden vervangen door hun type. Zo kun je het rapport veilig delen.
 """
+
 from __future__ import annotations
 
 import re
@@ -38,8 +39,18 @@ async def _probe(name: str, call: Callable[[], Any], summarize: Callable[[Any], 
 # Velden die een Jumbo-promotie kan hebben. Jumbo noemt bij een onbekend veld in zijn foutmelding de naam,
 # zodat we in een paar rondes de bestaande velden vinden zonder het schema te kennen.
 PROMOTION_FIELD_CANDIDATES = (
-    "id", "title", "description", "text", "name", "type", "validityPeriod", "periodDescription", "maxQuantity",
-    "minQuantity", "group", "campaign",
+    "id",
+    "title",
+    "description",
+    "text",
+    "name",
+    "type",
+    "validityPeriod",
+    "periodDescription",
+    "maxQuantity",
+    "minQuantity",
+    "group",
+    "campaign",
 )
 _FIELD_IN_ERROR = re.compile(r'[Ff]ield "(\w+)"')
 
@@ -96,9 +107,7 @@ async def _empty_add_probe() -> dict[str, Any]:
 
     `typename` is `Basket` bij succes of de naam van Jumbo's foutvariant (een typenaam, geen persoonsgegeven).
     """
-    data = await jumbo._graphql(
-        jumbo.ADD_LINES_MUTATION, {"input": {"lines": [], "type": "ECOMMERCE"}}, "BasketPageAddBasketItems"
-    )
+    data = await jumbo._graphql(jumbo.ADD_LINES_MUTATION, {"input": {"lines": [], "type": "ECOMMERCE"}}, "BasketPageAddBasketItems")
     return {"typename": (data.get("addBasketLines") or {}).get("__typename")}
 
 
@@ -110,9 +119,7 @@ def _route(operation: str) -> str:
 
 async def _empty_list_edit_probe() -> dict[str, Any]:
     """Schrijfpad van het lijstje met een lege lijst: er wordt niets toegevoegd, we zien alleen de typenaam."""
-    data = await jumbo._graphql_variants(
-        "EditShoppingListItems", jumbo.EDIT_LIST_QUERIES, {"input": {"items": []}}, jumbo.LOYALTY_CLIENT
-    )
+    data = await jumbo._graphql_variants("EditShoppingListItems", jumbo.EDIT_LIST_QUERIES, {"input": {"items": []}}, jumbo.LOYALTY_CLIENT)
     return {"typename": (data.get("editShoppingListItems") or {}).get("__typename")}
 
 
@@ -132,8 +139,12 @@ async def explore() -> dict[str, Any]:
 
     for name, method, url, kwargs in (
         ("bereikbaar: auth.jumbo.com (OpenID-configuratie)", "GET", f"{jumbo.AUTH_BASE}/.well-known/openid-configuration", {}),
-        ("bereikbaar: www.jumbo.com/api/graphql (zonder inloggen)", "POST", jumbo.GRAPHQL_URL,
-         {"json": {"operationName": "Reach", "query": "query Reach { __typename }"}}),
+        (
+            "bereikbaar: www.jumbo.com/api/graphql (zonder inloggen)",
+            "POST",
+            jumbo.GRAPHQL_URL,
+            {"json": {"operationName": "Reach", "query": "query Reach { __typename }"}},
+        ),
     ):
         report, _ = await _probe(name, lambda m=method, u=url, k=kwargs: _reach(m, u, **k), lambda data: data)
         probes.append(report)
@@ -157,9 +168,7 @@ async def explore() -> dict[str, Any]:
     )
     probes.append(report)
 
-    report, _ = await _probe(
-        "aanbiedingen: GraphQL searchProducts met extra promotievelden", _promotion_probe, lambda data: data
-    )
+    report, _ = await _probe("aanbiedingen: GraphQL searchProducts met extra promotievelden", _promotion_probe, lambda data: data)
     probes.append(report)
 
     report, _ = await _probe("mandje: GraphQL activeBasket", jumbo.get_cart)
@@ -175,9 +184,7 @@ async def explore() -> dict[str, Any]:
     report, live_list = await _probe("lijstje: GraphQL shoppingList", jumbo.get_shopping_list)
     probes.append(report)
 
-    report, _ = await _probe(
-        "lijstje: editShoppingListItems met een lege lijst (voegt niets toe)", _empty_list_edit_probe, lambda data: data
-    )
+    report, _ = await _probe("lijstje: editShoppingListItems met een lege lijst (voegt niets toe)", _empty_list_edit_probe, lambda data: data)
     probes.append(report)
 
     sku = next((item["sku"] for item in (live_list or {}).get("items", []) if item.get("sku")), None)
@@ -236,7 +243,9 @@ async def explore() -> dict[str, Any]:
             lambda found: {
                 "producten": len(found["items"]),
                 "eerste product": shape(found["items"][0] if found["items"] else None),
-                "werkende variant": "{} ({})".format(*jumbo.ORDER_DETAIL_ARGUMENTS[jumbo._working_order_detail[0]]) if jumbo._working_order_detail else "?",
+                "werkende variant": "{} ({})".format(*jumbo.ORDER_DETAIL_ARGUMENTS[jumbo._working_order_detail[0]])
+                if jumbo._working_order_detail
+                else "?",
             },
         )
     else:
@@ -315,7 +324,11 @@ async def explore() -> dict[str, Any]:
         report, _ = await _probe(
             "recepten op id: opgeslagen query getRecipesByIds",
             lambda: jumbo_recipes.get_by_ids([r["id"] for r in found["recipes"][:3]]),
-            lambda recipes: {"recepten gevonden": len(recipes), "eerste recept": shape(recipes[0] if recipes else None), "werkt via": _route("getRecipesByIds")},
+            lambda recipes: {
+                "recepten gevonden": len(recipes),
+                "eerste recept": shape(recipes[0] if recipes else None),
+                "werkt via": _route("getRecipesByIds"),
+            },
         )
     else:
         report = {"name": "een recept: opgeslagen query getRecipe", "ok": False, "error": "overgeslagen: geen recept gevonden"}

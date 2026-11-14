@@ -3,6 +3,7 @@
 De browser zet de gekozen taal (nl of en) in de cookie `ms_lang`. Zonder cookie, of met een
 andere waarde, blijft het Nederlands. Meldingen schrijf je als `tr("Nederlands", "English")`.
 """
+
 from __future__ import annotations
 
 from quart import has_request_context, request

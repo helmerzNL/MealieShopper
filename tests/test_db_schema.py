@@ -160,18 +160,11 @@ class SchemaCase(AppTestCase):
 
     @staticmethod
     def indexes(conn: sqlite3.Connection) -> set[str]:
-        return {
-            row[0]
-            for row in conn.execute(
-                "SELECT name FROM sqlite_master WHERE type = 'index' AND sql IS NOT NULL"
-            )
-        }
+        return {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type = 'index' AND sql IS NOT NULL")}
 
     @staticmethod
     def plan(conn: sqlite3.Connection, sql: str, params: tuple) -> str:
-        return "\n".join(
-            row[3] for row in conn.execute("EXPLAIN QUERY PLAN " + sql, params)
-        )
+        return "\n".join(row[3] for row in conn.execute("EXPLAIN QUERY PLAN " + sql, params))
 
 
 class IndexTest(SchemaCase):
@@ -196,9 +189,7 @@ class IndexTest(SchemaCase):
                 "audit_log_service",
             }:
                 conn.execute(f"DROP INDEX IF EXISTS {name}")
-            conn.execute(
-                "CREATE INDEX image_cache_todo ON image_cache (fetched_at, seen_at)"
-            )
+            conn.execute("CREATE INDEX image_cache_todo ON image_cache (fetched_at, seen_at)")
         auth.forget_runtime_state()  # zoals een nieuwe start van de app
         for owner in SCHEMA_OWNERS:
             with closing(db(owner)):
@@ -216,20 +207,14 @@ class IndexTest(SchemaCase):
                 with self.subTest(sql=sql):
                     self.assertIn(
                         f"USING INDEX {index}",
-                        self.plan(conn, sql, params).replace(
-                            "USING COVERING INDEX", "USING INDEX"
-                        ),
+                        self.plan(conn, sql, params).replace("USING COVERING INDEX", "USING INDEX"),
                     )
 
     def test_the_rebuilt_offers_table_keeps_both_indexes(self):
         # `offers._drop_offers_key` bouwt een tabel van voor 2.84.0 opnieuw op; de indexen komen daarna.
         with closing(db()) as conn, conn:
             conn.execute("DROP TABLE offers")
-            conn.execute(
-                offers.OFFERS_TABLE.format(name="offers").replace(
-                    "CREATE TABLE IF NOT EXISTS offers (", "CREATE TABLE offers (", 1
-                )
-            )
+            conn.execute(offers.OFFERS_TABLE.format(name="offers").replace("CREATE TABLE IF NOT EXISTS offers (", "CREATE TABLE offers (", 1))
         auth.forget_runtime_state()
         with closing(db(offers)) as conn:
             self.assertLessEqual({"offers_store", "offers_product"}, self.indexes(conn))
@@ -252,9 +237,7 @@ class OncePerProcessTest(SchemaCase):
             auth.forget_runtime_state()
             with closing(db(offers)):
                 pass
-            self.assertEqual(
-                calls, ["setup"], "na een nieuwe start loopt de opzet precies een keer"
-            )
+            self.assertEqual(calls, ["setup"], "na een nieuwe start loopt de opzet precies een keer")
 
     def test_a_factory_reset_gets_a_fresh_schema(self):
         # `factory_reset.wipe_data` wist de database en roept `forget_runtime_state`: de volgende verbinding maakt alles opnieuw.
@@ -264,12 +247,7 @@ class OncePerProcessTest(SchemaCase):
         with closing(db(audit)) as conn:
             self.assertIn(
                 "audit_log",
-                {
-                    row[0]
-                    for row in conn.execute(
-                        "SELECT name FROM sqlite_master WHERE type = 'table'"
-                    )
-                },
+                {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")},
             )
             self.assertIn("audit_log_ts", self.indexes(conn))
 

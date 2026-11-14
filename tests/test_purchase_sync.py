@@ -1,4 +1,5 @@
 """De nachtelijke synchronisatie van bestellingen en kassabonnen (purchase_sync.py)."""
+
 from __future__ import annotations
 
 import logging
@@ -13,17 +14,25 @@ from mealieshopper import ah, ah_orders, crisp, crisp_orders, jumbo, jumbo_order
 class NightlyPurchaseSyncTest(unittest.IsolatedAsyncioTestCase):
     def linked(self, **stores: str) -> None:
         """Welke winkels gekoppeld zijn: de naam van de winkel met het token, de rest heeft er geen."""
-        checks = {"ah": (ah, "configured_refresh_token"), "jumbo": (jumbo, "configured_refresh_token"),
-                  "picnic": (picnic, "configured_auth_key"), "crisp": (crisp, "configured_client_id")}
+        checks = {
+            "ah": (ah, "configured_refresh_token"),
+            "jumbo": (jumbo, "configured_refresh_token"),
+            "picnic": (picnic, "configured_auth_key"),
+            "crisp": (crisp, "configured_client_id"),
+        }
         for store, (module, name) in checks.items():
             patcher = mock.patch.object(module, name, new_callable=mock.AsyncMock, return_value=stores.get(store, ""))
             patcher.start()
             self.addCleanup(patcher.stop)
 
     def syncs(self) -> dict[str, mock.AsyncMock]:
-        targets = {"ah.orders": (ah_orders, "sync_orders"), "ah.receipts": (ah_orders, "sync_receipts"),
-                   "jumbo.orders": (jumbo_orders, "sync_orders"), "picnic.orders": (picnic_orders, "sync_orders"),
-                   "crisp.orders": (crisp_orders, "sync_orders")}
+        targets = {
+            "ah.orders": (ah_orders, "sync_orders"),
+            "ah.receipts": (ah_orders, "sync_receipts"),
+            "jumbo.orders": (jumbo_orders, "sync_orders"),
+            "picnic.orders": (picnic_orders, "sync_orders"),
+            "crisp.orders": (crisp_orders, "sync_orders"),
+        }
         found: dict[str, mock.AsyncMock] = {}
         for key, (module, name) in targets.items():
             patcher = mock.patch.object(module, name, new_callable=mock.AsyncMock, return_value={"done": key})
@@ -52,15 +61,18 @@ class NightlyPurchaseSyncTest(unittest.IsolatedAsyncioTestCase):
         syncs["ah.orders"].side_effect = RuntimeError("AH zegt nee")
         with self.assertLogs("mealieshopper.purchase_sync", level=logging.WARNING) as logs:
             result = await purchase_sync.sync_nightly()
-        self.assertEqual(result, {"ah": {"orders": {"error": "AH zegt nee"}, "receipts": {"done": "ah.receipts"}},
-                                  "jumbo": {"orders": {"done": "jumbo.orders"}}})
+        self.assertEqual(
+            result, {"ah": {"orders": {"error": "AH zegt nee"}, "receipts": {"done": "ah.receipts"}}, "jumbo": {"orders": {"done": "jumbo.orders"}}}
+        )
         self.assertIn("ah", logs.output[0])
 
     async def test_a_failing_link_check_skips_that_store(self) -> None:
         self.linked(jumbo="token")
         self.syncs()
-        with mock.patch.object(ah, "configured_refresh_token", new_callable=mock.AsyncMock, side_effect=RuntimeError("stuk")), \
-             self.assertLogs("mealieshopper.purchase_sync", level=logging.WARNING):
+        with (
+            mock.patch.object(ah, "configured_refresh_token", new_callable=mock.AsyncMock, side_effect=RuntimeError("stuk")),
+            self.assertLogs("mealieshopper.purchase_sync", level=logging.WARNING),
+        ):
             self.assertEqual(await purchase_sync.sync_nightly(), {"jumbo": {"orders": {"done": "jumbo.orders"}}})
 
 

@@ -18,11 +18,10 @@ os.environ["PASSKEY_AUTH_ENABLED"] = "false"
 import httpx  # noqa: E402
 import pytest  # noqa: E402
 import respx  # noqa: E402
+from helpers import AppTestCase, db, settle_audit  # noqa: E402
 
 from mealieshopper import audit, auth, http_client, mcp, oauth, tasks  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
-from helpers import AppTestCase, db, settle_audit  # noqa: E402
-
 
 # Wat een respx-route teruggeeft: een vast antwoord of een functie die er een maakt.
 Answer: TypeAlias = httpx.Response | Callable[[httpx.Request], Awaitable[httpx.Response]]
@@ -85,8 +84,14 @@ class OutboundTest(AuditTestCase):
             ("https://s7g10.scene7.com/is/image/aldinord/x", "aldi"),
         ):
             self.assertEqual(audit.service_for(url), service, url)
-        for url in ("https://mealie.example.com/api", "https://evilah.nl/", "https://ah.nl.evil.example/", "https://github.com/x",
-                    "https://evillidl.nl/", "https://s7g11.scene7.com/x"):
+        for url in (
+            "https://mealie.example.com/api",
+            "https://evilah.nl/",
+            "https://ah.nl.evil.example/",
+            "https://github.com/x",
+            "https://evillidl.nl/",
+            "https://s7g11.scene7.com/x",
+        ):
             self.assertEqual(audit.service_for(url), "", url)
 
     async def test_a_request_is_logged_with_status_duration_and_body(self):
@@ -113,7 +118,11 @@ class OutboundTest(AuditTestCase):
         # Een netwerkfout bereikt de response-hook van httpx niet (zie audit.py): die staat alleen in het logboek van de aanroeper.
         await self.send("GET", "https://storefront-prod.nl.picnicinternational.com/api/15/cart", status=500, body=b"kapot")
         with self.assertRaises(httpx.ConnectError):
-            await self.fetch("GET", "https://www.jumbo.com/api/graphql", {"https://www.jumbo.com/api/graphql": lambda request: (_ for _ in ()).throw(httpx.ConnectError("geen verbinding"))})
+            await self.fetch(
+                "GET",
+                "https://www.jumbo.com/api/graphql",
+                {"https://www.jumbo.com/api/graphql": lambda request: (_ for _ in ()).throw(httpx.ConnectError("geen verbinding"))},
+            )
         (failed,) = await self.entries()
         self.assertEqual((failed["service"], failed["ok"], failed["status"]), ("picnic", False, 500))
 
@@ -128,11 +137,28 @@ class OutboundTest(AuditTestCase):
             "client_id": "appie-ios",
         }
         answer = json.dumps({"access_token": "ACCESS123", "refresh_token": "REFRESH456", "expires_in": 3600})
-        await self.send("POST", "https://login.ah.nl/oauth?code=URLCODE&client_id=appie-ios", json=secret_body, body=answer, headers={"Authorization": "Bearer HEADER123", "x-picnic-auth": "PICNIC123"})
+        await self.send(
+            "POST",
+            "https://login.ah.nl/oauth?code=URLCODE&client_id=appie-ios",
+            json=secret_body,
+            body=answer,
+            headers={"Authorization": "Bearer HEADER123", "x-picnic-auth": "PICNIC123"},
+        )
         (entry,) = await self.entries()
         full = await audit.get_entry(entry["id"])
         everything = json.dumps(full)
-        for secret in ("AUTHCODE123", "VERIFIER123", "REFRESH123", "REFRESH456", "ACCESS123", "me@example.com", "md5hashofpassword", "URLCODE", "HEADER123", "PICNIC123"):
+        for secret in (
+            "AUTHCODE123",
+            "VERIFIER123",
+            "REFRESH123",
+            "REFRESH456",
+            "ACCESS123",
+            "me@example.com",
+            "md5hashofpassword",
+            "URLCODE",
+            "HEADER123",
+            "PICNIC123",
+        ):
             self.assertNotIn(secret, everything, secret)
         self.assertIn("appie-ios", everything, "niet-geheime velden blijven leesbaar")
         self.assertIn("authorization_code", everything)
@@ -180,6 +206,7 @@ class OutboundTest(AuditTestCase):
         (entry,) = await self.entries()
         self.assertTrue(entry["detail"]["loginProxy"])
         self.assertEqual((await audit.get_entry(entry["id"]))["response"], "")
+
 
 class HttpxOutboundTest(AuditTestCase):
     """Hetzelfde auditlog voor httpx, via de hooks uit `audit.httpx_hooks()` die `http_client` aanhaakt."""
@@ -249,7 +276,9 @@ class HttpxOutboundTest(AuditTestCase):
         # De regel van een niet gevolgde doorverwijzing komt uit een eigen task (`audit-redirect`); `fetch` wacht daar echt op
         # (`settle_audit`), in plaats van een paar rondjes van de loop te hopen dat het schrijven klaar is.
         start: str = "https://www.jumbo.com/api/graphql"
-        response: httpx.Response = await self.fetch("GET", start, {start: httpx.Response(301, headers={"Location": "https://www.jumbo.com/elders"})}, follow_redirects=False)
+        response: httpx.Response = await self.fetch(
+            "GET", start, {start: httpx.Response(301, headers={"Location": "https://www.jumbo.com/elders"})}, follow_redirects=False
+        )
         self.assertEqual(response.status_code, 301)
         self.assertEqual([name for name in tasks.running() if name.startswith("audit-")], [])
         entry: dict[str, Any]
@@ -327,7 +356,9 @@ class McpTest(AuditTestCase):
 
     async def test_a_tool_call_is_logged_with_its_arguments_and_result(self):
         with mock.patch.dict(mcp.TOOLS["search_jumbo_products"], {"handler": _async_result([{"name": "Melk"}])}):
-            await self.call({"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "search_jumbo_products", "arguments": {"query": "melk"}}})
+            await self.call(
+                {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "search_jumbo_products", "arguments": {"query": "melk"}}}
+            )
         (entry,) = await self.entries()
         self.assertEqual((entry["kind"], entry["service"], entry["action"], entry["method"]), ("mcp", "mcp", "search_jumbo_products", "tools/call"))
         self.assertEqual((entry["actor"], entry["ok"], entry["detail"]["user"]), ("mcp:Claude", True, "admin"))
@@ -336,13 +367,28 @@ class McpTest(AuditTestCase):
         self.assertIn("Melk", full["response"])
 
     async def test_amcp_message_records_the_full_row(self) -> None:
-        message: dict[str, Any] = {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "search_jumbo_products", "arguments": {"query": "melk"}}}
+        message: dict[str, Any] = {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/call",
+            "params": {"name": "search_jumbo_products", "arguments": {"query": "melk"}},
+        }
         with mock.patch.dict(mcp.TOOLS["search_jumbo_products"], {"handler": _async_result({"name": "Melk"})}):
             reply: dict[str, Any] | None = await self.call(message)
         self.assertFalse(reply["result"]["isError"])
         (entry,) = await self.entries()
         self.assertEqual(
-            (entry["kind"], entry["service"], entry["action"], entry["method"], entry["url"], entry["status"], entry["ok"], entry["actor"], entry["error"]),
+            (
+                entry["kind"],
+                entry["service"],
+                entry["action"],
+                entry["method"],
+                entry["url"],
+                entry["status"],
+                entry["ok"],
+                entry["actor"],
+                entry["error"],
+            ),
             ("mcp", "mcp", "search_jumbo_products", "tools/call", "/mcp", 200, True, "mcp:Claude", ""),
         )
         self.assertEqual(entry["detail"], {"user": "admin", "clientId": "c1"})
@@ -401,7 +447,9 @@ class McpTest(AuditTestCase):
             self.assertFalse(entry["ok"])
 
     async def test_discovery_is_logged_but_ping_and_notifications_are_not(self):
-        await self.call({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2025-06-18", "clientInfo": {"name": "Claude"}}})
+        await self.call(
+            {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2025-06-18", "clientInfo": {"name": "Claude"}}}
+        )
         await self.call({"jsonrpc": "2.0", "id": 2, "method": "tools/list"})
         await self.call({"jsonrpc": "2.0", "id": 3, "method": "ping"})
         await self.call({"jsonrpc": "2.0", "method": "notifications/initialized"})
@@ -410,7 +458,14 @@ class McpTest(AuditTestCase):
 
     async def test_a_secret_in_the_arguments_is_hidden(self):
         with mock.patch.dict(mcp.TOOLS["search_jumbo_products"], {"handler": _async_result([])}):
-            await self.call({"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "search_jumbo_products", "arguments": {"query": "melk", "token": "GEHEIM123"}}})
+            await self.call(
+                {
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "method": "tools/call",
+                    "params": {"name": "search_jumbo_products", "arguments": {"query": "melk", "token": "GEHEIM123"}},
+                }
+            )
         self.assertNotIn("GEHEIM123", json.dumps(await audit.get_entry((await self.entries())[0]["id"])))
 
 
@@ -432,10 +487,21 @@ class EndpointTest(AuditTestCase):
 
     async def test_mcp_requests_are_logged_through_the_http_endpoint(self):
         identity = {"client_id": "c1", "name": "ChatGPT", "user_id": auth.OWNER_ID, "username": "admin"}
-        with mock.patch.object(mcp, "enabled", new_callable=mock.AsyncMock, return_value=(True, "")), mock.patch.object(oauth, "verify_access_token", new_callable=mock.AsyncMock, return_value=identity), mock.patch.dict(mcp.TOOLS["list_picnic_orders"], {"handler": _async_result([])}):
-            reply = await self.post([{"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "list_picnic_orders", "arguments": {}}}, {"jsonrpc": "2.0", "id": 2, "method": "tools/list"}])
+        with (
+            mock.patch.object(mcp, "enabled", new_callable=mock.AsyncMock, return_value=(True, "")),
+            mock.patch.object(oauth, "verify_access_token", new_callable=mock.AsyncMock, return_value=identity),
+            mock.patch.dict(mcp.TOOLS["list_picnic_orders"], {"handler": _async_result([])}),
+        ):
+            reply = await self.post(
+                [
+                    {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "list_picnic_orders", "arguments": {}}},
+                    {"jsonrpc": "2.0", "id": 2, "method": "tools/list"},
+                ]
+            )
         self.assertEqual(reply.status_code, 200)
-        self.assertEqual([(e["action"], e["actor"]) for e in await self.entries()], [("tools/list", "mcp:ChatGPT"), ("list_picnic_orders", "mcp:ChatGPT")])
+        self.assertEqual(
+            [(e["action"], e["actor"]) for e in await self.entries()], [("tools/list", "mcp:ChatGPT"), ("list_picnic_orders", "mcp:ChatGPT")]
+        )
 
     async def test_rejected_requests_are_logged(self):
         with mock.patch.object(mcp, "enabled", new_callable=mock.AsyncMock, return_value=(True, "")):
@@ -449,7 +515,15 @@ class EndpointTest(AuditTestCase):
         with mock.patch.object(mcp, "enabled", new_callable=mock.AsyncMock, return_value=(True, "")):
             registered = await self.client.post("/oauth/register", json={"client_name": "Claude", "redirect_uris": ["https://claude.ai/cb"]})
             self.assertEqual(registered.status_code, 201)
-            await self.client.post("/oauth/token", data={"grant_type": "authorization_code", "code": "GEHEIMECODE", "code_verifier": "GEHEIMVERIFIER", "client_id": registered.get_json()["client_id"]})
+            await self.client.post(
+                "/oauth/token",
+                data={
+                    "grant_type": "authorization_code",
+                    "code": "GEHEIMECODE",
+                    "code_verifier": "GEHEIMVERIFIER",
+                    "client_id": registered.get_json()["client_id"],
+                },
+            )
         token_entry, register_entry = await self.entries()
         self.assertEqual((token_entry["kind"], token_entry["service"]), ("oauth", "mcp"))
         self.assertIn("authorization_code", token_entry["action"])
@@ -518,11 +592,13 @@ class ExportTest(AuditTestCase):
     async def asyncSetUp(self):
         # de setUp van AuditTestCase is al gelopen
         await self.send("GET", "https://api.ah.nl/a", body=json.dumps({"naam": "café"}))
-        await self.send("POST", "https://www.jumbo.com/api/graphql", status=500, body=b"=HYPERLINK(1)", json={"operationName": "=Boom", "token": "GEHEIM"})
+        await self.send(
+            "POST", "https://www.jumbo.com/api/graphql", status=500, body=b"=HYPERLINK(1)", json={"operationName": "=Boom", "token": "GEHEIM"}
+        )
 
     async def test_json_export_has_bodies_and_respects_filters(self):
         response = await self.client.get("/api/audit/export?format=json&status=error")
-        self.assertIn("attachment; filename=\"mealieshopper-audit-", response.headers["Content-Disposition"])
+        self.assertIn('attachment; filename="mealieshopper-audit-', response.headers["Content-Disposition"])
         self.assertTrue(response.headers["Content-Disposition"].endswith('.json"'))
         data = response.get_json()
         (entry,) = data["entries"]
@@ -533,7 +609,8 @@ class ExportTest(AuditTestCase):
         self.assertEqual([e["service"] for e in everything], ["ah", "jumbo", "audit"], "oudste eerst; de eerste export staat er al in")
 
     async def test_csv_export_is_readable_and_formula_safe(self):
-        import csv, io
+        import csv
+        import io
 
         response = await self.client.get("/api/audit/export?format=csv")
         self.assertEqual(response.mimetype, "text/csv")
@@ -689,7 +766,10 @@ async def test_record_respects_the_switch(audit_dir: Path, monkeypatch: pytest.M
 
 
 async def test_record_never_raises(audit_dir: Path) -> None:
-    with mock.patch.object(audit, "_connect", side_effect=sqlite3.OperationalError("disk I/O error")), mock.patch.object(audit.log, "warning") as warning:
+    with (
+        mock.patch.object(audit, "_connect", side_effect=sqlite3.OperationalError("disk I/O error")),
+        mock.patch.object(audit.log, "warning") as warning,
+    ):
         assert await audit.record(kind="outbound", service="ah", action="kapot") is None
     warning.assert_called_once()
 
@@ -728,7 +808,7 @@ def test_redact_text_hides_the_token_after_bearer(text: str) -> None:
 
 def test_a_lone_bearer_at_the_end_of_a_line_keeps_the_next_line() -> None:
     """Een kop zonder token aan het eind van een regel neemt de volgende regel niet mee als "token"."""
-    assert audit.redact_text("Authorization: Bearer\nstatus 401 van AH") .splitlines()[1] == "status 401 van AH"
+    assert audit.redact_text("Authorization: Bearer\nstatus 401 van AH").splitlines()[1] == "status 401 van AH"
 
 
 def test_redact_text_leaves_ordinary_words_alone() -> None:

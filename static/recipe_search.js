@@ -5,7 +5,9 @@
 // Elke kaart heeft Bekijken (het recept met ingrediënten en bereiding, in dit tabblad) en Inplannen (zie recipeCardActions in
 // app.js). Importeren zonder plannen en de link naar de winkel of Mealie staan in het detail. Hetzelfde detail gebruiken
 // Winkels (AH, Jumbo, Picnic) en Maaltijdboxen, elk met een eigen "gastheer" (zie hieronder).
-// Laadt na app.js en gebruikt daar de hulpfuncties ($, message, jsonFetch, postJson, setBusy, t, tn, ...).
+// Met een leeg zoekveld blader je door je recepten in Mealie, met filters op tags, categorieën en bereidingstijd (issue #322,
+// onderaan dit bestand).
+// Laadt na app.js en facets.js en gebruikt daar de hulpfuncties ($, message, jsonFetch, postJson, setBusy, t, tn, facetRows, ...).
 
 const SEARCH_STORES = ["mealie", "ah", "jumbo", "picnic", "crisp", "hellofresh", "marleyspoon"];
 const MEALKIT_SEARCH = new Set(["hellofresh", "marleyspoon"]); // zoeken in menu's; elke aanbieder heeft eigen routes onder /api/<aanbieder>/
@@ -13,6 +15,12 @@ const MEALKIT_SEARCH_WEEKS = 4; // deze week en de 3 weken erna
 const recipeSearch = {
   query: "",
   kcal: "", // de grenzen op de calorieën (kcalMin=..&kcalMax=..), of leeg; met grenzen zoekt alleen Mealie (issue #283)
+  filters: "", // tags, categorieën, tijd en volgorde (tags=..&maxMinutes=..&sort=..), of leeg (issue #322)
+  storeFilters: "", // menugang, dieet, vlees/vis/gevogelte en tijd voor de winkels (course=..&maxMinutes=..), of leeg (4.22.0)
+  skipped: new Set(), // de bronnen die een gekozen filter niet kennen en daarom niet meedoen
+  mealieOnly: false, // zonder zoekterm (bladeren), of met een filter dat alleen Mealie kent: dan zoeken de winkels niet mee
+  browsing: false, // zonder zoekterm: je recepten in Mealie, met doorlopend scrollen
+  loadingMore: false,
   retry: 0,
   mealie: { recipes: [], total: 0, page: 1, more: false },
   ah: { recipes: [], total: 0, page: 0, more: false },
@@ -73,17 +81,30 @@ function renderStoreRecipeCard(store, recipe) {
 function renderSearchStore(store) {
   const data = recipeSearch[store];
   const parts = searchParts(store);
-  parts.section.hidden = !searchStoreActive(store) || !recipeSearch.searched || Boolean(recipeSearch.kcal && store !== "mealie");
+  parts.section.hidden =
+    !searchStoreActive(store) || !recipeSearch.searched || (recipeSearch.mealieOnly && store !== "mealie") || recipeSearch.skipped.has(store);
+  if (store === "mealie") $("#search-mealie-title").textContent = recipeSearch.browsing ? t("rsearch.mealie_all") : "Mealie";
   parts.results.innerHTML = data.recipes.map((recipe) => (store === "ah" ? renderRecipeCard(recipe) : renderStoreRecipeCard(store, recipe))).join("");
-  if (store === "ah") {
+  if (data.total === null) {
+    // Met een filter dat de winkel zelf niet kent (een tijd bij AH of Jumbo) is het totaal niet bekend: wel hoeveel we bekeken.
+    parts.count.textContent = data.recipes.length ? t("rsearch.count_scanned", { shown: I18N.formatNumber(data.recipes.length), scanned: I18N.formatNumber(data.scanned) }) : "";
+  } else if (store === "ah") {
     parts.count.textContent = data.recipes.length ? tn("search.count", data.total, { limit: data.total > 2000 ? t("search.limit") : "" }) : "";
   } else {
     parts.count.textContent = data.recipes.length ? (data.more ? t("rsearch.count", { shown: I18N.formatNumber(data.recipes.length), total: I18N.formatNumber(data.total) }) : tn("search.count", data.total, { limit: "" })) : "";
   }
   if (parts.more) parts.more.hidden = !data.more; // Picnic, Crisp en de maaltijdboxen hebben maar één pagina
   if (recipeSearch.searched && !data.recipes.length && !parts.message.textContent) {
-    message(`#${parts.message.id}`, recipeSearch.kcal ? t("kcal.none") : t("rsearch.none", { query: recipeSearch.query }), "success");
+    message(`#${parts.message.id}`, searchNoneText(store), "success");
   }
+}
+
+// De melding bij een lege uitkomst: met filters, zonder zoekterm (een leeg Mealie) of bij een zoekterm.
+function searchNoneText(store) {
+  if (recipeSearch.kcal) return t("kcal.none");
+  if ((store === "mealie" && recipeSearch.filters && recipeFiltersNarrow()) || recipeSearch.storeFilters) return t("rsearch.none_filtered");
+  if (recipeSearch.browsing) return t("rsearch.none_mealie");
+  return t("rsearch.none", { query: recipeSearch.query });
 }
 
 // Een recept uit een weekmenu in de vorm van de andere winkelkaarten: de sleutel is het id, label, keuken en week zijn de etiketten.
@@ -103,6 +124,11 @@ async function fetchSearchStore(store, append) {
   const data = recipeSearch[store];
   const query = recipeSearch.query;
   const kcal = recipeSearch.kcal;
+  const filters = recipeSearch.filters;
+  const storeFilters = recipeSearch.storeFilters;
+  const extra = storeFilters ? `&${storeFilters}` : "";
+  // Intussen opnieuw gezocht: dan telt dit antwoord niet meer.
+  const stale = () => query !== recipeSearch.query || kcal !== recipeSearch.kcal || filters !== recipeSearch.filters || storeFilters !== recipeSearch.storeFilters;
   const q = encodeURIComponent(query);
   const parts = searchParts(store);
   message(`#${parts.message.id}`, "");
@@ -111,47 +137,59 @@ async function fetchSearchStore(store, append) {
     let found;
     if (store === "mealie") {
       const page = append ? data.page + 1 : 1;
-      const answer = await jsonFetch(`/api/mealie/recipes?q=${q}&page=${page}${kcal ? `&${kcal}` : ""}`);
+      const answer = await jsonFetch(`/api/mealie/recipes?q=${q}&page=${page}${kcal ? `&${kcal}` : ""}${filters ? `&${filters}` : ""}`);
       found = { recipes: answer.recipes || [], total: Number(answer.total) || 0, page, more: Boolean(answer.more) };
-      // Met een filter op calorieën: leest de server de recepten nog in, dan zoeken we over twee seconden opnieuw.
-      if (kcal) {
-        note = kcalSearchNote(answer);
+      // Met een filter op voedingswaarden, tags, categorieën, tijd of volgorde zoekt de server in zijn receptencache: leest hij de
+      // recepten nog in, dan zoeken we over twee seconden opnieuw.
+      if (kcal || filters) {
+        note = [kcalSearchNote(answer), answer.indexing || !answer.withoutTime ? "" : tn("rsearch.without_time", answer.withoutTime)].filter(Boolean).join(" ");
         clearTimeout(recipeSearch.retry);
         if (answer.indexing && !append) {
           recipeSearch.retry = setTimeout(() => {
-            if (recipeSearch.query === query && recipeSearch.kcal === kcal) fetchSearchStore("mealie", false);
+            if (!stale()) fetchSearchStore("mealie", false);
           }, 2000);
         }
       }
     } else if (store === "ah") {
       const page = append ? data.page + 1 : 0;
-      const answer = await jsonFetch(`/api/ah/search?q=${q}&page=${page}`);
-      found = { recipes: answer.recipes || [], total: Number(answer.total) || 0, page, more: Boolean(answer.hasNextPage ?? Number(answer.total) > (page + 1) * 12) };
+      const answer = await jsonFetch(`/api/ah/search?q=${q}&page=${page}${extra}`);
+      // Met een tijd boven 15 minuten bekijkt de server meer recepten per keer: `page` zegt waar hij bleef, `total` is dan null.
+      found = {
+        recipes: answer.recipes || [],
+        total: answer.total === null ? null : Number(answer.total) || 0,
+        scanned: answer.scanned,
+        page: answer.page ?? page,
+        more: Boolean(answer.hasNextPage ?? Number(answer.total) > (page + 1) * 12),
+      };
     } else if (store === "jumbo") {
-      const answer = await jsonFetch(`/api/jumbo/recipes?q=${q}&offset=${append ? data.recipes.length : 0}`);
-      found = { recipes: answer.recipes || [], total: answer.total ?? (answer.recipes || []).length, more: false };
+      const answer = await jsonFetch(`/api/jumbo/recipes?q=${q}&offset=${append ? data.nextOffset ?? data.recipes.length : 0}${extra}`);
+      found = { recipes: answer.recipes || [], total: answer.total === null ? null : answer.total ?? (answer.recipes || []).length, scanned: answer.scanned, nextOffset: answer.nextOffset, more: Boolean(answer.more) };
     } else if (MEALKIT_SEARCH.has(store)) {
-      const answer = await jsonFetch(`/api/${store}/search?q=${q}&load=${MEALKIT_SEARCH_WEEKS}`);
+      const answer = await jsonFetch(`/api/${store}/search?q=${q}&load=${MEALKIT_SEARCH_WEEKS}${extra}`);
       // Er komen er hooguit 60 terug: bij meer treffers staat er "60 van 101 recepten" (verfijn dan het zoekwoord); er is geen "Meer recepten".
       const recipes = (answer.recipes || []).map(mealKitSearchCard);
       found = { recipes, total: answer.total ?? recipes.length, more: Number(answer.total) > recipes.length };
     } else {
       // Picnic en Crisp: één pagina met de treffers.
-      const answer = await jsonFetch(`/api/${store}/recipes?q=${q}`);
+      const answer = await jsonFetch(`/api/${store}/recipes?q=${q}${extra}`);
       found = { recipes: answer.recipes || [], total: answer.total ?? (answer.recipes || []).length, more: false };
     }
-    if (query !== recipeSearch.query || kcal !== recipeSearch.kcal) return; // intussen is er opnieuw gezocht
+    if (stale()) return;
     if (note) message(`#${parts.message.id}`, note, "success");
     const known = new Set(append ? data.recipes.map((recipe) => String(recipe.id)) : []);
     const fresh = found.recipes.filter((recipe) => !known.has(String(recipe.id)));
     data.recipes = append ? [...data.recipes, ...fresh] : fresh;
     data.total = found.total;
+    data.scanned = found.scanned;
+    data.nextOffset = found.nextOffset;
     data.page = found.page ?? 0;
     // Bij Mealie en AH geldt "Meer recepten" alleen als de volgende pagina ook echt iets nieuws bracht.
     // Jumbo geeft per pagina 24 recepten; een pagina zonder nieuwe recepten of het totaal bereikt: geen "Meer recepten".
-    data.more = store === "jumbo" ? Boolean(fresh.length) && data.recipes.length < data.total : found.more && (!["ah", "mealie"].includes(store) || Boolean(fresh.length));
+    // Met een filter dat de server zelf toepast (total null) zegt de server of er meer is.
+    if (found.total === null) data.more = found.more;
+    else data.more = store === "jumbo" ? Boolean(fresh.length) && data.recipes.length < data.total : found.more && (!["ah", "mealie"].includes(store) || Boolean(fresh.length));
   } catch (error) {
-    if (query !== recipeSearch.query || kcal !== recipeSearch.kcal) return;
+    if (stale()) return;
     if (!append) data.recipes = [];
     data.more = false;
     message(`#${parts.message.id}`, error.message);
@@ -176,22 +214,41 @@ async function importFromSearch(url) {
 }
 
 async function runRecipeSearch(event) {
-  event.preventDefault();
+  event?.preventDefault();
   const query = $("#recipe-query").value.trim();
   if (recipeQueryIsUrl(query)) {
     await importFromSearch(query);
     return;
   }
-  // Met een grens op de calorieën mag de zoekterm leeg zijn; dan zoekt alleen Mealie (de winkels geven geen kcal in hun lijst).
+  // Zonder zoekterm blader je door je recepten in Mealie (issue #322). Met een grens op de voedingswaarden of een filter op
+  // tags, categorieën of tijd zoekt alleen Mealie: de winkels kennen die niet in hun zoekresultaten.
   const kcal = nutritionQuery("search");
-  if (!query && !kcal) return;
+  const filters = recipeFilterQuery();
+  const kinds = recipeFilterKinds();
+  const mealieOnly = !query || Boolean(kcal) || recipeFiltersNarrow();
+  if (!query && !kcal && !searchStoreActive("mealie")) {
+    recipeSearch.searched = false;
+    recipeSearch.browsing = false;
+    renderBrowseHint();
+    return;
+  }
   recipeSearch.query = query;
   recipeSearch.kcal = kcal;
+  recipeSearch.filters = filters;
+  recipeSearch.storeFilters = storeFilterQuery();
+  recipeSearch.mealieOnly = mealieOnly;
+  recipeSearch.browsing = !query;
   recipeSearch.searched = true;
   clearTimeout(recipeSearch.retry);
   message("#search-message", "");
-  const active = SEARCH_STORES.filter((store) => searchStoreActive(store) && (!kcal || store === "mealie"));
+  renderBrowseHint();
+  // Een bron die een gekozen filter (menugang, dieet, vlees/vis/gevogelte, tijd) niet kent, doet niet mee; dat staat erbij.
+  const candidates = SEARCH_STORES.filter((store) => searchStoreActive(store) && (!mealieOnly || store === "mealie"));
+  recipeSearch.skipped = new Set(candidates.filter((store) => !storeSupports(store, kinds)));
+  const active = candidates.filter((store) => !recipeSearch.skipped.has(store));
   if (kcal && !active.length) message("#search-message", t("kcal.needs_mealie"));
+  else if (query && active.length && recipeFiltersNarrow()) message("#search-message", t("rsearch.filters_mealie_only"), "info");
+  else if (recipeSearch.skipped.size) message("#search-message", t("rsearch.filters_skipped", { stores: storeNames([...recipeSearch.skipped]) }), "info");
   SEARCH_STORES.forEach((store) => {
     Object.assign(recipeSearch[store], { recipes: [], total: 0, page: store === "mealie" ? 1 : 0, more: false });
     const parts = searchParts(store);
@@ -225,8 +282,27 @@ async function importStoreRecipe(store, id, button, target) {
 // Het detailscherm hoort bij een "gastheer": de lijst waar het recept vandaan kwam en het blok dat het detail toont.
 // De elementen heten `#<voorvoegsel>-title`, `-body`, `-message`, `-import` en `-import-result`. `known` geeft de recepten
 // van de lijst, zodat de titel er al staat terwijl het recept laadt.
-const SEARCH_HOST = { prefix: "search-detail", list: "#search-main", detail: "#search-detail", known: (store) => recipeSearch[store].recipes };
-const FAVORITES_HOST = { prefix: "jumbo-recipe", list: "#jumbo-favorites-view", detail: "#jumbo-recipe-view", known: () => jumboFavorites.recipes };
+// Bladeren (recipe_nav.js) volgt de volgorde van de kaarten in `list`. Staat er na het laatste recept nog een pagina, dan laadt `loadMore`
+// die (`more` zegt of het kan, `total` het aantal van de hele lijst voor "3 van 187"). Bij Recepten zoeken kan dat zonder zoekterm
+// of met een filter dat alleen Mealie kent, want dan staat er alleen Mealie op het scherm en komt de volgende pagina onderaan.
+const SEARCH_HOST = {
+  prefix: "search-detail",
+  list: "#search-main",
+  detail: "#search-detail",
+  known: (store) => recipeSearch[store].recipes,
+  more: () => recipeSearch.mealieOnly && recipeSearch.mealie.more,
+  loadMore: loadMoreMealieForNav,
+  total: () => (recipeSearch.mealieOnly ? recipeSearch.mealie.total : 0),
+};
+const FAVORITES_HOST = {
+  prefix: "jumbo-recipe",
+  list: "#jumbo-favorites-view",
+  detail: "#jumbo-recipe-view",
+  known: () => jumboFavorites.recipes,
+  more: () => jumboFavorites.hasNext,
+  loadMore: () => loadJumboFavorites(true),
+  total: () => jumboFavorites.total,
+};
 const PICNIC_HOST = { prefix: "picnic-recipe", list: "#picnic-recipes-view", detail: "#picnic-recipe-view", known: () => picnicRecipes.recipes };
 const CRISP_HOST = { prefix: "crisp-recipe", list: "#crisp-recipes-view", detail: "#crisp-recipe-view", known: () => crispRecipes.recipes };
 const AH_SAVED_HOST = { prefix: "ah-recipe", list: "#ah-recipes-view", detail: "#ah-recipe-view", known: () => state.ahRecipes };
@@ -238,25 +314,34 @@ const RECIPE_SOURCE_NAMES = { ah: "Albert Heijn", jumbo: "Jumbo", picnic: "Picni
 function showRecipeList(host) {
   $(host.detail).hidden = true;
   $(host.list).hidden = false;
+  recipeNavEnd(host); // geen recept meer open: er wordt niet meer in bladerd (recipe_nav.js)
   cookWakeUpdate(); // het recept is uit beeld: "Scherm aan laten" hoeft niet meer (recipe_view.js)
 }
 
-async function openStoreRecipe(store, id, host = SEARCH_HOST) {
+// Een recept uit de lijst van `host`. Vanuit de lijst begint de reeks om doorheen te bladeren (recipe_nav.js); met `move` is dit een
+// stap naar het vorige of volgende recept, binnen dezelfde reeks. Bij een snelle reeks stappen telt alleen het laatste antwoord.
+async function openStoreRecipe(store, id, host = SEARCH_HOST, { move = false } = {}) {
+  const token = (host.seq = (host.seq || 0) + 1);
+  if (!move) recipeNavBegin(host, store, id);
   $(host.list).hidden = true;
   $(host.detail).hidden = false;
   const known = host.known(store).find((recipe) => String(recipe.id ?? recipe.key) === String(id));
   $(`#${host.prefix}-title`).textContent = known?.name || known?.title || "";
   $(`#${host.prefix}-body`).innerHTML = loadingHtml();
   message(`#${host.prefix}-message`, "");
-  $(`#${host.prefix}-title`).focus();
+  if (!move) $(`#${host.prefix}-title`).focus(); // bij een stap blijft de focus op de chevron
   try {
-    renderStoreRecipeDetail(store, await jsonFetch(`/api/${store}/recipes/${encodeURIComponent(id)}`), host);
+    const recipe = await jsonFetch(`/api/${store}/recipes/${encodeURIComponent(id)}`);
+    if (token !== host.seq) return;
+    renderStoreRecipeDetail(store, recipe, host);
   } catch (error) {
+    if (token !== host.seq) return;
     $(`#${host.prefix}-body`).innerHTML = "";
     message(`#${host.prefix}-message`, error.message);
   } finally {
     cookWakeUpdate();
   }
+  if (move) recipeNavArrived($(host.detail));
 }
 
 function renderStoreRecipeDetail(store, recipe, host) {
@@ -304,11 +389,7 @@ $("#search-detail-back").addEventListener("click", () => showRecipeList(SEARCH_H
 $("#ah-recipe-back").addEventListener("click", () => showRecipeList(AH_SAVED_HOST));
 $("#picnic-recipe-back").addEventListener("click", () => showRecipeList(PICNIC_HOST));
 $("#mealkit-recipe-back").addEventListener("click", () => showRecipeList(MEALKIT_HOST));
-$("#search-mealie-more").addEventListener("click", async (event) => {
-  setBusy(event.currentTarget, true);
-  await fetchSearchStore("mealie", true);
-  setBusy(event.currentTarget, false);
-});
+$("#search-mealie-more").addEventListener("click", (event) => loadMoreMealie(event.currentTarget));
 $("#search-ah-more").addEventListener("click", async (event) => {
   setBusy(event.currentTarget, true);
   await fetchSearchStore("ah", true);
@@ -326,4 +407,230 @@ $("#search-sections").addEventListener("click", (event) => {
 
 window.addEventListener("ms:languagechange", () => {
   if (recipeSearch.searched) SEARCH_STORES.forEach(renderSearchStore);
+  renderRecipeFacets();
+});
+
+// ---- Bladeren en filteren in je recepten in Mealie (issue #322) ------------------------------------------------------------
+// Met een leeg zoekveld staan je recepten in Mealie er meteen, en laadt de volgende pagina vanzelf als je naar onderen scrolt.
+// De filters: tags en categorieën met plus (moet erbij: alle gekozen) en min (verbergen), met het aantal recepten (de lijsten van
+// facets.js), de bereidingstijd en de volgorde. De tijden, tags en categorieën komen uit de receptencache van de server
+// (recipe_nutrition.py), die de dagelijkse run bijwerkt.
+
+const RECIPE_FACETS = ["tags", "categories"];
+const RECIPE_FACETS_EMPTY = { tags: "rsearch.no_tags", categories: "rsearch.no_categories" };
+const RECIPE_FACETS_TTL = 10 * 60 * 1000; // zo lang gelden de lijsten; daarna haalt het openen van het scherm ze opnieuw op
+const recipeFacets = { tags: facetSelection(), categories: facetSelection(), data: null, loadedAt: 0, loading: false, retry: 0 };
+
+// Welke filters elke bron kan toepassen (zoals recipe_diet.SUPPORT op de server). Tags en categorieën kent alleen Mealie.
+const RECIPE_FILTER_SUPPORT = {
+  mealie: ["tags", "course", "diet", "protein", "time"],
+  ah: ["course", "diet", "protein", "time"],
+  jumbo: ["course", "time"],
+  picnic: ["course", "diet", "time"],
+  crisp: ["course", "time"],
+  hellofresh: ["course", "diet", "time"],
+  marleyspoon: ["course", "diet", "time"],
+};
+const RECIPE_FILTER_SELECTS = [["course", "#search-course"], ["diet", "#search-diet"], ["protein", "#search-protein"]];
+
+// De soorten filters die nu gekozen zijn: tags (ook categorieën), course, diet, protein en time.
+function recipeFilterKinds() {
+  const kinds = new Set();
+  if (RECIPE_FACETS.some((name) => facetActive(recipeFacets[name]))) kinds.add("tags");
+  RECIPE_FILTER_SELECTS.forEach(([kind, selector]) => {
+    if ($(selector).value) kinds.add(kind);
+  });
+  if ($("#search-max-minutes").value) kinds.add("time");
+  return kinds;
+}
+
+function storeSupports(store, kinds) {
+  const known = RECIPE_FILTER_SUPPORT[store] || [];
+  return [...kinds].every((kind) => known.includes(kind));
+}
+
+// "Jumbo en Crisp": de namen van de bronnen voor een melding.
+function storeNames(stores) {
+  const names = stores.map((store) => (store === "mealie" ? "Mealie" : RECIPE_SOURCE_NAMES[store] || store));
+  return names.length > 1 ? `${names.slice(0, -1).join(", ")} ${t("rsearch.and")} ${names[names.length - 1]}` : names.join("");
+}
+
+// De filters voor de winkels en maaltijdboxen: `course=..&diet=..&protein=..&maxMinutes=..`, of "" zonder filter.
+function storeFilterQuery() {
+  const params = [];
+  RECIPE_FILTER_SELECTS.forEach(([kind, selector]) => {
+    const value = $(selector).value;
+    if (value) params.push(`${kind}=${encodeURIComponent(value)}`);
+  });
+  const minutes = $("#search-max-minutes").value;
+  if (minutes) params.push(`maxMinutes=${encodeURIComponent(minutes)}`);
+  return params.join("&");
+}
+
+// De filters voor de zoekroute: `tags=a,b&tagsOut=c&categories=..&maxMinutes=30&sort=newest`, of "" zonder filter.
+function recipeFilterQuery() {
+  const params = [];
+  const list = (values) => values.map(encodeURIComponent).join(",");
+  for (const name of RECIPE_FACETS) {
+    const selection = recipeFacets[name];
+    if (selection.shown.length) params.push(`${name}=${list(selection.shown)}`);
+    if (selection.hidden.length) params.push(`${name}Out=${list(selection.hidden)}`);
+  }
+  const minutes = $("#search-max-minutes").value;
+  if (minutes) params.push(`maxMinutes=${encodeURIComponent(minutes)}`);
+  const sort = $("#search-sort").value;
+  if (sort) params.push(`sort=${encodeURIComponent(sort)}`);
+  RECIPE_FILTER_SELECTS.forEach(([kind, selector]) => {
+    const value = $(selector).value;
+    if (value) params.push(`${kind}=${encodeURIComponent(value)}`);
+  });
+  return params.join("&");
+}
+
+// Een filter dat alleen Mealie kent (tags, categorieën): dan zoeken de winkels niet mee. Menugang, dieet en tijd gaan sinds
+// 4.22.0 per bron (zie RECIPE_FILTER_SUPPORT), een volgorde laat iedereen meedoen.
+function recipeFiltersNarrow() {
+  return RECIPE_FACETS.some((name) => facetActive(recipeFacets[name]));
+}
+
+function recipeFilterCount() {
+  const selects = RECIPE_FILTER_SELECTS.filter(([, selector]) => $(selector).value).length;
+  return RECIPE_FACETS.reduce((sum, name) => sum + facetActive(recipeFacets[name]), 0) + selects + ($("#search-max-minutes").value ? 1 : 0);
+}
+
+// Zonder zoekterm de uitleg dat zoeken ook bij de winkels zoekt; met een zoekterm de gewone uitleg.
+function renderBrowseHint() {
+  const browsing = recipeSearch.browsing && recipeSearch.searched;
+  $("#search-intro").hidden = browsing;
+  $("#search-browse-hint").hidden = !browsing;
+}
+
+function renderRecipeFacets(click) {
+  const panel = $("#search-facets");
+  panel.hidden = !searchStoreActive("mealie");
+  const data = recipeFacets.data;
+  for (const name of RECIPE_FACETS) {
+    const list = $(`#search-${name}`);
+    const items = data?.[name] || [];
+    const labels = new Map(items.map((item) => [item.value, item.label]));
+    const rows = facetRows(items, recipeFacets[name], { label: (value) => labels.get(value) || value, search: $(`#search-${name}-search`).value });
+    list.innerHTML = facetListHtml(name, rows, {
+      empty: data ? RECIPE_FACETS_EMPTY[name] : "rsearch.facets_loading",
+      include: "rsearch.filter_include",
+      exclude: "rsearch.filter_exclude",
+    });
+    if (click && click.name === name) facetRefocus(list, click);
+  }
+  facetPanelCount(panel, recipeFilterCount());
+}
+
+async function loadRecipeFacets() {
+  if (!searchStoreActive("mealie") || recipeFacets.loading) return;
+  recipeFacets.loading = true;
+  clearTimeout(recipeFacets.retry);
+  message("#search-facets-message", "");
+  try {
+    const answer = await jsonFetch("/api/mealie/recipes/facets");
+    recipeFacets.data = answer;
+    recipeFacets.loadedAt = Date.now();
+    // Leest de server de recepten nog in, dan over een paar seconden opnieuw: de lijsten vullen zich aan.
+    if (answer.indexing) recipeFacets.retry = setTimeout(loadRecipeFacets, 3000);
+  } catch (error) {
+    message("#search-facets-message", error.message);
+  } finally {
+    recipeFacets.loading = false;
+  }
+  renderRecipeFacets();
+}
+
+// Na een andere keuze opnieuw zoeken, met wat er in het zoekveld staat (een link importeert alleen de knop Zoeken).
+function rerunRecipeSearch() {
+  if (recipeQueryIsUrl($("#recipe-query").value.trim())) return;
+  runRecipeSearch();
+}
+
+function recipeFacetClick(event) {
+  const click = facetClick(event);
+  if (!click || !RECIPE_FACETS.includes(click.name)) return;
+  recipeFacets[click.name] = facetToggled(recipeFacets[click.name], click.value, click.mode);
+  renderRecipeFacets(click);
+  rerunRecipeSearch();
+}
+
+// Het scherm Recepten zoeken gaat open (app.js): de lijsten met tags en categorieën, en met een leeg zoekveld meteen je recepten.
+function showRecipeSearch() {
+  renderRecipeFacets();
+  if (!searchStoreActive("mealie")) return;
+  if (!recipeFacets.data || Date.now() - recipeFacets.loadedAt > RECIPE_FACETS_TTL) loadRecipeFacets();
+  if (!recipeSearch.searched && !$("#recipe-query").value.trim()) runRecipeSearch();
+}
+
+// Mealie is (ont)koppeld of de status kwam binnen (app.js): staat Recepten zoeken open, dan meteen bijwerken.
+function recipeSearchMealieChanged() {
+  if ($("#search")?.classList.contains("is-active")) showRecipeSearch();
+  else renderRecipeFacets();
+}
+
+// Doorlopend scrollen: komt de knop Meer recepten in beeld, dan laadt de volgende pagina vanzelf. Staat de knop daarna nog in
+// beeld (een korte pagina), dan meteen de volgende; de knop zelf blijft werken zonder IntersectionObserver.
+async function loadMoreMealie(button) {
+  if (recipeSearch.loadingMore || button.hidden) return;
+  recipeSearch.loadingMore = true;
+  setBusy(button, true);
+  try {
+    await fetchSearchStore("mealie", true);
+  } finally {
+    setBusy(button, false);
+    recipeSearch.loadingMore = false;
+  }
+  // Een recept dat intussen open ging verbergt de lijst; een verborgen knop meet 0 en zou anders pagina na pagina laden.
+  if (recipeSearch.browsing && !button.hidden && button.getClientRects().length && button.getBoundingClientRect().top < window.innerHeight + 400) loadMoreMealie(button);
+}
+
+// Bladeren in een recept (recipe_nav.js) was bij het laatste recept van wat er geladen is: de volgende pagina erbij. De knop Meer
+// recepten en het doorlopend scrollen laden niet tegelijk (loadingMore); dan is die pagina er zo, en bladert het door.
+async function loadMoreMealieForNav() {
+  if (recipeSearch.loadingMore) return;
+  recipeSearch.loadingMore = true;
+  try {
+    await fetchSearchStore("mealie", true);
+  } finally {
+    recipeSearch.loadingMore = false;
+  }
+}
+
+if (typeof IntersectionObserver === "function") {
+  new IntersectionObserver(
+    (entries) => {
+      if (recipeSearch.browsing && entries.some((entry) => entry.isIntersecting)) loadMoreMealie($("#search-mealie-more"));
+    },
+    { rootMargin: "0px 0px 400px 0px" },
+  ).observe($("#search-mealie-more"));
+}
+
+RECIPE_FACETS.forEach((name) => {
+  $(`#search-${name}`).addEventListener("click", recipeFacetClick);
+  $(`#search-${name}-search`).addEventListener("input", () => renderRecipeFacets());
+});
+["#search-max-minutes", ...RECIPE_FILTER_SELECTS.map(([, selector]) => selector)].forEach((selector) => {
+  $(selector).addEventListener("change", () => {
+    renderRecipeFacets();
+    rerunRecipeSearch();
+  });
+});
+$("#search-sort").addEventListener("change", rerunRecipeSearch);
+$("#search-facets [data-facet-clear]").addEventListener("click", () => {
+  RECIPE_FACETS.forEach((name) => {
+    recipeFacets[name] = facetSelection();
+  });
+  $("#search-max-minutes").value = "";
+  RECIPE_FILTER_SELECTS.forEach(([, selector]) => {
+    $(selector).value = "";
+  });
+  renderRecipeFacets();
+  rerunRecipeSearch();
+});
+// Het zoekveld leeggemaakt (ook met het kruisje): terug naar je recepten in Mealie.
+$("#recipe-query").addEventListener("input", (event) => {
+  if (!event.currentTarget.value.trim() && recipeSearch.searched && recipeSearch.query) runRecipeSearch();
 });

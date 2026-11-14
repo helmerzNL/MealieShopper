@@ -8,8 +8,9 @@ import httpx
 
 os.environ.setdefault("MEALIESHOPPER_DATA_DIR", tempfile.mkdtemp())
 
-from mealieshopper import ah, mealie, picnic_recipes  # noqa: E402
 from helpers import routes, run, sent_json, served  # noqa: E402
+
+from mealieshopper import ah, mealie, picnic_recipes  # noqa: E402
 
 CREATE_HTML = "http://mealie/api/recipes/create/html-or-json"
 CREATE_URL = "http://mealie/api/recipes/create/url"
@@ -54,8 +55,7 @@ class AllerhandeRecipeIdTest(unittest.TestCase):
 
 class RecipeJsonLdTest(unittest.TestCase):
     def build(self, responses):
-        with mock.patch.object(ah, "get_token", return_value="anon"), \
-                served(side_effect=responses) as post:
+        with mock.patch.object(ah, "get_token", return_value="anon"), served(side_effect=responses) as post:
             return run(ah.get_recipe_jsonld(1234)), post
 
     def test_schema_org_recipe(self):
@@ -77,22 +77,42 @@ class RecipeJsonLdTest(unittest.TestCase):
 
     def test_nutrition_per_person_goes_along_as_schema_org(self):
         n = lambda value, unit: {"value": value, "unit": unit}  # noqa: E731
-        recipe = dict(RECIPE, nutritions={
-            "energy": n(490, "kcal"), "protein": n(27, "g"), "fat": n(23, "g"), "saturatedFat": n(8, "g"),
-            "carbohydrates": n(41, "g"), "sugar": n(6, "g"), "fibers": None, "sodium": n(200, "mg"),
-        })
+        recipe = dict(
+            RECIPE,
+            nutritions={
+                "energy": n(490, "kcal"),
+                "protein": n(27, "g"),
+                "fat": n(23, "g"),
+                "saturatedFat": n(8, "g"),
+                "carbohydrates": n(41, "g"),
+                "sugar": n(6, "g"),
+                "fibers": None,
+                "sodium": n(200, "mg"),
+            },
+        )
         ld, post = self.build([graphql_ok(recipe)])
         self.assertIn("nutritions {", sent_json(post.calls.last)["query"])
-        self.assertEqual(ld["nutrition"], {
-            "@type": "NutritionInformation", "calories": "490 kcal", "proteinContent": "27 g", "fatContent": "23 g",
-            "saturatedFatContent": "8 g", "carbohydrateContent": "41 g", "sugarContent": "6 g", "sodiumContent": "200 mg",
-        })
+        self.assertEqual(
+            ld["nutrition"],
+            {
+                "@type": "NutritionInformation",
+                "calories": "490 kcal",
+                "proteinContent": "27 g",
+                "fatContent": "23 g",
+                "saturatedFatContent": "8 g",
+                "carbohydrateContent": "41 g",
+                "sugarContent": "6 g",
+                "sodiumContent": "200 mg",
+            },
+        )
 
     def test_against_the_shape_of_ah_the_first_question_brings_the_nutrition(self):
         # Zo antwoordt AH (9 november 2026): `preparation.steps` is een lijst van teksten, dus `steps { text }` is een fout.
         # In 4.4.0 stonden de voedingswaarden alleen in een variant met `{ text }` en kwamen ze nooit mee (#283).
         n = lambda value, unit: {"value": value, "unit": unit}  # noqa: E731
-        recipe = dict(RECIPE, preparation={"steps": ["Kook de aardappelen.", "Stamp alles."]}, nutritions={"energy": n(490, "kcal"), "sodium": n(200, "mg")})
+        recipe = dict(
+            RECIPE, preparation={"steps": ["Kook de aardappelen.", "Stamp alles."]}, nutritions={"energy": n(490, "kcal"), "sodium": n(200, "mg")}
+        )
 
         def like_ah(request):
             query = json.loads(request.content)["query"]
@@ -114,15 +134,21 @@ class RecipeJsonLdTest(unittest.TestCase):
 
         def old_shape(request):
             query = json.loads(request.content)["query"]
-            return graphql_ok(recipe) if "steps { text }" in query else graphql_error('Field "steps" of type "[Step]" must have a selection of subfields.')
+            return (
+                graphql_ok(recipe)
+                if "steps { text }" in query
+                else graphql_error('Field "steps" of type "[Step]" must have a selection of subfields.')
+            )
 
         ld, post = self.build(old_shape)
         self.assertEqual(post.call_count, 2)
         self.assertEqual(ld["nutrition"]["calories"], "490 kcal")
 
     def test_nutrition_in_other_units_is_converted_and_an_empty_block_is_left_out(self):
-        self.assertEqual(ah.recipe_nutrition({"energy": {"value": 2092, "unit": "kJ"}, "sodium": {"value": 0.2, "unit": "g"}}),
-                         {"calories": 2092 / 4.184, "sodiumContent": 200.0})
+        self.assertEqual(
+            ah.recipe_nutrition({"energy": {"value": 2092, "unit": "kJ"}, "sodium": {"value": 0.2, "unit": "g"}}),
+            {"calories": 2092 / 4.184, "sodiumContent": 200.0},
+        )
         self.assertEqual(ah.recipe_nutrition({"energy": {"value": 0, "unit": "kcal"}, "fat": {"value": None, "unit": "g"}}), {})
         self.assertEqual(ah.recipe_nutrition(None), {})
         ld, _ = self.build([graphql_ok(dict(RECIPE, nutritions=None))])
@@ -215,10 +241,12 @@ class ImportFromUrlTest(unittest.TestCase):
     def test_a_cookie_from_a_redirect_goes_along_to_the_page(self):
         # Een cookiemuur: eerst een 302 met een cookie, en pas met die cookie komt de pagina zelf.
         with routes() as api:
-            page = api.get("https://www.example.com/soep").mock(side_effect=[
-                httpx.Response(302, headers={"Location": "https://www.example.com/soep", "Set-Cookie": "consent=yes; Path=/"}),
-                httpx.Response(200, text="<html>recept</html>"),
-            ])
+            page = api.get("https://www.example.com/soep").mock(
+                side_effect=[
+                    httpx.Response(302, headers={"Location": "https://www.example.com/soep", "Set-Cookie": "consent=yes; Path=/"}),
+                    httpx.Response(200, text="<html>recept</html>"),
+                ]
+            )
             post = api.post(CREATE_HTML).mock(return_value=self.response(body="soep"))
             self.assertEqual(run(mealie.import_via_html("https://www.example.com/soep")), "soep")
         self.assertNotIn("Cookie", page.calls[0].request.headers)
@@ -251,8 +279,13 @@ class JsonLdSourceTest(unittest.TestCase):
     het een eigen scraper die de JSON-LD negeert: in Mealie stonden dan alleen de titel en de foto. Zo'n recept gaat onder een
     neutrale link naar Mealie, en daarna krijgt het zijn echte bron terug."""
 
-    LD = {"@context": "https://schema.org", "@type": "Recipe", "name": "Pasta pesto", "recipeIngredient": ["200 g pasta"],
-          "recipeInstructions": [{"@type": "HowToStep", "text": "Kook de pasta."}]}
+    LD = {
+        "@context": "https://schema.org",
+        "@type": "Recipe",
+        "name": "Pasta pesto",
+        "recipeIngredient": ["200 g pasta"],
+        "recipeInstructions": [{"@type": "HowToStep", "text": "Kook de pasta."}],
+    }
 
     def setUp(self):
         patcher = mock.patch.dict(os.environ, {"MEALIE_URL": "http://mealie", "MEALIE_API_TOKEN": "t"})
@@ -299,8 +332,7 @@ class JsonLdSourceTest(unittest.TestCase):
         self.assertFalse(patch.called)
 
     def test_a_failed_source_update_keeps_the_imported_recipe(self):
-        for failure in ({"return_value": self.response(status=403, body="Forbidden")},
-                        {"side_effect": httpx.ConnectError("weg")}):
+        for failure in ({"return_value": self.response(status=403, body="Forbidden")}, {"side_effect": httpx.ConnectError("weg")}):
             with self.subTest(failure=failure), routes() as api, self.assertLogs(mealie.log, "WARNING") as logs:
                 api.post(CREATE_HTML).mock(return_value=self.response())
                 api.patch("http://mealie/api/recipes/pasta-pesto").mock(**failure)

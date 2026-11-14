@@ -105,7 +105,8 @@ class AddonFilesTest(unittest.TestCase):
         found = [
             p.relative_to(ROOT).as_posix()
             for p in ROOT.rglob("config.*")
-            if p.name in {"config.yaml", "config.yml", "config.json"} and ".git" not in p.relative_to(ROOT).parts
+            if p.name in {"config.yaml", "config.yml", "config.json"}
+            and ".git" not in p.relative_to(ROOT).parts
             and not any(part.startswith(".") for part in p.relative_to(ROOT).parts)
         ]
         self.assertEqual(sorted(found), ["homeassistant/mealieshopper-beta/config.yaml", "homeassistant/mealieshopper/config.yaml"])
@@ -169,8 +170,7 @@ class EntrypointTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             options = Path(tmp) / "options.json"
             options.write_text(json.dumps({"mealie_url": "http://mealie:9000"}), encoding="utf-8")
-            with mock.patch.dict(os.environ, {"MEALIESHOPPER_OPTIONS_FILE": str(options)}), \
-                    mock.patch.object(entrypoint.os, "execvp") as execvp:
+            with mock.patch.dict(os.environ, {"MEALIESHOPPER_OPTIONS_FILE": str(options)}), mock.patch.object(entrypoint.os, "execvp") as execvp:
                 entrypoint.main(["docker-entrypoint.py", "hypercorn", "run:app"])
                 self.assertEqual(os.environ["MEALIE_URL"], "http://mealie:9000")
             os.environ.pop("MEALIE_URL", None)
@@ -179,10 +179,15 @@ class EntrypointTest(unittest.TestCase):
     def test_without_options_the_command_starts_unchanged(self):
         with tempfile.TemporaryDirectory() as tmp:
             before = dict(os.environ)
-            with mock.patch.dict(os.environ, {"MEALIESHOPPER_OPTIONS_FILE": str(Path(tmp) / "none.json")}), \
-                    mock.patch.object(entrypoint.os, "execvp") as execvp:
+            with (
+                mock.patch.dict(os.environ, {"MEALIESHOPPER_OPTIONS_FILE": str(Path(tmp) / "none.json")}),
+                mock.patch.object(entrypoint.os, "execvp") as execvp,
+            ):
                 entrypoint.main(["docker-entrypoint.py", "hypercorn"])
-                self.assertEqual({k: v for k, v in os.environ.items() if k != "MEALIESHOPPER_OPTIONS_FILE"}, {k: v for k, v in before.items() if k != "MEALIESHOPPER_OPTIONS_FILE"})
+                self.assertEqual(
+                    {k: v for k, v in os.environ.items() if k != "MEALIESHOPPER_OPTIONS_FILE"},
+                    {k: v for k, v in before.items() if k != "MEALIESHOPPER_OPTIONS_FILE"},
+                )
         execvp.assert_called_once_with("hypercorn", ["hypercorn"])
 
     def test_no_command_is_an_error(self):

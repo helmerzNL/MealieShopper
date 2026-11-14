@@ -22,8 +22,8 @@ import asyncio
 import base64
 import hashlib
 import io
-import os
 import logging
+import os
 import random
 import re
 import time
@@ -89,9 +89,15 @@ PREFETCH_AFTER_SYNC_SECONDS = 120
 
 # Waar de interface foto's van winkels laat zien: (tabel, kolom). Een tabel die er (nog) niet is slaan we over.
 KNOWN_IMAGE_COLUMNS = (
-    ("ah_order_items", "image"), ("ah_basket_items", "image"), ("ah_receipt_products", "image"),
-    ("offers", "image"), ("offer_history", "image"), ("offer_recipes", "image"),
-    ("jumbo_order_items", "image"), ("picnic_order_items", "image"), ("crisp_order_items", "image"),
+    ("ah_order_items", "image"),
+    ("ah_basket_items", "image"),
+    ("ah_receipt_products", "image"),
+    ("offers", "image"),
+    ("offer_history", "image"),
+    ("offer_recipes", "image"),
+    ("jumbo_order_items", "image"),
+    ("picnic_order_items", "image"),
+    ("crisp_order_items", "image"),
     ("product_links", "image"),  # de foto van een product dat je zelf aan een bonregel koppelde (#238)
 )
 
@@ -318,9 +324,10 @@ async def _rows() -> list[dict[str, Any]]:
 
 async def stats(now: str | None = None) -> dict[str, Any]:
     """Hoeveel foto's er in de cache staan en hoeveel bytes dat is, en welke winkels nu in pauze staan (`pauses`)."""
-    async with _connect() as conn, conn.execute(
-        "SELECT COUNT(*) AS n, COALESCE(SUM(bytes), 0) AS b FROM image_cache WHERE path IS NOT NULL"
-    ) as cursor:
+    async with (
+        _connect() as conn,
+        conn.execute("SELECT COUNT(*) AS n, COALESCE(SUM(bytes), 0) AS b FROM image_cache WHERE path IS NOT NULL") as cursor,
+    ):
         row: aiosqlite.Row | None = await cursor.fetchone()
     assert row is not None  # een COUNT geeft altijd een rij
     return {"count": int(row["n"]), "bytes": int(row["b"]), "paused": await pauses(now)}
@@ -392,13 +399,14 @@ async def pauses(now: str | None = None) -> list[dict[str, str]]:
     onder Instellingen > Systeem, zodat je ziet waarom er van een winkel even geen nieuwe foto's komen."""
     now = now or _now()
     await auth.ensure_db()
-    async with auth.connect() as conn, conn.execute(
-        "SELECT key, value FROM app_settings WHERE key LIKE ? AND value > ? ORDER BY value", (SETTING_PAUSED + "%", now)
-    ) as cursor:
+    async with (
+        auth.connect() as conn,
+        conn.execute("SELECT key, value FROM app_settings WHERE key LIKE ? AND value > ? ORDER BY value", (SETTING_PAUSED + "%", now)) as cursor,
+    ):
         rows: list[aiosqlite.Row] = list(await cursor.fetchall())
     found: list[dict[str, str]] = []
     for row in rows:
-        host = str(row["key"])[len(SETTING_PAUSED):]
+        host = str(row["key"])[len(SETTING_PAUSED) :]
         store = _store_of_host(host)
         if store:
             found.append({"host": host, "store": store, "until": str(row["value"])})
@@ -425,9 +433,7 @@ async def lift_stale_pauses() -> list[str]:
 
 
 async def _pause(host: str, now: str) -> str:
-    until: str = (datetime.fromisoformat(now) + timedelta(hours=PAUSE_HOURS)).isoformat(
-        timespec="seconds"
-    )
+    until: str = (datetime.fromisoformat(now) + timedelta(hours=PAUSE_HOURS)).isoformat(timespec="seconds")
     await auth.set_setting(SETTING_PAUSED + host, until)
     return until
 
@@ -468,11 +474,7 @@ class _Refused(httpx.HTTPStatusError):
 def _measure(data: bytes) -> tuple[int, int]:
     try:
         with Image.open(io.BytesIO(data)) as image:
-            if (
-                image.width <= 0
-                or image.height <= 0
-                or image.width * image.height > MAX_PIXELS
-            ):
+            if image.width <= 0 or image.height <= 0 or image.width * image.height > MAX_PIXELS:
                 raise ValueError("afbeelding is te groot")
             return image.width, image.height
     except (UnidentifiedImageError, OSError, Image.DecompressionBombError) as exc:
@@ -658,7 +660,8 @@ async def collect_known(now: str | None = None) -> int:
                 if not safe_url(url):
                     continue
                 cursor = await conn.execute(
-                    "INSERT INTO image_cache (url, host, seen_at) VALUES (?, ?, ?) ON CONFLICT(url) DO NOTHING", (url, urlsplit(url).hostname or "", now)
+                    "INSERT INTO image_cache (url, host, seen_at) VALUES (?, ?, ?) ON CONFLICT(url) DO NOTHING",
+                    (url, urlsplit(url).hostname or "", now),
                 )
                 added += cursor.rowcount
         await conn.commit()
@@ -676,9 +679,7 @@ async def prefetch(*, limit: int = PREFETCH_LIMIT, deadline_seconds: float = PRE
         return {**result, "running": True}
     async with lock:  # een vrij slot pakken heeft geen wachtmoment: niemand komt tussen de controle en het pakken
         await collect_known(now)
-        async with _connect() as conn, conn.execute(
-            "SELECT * FROM image_cache WHERE path IS NULL ORDER BY seen_at DESC, id DESC"
-        ) as cursor:
+        async with _connect() as conn, conn.execute("SELECT * FROM image_cache WHERE path IS NULL ORDER BY seen_at DESC, id DESC") as cursor:
             rows: list[dict[str, Any]] = [dict(row) for row in await cursor.fetchall()]
         paused_hosts: set[str] = set()
         deadline: float = _monotonic() + deadline_seconds

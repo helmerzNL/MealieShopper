@@ -7,6 +7,7 @@ Gebruik:
     python scripts/release_notes.py v1.2.0                  de sectie van v1.2.0
     python scripts/release_notes.py v1.2.0 --since v1.0.0   alle versies na v1.0.0 tot en met v1.2.0
 """
+
 from __future__ import annotations
 
 import re
@@ -51,10 +52,7 @@ def notes_since(version: str, previous: str, changelog: Path = ROOT / "CHANGELOG
     if len(versions) <= 1:
         return own
     listed = ", ".join(versions[::-1])
-    parts = [
-        f"Alles sinds de vorige stabiele versie {previous}: {listed}. / "
-        f"Everything since the previous stable version {previous}: {listed}."
-    ]
+    parts = [f"Alles sinds de vorige stabiele versie {previous}: {listed}. / Everything since the previous stable version {previous}: {listed}."]
     parts += [f"## {v}\n\n{notes_for(v, changelog)}" for v in versions]
     return "\n\n".join(parts)
 
@@ -69,7 +67,7 @@ if __name__ == "__main__":
     if "--since" in args:
         index = args.index("--since")
         previous = args[index + 1] if index + 1 < len(args) else ""
-        del args[index:index + 2]
+        del args[index : index + 2]
     version = args[0] if args else current_version()
     notes = notes_since(version, previous)
     if not notes:

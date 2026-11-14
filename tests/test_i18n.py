@@ -8,9 +8,10 @@ from unittest import mock
 
 os.environ["PASSKEY_AUTH_ENABLED"] = "false"
 
+from helpers import AppTestCase, run  # noqa: E402
+
 from mealieshopper import auth_password, i18n  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
-from helpers import AppTestCase, run  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 STATIC = ROOT / "static"
@@ -18,6 +19,7 @@ HTML = (ROOT / "templates" / "index.html").read_text(encoding="utf-8")
 SOURCES = {
     "app.js": (STATIC / "app.js").read_text(encoding="utf-8"),
     "recipe_view.js": (STATIC / "recipe_view.js").read_text(encoding="utf-8"),
+    "recipe_nav.js": (STATIC / "recipe_nav.js").read_text(encoding="utf-8"),
     "cook_timers.js": (STATIC / "cook_timers.js").read_text(encoding="utf-8"),
     "categories.js": (STATIC / "categories.js").read_text(encoding="utf-8"),
     "onboarding.js": (STATIC / "onboarding.js").read_text(encoding="utf-8"),
@@ -44,12 +46,17 @@ SOURCES = {
     "price_archive.js": (STATIC / "price_archive.js").read_text(encoding="utf-8"),
     "audit.js": (STATIC / "audit.js").read_text(encoding="utf-8"),
     "offers.js": (STATIC / "offers.js").read_text(encoding="utf-8"),
+    "offers_cart.js": (STATIC / "offers_cart.js").read_text(encoding="utf-8"),
+    "facets.js": (STATIC / "facets.js").read_text(encoding="utf-8"),
+    "offers_facets.js": (STATIC / "offers_facets.js").read_text(encoding="utf-8"),
     "ai_review.js": (STATIC / "ai_review.js").read_text(encoding="utf-8"),
     "offers_history.js": (STATIC / "offers_history.js").read_text(encoding="utf-8"),
     "profile.js": (STATIC / "profile.js").read_text(encoding="utf-8"),
     "theme.js": (STATIC / "theme.js").read_text(encoding="utf-8"),
     "appearance.js": (STATIC / "appearance.js").read_text(encoding="utf-8"),
     "shopping.js": (STATIC / "shopping.js").read_text(encoding="utf-8"),
+    "loose_names.js": (STATIC / "loose_names.js").read_text(encoding="utf-8"),
+    "shared_links_export.js": (STATIC / "shared_links_export.js").read_text(encoding="utf-8"),
 }
 JS = "\n".join(SOURCES.values())
 ENTRY = re.compile(r'^  "([^"]+)": "((?:[^"\\]|\\.)*)",$', re.M)
@@ -157,7 +164,19 @@ class UsageTest(AppTestCase):
         html_keys = set(re.findall(r'data-i18n(?:-html)?="([\w.]+)"', HTML))
         for spec in re.findall(r'data-i18n-attr="([^"]+)"', HTML):
             html_keys |= {pair.split(":")[1] for pair in spec.split(";")}
-        prefixes = {"ob.step.", "ob.title.", "meal.", "about.group.", "about.desc.", "offers.source.", "offers.cat.", "offers.course.", "backup.count.", "backup.link.", "backup.part.", "backup.restore_part."}
+        prefixes = {
+            "ob.step.",
+            "ob.title.",
+            "meal.",
+            "about.group.",
+            "about.desc.",
+            "offers.source.",
+            "offers.cat.",
+            "offers.course.",
+            "offers.regular.source.",
+            "backup.link.",
+            "backup.part.",
+        }
         for key in NL:
             base = re.sub(r"\.(one|other)$", "", key)
             used = (
@@ -169,7 +188,9 @@ class UsageTest(AppTestCase):
 
     def test_no_dutch_literals_are_left_in_the_scripts(self):
         # Zichtbare tekst hoort in het woordenboek; zo'n zin in de code is een vergeten vertaling.
-        pattern = re.compile(r'(?:message\([^,]+,\s*|textContent\s*=\s*|<p[^>]*>|<h3[^>]*>|<button[^>]*>|<span[^>]*>)\s*["`]?([A-Z][a-z]+ [a-z]+ [a-z]+)')
+        pattern = re.compile(
+            r'(?:message\([^,]+,\s*|textContent\s*=\s*|<p[^>]*>|<h3[^>]*>|<button[^>]*>|<span[^>]*>)\s*["`]?([A-Z][a-z]+ [a-z]+ [a-z]+)'
+        )
         offenders = []
         for name, source in SOURCES.items():
             for line_number, line in enumerate(source.splitlines(), 1):
@@ -181,6 +202,14 @@ class UsageTest(AppTestCase):
 
 
 class PageTest(AppTestCase):
+    def test_loose_names_texts_exist_in_both_languages_with_the_same_placeholders(self):
+        keys = [key for key in NL if key.startswith("loose.") or key.startswith("aireview.loose_")]
+        self.assertGreater(len(keys), 30)
+        for key in keys:
+            self.assertIn(key, EN, key)
+            self.assertEqual(placeholders(NL[key]), placeholders(EN[key]), key)
+        self.assertIn("'s nachts", NL["aireview.loose_nightly"])
+
     def test_scripts_load_in_the_right_order(self):
         order = [HTML.index(name) for name in ("i18n.js", "i18n/nl.js", "i18n/en.js", "app.js", "onboarding.js")]
         self.assertEqual(order, sorted(order))
@@ -194,7 +223,7 @@ class PageTest(AppTestCase):
         for gate in ('id="auth-gate"', 'id="invite-gate"', 'id="onboarding"'):
             start = HTML.index(gate)
             self.assertLess(HTML.index('class="lang-switch"', start), HTML.index("</section>", start), gate)
-        header = HTML[HTML.index('<header class="topbar">'):HTML.index("</header>")]
+        header = HTML[HTML.index('<header class="topbar">') : HTML.index("</header>")]
         self.assertNotIn("lang-switch", header)
         self.assertNotIn("data-theme-toggle", header)
         self.assertNotIn("brand.tagline", header, "de slogan staat alleen nog op de inlogkaart")
@@ -232,37 +261,42 @@ class PageTest(AppTestCase):
         dark = re.search(r':root\[data-theme="dark"\]\s*{(.*?)\n}', css, re.S).group(1)
         names = lambda block: set(re.findall(r"(--[\w-]+):", block))
         unchanged = {"--lemon", "--control-height", "--font-body", "--font-heading", "--ease"}
-        unchanged |= {name for name in names(light) if name.startswith(("--radius-", "--text-"))}  # maten, geen kleuren
+        unchanged |= {name for name in names(light) if name.startswith(("--radius-", "--text-", "--scroll-"))}  # maten, geen kleuren
         self.assertEqual(sorted(names(light) - names(dark) - unchanged), [])
 
     def test_engine_keeps_the_language_and_tells_the_server(self):
         engine = (STATIC / "i18n.js").read_text(encoding="utf-8")
-        for needle in ('"ms-lang"', 'ms_lang', "SameSite=Lax", "document.documentElement.lang", "ms:languagechange",
-                       "navigator.languages", "try {"):
+        for needle in ('"ms-lang"', "ms_lang", "SameSite=Lax", "document.documentElement.lang", "ms:languagechange", "navigator.languages", "try {"):
             self.assertIn(needle, engine, needle)
 
     def test_app_redraws_data_driven_parts_on_a_language_change(self):
-        handler = SOURCES["app.js"][SOURCES["app.js"].index('addEventListener("ms:languagechange"'):]
-        for call in ("updateWeekLabel()", "renderMealPlan(", "renderAhLists()", "renderSavedRecipes()",
-                     "renderAuthState()", "refreshSavedRecipesStatus()"):
+        handler = SOURCES["app.js"][SOURCES["app.js"].index('addEventListener("ms:languagechange"') :]
+        for call in (
+            "updateWeekLabel()",
+            "renderMealPlan(",
+            "renderAhLists()",
+            "renderSavedRecipes()",
+            "renderAuthState()",
+            "refreshSavedRecipesStatus()",
+        ):
             self.assertIn(call, handler, call)
         # Recepten zoeken tekent zijn eigen resultaten opnieuw.
         search = SOURCES["recipe_search.js"]
-        self.assertIn("SEARCH_STORES.forEach(renderSearchStore)", search[search.index('addEventListener("ms:languagechange"'):])
+        self.assertIn("SEARCH_STORES.forEach(renderSearchStore)", search[search.index('addEventListener("ms:languagechange"') :])
 
     def test_the_language_handler_only_calls_functions_that_exist(self):
         # Een aanroep van een functie die niet (meer) bestaat, breekt de rest van de handler af: zo bleven na een taalwissel
         # de inlogstatus, de lijstjes en de bewaarde recepten in de oude taal staan (renderSearchResults, weg sinds 2.8.0).
         source = SOURCES["app.js"]
         start = source.index('window.addEventListener("ms:languagechange", () => {')
-        handler = source[start:source.index("\n});", start)]
+        handler = source[start : source.index("\n});", start)]
         defined = set(re.findall(r"^(?:async\s+)?function\s+(\w+)\s*\(", JS, re.M))
         called = set(re.findall(r"^\s*(?:if \(.*?\) )?(\w+)\(", handler, re.M)) - {"if", "window"}
         self.assertTrue(called)
         self.assertEqual(sorted(called - defined), [])
 
     def test_changing_language_mid_mfa_setup_does_not_restart_it(self):
-        handler = SOURCES["onboarding.js"][SOURCES["onboarding.js"].index('addEventListener("ms:languagechange"'):]
+        handler = SOURCES["onboarding.js"][SOURCES["onboarding.js"].index('addEventListener("ms:languagechange"') :]
         self.assertIn("if (ob.mfaBusy)", handler)
         self.assertLess(handler.index("if (ob.mfaBusy)"), handler.index("renderOnboarding()"))
 
@@ -294,6 +328,7 @@ class ServerLanguageTest(AppTestCase):
 
     def test_default_and_unknown_languages_are_dutch(self):
         self.assertEqual(i18n.tr("nl", "en"), "nl", "zonder verzoek")
+
         async def lang(**kwargs):
             async with self.app.test_request_context("/", **kwargs):
                 return i18n.current_lang()

@@ -22,6 +22,12 @@ const scrollTo = (page, selector, offset = 84) =>
 
 const url = (id) => `https://www.example.nl/product/${id}`;
 
+// De boodschappenlijst staat sinds 4.24.0 achter de knop Boodschappen, op de plek van het weekmenu: eerst die weergave openen.
+const openShopping = async (page) => {
+  await page.waitForSelector("#shop-jump");
+  await page.click("#shop-jump");
+};
+
 // ---- Het weekmenu en wat erin zit: 20 ingrediënten, zoals een gewone week
 
 const MENU = [
@@ -320,6 +326,7 @@ module.exports = [
     name: "plan-picnic",
     routes: { "/api/mealplan*": mealPlan, "/api/picnic/cart/preview": cartPreview, "/api/picnic/cart": cartFill },
     run: async (page) => {
+      await openShopping(page);
       await page.waitForSelector("#add-cart");
       await page.click("#cart-store-toggle");
       await page.click('#cart-store-list [data-store="picnic"]');
@@ -331,12 +338,14 @@ module.exports = [
     },
   },
   {
-    // De boodschappenlijst onder het weekmenu (sinds 4.11.0). Het is woensdag 28 oktober, dus maandag en dinsdag tellen
-    // standaard niet mee (met de regel erover); de ui is uitgevinkt (die heb je nog), en olijfolie en zout staan open onder
-    // Al in huis. Onderaan de winkelkeuze, Liever biologisch en de knop naar het mandje.
+    // De boodschappenlijst (sinds 4.11.0), achter de knop Boodschappen en op de plek van het weekmenu (sinds 4.24.0), met een pijltje
+    // terug. Het is woensdag 28 oktober, dus maandag en dinsdag tellen standaard niet mee (met de regel erover); de ui is
+    // uitgevinkt (die heb je nog), en olijfolie en zout staan open onder Al in huis. Onderaan de winkelkeuze, Liever biologisch
+    // en de knop naar het mandje.
     name: "shopping-list",
     routes: { "/api/mealplan*": shoppingPlan, "/api/pantry": { items: [{ name: "olijfolie" }, { name: "zout" }] } },
     run: async (page) => {
+      await openShopping(page);
       await page.waitForSelector("#shop-box .shop-pantry summary");
       await page.click('#shop-box [data-shop-item="1 ui"]');
       await page.click("#shop-box .shop-pantry summary");
@@ -349,6 +358,7 @@ module.exports = [
     name: "cart",
     routes: { "/api/mealplan*": mealPlan, "/api/ah/cart/preview": cartPreview },
     run: async (page) => {
+      await openShopping(page);
       await page.waitForSelector("#add-cart");
       // De dagen die voorbij zijn tellen standaard niet mee (sinds 4.11.0); hier de hele week, met de twijfelregel van maandag.
       while (await page.locator('[data-shop-day][aria-pressed="false"]').count()) await page.locator('[data-shop-day][aria-pressed="false"]').first().click();

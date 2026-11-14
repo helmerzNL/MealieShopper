@@ -1,15 +1,15 @@
-import unittest
-from datetime import date
-
 import os
 import tempfile
+import unittest
+from datetime import date
 
 os.environ.setdefault("MEALIESHOPPER_DATA_DIR", tempfile.mkdtemp())
 
 from unittest import mock  # noqa: E402
 
-from mealieshopper import ah, ah_explore, deals, jumbo, jumbo_explore, picnic  # noqa: E402
 from helpers import run  # noqa: E402
+
+from mealieshopper import ah, ah_explore, deals, jumbo, jumbo_explore, picnic  # noqa: E402
 
 
 class ParseMechanicTests(unittest.TestCase):
@@ -17,12 +17,8 @@ class ParseMechanicTests(unittest.TestCase):
         self.assertEqual(deals.parse_mechanic("2e halve prijs"), {"type": "second_half", "minQuantity": 2})
 
     def test_one_plus_one_free(self):
-        self.assertEqual(
-            deals.parse_mechanic("1+1 gratis"), {"type": "nth_free", "minQuantity": 2, "payQuantity": 1}
-        )
-        self.assertEqual(
-            deals.parse_mechanic("2 + 1 gratis"), {"type": "nth_free", "minQuantity": 3, "payQuantity": 2}
-        )
+        self.assertEqual(deals.parse_mechanic("1+1 gratis"), {"type": "nth_free", "minQuantity": 2, "payQuantity": 1})
+        self.assertEqual(deals.parse_mechanic("2 + 1 gratis"), {"type": "nth_free", "minQuantity": 3, "payQuantity": 2})
 
     def test_nth_free(self):
         self.assertEqual(deals.parse_mechanic("3e gratis"), {"type": "nth_free", "minQuantity": 3, "payQuantity": 2})
@@ -34,17 +30,11 @@ class ParseMechanicTests(unittest.TestCase):
 
     def test_percent(self):
         self.assertEqual(deals.parse_mechanic("25% korting"), {"type": "percent", "minQuantity": 1, "percent": 25.0})
-        self.assertEqual(
-            deals.parse_mechanic("20% korting vanaf 2 stuks"), {"type": "percent", "minQuantity": 2, "percent": 20.0}
-        )
+        self.assertEqual(deals.parse_mechanic("20% korting vanaf 2 stuks"), {"type": "percent", "minQuantity": 2, "percent": 20.0})
 
     def test_amount_off(self):
-        self.assertEqual(
-            deals.parse_mechanic("€ 1,50 korting"), {"type": "amount_off", "minQuantity": 1, "amountOff": 1.5}
-        )
-        self.assertEqual(
-            deals.parse_mechanic("korting 2 euro"), {"type": "amount_off", "minQuantity": 1, "amountOff": 2.0}
-        )
+        self.assertEqual(deals.parse_mechanic("€ 1,50 korting"), {"type": "amount_off", "minQuantity": 1, "amountOff": 1.5})
+        self.assertEqual(deals.parse_mechanic("korting 2 euro"), {"type": "amount_off", "minQuantity": 1, "amountOff": 2.0})
 
     def test_unknown_and_empty(self):
         for text in (None, "", "   ", "Bonus", "Op=op", "Nu extra voordelig"):
@@ -210,8 +200,11 @@ class CommonPeriodTests(unittest.TestCase):
     def test_a_period_of_one_day_only_counts_without_a_longer_one(self):
         week = {"validFrom": "2026-10-26", "validUntil": "2026-11-01"}
         today = {"validFrom": "2026-11-01", "validUntil": "2026-11-01"}
-        self.assertEqual(deals.common_period([today, today, today, week]), {"from": "2026-10-26", "until": "2026-11-01"},
-                         "AH's pakketkortingen gelden steeds een dag; de kop noemt de bonusweek")
+        self.assertEqual(
+            deals.common_period([today, today, today, week]),
+            {"from": "2026-10-26", "until": "2026-11-01"},
+            "AH's pakketkortingen gelden steeds een dag; de kop noemt de bonusweek",
+        )
         self.assertEqual(deals.common_period([today]), {"from": "2026-11-01", "until": "2026-11-01"})
 
     def test_open_ended_and_undated_offers_do_not_count(self):
@@ -222,22 +215,35 @@ class CommonPeriodTests(unittest.TestCase):
 class AhPromoTests(unittest.TestCase):
     def test_bonus_fields_are_kept(self):
         item = {
-            "webshopId": 1, "title": "AH Kipfilet", "currentPrice": 3.0, "priceBeforeBonus": 4.0, "isBonus": True,
-            "bonusMechanism": "25% korting", "bonusStartDate": "2026-10-19", "bonusEndDate": "2026-10-25",
+            "webshopId": 1,
+            "title": "AH Kipfilet",
+            "currentPrice": 3.0,
+            "priceBeforeBonus": 4.0,
+            "isBonus": True,
+            "bonusMechanism": "25% korting",
+            "bonusStartDate": "2026-10-19",
+            "bonusEndDate": "2026-10-25",
             "discountLabels": [{"defaultDescription": "25% korting"}, {"code": "x"}],
         }
         product = ah._search_product_dict(item, "kip")
         self.assertEqual(
             product["promo"],
-            {"label": "25% korting", "mechanism": "25% korting", "priceBefore": 4.0,
-             "validFrom": "2026-10-19", "validUntil": "2026-10-25"},
+            {"label": "25% korting", "mechanism": "25% korting", "priceBefore": 4.0, "validFrom": "2026-10-19", "validUntil": "2026-10-25"},
         )
         deal = deals.make_deal("ah", product, date(2026, 10, 22))
         self.assertEqual((deal["mechanic"], deal["unitPrice"], deal["validity"]), ("percent", 3.0, "valid"))
 
     def test_open_ended_bonus_has_no_end_date(self):
-        item = {"webshopId": 1, "title": "Kaas", "currentPrice": 2.0, "priceBeforeBonus": 2.5, "isBonus": True,
-                "bonusStartDate": "2026-10-26", "bonusEndDate": "2999-12-31", "bonusMechanism": "5% volume voordeel"}
+        item = {
+            "webshopId": 1,
+            "title": "Kaas",
+            "currentPrice": 2.0,
+            "priceBeforeBonus": 2.5,
+            "isBonus": True,
+            "bonusStartDate": "2026-10-26",
+            "bonusEndDate": "2999-12-31",
+            "bonusMechanism": "5% volume voordeel",
+        }
         product = ah._bonus_product(item)
         self.assertEqual((product["validFrom"], product["validUntil"]), ("2026-10-26", None))
         self.assertIsNone(ah._bonus_promo(item)["validUntil"])
@@ -285,9 +291,16 @@ class CandidateDealTests(unittest.TestCase):
 class PromoExplorerTests(unittest.TestCase):
     def test_report_shows_texts_and_dates_but_not_prices_or_titles(self):
         items = [
-            {"title": "AH Kipfilet", "webshopId": 5, "currentPrice": 3.5, "priceBeforeBonus": 4.5, "isBonus": True,
-             "bonusMechanism": "2e halve prijs", "bonusEndDate": "2026-10-25",
-             "discountLabels": [{"code": "X", "defaultDescription": "2e halve prijs"}]},
+            {
+                "title": "AH Kipfilet",
+                "webshopId": 5,
+                "currentPrice": 3.5,
+                "priceBeforeBonus": 4.5,
+                "isBonus": True,
+                "bonusMechanism": "2e halve prijs",
+                "bonusEndDate": "2026-10-25",
+                "discountLabels": [{"code": "X", "defaultDescription": "2e halve prijs"}],
+            },
             {"title": "AH Kaas", "webshopId": 6, "currentPrice": 2.0, "isBonus": True, "bonusMechanism": "25% korting"},
         ]
         report = ah_explore.promo_report(items)
@@ -317,7 +330,9 @@ class PromoExplorerTests(unittest.TestCase):
         def fake_graphql(query, variables, operation, *args):
             calls.append(query)
             if " description" in query or " maxQuantity" in query:
-                raise jumbo.JumboSchemaError('Cannot query field "description" on type "Promotion"; Cannot query field "maxQuantity" on type "Promotion".')
+                raise jumbo.JumboSchemaError(
+                    'Cannot query field "description" on type "Promotion"; Cannot query field "maxQuantity" on type "Promotion".'
+                )
             return {"searchProducts": {"products": [{"promotions": [{"tags": [{"text": "2 voor 5"}], "id": "p1"}]}]}}
 
         with mock.patch.object(jumbo, "_graphql", side_effect=fake_graphql):
@@ -394,4 +409,6 @@ class StorePriceRoundingTests(unittest.TestCase):
         self.assertEqual(deals.effective_unit_price(mechanic, 1.69, 0.99), 1.18, "te ver ervan af: dan rekenen we")
         self.assertEqual(deals.effective_unit_price(mechanic, 1.69, None), 1.18)
         self.assertEqual(deals.effective_unit_price(deals.parse_mechanic("20% korting vanaf 2 stuks"), 2.49, 1.99), 1.99, "rekenen gaf al 1,99")
-        self.assertEqual(deals.effective_unit_price(deals.parse_mechanic("30% korting vanaf 2 stuks"), 1.69, 1.19), 1.18, "met een voorwaarde rekenen we")
+        self.assertEqual(
+            deals.effective_unit_price(deals.parse_mechanic("30% korting vanaf 2 stuks"), 1.69, 1.19), 1.18, "met een voorwaarde rekenen we"
+        )

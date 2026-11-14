@@ -9,9 +9,10 @@ import httpx
 
 os.environ["PASSKEY_AUTH_ENABLED"] = "false"
 
+from helpers import AppTestCase, routes, sent_json  # noqa: E402
+
 from mealieshopper import auth, mealie  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
-from helpers import AppTestCase, routes, sent_json  # noqa: E402
 
 URL = "https://mealie.example.nl"
 TOKEN = "mealie-token"
@@ -31,7 +32,9 @@ def response(status=200, body=None):
 def recipe():
     """Een recept zoals Mealie het geeft: elk ingrediënt een `referenceId`, en een stap noemt de zijne in `ingredientReferences`."""
     return {
-        "id": "cccccccc-0000-4000-8000-000000000000", "slug": "pasta-pesto", "name": "Pasta pesto",
+        "id": "cccccccc-0000-4000-8000-000000000000",
+        "slug": "pasta-pesto",
+        "name": "Pasta pesto",
         "recipeIngredient": [
             {"display": "200 g pasta", "referenceId": PASTA},
             {"display": "1 el olie", "referenceId": OIL.upper()},  # Mealie schrijft ze klein, maar een hoofdletter mag
@@ -39,8 +42,13 @@ def recipe():
             {"display": "1 bosje basilicum", "referenceId": BASIL},
         ],
         "recipeInstructions": [
-            {"id": STEP_1, "title": "", "summary": "", "text": "Kook de pasta in water met olie.",
-             "ingredientReferences": [{"referenceId": PASTA}, {"referenceId": OIL}, {"referenceId": PASTA}]},
+            {
+                "id": STEP_1,
+                "title": "",
+                "summary": "",
+                "text": "Kook de pasta in water met olie.",
+                "ingredientReferences": [{"referenceId": PASTA}, {"referenceId": OIL}, {"referenceId": PASTA}],
+            },
             {"id": STEP_2, "title": "", "text": " "},
             {"id": STEP_3, "title": "Pesto", "text": "Maak de pesto.", "ingredientReferences": [{"referenceId": "kapot"}]},
         ],
@@ -68,19 +76,27 @@ class DetailTest(CookLinksCase):
         with routes() as api, mock.patch.object(mealie, "group_slug", new_callable=mock.AsyncMock, return_value="thuis"):
             api.get(RECIPE).mock(return_value=response(body=recipe()))
             data = (await self.client.get("/api/mealie/recipes/pasta-pesto")).get_json()
-        self.assertEqual(data["ingredients"], [
-            {"line": "200 g pasta", "ref": PASTA},
-            {"line": "1 el olie", "ref": OIL},
-            {"line": "1 bosje basilicum", "section": "Voor de pesto", "ref": BASIL},
-        ])
+        self.assertEqual(
+            data["ingredients"],
+            [
+                {"line": "200 g pasta", "ref": PASTA},
+                {"line": "1 el olie", "ref": OIL},
+                {"line": "1 bosje basilicum", "section": "Voor de pesto", "ref": BASIL},
+            ],
+        )
         self.assertEqual(data["steps"], ["Kook de pasta in water met olie.", "Maak de pesto."])
         # Even lang als de stappen; een dubbele of kapotte verwijzing valt weg.
         self.assertEqual(data["stepIds"], [STEP_1, STEP_3])
         self.assertEqual(data["stepRefs"], [[PASTA, OIL], []])
 
     async def test_without_ids_there_is_nothing_to_link(self):
-        bare = {"id": "x", "slug": "pasta-pesto", "name": "Pasta", "recipeIngredient": [{"display": "200 g pasta"}],
-                "recipeInstructions": [{"text": "Kook."}]}
+        bare = {
+            "id": "x",
+            "slug": "pasta-pesto",
+            "name": "Pasta",
+            "recipeIngredient": [{"display": "200 g pasta"}],
+            "recipeInstructions": [{"text": "Kook."}],
+        }
         with routes() as api, mock.patch.object(mealie, "group_slug", new_callable=mock.AsyncMock, return_value="thuis"):
             api.get(RECIPE).mock(return_value=response(body=bare))
             data = (await self.client.get("/api/mealie/recipes/pasta-pesto")).get_json()
@@ -92,8 +108,15 @@ class DetailTest(CookLinksCase):
         # Het weekmenu rekent een recept om naar de porties (ingredients.scale_recipe); de verwijzingen blijven staan.
         from mealieshopper import ingredients
 
-        scaled = ingredients.scale_recipe({**recipe(), "recipeIngredient": [{"display": "200 g pasta", "quantity": 200, "unit": {"name": "g"},
-                                                                             "food": {"name": "pasta"}, "referenceId": PASTA}]}, 2)
+        scaled = ingredients.scale_recipe(
+            {
+                **recipe(),
+                "recipeIngredient": [
+                    {"display": "200 g pasta", "quantity": 200, "unit": {"name": "g"}, "food": {"name": "pasta"}, "referenceId": PASTA}
+                ],
+            },
+            2,
+        )
         self.assertEqual(scaled["recipeIngredient"][0]["referenceId"], PASTA)
         self.assertEqual(scaled["recipeIngredient"][0]["display"], "400 g pasta")
         self.assertEqual(scaled["recipeInstructions"][0]["ingredientReferences"][0], {"referenceId": PASTA})
@@ -104,8 +127,7 @@ class LinkTest(CookLinksCase):
         with routes() as api:
             api.get(RECIPE).mock(return_value=response(body=recipe()))
             patch = api.patch(RECIPE).mock(return_value=response(body={"slug": "pasta-pesto"}))
-            answer = await self.client.put(f"/api/mealie/recipes/pasta-pesto/steps/{STEP_3}/ingredients",
-                                           json={"refs": [BASIL, OIL.upper(), BASIL]})
+            answer = await self.client.put(f"/api/mealie/recipes/pasta-pesto/steps/{STEP_3}/ingredients", json={"refs": [BASIL, OIL.upper(), BASIL]})
         self.assertEqual(answer.status_code, 200)
         self.assertEqual(answer.get_json(), {"slug": "pasta-pesto", "stepId": STEP_3, "refs": [BASIL, OIL]})
         sent = sent_json(patch.calls.last)
@@ -128,7 +150,10 @@ class LinkTest(CookLinksCase):
     async def test_a_step_or_ingredient_that_is_gone_changes_nothing(self):
         cases = {
             "onbekende stap": (f"/api/mealie/recipes/pasta-pesto/steps/{'dddddddd-0000-4000-8000-000000000000'}/ingredients", {"refs": [PASTA]}),
-            "onbekend ingrediënt": (f"/api/mealie/recipes/pasta-pesto/steps/{STEP_1}/ingredients", {"refs": ["eeeeeeee-0000-4000-8000-000000000000"]}),
+            "onbekend ingrediënt": (
+                f"/api/mealie/recipes/pasta-pesto/steps/{STEP_1}/ingredients",
+                {"refs": ["eeeeeeee-0000-4000-8000-000000000000"]},
+            ),
         }
         for label, (path, body) in cases.items():
             with self.subTest(label), routes() as api:

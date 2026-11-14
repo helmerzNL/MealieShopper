@@ -5,14 +5,20 @@ from unittest import mock
 
 os.environ["PASSKEY_AUTH_ENABLED"] = "false"
 
+from helpers import AppTestCase, run  # noqa: E402
+
 from mealieshopper import ah_lists  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
-from helpers import AppTestCase, run  # noqa: E402
 
 
 def item(n, title, brand="AH"):
-    return {"id": f"i{n}", "productId": n, "url": "", "quantity": 1,
-            "product": {"id": n, "title": title, "brand": brand, "unitSize": "1 st", "price": 1, "image": "", "isBonus": False}}
+    return {
+        "id": f"i{n}",
+        "productId": n,
+        "url": "",
+        "quantity": 1,
+        "product": {"id": n, "title": title, "brand": brand, "unitSize": "1 st", "price": 1, "image": "", "isBonus": False},
+    }
 
 
 class ListSearchTest(AppTestCase):
@@ -23,8 +29,15 @@ class ListSearchTest(AppTestCase):
         env.start()
         self.addCleanup(env.stop)
         self.client = self.client_for(create_app())
-        run(ah_lists.save_snapshot({"id": "a", "name": "Weekboodschappen", "items": [
-            item(1, "AH Halfvolle melk"), item(2, "Bio Café crème", brand="Douwe Egberts"), item(3, "Pindakaas")]}))
+        run(
+            ah_lists.save_snapshot(
+                {
+                    "id": "a",
+                    "name": "Weekboodschappen",
+                    "items": [item(1, "AH Halfvolle melk"), item(2, "Bio Café crème", brand="Douwe Egberts"), item(3, "Pindakaas")],
+                }
+            )
+        )
         run(ah_lists.save_snapshot({"id": "b", "name": "Borrel", "items": [item(4, "Nootjes"), item(5, "AH Melkchocolade")]}))
 
     def test_finds_lists_by_product_title(self):

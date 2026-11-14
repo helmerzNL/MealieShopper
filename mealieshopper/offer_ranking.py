@@ -7,8 +7,8 @@ zelf telt niet mee: die is wat we vergelijken.
 
 Een punt is `(dag, prijs per stuk, bron)`. `year_low` geeft per aanbieding:
 
-* `status`: `lowest` als de actieprijs van nu op of onder de laagste van de afgelopen 365 dagen ligt (binnen een halve cent),
-  `above` als hij erboven ligt, `unknown` zonder prijs van nu, zonder punt in het jaar of met een dekking korter dan een jaar.
+* `status`: `lowest` als de actieprijs van nu op of onder de laagste van de afgelopen 365 dagen ligt, of er zo weinig boven
+  dat het dezelfde prijs is (`_same_price`: 3 procent, hooguit 5 cent), `above` als hij erboven ligt, `unknown` zonder prijs van nu, zonder punt in het jaar of met een dekking korter dan een jaar.
 * `price`, `month` en `source`: de laagste prijs in het jaar, de maand waarin hij het laatst gold en waar hij vandaan kwam.
 * `coveredSince`: de oudste dag waarop een bron iets van het product weet. Pas vanaf 365 dagen dekking is "laagste in een jaar"
   een uitspraak en geen toeval van een app die het product drie weken volgt.
@@ -22,6 +22,12 @@ from typing import Any
 
 YEAR_DAYS: int = 365
 HALF_CENT: float = 0.005
+# Dezelfde actie geeft niet elke keer dezelfde stukprijs: "1+1 gratis" zonder prijs in de folder rekent met de gewone prijs van
+# de weken eromheen (2,34: 1,17), de aanbieding van nu met die van vandaag (2,39: 1,195). Zo'n verschil is afronding, geen
+# duurdere aanbieding. Hooguit 3 procent, en nooit meer dan 5 cent: 3 procent van 10 euro is wel een ander bedrag.
+NEAR_LOW: float = 0.03
+NEAR_LOW_MAX: float = 0.05
+_FLOAT_SLACK: float = 1e-9
 
 Point = tuple[str, float, str]
 
@@ -37,15 +43,15 @@ def _empty() -> dict[str, Any]:
     }
 
 
-def year_low(
-    effective: float | None, points: list[Point], today: str
-) -> dict[str, Any]:
+def _same_price(effective: float, lowest: float) -> bool:
+    """Of de prijs van nu op of onder de laagste ligt, of er zo weinig boven dat het dezelfde prijs is (zie `NEAR_LOW`)."""
+    margin: float = max(HALF_CENT, min(lowest * NEAR_LOW, NEAR_LOW_MAX))
+    return effective <= lowest + margin + _FLOAT_SLACK
+
+
+def year_low(effective: float | None, points: list[Point], today: str) -> dict[str, Any]:
     """De laagste prijs van de afgelopen twaalf maanden en hoe de prijs van nu zich daartoe verhoudt (zie de module)."""
-    valid: list[Point] = [
-        point
-        for point in points
-        if point[0] and point[1] is not None and point[1] > 0 and point[0][:10] <= today
-    ]
+    valid: list[Point] = [point for point in points if point[0] and point[1] is not None and point[1] > 0 and point[0][:10] <= today]
     if effective is None or not valid:
         return _empty()
     covered_since: str = min(point[0][:10] for point in valid)
@@ -61,7 +67,7 @@ def year_low(
         key=lambda point: point[0],
     )
     result.update(price=round(lowest, 2), month=last[0][:7], source=last[2])
-    if effective <= lowest + HALF_CENT:
+    if _same_price(effective, lowest):
         result.update(status="lowest", above=0.0)
     else:
         result.update(status="above", above=round(effective - lowest, 2))
@@ -110,7 +116,9 @@ def _mark_cheapest(found: list[dict[str, Any]], unit: str) -> None:
     telt als gelijk, en dan wint de verpakking die in de aanbieding is, daarna de laagste prijs."""
     from .prices import PACK_MARGIN  # noqa: PLC0415
 
-    priced = [pack for pack in found if pack.get("unitPrice") and pack["unitPrice"].get("value") is not None and pack["unitPrice"].get("unit") == unit]
+    priced = [
+        pack for pack in found if pack.get("unitPrice") and pack["unitPrice"].get("value") is not None and pack["unitPrice"].get("unit") == unit
+    ]
     for pack in found:
         pack["cheapest"] = False
     if len(priced) < 2:  # een verpakking alleen heeft niets om mee te vergelijken
@@ -145,8 +153,12 @@ def families(store: str, packs_known: list[dict[str, Any]], known_titles: dict[s
         current = grouped.setdefault(key, {}).get(product_id)
         if current is None or pack["price"] < current["price"]:
             grouped[key][product_id] = {
-                "productId": product_id, "title": pack.get("title"), "unitSize": pack.get("unitSize"), "price": pack["price"],
-                "unitPrice": pack["unitPrice"], "onOffer": bool(pack.get("onOffer")) or bool(current and current["onOffer"]),
+                "productId": product_id,
+                "title": pack.get("title"),
+                "unitSize": pack.get("unitSize"),
+                "price": pack["price"],
+                "unitPrice": pack["unitPrice"],
+                "onOffer": bool(pack.get("onOffer")) or bool(current and current["onOffer"]),
                 "known": "offer" if pack.get("onOffer") else "observation",
             }
     known_keys: dict[str, set[str]] = {}

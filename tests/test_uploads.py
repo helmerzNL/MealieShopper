@@ -24,10 +24,20 @@ Message = dict[str, Any]
 def put_scope(token: str, length: int) -> dict[str, Any]:
     path: str = f"/api/backup/uploads/{token}"
     return {
-        "type": "http", "asgi": {"version": "3.0"}, "http_version": "1.1", "method": "PUT", "scheme": "http",
-        "path": path, "raw_path": path.encode(), "query_string": b"offset=0", "root_path": "",
+        "type": "http",
+        "asgi": {"version": "3.0"},
+        "http_version": "1.1",
+        "method": "PUT",
+        "scheme": "http",
+        "path": path,
+        "raw_path": path.encode(),
+        "query_string": b"offset=0",
+        "root_path": "",
         "headers": [(b"host", b"localhost"), (b"content-type", b"application/octet-stream"), (b"content-length", str(length).encode())],
-        "client": ("127.0.0.1", 50000), "server": ("127.0.0.1", 8000), "state": {}, "extensions": {},
+        "client": ("127.0.0.1", 50000),
+        "server": ("127.0.0.1", 8000),
+        "state": {},
+        "extensions": {},
     }
 
 

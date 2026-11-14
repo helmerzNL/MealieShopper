@@ -16,8 +16,15 @@ class StoreImageTest(unittest.TestCase):
         app = source("app.js")
         self.assertIn("function storeImage(url)", app)
         self.assertIn("return `/api/images/${token}`", app)
-        for host in (r"static\.ah\.nl", r"jumbo\.com", r"picnicinternational\.com", r"crispapp\.nl", r"www\.lidl\.nl",
-                     r"imgproxy-retcat\.assets\.schwarz", r"s7g10\.scene7\.com"):
+        for host in (
+            r"static\.ah\.nl",
+            r"jumbo\.com",
+            r"picnicinternational\.com",
+            r"crispapp\.nl",
+            r"www\.lidl\.nl",
+            r"imgproxy-retcat\.assets\.schwarz",
+            r"s7g10\.scene7\.com",
+        ):
             self.assertIn(host, app)
 
     def test_every_store_image_goes_through_the_cache(self):
@@ -99,9 +106,7 @@ class StoreImageTest(unittest.TestCase):
         ):
             for line in source(script).splitlines():
                 if "storeImage(" in line and "<img" in line:
-                    self.assertIn(
-                        "data-hide-on-error", line, f"{script}: {line.strip()[:90]}"
-                    )
+                    self.assertIn("data-hide-on-error", line, f"{script}: {line.strip()[:90]}")
 
 
 if __name__ == "__main__":

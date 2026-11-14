@@ -11,17 +11,17 @@ ROOT: Path = Path(__file__).resolve().parents[1]
 
 
 def functions(filename: str, names: tuple[str, ...]) -> str:
-    source: str = (ROOT / 'static' / filename).read_text()
-    return '\n'.join(match.group(0) for name in names if (match := re.search(rf'^(?:async )?function {name}\(.*?^}}$', source, re.M | re.S)))
+    source: str = (ROOT / "static" / filename).read_text()
+    return "\n".join(match.group(0) for name in names if (match := re.search(rf"^(?:async )?function {name}\(.*?^}}$", source, re.M | re.S)))
 
 
-@unittest.skipUnless(shutil.which('node'), 'Node is not installed')
+@unittest.skipUnless(shutil.which("node"), "Node is not installed")
 class HistoryStoreNavigationTest(unittest.TestCase):
     def run_script(self, scenario: str) -> dict:
-        app: str = (ROOT / 'static/app.js').read_text()
-        tab_handlers: str = app[app.index('document.querySelectorAll(".subtab[data-subtab],'):app.index('// Over: versie en commit')]
-        router: str = (ROOT / 'static/router.js').read_text().split('// Gewone klik op een navigatielink:')[0]
-        prelude: str = r'''
+        app: str = (ROOT / "static/app.js").read_text()
+        tab_handlers: str = app[app.index('document.querySelectorAll(".subtab[data-subtab],') : app.index("// Over: versie en commit")]
+        router: str = (ROOT / "static/router.js").read_text().split("// Gewone klik op een navigatielink:")[0]
+        prelude: str = r"""
 const OFFERS_STORES = ['ah', 'picnic', 'jumbo', 'crisp'];
 const OFFER_HISTORY_LIMIT = 30;
 const STORES = Object.fromEntries(OFFERS_STORES.map(store => [store, {name: store}]));
@@ -33,7 +33,8 @@ const state = {linkedStores: {picnic: true, jumbo: true, crisp: false}, storeSta
 let offersFetch = null;
 const OFFERS_WEEK_START_WAIT = 10;
 const offersState = {store: 'ah'};
-const offerHistory = {query: '', selected: '', pinned: false, products: [], loadId: 0};
+const offerHistory = {query: '', selected: '', pinned: false, products: [], loadId: 0,
+  facets: {brand: {shown: [], hidden: []}, category: {shown: [], hidden: []}}};
 let activeSubtab = 'offers-items';
 let activePanel = 'recipes';
 const requests = [];
@@ -55,6 +56,9 @@ const renderOffers = () => {};
 const renderOffersLoading = () => {};
 const endOffersLoading = () => {};
 const showOfferRecipes = () => {};
+const loadOfferCart = () => {};
+const facetSelection = () => ({shown: [], hidden: []});
+const offerHistoryFacetsEmpty = () => ({brand: facetSelection(), category: facetSelection()});
 const message = () => {};
 const renderOfferHistory = () => {};
 const offerHistoryKey = product => `${product.store}:${product.productId}`;
@@ -96,14 +100,37 @@ async function jsonFetch(path) {
   return {};
 }
 const settle = () => new Promise(resolve => setImmediate(resolve));
-'''
-        script: str = prelude + functions('app.js', ('routerQuery', 'offersPath', 'weekStartSettled', 'preferredSupermarket', 'preferredSupermarketKnown', 'defaultStoreOf',
-                                                     'linkedStoreKeys', 'offersStoreParam'))
-        script += functions('offers.js', ('offersHistoryActive', 'offersTabActive', 'offersStores', 'offersFollowPreferred', 'renderOffersStore',
-                                           'offersSwitchStore', 'offersRequest', 'offersWeekStartKnown', 'showOffers'))
-        script += functions('offers_history.js', ('loadOfferHistory', 'offerHistoryStoreChanged')) + router + tab_handlers
-        script += '\n(async () => {\n' + scenario + '\n})().catch(error => {console.error(error); process.exit(1);});'
-        result: subprocess.CompletedProcess = subprocess.run(['node', '-e', script], capture_output=True, text=True)
+"""
+        script: str = prelude + functions(
+            "app.js",
+            (
+                "routerQuery",
+                "offersPath",
+                "weekStartSettled",
+                "preferredSupermarket",
+                "preferredSupermarketKnown",
+                "defaultStoreOf",
+                "linkedStoreKeys",
+                "offersStoreParam",
+            ),
+        )
+        script += functions(
+            "offers.js",
+            (
+                "offersHistoryActive",
+                "offersTabActive",
+                "offersStores",
+                "offersFollowPreferred",
+                "renderOffersStore",
+                "offersSwitchStore",
+                "offersRequest",
+                "offersWeekStartKnown",
+                "showOffers",
+            ),
+        )
+        script += functions("offers_history.js", ("loadOfferHistory", "offerHistoryStoreChanged")) + router + tab_handlers
+        script += "\n(async () => {\n" + scenario + "\n})().catch(error => {console.error(error); process.exit(1);});"
+        result: subprocess.CompletedProcess = subprocess.run(["node", "-e", script], capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stderr)
         return json.loads(result.stdout)
 
@@ -112,8 +139,8 @@ const settle = () => new Promise(resolve => setImmediate(resolve));
 tabs[2].click(); await settle();
 console.log(JSON.stringify({stores: offersStores(), menu: $('#offers-store-list').innerHTML}));
 """)
-        self.assertEqual(result['stores'], ['ah', 'picnic', 'jumbo', 'crisp'])
-        self.assertIn('href="/offers/history?store=crisp"', result['menu'])
+        self.assertEqual(result["stores"], ["ah", "picnic", "jumbo", "crisp"])
+        self.assertIn('href="/offers/history?store=crisp"', result["menu"])
 
     def test_direct_unlinked_history_route_loads_crisp_and_keeps_requested_product(self) -> None:
         result: dict = self.run_script("""
@@ -122,12 +149,12 @@ routerApply('http://localhost/offers/history?store=crisp&q=milk&product=second')
 console.log(JSON.stringify({store: offersState.store, pending: router.pending, selected: offerHistory.selected,
  path: routerCurrentPath(), requests}));
 """)
-        self.assertEqual(result['store'], 'crisp')
-        self.assertEqual(result['pending'], '')
-        self.assertEqual(result['selected'], 'crisp:second')
-        self.assertIn('product=second', result['path'])
-        self.assertTrue(any('/api/prices/history?store=crisp&' in path for path in result['requests']))
-        self.assertFalse(any('/api/offers?store=crisp&' in path for path in result['requests']))
+        self.assertEqual(result["store"], "crisp")
+        self.assertEqual(result["pending"], "")
+        self.assertEqual(result["selected"], "crisp:second")
+        self.assertIn("product=second", result["path"])
+        self.assertTrue(any("/api/prices/history?store=crisp&" in path for path in result["requests"]))
+        self.assertFalse(any("/api/offers?store=crisp&" in path for path in result["requests"]))
 
     def test_switching_store_in_history_keeps_unlinked_history_access(self) -> None:
         result: dict = self.run_script("""
@@ -135,9 +162,9 @@ tabs[2].click(); await settle(); requests.length = 0;
 offersSwitchStore('crisp'); await settle();
 console.log(JSON.stringify({store: offersState.store, requests}));
 """)
-        self.assertEqual(result['store'], 'crisp')
-        self.assertTrue(any('/api/prices/history?store=crisp&' in path for path in result['requests']))
-        self.assertFalse(any('/api/offers?' in path for path in result['requests']))
+        self.assertEqual(result["store"], "crisp")
+        self.assertTrue(any("/api/prices/history?store=crisp&" in path for path in result["requests"]))
+        self.assertFalse(any("/api/offers?" in path for path in result["requests"]))
 
     def test_leaving_history_falls_back_before_loading_ordinary_offers(self) -> None:
         result: dict = self.run_script("""
@@ -145,11 +172,11 @@ activeSubtab = 'offers-history'; offersState.store = 'crisp';
 tabs[0].click(); await settle();
 console.log(JSON.stringify({store: offersState.store, stores: offersStores(), menu: $('#offers-store-list').innerHTML, requests}));
 """)
-        self.assertEqual(result['store'], 'ah')
-        self.assertNotIn('crisp', result['stores'])
-        self.assertNotIn('data-store="crisp"', result['menu'])
-        self.assertTrue(any('/api/offers?store=ah&' in path for path in result['requests']))
-        self.assertFalse(any('/api/offers?store=crisp&' in path for path in result['requests']))
+        self.assertEqual(result["store"], "ah")
+        self.assertNotIn("crisp", result["stores"])
+        self.assertNotIn('data-store="crisp"', result["menu"])
+        self.assertTrue(any("/api/offers?store=ah&" in path for path in result["requests"]))
+        self.assertFalse(any("/api/offers?store=crisp&" in path for path in result["requests"]))
 
     def test_recipe_tab_keeps_linked_store_filter_and_ordinary_fallback(self) -> None:
         result: dict = self.run_script("""
@@ -157,9 +184,9 @@ activeSubtab = 'offers-history'; offersState.store = 'crisp';
 tabs[1].click(); await settle();
 console.log(JSON.stringify({store: offersState.store, stores: offersStores(), requests}));
 """)
-        self.assertEqual(result['store'], 'ah')
-        self.assertNotIn('crisp', result['stores'])
-        self.assertFalse(any('/api/offers?store=crisp&' in path for path in result['requests']))
+        self.assertEqual(result["store"], "ah")
+        self.assertNotIn("crisp", result["stores"])
+        self.assertFalse(any("/api/offers?store=crisp&" in path for path in result["requests"]))
 
     def test_ordinary_route_still_retries_when_store_credentials_arrive(self) -> None:
         result: dict = self.run_script("""
@@ -170,10 +197,10 @@ state.linkedStores.crisp = true;
 routerRetry(); await settle();
 console.log(JSON.stringify({pending, store: offersState.store, remaining: router.pending, requests}));
 """)
-        self.assertEqual(result['pending'], 'http://localhost/offers?store=crisp')
-        self.assertEqual(result['store'], 'crisp')
-        self.assertEqual(result['remaining'], '')
-        self.assertTrue(any('/api/offers?store=crisp&' in path for path in result['requests']))
+        self.assertEqual(result["pending"], "http://localhost/offers?store=crisp")
+        self.assertEqual(result["store"], "crisp")
+        self.assertEqual(result["remaining"], "")
+        self.assertTrue(any("/api/offers?store=crisp&" in path for path in result["requests"]))
 
     def test_offers_links_from_history_leave_out_an_unlinked_store(self) -> None:
         result: dict = self.run_script("""
@@ -186,10 +213,17 @@ routerRefreshLinks();
 const jumbo = Object.fromEntries(tabs.map(tab => [tab.dataset.subtab, tab.href]));
 console.log(JSON.stringify({crisp, jumbo}));
 """)
-        self.assertEqual(result['crisp'], {'offers-items': '/offers', 'offers-suggestions': '/offers/recipes',
-                                           'offers-history': '/offers/history?store=crisp'})
-        self.assertEqual(result['jumbo'], {'offers-items': '/offers?store=jumbo', 'offers-suggestions': '/offers/recipes?store=jumbo',
-                                           'offers-history': '/offers/history?store=jumbo'})
+        self.assertEqual(
+            result["crisp"], {"offers-items": "/offers", "offers-suggestions": "/offers/recipes", "offers-history": "/offers/history?store=crisp"}
+        )
+        self.assertEqual(
+            result["jumbo"],
+            {
+                "offers-items": "/offers?store=jumbo",
+                "offers-suggestions": "/offers/recipes?store=jumbo",
+                "offers-history": "/offers/history?store=jumbo",
+            },
+        )
 
     def test_offers_wait_for_the_week_start_and_ask_for_one_list(self) -> None:
         # Opent de pagina, dan vragen het scherm en het subtab allebei de lijst op, en de eerste dag van de week (uit Mealie) is nog
@@ -202,7 +236,7 @@ weekStartSettled(); showOffers(); await settle();
 const loaded = requests.filter(path => path.startsWith('/api/offers?')).length;
 console.log(JSON.stringify({waiting, loaded, known: state.weekStartKnown}));
 """)
-        self.assertEqual(result, {'waiting': 0, 'loaded': 1, 'known': True})
+        self.assertEqual(result, {"waiting": 0, "loaded": 1, "known": True})
 
     def test_a_slow_week_start_does_not_hold_the_offers_back(self) -> None:
         result: dict = self.run_script("""
@@ -211,8 +245,8 @@ showOffers(); await settle();
 await new Promise(resolve => setTimeout(resolve, 50)); await settle();
 console.log(JSON.stringify({known: state.weekStartKnown, requests: requests.filter(path => path.startsWith('/api/offers?'))}));
 """)
-        self.assertTrue(result['known'])
-        self.assertEqual(len(result['requests']), 1)
+        self.assertTrue(result["known"])
+        self.assertEqual(len(result["requests"]), 1)
 
     def test_the_product_in_the_address_is_pinned_from_the_first_request(self) -> None:
         # Een link van een aanbieding: /offers/history?q=<naam>&product=<id>. Elke aanvraag noemt het product (pin), ook de eerste
@@ -225,9 +259,8 @@ routerApply('http://localhost/offers/history?q=milk'); await settle();
 console.log(JSON.stringify({linked, plain: requests.filter(path => path.startsWith('/api/prices/history')), pin: offerHistory.pin,
   selected: offerHistory.selected}));
 """)
-        self.assertTrue(result['linked'])
-        self.assertTrue(all('pin=second' in path for path in result['linked']), result['linked'])
-        self.assertTrue(result['plain'])
-        self.assertFalse(any('pin=' in path for path in result['plain']))
-        self.assertEqual(result['pin'], '')
-
+        self.assertTrue(result["linked"])
+        self.assertTrue(all("pin=second" in path for path in result["linked"]), result["linked"])
+        self.assertTrue(result["plain"])
+        self.assertFalse(any("pin=" in path for path in result["plain"]))
+        self.assertEqual(result["pin"], "")
