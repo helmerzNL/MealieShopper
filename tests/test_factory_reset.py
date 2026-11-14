@@ -437,5 +437,34 @@ class PageTest(AppTestCase):
         self.assertIn("system.js", HTML)
 
 
+async def test_the_wipe_closes_the_open_read_connections_before_it_removes_the_files(
+    data_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Taak 10b: de sessie en de instellingen lezen over open verbindingen (`auth.read`, readers.py). Zo'n verbinding met het
+    weggehaalde bestand zou bij het sluiten de WAL van de nieuwe database kunnen wissen: hij gaat dicht voor het weghalen."""
+    await auth.ensure_db()
+    started: list[threading.Thread] = []
+    original: Callable[[threading.Thread], None] = threading.Thread.start
+
+    def counted(thread: threading.Thread) -> None:
+        if "_connection_worker_thread" in thread.name:
+            started.append(thread)
+        original(thread)
+
+    with mock.patch.object(threading.Thread, "start", counted):
+        await auth.get_setting("WEEK_START")
+    assert len(started) == 1 and started[0].is_alive()
+    alive_at_removal: list[bool] = []
+    remove: Callable[[], list[str]] = factory_reset._remove_files
+
+    def removing() -> list[str]:
+        alive_at_removal.append(started[0].is_alive())
+        return remove()
+
+    monkeypatch.setattr(factory_reset, "_remove_files", removing)
+    assert "auth.sqlite3" in await factory_reset.wipe_data()
+    assert alive_at_removal == [False]
+
+
 if __name__ == "__main__":
     unittest.main()

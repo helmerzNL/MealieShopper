@@ -15,7 +15,8 @@ from unittest import mock
 import pytest
 from quart import Quart
 
-from mealieshopper import auth
+from mealieshopper import auth, readers, tasks
+from mealieshopper.app import create_app
 from helpers import db, run  # noqa: E402
 
 OTHER_ID: str = "u-2"
@@ -591,3 +592,87 @@ def test_connect_makes_the_data_dir_once_per_path(tmp_path: Path, monkeypatch: p
     auth.forget_runtime_state()
     run(three())
     assert len(made) == 2
+
+
+@asynccontextmanager
+async def reader_threads() -> AsyncIterator[list[threading.Thread]]:
+    """De threads van aiosqlite die binnen het blok starten (een per `aiosqlite.connect`)."""
+    started: list[threading.Thread] = []
+    original: Callable[[threading.Thread], None] = threading.Thread.start
+
+    def counted(thread: threading.Thread) -> None:
+        if "_connection_worker_thread" in thread.name:
+            started.append(thread)
+        original(thread)
+
+    with mock.patch.object(threading.Thread, "start", counted):
+        yield started
+
+
+async def test_requests_start_at_most_a_few_reader_threads(seeded: Path) -> None:
+    """Taak 10b: elke lezing van de sessie en de instellingen opende een eigen `aiosqlite.connect`, dus een thread, en op de loop
+    wacht `Thread.start` tot die draait (met een drukke rekenthread 1,5 tot 6 ms per verbinding, en de verbinding met een SELECT
+    32 ms). `/api/auth/status` las er zo zeven per aanvraag. Nu lenen ze een open verbinding (`auth.read`, readers.py): twintig
+    aanvragen, tegelijk en na elkaar, starten hooguit `readers.READERS_KEPT` threads."""
+    app: Quart = create_app()
+    async with app.test_app() as test_app:
+        client: Any = test_app.test_client()
+        async with reader_threads() as started:
+            first: list[Any] = await asyncio.gather(*(client.get("/api/auth/status") for _ in range(10)))
+            later: list[Any] = [await client.get("/api/auth/status") for _ in range(10)]
+    assert [response.status_code for response in first + later] == [200] * 20
+    assert len(started) <= readers.READERS_KEPT, len(started)
+
+
+async def test_a_pooled_read_sees_what_another_connection_committed(data_dir: Path) -> None:
+    """Een verbinding gaat terug in de pool zonder open transactie: anders zag de volgende lezing de oude stand van de WAL. Een
+    lener die er toch een liet openstaan, krijgt zijn verbinding dicht in plaats van terug."""
+    assert await auth.get_setting("WEEK_START") == ""
+    async with auth.read() as conn:
+        await conn.execute("BEGIN")
+        await auth.fetchone(conn, "SELECT value FROM app_settings WHERE key = ?", ("WEEK_START",))
+        stale: Any = conn
+    await auth.set_setting("WEEK_START", "monday")  # via `auth.connect`: een andere verbinding
+    assert await auth.get_setting("WEEK_START") == "monday"
+    async with auth.read() as conn:
+        assert conn is not stale
+        assert conn.in_transaction is False
+
+
+async def test_a_pooled_read_connection_refuses_to_write(data_dir: Path) -> None:
+    """`auth.read` is alleen voor lezen (`PRAGMA query_only`): een schrijfopdracht faalt luid, en die verbinding gaat dicht."""
+    await auth.ensure_db()
+    with pytest.raises(sqlite3.OperationalError, match="readonly"):
+        async with auth.read() as conn:
+            await conn.execute("INSERT INTO app_settings (key, value, updated_at) VALUES ('X', 'Y', 'Z')")
+    assert await auth.get_setting("X") == ""
+
+
+async def test_shutting_down_closes_the_reader_threads(data_dir: Path) -> None:
+    """`tasks.cancel_all` (het afsluiten) sluit de open leesverbindingen en wacht tot hun threads stoppen."""
+    await auth.ensure_db()  # het schema opent een eigen verbinding (`auth.connect`)
+    async with reader_threads() as started:
+        await asyncio.gather(*(auth.get_setting("WEEK_START") for _ in range(6)))
+    assert 1 <= len(started) <= readers.READERS_KEPT
+    await tasks.cancel_all(timeout=5)
+    for thread in started:
+        thread.join(5)
+    assert not [thread for thread in started if thread.is_alive()]
+
+
+async def test_forgetting_the_data_closes_the_reader_threads(data_dir: Path) -> None:
+    """Na het wissen van de data-map (`forget_runtime_state`) gaan de open leesverbindingen dicht: ze hebben het oude bestand nog
+    open. De volgende lezing opent een nieuwe."""
+    await auth.ensure_db()  # het schema opent een eigen verbinding (`auth.connect`)
+    async with reader_threads() as started:
+        await auth.get_setting("WEEK_START")
+    auth.forget_runtime_state()
+    for _ in range(50):
+        await asyncio.sleep(0.01)
+        if not started[0].is_alive():
+            break
+    assert not started[0].is_alive()
+    await auth.ensure_db()
+    async with reader_threads() as again:
+        assert await auth.get_setting("WEEK_START") == ""
+    assert len(again) == 1

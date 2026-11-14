@@ -51,6 +51,7 @@ async def wipe_data() -> list[str]:
     Het werk op schijf loopt in een thread: de afbeeldingencache kan duizenden bestanden bevatten. Daarna vergeet auth
     wat het onthield, op de event loop.
     """
+    await auth.close_readers()  # voor het weghalen: een open leesverbinding met het oude bestand kan bij het sluiten de nieuwe WAL wissen
     removed: list[str] = await asyncio.to_thread(_remove_files)
     auth.forget_runtime_state()  # zonder herstart maakt de volgende aanvraag een nieuwe, lege database
     return removed
