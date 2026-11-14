@@ -236,15 +236,16 @@ def _grouped(entries: Iterable[tuple[Pair, Line]]) -> dict[Pair, tuple[Line, ...
 class LineIndex:
     """De folderproducten van een winkel, op hun langste woord: een product zoekt alleen bij zijn eigen woorden.
 
-    Bij de eerste vraag zoekt de index de regels ook uit op hun twee langste woorden (`_pairs`). Een product kijkt dan alleen naar
-    de regels waarvan die twee woorden in zijn naam staan, en niet naar elke regel met een van zijn woorden: op de volumedatabase
-    scheelt dat voor de aanbiedingen van een week 2,7 miljoen keer `_fits`."""
+    De index zoekt de regels ook uit op hun twee langste woorden (`_pairs`). Een product kijkt dan alleen naar de regels waarvan die
+    twee woorden in zijn naam staan, en niet naar elke regel met een van zijn woorden: op de volumedatabase scheelt dat voor de
+    aanbiedingen van een week 2,7 miljoen keer `_fits`.
 
-    def __init__(self, folder_products: Iterable[tuple[str, str]]) -> None:
+    Alles wordt bij het bouwen uitgezocht, ook de regels per categoriewoord van `kinds` (`_ending`): daarna leest de index alleen
+    nog. Zo schrijft een thread van `compute.run` (`prices._lines_wanted`) niet in een index die een andere thread leest. Bij AH
+    kost dat in de bouw van de catalogus (`prices._line_index`) zo'n 25 ms voor de paren en 20 tot 70 ms voor de 26 woorden."""
+
+    def __init__(self, folder_products: Iterable[tuple[str, str]], kinds: Iterable[str] = ()) -> None:
         self._by_word: dict[str, list[Line]] = {}
-        self._by_ending: dict[str, dict[Pair, tuple[Line, ...]]] = {}  # categoriewoord -> regels op hun andere woorden, zie `_ending`
-        self._by_pair: dict[Pair, tuple[Line, ...]] | None = None  # `_pairs`, bij de eerste vraag
-        self._vocabulary: frozenset[str] = frozenset()  # elk woord van een regel, samen met `_pairs` uitgezocht
         seen: set[str] = set()
         for product_id, title in folder_products:
             if product_id in seen:
@@ -253,44 +254,43 @@ class LineIndex:
             for needed, part in _parts(title):
                 key: str = max(needed, key=lambda word: (len(word), word))
                 self._by_word.setdefault(key, []).append((product_id, needed, _size(part), multipack(part)))
+        lines: list[Line] = [line for found in self._by_word.values() for line in found]
+        self._vocabulary: frozenset[str] = frozenset(word for line in lines for word in line[1])  # elk woord van een regel
+        self._by_pair: dict[Pair, tuple[Line, ...]] = _grouped((_top_two(line[1]), line) for line in lines)  # `_pairs`
+        # Categoriewoord -> regels op hun andere woorden, zie `_ending`.
+        self._by_ending: dict[str, dict[Pair, tuple[Line, ...]]] = {kind: self._ending_lines(kind) for kind in kinds}
 
     def __len__(self) -> int:
         return sum(len(lines) for lines in self._by_word.values())
 
     def _pairs(self) -> dict[Pair, tuple[Line, ...]]:
-        """Elke regel op zijn twee langste woorden (`_top_two`), een keer uitgezocht bij de eerste vraag, met de woorden van alle
-        regels (`_vocabulary`). Een regel past alleen als al zijn woorden in de naam staan (`_fits` zonder categorie), dus ook die twee.
-
-        Dit schrijft in de index, ook vanuit een thread van `compute.run` (`prices._lines_wanted`). Dat is veilig onder de GIL: het
-        zet een dict die al helemaal gebouwd is, en twee threads tegelijk bouwen dezelfde. Elke winkel heeft zijn eigen index in
-        zijn eigen catalogus."""
-        if self._by_pair is None:
-            lines: list[Line] = [line for found in self._by_word.values() for line in found]
-            self._vocabulary = frozenset(word for line in lines for word in line[1])
-            self._by_pair = _grouped((_top_two(line[1]), line) for line in lines)
+        """Elke regel op zijn twee langste woorden (`_top_two`), uitgezocht bij het bouwen. Een regel past alleen als al zijn
+        woorden in de naam staan (`_fits` zonder categorie), dus ook die twee."""
         return self._by_pair
 
-    def _ending(self, kind: str) -> dict[Pair, tuple[Line, ...]]:
+    def _ending_lines(self, kind: str) -> dict[Pair, tuple[Line, ...]]:
         """De regels met een woord dat op een categoriewoord eindigt ("bakkersbrood" op "brood"), op de twee langste van hun andere
-        woorden, een keer uitgezocht per categoriewoord. Zo'n regel past met dat ene woord buiten de naam (`_fits` met categorie),
-        dus dan staan de andere woorden er wel in. Alleen regels met genoeg andere woorden (`NAMED_WORDS`): met minder past een regel
-        alleen met al zijn woorden in de naam, en die vindt `_pairs` al. Veilig onder de GIL zoals `_pairs`."""
-        if kind not in self._by_ending:
-            self._pairs()
-            ending: frozenset[str] = frozenset(word for word in self._vocabulary if word.endswith(kind))
-            self._by_ending[kind] = _grouped(
-                (key, line)
-                for found in (self._by_word.values() if ending else ())
-                for line in found
-                if len(line[1]) - 1 >= NAMED_WORDS and not ending.isdisjoint(line[1])
-                for key in {_top_two(word for word in line[1] if word != outside) for outside in line[1] if outside in ending}
-            )
-        return self._by_ending[kind]
+        woorden. Zo'n regel past met dat ene woord buiten de naam (`_fits` met categorie), dus dan staan de andere woorden er wel
+        in. Alleen regels met genoeg andere woorden (`NAMED_WORDS`): met minder past een regel alleen met al zijn woorden in de
+        naam, en die vindt `_pairs` al."""
+        ending: frozenset[str] = frozenset(word for word in self._vocabulary if word.endswith(kind))
+        return _grouped(
+            (key, line)
+            for found in (self._by_word.values() if ending else ())
+            for line in found
+            if len(line[1]) - 1 >= NAMED_WORDS and not ending.isdisjoint(line[1])
+            for key in {_top_two(word for word in line[1] if word != outside) for outside in line[1] if outside in ending}
+        )
+
+    def _ending(self, kind: str) -> dict[Pair, tuple[Line, ...]]:
+        """`_ending_lines` van een categoriewoord: van de woorden die bij het bouwen zijn uitgezocht (`kinds`) uit de index, van een
+        ander woord (een categorie die niet in `offer_categories.CATEGORIES` staat) elke keer opnieuw, zonder het te bewaren."""
+        found: dict[Pair, tuple[Line, ...]] | None = self._by_ending.get(kind)
+        return found if found is not None else self._ending_lines(kind)
 
     def _pairs_of(self, have: frozenset[str]) -> list[Pair]:
         """De paren van woorden van een naam die een sleutel van `_pairs` of `_ending` kunnen zijn: alleen woorden die in een
-        regel voorkomen (`_vocabulary`, dat `_pairs` uitzoekt), en op de volgorde van `_rank`, zoals `_top_two` ze zet."""
-        self._pairs()
+        regel voorkomen (`_vocabulary`), en op de volgorde van `_rank`, zoals `_top_two` ze zet."""
         ranked: list[str] = sorted(have & self._vocabulary, key=_rank, reverse=True)
         return list(combinations(ranked, 2))
 

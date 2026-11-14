@@ -1126,10 +1126,15 @@ class _Catalogue(NamedTuple):
 _FOLDER_PRODUCTS_SQL = "SELECT DISTINCT product_id, title FROM offer_history WHERE store = ? AND product_id LIKE 'folder:%' ORDER BY product_id"
 
 
+# De categoriewoorden waarmee een folderwoord de categorie van een product noemt (`line_offers.category_words`), van elke categorie.
+_CATEGORY_KINDS: frozenset[str] = frozenset().union(*(line_offers.category_words(category) for category in offer_categories.CATEGORIES))
+
+
 def _line_index(folder_products: list[Any]) -> line_offers.LineIndex:
     """De folderproducten van een winkel (uit een prijsarchief, `folder:...`: de rijen van `_FOLDER_PRODUCTS_SQL`), om lijnacties
-    bij een product te vinden. Puur, voor `_build_catalogue`."""
-    return line_offers.LineIndex((product_id, title or "") for product_id, title in folder_products)
+    bij een product te vinden. Puur, voor `_build_catalogue`: de index zoekt alles hier uit, ook de regels per categoriewoord, en
+    de threads die hem daarna lezen (`_lines_wanted`) schrijven er niet meer in."""
+    return line_offers.LineIndex(((product_id, title or "") for product_id, title in folder_products), _CATEGORY_KINDS)
 
 
 # Wat de catalogus uit de database leest (`_catalogue_rows`). De bekende producten per naam, merk en verpakking met hun laatste dag:
