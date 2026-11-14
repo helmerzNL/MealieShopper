@@ -2,6 +2,83 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub; een stabiele release krijgt de teksten van alle versies sinds de vorige stabiele release.
 
+## v4.26.0
+
+*English summary: The app no longer stands still while it computes, and it brings four improvements that so far ran only in builds of this fork. **Never blocking**: the heavy work behind the offers, the price history, the verdict, the nightly run and a backup restore runs in worker threads, and the event loop that answers every request is never held for 100 ms or longer, measured under load on a database the size of a real installation. Judging the offers of Albert Heijn takes about 0.9 s instead of 2 s, and a stall of 100 ms or longer now fails the tests. **Telemetry**: with `MEALIESHOPPER_TELEMETRY=true` every answer carries a `Server-Timing` header, slow requests and stalls are logged with the function and the line that held the event loop, and the admin sees the numbers per route at `/api/telemetry`. **Price index**: the daily task fetches the weekly regular price from ahprijsindex.nl for each Albert Heijn product you bought, so its offers are judged against a fresh price (`MEALIESHOPPER_PRICE_INDEX=false` turns it off). **Faster**: JSON, scripts and styles go to the browser with gzip, the offers pages load fast again with a price archive, and SQLite runs in WAL so a writer no longer blocks the readers (`MEALIESHOPPER_SQLITE_WAL=false` turns that off for a data folder on a network share).*
+
+### De app staat niet meer stil
+
+#### Sneller
+
+Gemeten op een database met de omvang van een echte installatie (`tests/volume.py`: 74.000 producten bij Albert Heijn, een jaar aan prijzen en bonnen), op een Mac. De event loop is het deel van de app dat elke aanvraag beantwoordt: zolang hij rekent, wacht elke andere pagina.
+
+- **De app staat niet meer stil.** Het zware rekenwerk (de catalogus van de prijzen, het oordeel over de aanbiedingen, de prijsgeschiedenis, de lijst, de nachtelijke ronde) draait nu in twee eigen rekenthreads. Eerder stond de event loop bij een koude lijst van Albert Heijn seconden stil, en hielden de opruimrondes van Python (de garbage collector) hem tot 220 ms vast. Onder belasting, met drie andere processen op volle kracht, stond de event loop in geen enkele meting nog 100 ms of langer stil.
+- **Opnieuw oordelen** over de aanbiedingen van Albert Heijn, met de catalogus al in het geheugen, duurt ongeveer 0,9 s in plaats van 2,0 s. Een koude lijst (direct na de start) duurt ongeveer 2,0 s in plaats van 4,3 s, en een ongewijzigde lijst geeft nog steeds in 3 ms een 304.
+- **Minder geheugen.** De catalogus bewaart zijn producten en regels nu als tuples, die Python niet bij elke opruimronde langsloopt: 118.000 gevolgde objecten in plaats van 644.000, een volle opruimronde van 158 naar 14 ms, en het geheugen van de app met alle catalogi van 531 naar ongeveer 420 MiB.
+- **Lezen uit de database** voor de sessie en de instellingen gaat over een paar open verbindingen in plaats van een nieuwe verbinding, en dus een nieuwe thread, per aanvraag. Twintig keer `/api/auth/status` startte 140 threads en nu hooguit 4.
+- **Een back-up terugzetten** houdt de app niet meer honderden milliseconden vast: het bestand wordt per rij gelezen in plaats van in een keer.
+
+#### Nieuw
+
+- **De telemetrie noemt de oorzaak van een stilstand.** Met `MEALIESHOPPER_TELEMETRY=true` komt elke stilstand van de event loop van 100 ms of langer in het log (was 250 ms), met de functie en de regel die hem vasthield, binnenste eerst, en de threads die op dat moment bezig waren.
+- **Nieuwe, optionele instelling:** `MEALIESHOPPER_TELEMETRY_GC=true` meet ook elke opruimronde van de garbage collector van 20 ms of langer, met de generatie en de thread. Alleen samen met `MEALIESHOPPER_TELEMETRY`.
+- **De tests bewaken het.** Een stilstand van de event loop van 100 ms of langer laat de tests nu falen, en de volumetests draaien de zware paden op een database van productieschaal. In GitHub Actions staan ze in een eigen stap.
+
+#### Opgelost
+
+- Een rij van een bestelling bij Jumbo of Picnic kreeg soms het merk of de inhoud van een product van Albert Heijn met hetzelfde nummer. De koppeling met de artikelen van Albert Heijn geldt nu alleen voor Albert Heijn.
+- Bij een fabrieksreset konden de auditlog en een leesverbinding nog open staan op het verwijderde databasebestand. Ze worden nu eerst gesloten.
+- Een token van een upload of back-up met een regeleinde aan het eind werd geaccepteerd.
+
+#### Database
+
+- Een nieuwe tabel `catalogue_versions` houdt per winkel bij wanneer producten of prijzen veranderden, met eigen triggers. Terug naar 4.25.1 kan zonder de kopie van de gegevens: die versie maakt bij de start haar eigen triggers weer aan.
+
+### Telemetrie: meten waar een trage pagina zijn tijd laat
+
+#### Nieuw
+
+- **Meten waar een trage pagina zijn tijd laat.** Met `MEALIESHOPPER_TELEMETRY=true` meet de app elke aanvraag: de hele duur, de tijd in de database met het aantal bewerkingen en de traagste query, en het verpakken met gzip. Aanleiding: de aanbiedingen laadden op een installatie geregeld tien seconden, en niets in de app zei welke route dat was.
+- **Waar je het ziet.** Elk antwoord krijgt de header `Server-Timing`, die de browser toont bij Netwerk, Timing. Een aanvraag van 500 ms of langer komt in het log van de container, en ook elke keer dat de app 100 ms of langer stilstond, met de aanvragen die toen liepen en de regel die de app vasthield. De beheerder ziet op `/api/telemetry` de cijfers per route sinds de start (aantal, gemiddelde, mediaan, 95e percentiel, langste), de laatste honderd trage aanvragen en de laatste honderd keren dat de app stilstond.
+- **Wat er bewaard wordt.** Alles staat in het geheugen en begint bij een herstart opnieuw. Van een adres blijft het pad over met alleen de parameters `store`, `week`, `limit` en `bought`, van een query de tekst zonder de waarden.
+- **Nieuwe, optionele instellingen:** `MEALIESHOPPER_TELEMETRY=true` zet het meten aan, `MEALIESHOPPER_TELEMETRY_SLOW_MS` (standaard `500`) bepaalt wat traag is. Zonder de eerste verandert er niets.
+
+### De gewone prijs per week van wat je bij Albert Heijn kocht
+
+#### Nieuw
+
+- **De gewone prijs per week van wat je bij Albert Heijn kocht.** De dagelijkse taak haalt voor elk product van Albert Heijn dat je minstens een keer kocht de gewone prijs per week op bij [ahprijsindex.nl](https://www.ahprijsindex.nl), terug tot juli 2022. De app kende de gewone prijs alleen van de dagen waarop ze het product zelf zag, in een bestelling, op een bon of bij een zoekopdracht. Bij de meeste aanbiedingen stond daardoor een gestippelde badge met de claim van de winkel.
+- **Waar je het ziet.** De weekprijzen tellen als gemeten prijs. De badge van een aanbieding op een gekocht product rust daarmee op een prijs van deze week en krijgt een dichte rand, en de Prijsgeschiedenis toont de gewone prijs door de jaren heen. Een prijs die de app zelf mat op dezelfde dag blijft staan. De ladder van laagste prijzen (*Laagste prijs in een jaar*) rekent niet met de weekprijzen: die kennen alleen de gewone prijs en niet de acties van die jaren.
+- **Rustig voor de site.** De ronde vraagt alleen productpagina's, een per tien seconden zoals de robots.txt van de site vraagt, noemt MealieShopper in de User-Agent en stopt bij de eerste weigering. Een product komt na twee weken opnieuw aan de beurt, een product dat de site niet kent na dertig dagen. De eerste ronde kan met de hand: `python -m mealieshopper.ah_price_index_run`.
+- **Nieuwe, optionele instelling:** `MEALIESHOPPER_PRICE_INDEX=false` zet de ronde uit.
+
+#### Opgelost
+
+- Veel aanbiedingen op eerder gekochte producten van Albert Heijn hadden een gestippelde badge, omdat de app geen gewone prijs van het laatste jaar kende.
+
+### Sneller met een prijsarchief, en de database in WAL
+
+#### Sneller
+
+Gemeten met `MEALIESHOPPER_TELEMETRY` op een installatie met een prijsarchief (146.000 rijen aan aanbiedingen) en de weekprijzen van ahprijsindex.nl (309.000 prijzen van Albert Heijn).
+
+- **De geschiedenis van de aanbiedingen** (`/api/offers/history`) las alle rijen en zette ze in de app om tot producten, om er daarna vijftig te tonen. Dat duurde 6,5 seconden, en vijf daarvan stond de hele app stil, dus elke andere pagina wachtte mee. De database kiest nu de producten van de pagina en de app leest alleen hun rijen.
+- **De lijst met aanbiedingen** (`/api/offers`) telde bij elke aanvraag alle bewaarde prijzen van de winkel om te zien of de lijst veranderd was, ook als de browser de lijst al had. Bij Albert Heijn kostte dat 1,6 seconde per keer. De app gebruikt daarvoor nu de versie die de database al bijhoudt bij elke wijziging.
+- **De prijsgeschiedenis** (`/api/prices/history`) zocht de prijzen van de producten op de pagina via de index op dag en las daarbij alle prijzen van de winkel: 1,6 seconde. Ze zoekt nu per product.
+
+#### Opgelost
+
+- **`database is locked`.** De database staat nu in WAL: lezen en schrijven houden elkaar niet meer tegen. Een pagina wachtte eerder op de nachtelijke synchronisatie, op een import of op een regel in de auditlog, en de ronde langs de prijsindex stopte op een slot van de app. Een verbinding wacht nu ook 30 seconden op een andere schrijver, in plaats van 5.
+- **Nieuwe, optionele instelling:** `MEALIESHOPPER_SQLITE_WAL=false` houdt de database in de oude stand, voor een data-map op een netwerkschijf (NFS, SMB). Met WAL staan naast `auth.sqlite3` de bestanden `auth.sqlite3-wal` en `auth.sqlite3-shm`: kopieer je de database met de hand, neem die dan mee of stop de container eerst. De back-up in de app verandert niet.
+
+### Tekst gaat ingepakt naar de browser
+
+#### Sneller
+
+- De app verstuurt tekst (JSON, scripts en stijlen) met gzip naar een browser die dat aankan. Een reverse proxy verpakt vaak alleen HTML, zoals nginx zonder uitgebreide `gzip_types`, en een installatie zonder proxy verpakte niets. De aanbiedingen van Albert Heijn openen haalde daardoor 5,3 MB op: 3,7 MB voor de lijst, 1,2 MB aan scripts en 0,3 MB aan stijlen. Dat is nu samen ongeveer 0,75 MB, en de lijst zelf 260 KB.
+- Een antwoord met een ETag wordt een keer verpakt en daarna uit het geheugen verstuurd, tot 32 MB aan verpakte antwoorden. De ETag blijft dezelfde, dus een ongewijzigde lijst of een ongewijzigd script geeft nog steeds een 304.
+- Plaatjes, lettertypen en back-ups zijn al verpakt en blijven zoals ze zijn, net als een antwoord onder 1 KB, een deel van een bestand (`Range`) en een antwoord dat als stroom wordt verstuurd.
+
 ## v4.25.1
 
 *English summary: The Orders and receipts screen gives its boxes more room on a wide screen, like the Price history did in 4.23.1. The table of purchases, the cards, the overview, and the products or the receipt of an opened purchase used to get only the height from where they start to the bottom of the page, and above them sit the title, the explanation, the search box, the filters, a notice and the view bar, so on a laptop each box was down to the 240 px minimum: about three rows. They now get at least 640 px, about ten rows or the whole receipt; when that does not fit under the header, the page scrolls along. A taller screen still fits exactly, and a narrow screen keeps the page scroll. All other lists with a scrollbar of their own (the recipe picker of the plan dialog, the link and compare dialogs, the import reports, the brand, category and tag lists in the filters, the audit log and the list of the Price history on a narrow screen) used to have a size of their own, from 220 to 420 px or 40 to 60% of the screen; they now share one maximum, 640 px and never more than 60% of the screen, so everything looks the same. A short list stays short.*
