@@ -304,6 +304,52 @@ async def test_stop_does_not_hold_the_loop_while_a_function_is_stuck(
     assert await task is True
 
 
+async def test_a_cancelled_stop_gives_no_error_when_the_pool_is_done(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Eindreview: werd het wachten in `compute.stop` geannuleerd, dan zette de thread daarna `set_result` op een geannuleerde
+    future, en meldde asyncio "Exception in callback" (`InvalidStateError`)."""
+    release: threading.Event = threading.Event()
+    stopping: threading.Event = threading.Event()
+    errors: list[dict[str, Any]] = []
+    loop: asyncio.AbstractEventLoop = asyncio.get_running_loop()
+    loop.set_exception_handler(lambda _, context: errors.append(context))
+    real: Any = compute._Pool.stop
+
+    def slow_stop(pool: compute._Pool, seconds: float) -> None:
+        stopping.set()
+        release.wait(5)
+        real(pool, seconds)
+
+    monkeypatch.setattr(compute._Pool, "stop", slow_stop)
+    assert await compute.run(len, "abc") == 3  # er is een pool om te stoppen
+    try:
+        task: asyncio.Task[None] = asyncio.create_task(compute.stop())
+        assert await asyncio.to_thread(stopping.wait, 5)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        release.set()
+        for _ in range(100):  # de thread meldt zich via `call_soon_threadsafe`
+            await asyncio.sleep(0.01)
+    finally:
+        release.set()
+        loop.set_exception_handler(None)
+    assert errors == []
+
+
+async def test_stop_returns_when_stopping_the_pool_fails(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Een fout in `_Pool.stop` liet `compute.stop` eeuwig wachten: de thread kwam niet aan `set_result` toe."""
+    failures: list[BaseException | None] = []
+
+    def failing(pool: compute._Pool, seconds: float) -> None:
+        raise RuntimeError("stuk")
+
+    monkeypatch.setattr(compute._Pool, "stop", failing)
+    monkeypatch.setattr(threading, "excepthook", lambda args: failures.append(args.exc_value))
+    assert await compute.run(len, "abc") == 3
+    await asyncio.wait_for(compute.stop(), 5)
+    assert [type(failure) for failure in failures] == [RuntimeError]
+
+
 async def test_single_flight_ignores_a_finished_flight_that_is_not_yet_removed() -> (
     None
 ):

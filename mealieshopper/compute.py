@@ -151,7 +151,8 @@ def _detach() -> _Pool | None:
 async def stop() -> None:
     """Hetzelfde als `shutdown`, voor een `async def`: het wachten op de threads gebeurt in een eigen thread en niet op de loop.
 
-    Een functie die nog loopt houdt de event loop dus niet vast, ook niet tot `SHUTDOWN_SECONDS`.
+    Een functie die nog loopt houdt de event loop dus niet vast, ook niet tot `SHUTDOWN_SECONDS`. Een fout bij het stoppen gaat
+    naar `threading.excepthook`, en het wachten houdt dan ook op. Is het wachten al geannuleerd, dan zet de thread niets meer.
     """
     pool: _Pool | None = _detach()
     if pool is None:
@@ -159,12 +160,18 @@ async def stop() -> None:
     loop: asyncio.AbstractEventLoop = asyncio.get_running_loop()
     done: asyncio.Future[None] = loop.create_future()
 
+    def settle() -> None:
+        if not done.done():  # een geannuleerd wachten
+            done.set_result(None)
+
     def finish() -> None:
-        pool.stop(SHUTDOWN_SECONDS)
         try:
-            loop.call_soon_threadsafe(done.set_result, None)
-        except RuntimeError:  # de loop is intussen gesloten
-            pass
+            pool.stop(SHUTDOWN_SECONDS)
+        finally:
+            try:
+                loop.call_soon_threadsafe(settle)
+            except RuntimeError:  # de loop is intussen gesloten
+                pass
 
     threading.Thread(target=finish, name="compute-stop", daemon=True).start()
     await done
