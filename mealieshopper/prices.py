@@ -1569,8 +1569,9 @@ async def _line_offers(
 def _lines_wanted(catalogue: _Catalogue, ids: list[str], fallback: dict[str, _Known] | None) -> dict[str, list[str]]:
     """Per product de folderproducten van zijn lijn (`line_offers.LineIndex.lines_for`), alleen de producten met een of meer.
 
-    Leest de catalogus en schrijft er niets in, op het geheugen van de lijnindex na: die zoekt elk categoriewoord een keer uit
-    (`LineIndex._ending`), en dat is per woord steeds dezelfde lijst, ook als twee threads het tegelijk doen."""
+    Leest de catalogus en schrijft er niets in, op het geheugen van de lijnindex na: die zoekt bij de eerste vraag de paren van
+    woorden uit (`LineIndex._pairs`) en elk categoriewoord een keer (`LineIndex._ending`), en dat is steeds hetzelfde, ook als twee
+    threads het tegelijk doen."""
     wanted: dict[str, list[str]] = {}
     for product_id in ids:
         known: _Known | None = catalogue.products.get(product_id) or (fallback or {}).get(product_id)
