@@ -8,6 +8,8 @@ Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar
 
 ### Verbeterd in 4.27.1
 
+Pull request: [#334](https://github.com/helmerzNL/MealieShopper/pull/334).
+
 - **Gevolgde producten: een bekende maat leest niet meer als "verpakking onbekend".** Na de melding dat er bij een test "verpakking onbekend" stond terwijl de verpakkingsgrootte er wel bij stond. De maat (750 g) haalt de app bij de winkel; het soort verpakking (zak, fles, pot, ...) leidt hij af uit de naam en de maat, en bij "Aviko Oma's smulfriet · 750 g" staat daar geen verpakkingswoord in. Het kerngetal heette dan *Maat en verpakking: 750 g · verpakking onbekend*. Nu staat er alleen *Maat: 750 g*; is het soort verpakking bekend, dan blijft het *Maat en verpakking: 1 l · fles*. In de tabel met alle dagen staat een onbekende verpakking als streepje. In de lijst en de zoekresultaten stond een onbekende verpakking al niet.
 
 ### Tests in 4.27.1
