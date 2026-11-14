@@ -1201,7 +1201,7 @@ class _PriceState(NamedTuple):
     shared: dict[str, dict[str, tuple[float, ...]]]  # `_Names.shared` van de opbouw: de prijzen die een bonregel aan een product koppelen
 
 
-# (database, winkel) -> (versie, dag, catalogus, prijzen). Een winkel heeft er een; bij AH met tienduizenden producten scheelt hij per
+# (database, winkel) -> (versie, dag, catalogus, prijzen). Een winkel heeft er een. Bij AH met tienduizenden producten scheelt hij per
 # zoekopdracht in de prijsgeschiedenis en per lijst aanbiedingen het grootste deel van een seconde.
 _CATALOGUES: dict[tuple[str, str], tuple[str, str, _Catalogue, _PriceState]] = {}
 # Een bouw per (database, winkel, versie, dag) tegelijk: twee koude aanvragen wachten op dezelfde bouw (`_new_catalogue`).
