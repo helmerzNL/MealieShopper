@@ -276,6 +276,14 @@ class AppTestCase(unittest.IsolatedAsyncioTestCase):
     def client_for(self, app: Quart) -> AppClient:
         return AppClient(app.test_client(), lambda: self._serve(app))
 
+    async def asyncTearDown(self) -> None:
+        """Stopt de achtergrondtasks die de test startte (`tasks.spawn`) en wacht tot ze klaar zijn, voor de opruimers van de
+        test lopen. Een test die de dagelijkse run aanroept zonder app (`offers_schedule.run_all`) laat `warm-offers` en
+        `loose-names` lopen. Zonder dit stond hun verbinding nog in de database op het moment dat `tmp.cleanup` de map weggooide:
+        de verbinding maakte er net een WAL-bestand, en het opruimen faalde met "Directory not empty"."""
+        await tasks.cancel_all()
+        await super().asyncTearDown()
+
     async def _serve(self, app: Quart) -> None:
         """Start `app` een keer. Twee gelijktijdige eerste aanroepen wachten allebei op dezelfde start, zodat geen verzoek
         loopt voordat `before_serving` klaar is."""
