@@ -1589,6 +1589,42 @@ class BodyLimitTest(BackupCase):
         self.assertNotEqual(response.status_code, 413, response.get_data()[:200])
         self.assertLess(response.status_code, 500)
 
+    async def test_a_large_chunk_is_written_in_pieces_with_a_turn_for_the_loop_between(self) -> None:
+        # De testclient levert een back-up van 200 MB als een stuk: in een keer geschreven hield dat de loop 469 ms vast
+        # (volledige run op 3.15, 2026-11-14). Elk deel is hoogstens STAGE_PIECE_BYTES, tussen de delen draait de loop door.
+        chunk: bytes = bytes(range(256)) * (3 * backup.STAGE_PIECE_BYTES // 256) + b"x"
+        turns: list[int] = [0]
+
+        async def count_turns() -> None:
+            while True:
+                turns[0] += 1
+                await asyncio.sleep(0)
+
+        handle: TurnRecordingFile = TurnRecordingFile(turns)
+        counter: asyncio.Task[None] = asyncio.create_task(count_turns())
+        try:
+            await asyncio.sleep(0)
+            await backup._write_in_pieces(handle, chunk)
+        finally:
+            counter.cancel()
+        self.assertEqual(handle.getvalue(), chunk)
+        self.assertEqual([size for size, _ in handle.pieces], [backup.STAGE_PIECE_BYTES] * 3 + [1])
+        seen: list[int] = [turn for _, turn in handle.pieces]
+        self.assertEqual(seen, sorted(set(seen)), "de loop kreeg geen beurt tussen twee delen")
+
+
+class TurnRecordingFile(io.BytesIO):
+    """Een bestand in het geheugen dat per `write` de grootte en de beurt van de loop op dat moment onthoudt."""
+
+    def __init__(self, turns: list[int]) -> None:
+        super().__init__()
+        self.turns: list[int] = turns
+        self.pieces: list[tuple[int, int]] = []
+
+    def write(self, data: Any) -> int:
+        self.pieces.append((len(data), self.turns[0]))
+        return super().write(data)
+
 
 class PageTest(unittest.TestCase):
     HTML = (ROOT / "templates" / "index.html").read_text(encoding="utf-8")

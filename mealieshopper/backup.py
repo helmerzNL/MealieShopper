@@ -41,7 +41,7 @@ from collections.abc import AsyncIterable, AsyncIterator, Callable, Iterator
 from contextlib import aclosing, asynccontextmanager, closing
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, BinaryIO
 
 import aiosqlite
 from cryptography.fernet import Fernet, InvalidToken
@@ -57,6 +57,7 @@ FORMAT = "mealieshopper-backup"
 FORMAT_VERSION = 1
 
 MAX_STAGE_BYTES = 200 * 1024 * 1024  # één bestand; een back-up van jaren aanbiedingen is enkele megabytes
+STAGE_PIECE_BYTES: int = 1024 * 1024  # zoveel schrijft `stage` per keer op de loop, hoe groot een stuk ook binnenkomt
 CHUNK = 1024 * 1024
 STAGE_TTL_SECONDS = 3600  # een bestand dat niet gebruikt wordt, ruimen we na een uur op
 JOB_STALE_SECONDS = 15 * 60  # een klus die zo lang niet bewoog, is z'n task kwijt (herstart)
@@ -821,16 +822,29 @@ async def stage(body: AsyncIterable[bytes], content_length: int | None) -> dict[
                 received += len(chunk)
                 if received > MAX_STAGE_BYTES:
                     raise BackupError("too_large", 413, limit=MAX_STAGE_BYTES // (1024 * 1024))
-                handle.write(chunk)  # lokale schijf en stukken van hoogstens een paar MB: dat mag op de loop
-                # Elk stuk meteen naar schijf: de buffer van een bestand is sinds Python 3.15 128 KB (was 8 KB), en zonder
-                # flush bleven stukken tot die grootte in het geheugen staan.
-                handle.flush()
+                await _write_in_pieces(handle, chunk)
         await ensure_schemas()
         summary = await asyncio.to_thread(_check_staged, path)
     except BaseException:
         path.unlink(missing_ok=True)  # een geweigerd bestand blijft niet staan
         raise
     return {"token": token, **summary}
+
+
+async def _write_in_pieces(handle: BinaryIO, chunk: bytes) -> None:
+    """Schrijft een stuk van het lichaam in delen van hoogstens STAGE_PIECE_BYTES, met een `await` tussen de delen.
+
+    Hoe groot een stuk is, bepaalt de client of de server ervoor: de testclient levert een back-up van 200 MB in een keer.
+    Een deel van 1 MB naar de lokale schijf duurt een paar milliseconden, dus de loop staat per deel nooit lang stil. Elk
+    deel gaat meteen naar schijf (`flush`): de buffer van een bestand is sinds Python 3.15 128 KB (was 8 KB), en zonder
+    flush bleven delen tot die grootte in het geheugen staan.
+    """
+    with memoryview(chunk) as view:
+        for start in range(0, len(view), STAGE_PIECE_BYTES):
+            if start:
+                await asyncio.sleep(0)  # de loop krijgt de beurt voor het volgende deel
+            handle.write(view[start : start + STAGE_PIECE_BYTES])
+            handle.flush()
 
 
 async def stage_upload(token: str, size: Any) -> dict[str, Any]:
