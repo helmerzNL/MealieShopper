@@ -1,6 +1,7 @@
 import asyncio
 import os
 import tempfile
+import threading
 import unittest
 from collections.abc import Awaitable
 from contextlib import closing
@@ -237,6 +238,24 @@ class OffersStoreTest(TempDataDirTest):
         self.assertTrue(data["syncedAt"] and data["supported"])
         with mock.patch.dict(offers.FETCHERS, {"ah": lambda: returned(first[:1])}):
             self.assertEqual(run(offers.sync("ah"))["total"], 1)
+
+    def test_sync_categorises_the_offers_off_the_event_loop(self):
+        # Een categorie per aanbieding (regexen over de titel) hield de loop bij een sync van de volumedatabase 27 ms vast, op een
+        # trager apparaat 150 ms of meer (2026-11-15): `_sync_rows` loopt nu via compute.run.
+        threads: list[str] = []
+        original: Callable[..., Any] = offer_categories.offer_category
+
+        def recorded(*args: Any, **kwargs: Any) -> Any:
+            threads.append(threading.current_thread().name)
+            return original(*args, **kwargs)
+
+        with (
+            mock.patch.object(offer_categories, "offer_category", recorded),
+            mock.patch.dict(offers.FETCHERS, {"ah": lambda: returned(ah.bonus_products_in(BONUS_PAGE))}),
+        ):
+            run(offers.sync("ah"))
+        self.assertTrue(threads, "geen categorie bepaald")
+        self.assertNotIn(threading.main_thread().name, threads)
 
     def test_load_adds_the_conditions_of_each_offer(self):
         with mock.patch.dict(offers.FETCHERS, {"ah": lambda: returned(ah.bonus_products_in(BONUS_PAGE))}):

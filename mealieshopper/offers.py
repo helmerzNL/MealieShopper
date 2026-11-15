@@ -597,22 +597,9 @@ async def _previous_personal(store: str) -> list[dict[str, Any]]:
     ]
 
 
-async def sync(store: Any) -> dict[str, Any]:
-    """Haal de aanbiedingen van een winkel op, vervang de lokale kopie en schrijf ze weg in de geschiedenis.
-
-    Mislukt het ophalen, dan verandert er niets: de vorige kopie en de geschiedenis blijven zoals ze waren. De persoonlijke aanbiedingen
-    (AH: de Bonus Box) komen erbij als de winkel gekoppeld is, bovenaan de lijst; mislukt alleen het ophalen daarvan, dan blijven de
-    persoonlijke aanbiedingen van de vorige keer staan en bewaren we de fout, zodat de lijst die kan melden.
-    """
-    store = _valid_store(store)
-    fetch = FETCHERS.get(store)
-    if not fetch:
-        raise ValueError(tr("Aanbiedingen van deze winkel zijn nog niet beschikbaar", "Offers from this store are not available yet"))
-    offers = await fetch()
-    personal, personal_error = await _fetch_personal(store)
-    if personal is None:
-        personal = await _previous_personal(store)
-    now = _now()
+def _sync_rows(store: str, personal: list[Any], offers: list[Any]) -> tuple[list[dict[str, Any]], list[tuple[Any, ...]]]:
+    """De aanbiedingen van `sync` (de persoonlijke eerst, elke rij een keer) en hun rijen voor de tabel `offers`. Puur, voor
+    `compute.run`: de categorie per aanbieding (`offer_categories.offer_category`) is rekenwerk over de titel."""
     items = []
     # Een product mag er vaker in staan, met een andere looptijd (de bonus van deze en van volgende week) of als persoonlijke aanbieding;
     # dezelfde rij twee keer niet.
@@ -667,6 +654,28 @@ async def sync(store: Any) -> dict[str, Any]:
         )
         for position, item in enumerate(items)
     ]
+    return items, rows
+
+
+async def sync(store: Any) -> dict[str, Any]:
+    """Haal de aanbiedingen van een winkel op, vervang de lokale kopie en schrijf ze weg in de geschiedenis.
+
+    Mislukt het ophalen, dan verandert er niets: de vorige kopie en de geschiedenis blijven zoals ze waren. De persoonlijke aanbiedingen
+    (AH: de Bonus Box) komen erbij als de winkel gekoppeld is, bovenaan de lijst; mislukt alleen het ophalen daarvan, dan blijven de
+    persoonlijke aanbiedingen van de vorige keer staan en bewaren we de fout, zodat de lijst die kan melden.
+    """
+    store = _valid_store(store)
+    fetch = FETCHERS.get(store)
+    if not fetch:
+        raise ValueError(tr("Aanbiedingen van deze winkel zijn nog niet beschikbaar", "Offers from this store are not available yet"))
+    offers = await fetch()
+    personal, personal_error = await _fetch_personal(store)
+    if personal is None:
+        personal = await _previous_personal(store)
+    now = _now()
+    # Een categorie per aanbieding (regexen over de titel) voor duizenden aanbiedingen: buiten de event loop. Bij een sync van
+    # de volumedatabase hield dit de loop 27 ms vast, op een trager apparaat 150 ms of meer (2026-11-15).
+    items, rows = await compute.run(_sync_rows, store, personal, offers)
     async with _connect() as conn:
         await conn.execute("DELETE FROM offers WHERE store = ?", (store,))
         await conn.executemany(

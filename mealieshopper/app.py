@@ -1,3 +1,4 @@
+import asyncio
 import hashlib
 import inspect
 import json
@@ -75,6 +76,7 @@ from . import (
     shared_links_export,
     tasks,
     telemetry,
+    templates,
     updates,
     urls,
     users,
@@ -179,6 +181,7 @@ SWITCH_INTERVAL_SECONDS: float = 0.001
 def create_app() -> Quart:
     sys.setswitchinterval(SWITCH_INTERVAL_SECONDS)  # hier, want run.py en hypercorn (run:app) starten allebei via create_app
     app = Quart(__name__, template_folder="../templates", static_folder="../static")
+    templates.prepare(app)  # een bytecode-cache voor het proces: zie templates.py
     # De versie van de statische bestanden: uit hun inhoud (assets.py), tenzij MEALIESHOPPER_ASSET_VERSION hem vastzet.
     app.config["ASSET_VERSION"] = environ.get("MEALIESHOPPER_ASSET_VERSION") or assets.asset_version(Path(app.static_folder or "static"))
     # Quart bewaart statische bestanden standaard 12 uur in de browser (Flask niet). Met 0 vraagt de browser elke keer na of het
@@ -222,6 +225,8 @@ def create_app() -> Quart:
     @app.before_serving
     async def _startup() -> None:
         """Opstartwerk van de app: database, opruimen en de dagelijkse aanbiedingen-run."""
+        # De sjablonen in een thread, zodat de eerste startpagina ze niet op de event loop compileert (templates.py).
+        await asyncio.to_thread(templates.compile_all, app.jinja_env)
         try:
             await auth.init_db()  # idempotent: schema en migratie een keer bij het starten, `ensure_db` vangt een latere eerste aanroep op
         except (sqlite3.Error, OSError):

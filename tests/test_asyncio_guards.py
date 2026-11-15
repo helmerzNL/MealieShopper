@@ -33,11 +33,13 @@ SOURCE: Path = Path(__file__).resolve().parent.parent / "mealieshopper"
 FORBIDDEN: tuple[str, ...] = ("import requests", "from requests", "threading.Thread(", "threading.Lock(", "ThreadPoolExecutor", "time.sleep(")
 
 # De bewaker van de event loop (loop_guard.py) draait juist in een eigen thread: een taak op de loop kan zichzelf niet betrappen.
-THREAD_ALLOWED: frozenset[str] = frozenset({"loop_guard.py", "compute.py", "name_keys.py"})
+THREAD_ALLOWED: frozenset[str] = frozenset({"loop_guard.py", "compute.py", "name_keys.py", "templates.py"})
 # Wat die modules daarvoor mogen gebruiken. compute.py heeft een eigen pool van daemonthreads (`compute.run`) met een slot om het
 # maken ervan, dat alleen microseconden wordt vastgehouden. name_keys.py heeft een slot in `TextMemo` om het weghalen en wisselen
 # van een generatie, alleen bij een misser: twee rekenthreads mogen de volgorde niet tegelijk inkorten. Het slot wordt hooguit een
-# paar ms vastgehouden (de kopie van een volle generatie als tuple). Een `ThreadPoolExecutor` of `time.sleep` blijft ook daar verboden.
+# paar ms vastgehouden (de kopie van een volle generatie als tuple). templates.py heeft een slot om de dict met bytecode van de
+# sjablonen (`SharedBytecode`), alleen om een get of set: de start compileert in een thread terwijl een aanvraag kan laden. Een
+# `ThreadPoolExecutor` of `time.sleep` blijft ook daar verboden.
 THREAD_PATTERNS: tuple[str, ...] = ("threading.Thread(", "threading.Lock(")
 
 # Waar `asyncio.to_thread` mag: alleen rond rekenwerk en ander werk dat geen await kent (zie regels.md).
@@ -48,6 +50,7 @@ TO_THREAD_ALLOWED: dict[str, str] = {
     "auth_password.py": "scrypt voor wachtwoorden",
     "backup.py": "zip, versleuteling en de synchrone sqlite3-fases van de back-up",
     "about.py": "git rev-parse (subprocess) voor de commit",
+    "app.py": "de sjablonen van Jinja compileren bij de start (index.html is 240 KB, templates.py)",
     "audit.py": "de export van tot 5000 regels als JSON of CSV",
     "factory_reset.py": "de afbeeldingencache wissen (shutil.rmtree over duizenden bestanden)",
     "compression.py": "een antwoord met tekst verpakken met gzip (de lijst met aanbiedingen is 3,7 MB)",
