@@ -35,6 +35,8 @@ from mealieshopper import (  # noqa: E402
     mealie,
     mealie_images,
     oauth,
+    offer_history_index,
+    offers,
     price_archive,
     prices,
     profile,
@@ -403,6 +405,26 @@ class RoundTripTest(BackupCase):
         self.assertEqual((await self.restore(data))["status"], "done")
         self.assertFalse(await loose_names.reject("jumbo", "~kersen"), "de afwijzing was er al")
         self.assertTrue(await loose_names.restore("jumbo", "~kersen"))
+
+    async def test_the_offer_history_read_model_is_rebuilt_by_a_restore(self) -> None:
+        # Het leesmodel van de aanbiedingsgeschiedenis (offer_history_index.py) is afgeleid: niet in de back-up, wel opnieuw
+        # opgebouwd in de transactie van het terugzetten, zodat de eerste pagina daarna niet alles hoeft bij te werken.
+        self.assertLessEqual(set(offer_history_index.TABLES), backup.EXCLUDED_TABLES)
+        with closing(self.connect()) as conn, conn:
+            conn.execute(
+                "INSERT INTO offer_history (store, product_id, title, first_seen, last_seen) "
+                "VALUES ('ah', '1', 'Kaas', '2026-10-01T05:00:00+00:00', '2026-10-02T05:00:00+00:00')"
+            )
+        self.assertEqual((await offers.history("ah"))["total"], 1)
+        response, data = await self.make()
+        self.assertEqual(response.status_code, 200)
+        self.wipe()
+        self.assertEqual((await offers.history("ah"))["total"], 0)
+        self.assertEqual((await self.restore(data))["status"], "done")
+        with closing(self.connect()) as conn:
+            self.assertEqual(conn.execute("SELECT COUNT(*) FROM offer_history_stale").fetchone()[0], 0, "niets meer gemarkeerd")
+            self.assertEqual([tuple(row) for row in conn.execute("SELECT product_id, title FROM offer_history_products")], [("1", "Kaas")])
+        self.assertEqual((await offers.history("ah"))["products"][0]["title"], "Kaas")
 
     async def test_restoring_a_backup_drops_the_cached_catalogue_and_list(self) -> None:
         # Review Focus 4 van taak 9: na het terugzetten staat er niets van de oude database meer in het geheugen.
