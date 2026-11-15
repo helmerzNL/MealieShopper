@@ -261,14 +261,17 @@ class SaveBoughtTest(Case):
     async def test_a_slow_store_does_not_hold_up_the_sync(self):
         await self.bought(101, "2026-10-01", order_item(1, "AH Penne"))
 
+        # De download duurt 5 s, de deadline 0,1 s: wacht de synchronisatie op de download, dan duurt ze minstens 5 s. De grens van 2 s
+        # laat ruimte voor het wegschrijven op een trage CI-runner (met een download van 0,5 s en een grens van 0,45 s faalde de test
+        # daar, op 0,59 s, terwijl de app niet wachtte).
         async def slow(url: str) -> bytes:
-            await asyncio.sleep(0.5)
+            await asyncio.sleep(5)
             return picture(100, 100)
 
         with mock.patch.object(product_images, "_download", side_effect=slow), mock.patch.object(product_images, "DEADLINE_SECONDS", 0.1):
             started = time.monotonic()
             await self.sync("2026-10-05T05:00:00+00:00", offer("1", "AH Penne", self.URL))
-        self.assertLess(time.monotonic() - started, 0.45)
+        self.assertLess(time.monotonic() - started, 2)
         self.assertEqual(self.rows(), [])
 
     async def test_what_still_runs_at_the_deadline_is_cancelled_and_the_rest_is_saved(self):

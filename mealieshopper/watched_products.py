@@ -159,10 +159,19 @@ def _store(value: Any) -> str:
     return key
 
 
-def _product_id(value: Any) -> str:
+# Ids die geen product van de webwinkel zijn: een folderactie voor een hele lijn uit het prijsarchief (`price_archive_tidy`) en de
+# Bonus Box van AH als geheel (`ah.py`). Die kan de winkel niet opvragen, dus volgen kan niet (zoals `offerCartId` in offers.js).
+NOT_PRODUCTS = ("folder:", "bonusbox-")
+
+
+def _product_id(store: str, value: Any) -> str:
+    """Het product-id zoals de winkel het kent, of een ValueError. AH schrijft een product op de site als wi4183: dat wordt 4183."""
     text = str(value or "").strip()
-    if not text or len(text) > 64:
-        raise ValueError(tr("Geen geldig product", "Not a valid product"))
+    if store == "ah" and re.fullmatch(r"wi\d+", text):
+        text = text[2:]
+    numeric = store in ("ah", "crisp")
+    if not text or len(text) > 64 or text.startswith(NOT_PRODUCTS) or (numeric and not text.isdigit()):
+        raise ValueError(tr("Dit product kan niet gevolgd worden", "This product cannot be followed"))
     return text
 
 
@@ -379,7 +388,8 @@ async def keys() -> list[str]:
 async def add(store: Any, product_id: Any, given: dict[str, Any] | None = None, user: str | None = None) -> dict[str, Any]:
     """Volg een product. Haalt het meteen bij de winkel op (dat is het eerste punt); lukt dat niet, dan geldt `given` (de naam, maat,
     prijs en afbeelding zoals de pagina ze uit een zoekresultaat kent) zolang de winkel het niet geeft."""
-    key, product_id = _store(store), _product_id(product_id)
+    key = _store(store)
+    product_id = _product_id(key, product_id)
     given = given if isinstance(given, dict) else {}
     async with _connect() as conn:
         count = await auth.fetchone(conn, "SELECT COUNT(*) AS n FROM watched_products")
@@ -417,7 +427,8 @@ async def add(store: Any, product_id: Any, given: dict[str, Any] | None = None, 
 
 async def remove(store: Any, product_id: Any) -> bool:
     """Laat een product los. De bewaarde prijzen blijven staan (ze komen terug als je het opnieuw volgt)."""
-    key, product_id = _store(store), _product_id(product_id)
+    key = _store(store)
+    product_id = _product_id(key, product_id)
     async with _connect() as conn:
         cursor = await conn.execute("DELETE FROM watched_products WHERE store = ? AND product_id = ?", (key, product_id))
         await conn.commit()

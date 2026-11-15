@@ -754,6 +754,41 @@ function offerStoreLink(offer) {
   return `<a class="icon-button offer-card__store" href="${escapeHtml(offer.url)}" target="_blank" rel="noopener noreferrer" title="${label}" aria-label="${label}">${mdiIcon(MDI_STORE)}</a>`;
 }
 
+// Prijs volgen (watched.js): de app bewaart dan elke nacht de gewone prijs, de maat, de verpakking en de afbeelding, ook als de
+// actie voorbij is. Alleen bij een echt product (watchedFollowableId). Als icoon op de kaart en in de rij, als tekstknop in het venster
+// (`text`). Een gevolgd product heeft aria-pressed="true".
+function offerWatchButton(offer, { text = false, className = "" } = {}) {
+  if (typeof watchedFollowableId !== "function" || !watchedFollowableId(offersState.store, offer.id)) return "";
+  const on = watchedIs(offersState.store, watchedFollowableId(offersState.store, offer.id));
+  const label = escapeHtml(t(on ? "watched.card.unfollow" : "watched.follow_price"));
+  const attrs = `type="button" data-offer-watch="${escapeHtml(offer.id)}" aria-pressed="${on}"`;
+  if (text) return `<p class="ohc-watch">${on ? `${watchedBadge()} ` : ""}<button class="link-button" ${attrs}>${label}</button></p>`;
+  return `<button class="icon-button offer-watch${on ? " is-watched" : ""}${className ? ` ${className}` : ""}" ${attrs} title="${label}" aria-label="${label}">${mdiIcon(MDI_EYE)}</button>`;
+}
+
+// Na volgen of loslaten: elke knop van deze aanbieding (kaart, rij en venster) krijgt de nieuwe stand.
+function offerWatchSync(offer) {
+  for (const button of document.querySelectorAll("[data-offer-watch]")) {
+    if (button.dataset.offerWatch !== String(offer.id)) continue;
+    const holder = button.closest(".ohc-watch");
+    if (holder) holder.outerHTML = offerWatchButton(offer, { text: true });
+    else button.outerHTML = offerWatchButton(offer, { className: [...button.classList].filter((cls) => cls !== "icon-button" && cls !== "offer-watch" && cls !== "is-watched").join(" ") });
+  }
+}
+
+async function offerToggleWatch(button) {
+  const offer = offerById(button.dataset.offerWatch);
+  if (!offer) return;
+  button.disabled = true;
+  try {
+    await watchedToggle(offersState.store, offer.id, { title: offer.title, brand: offer.brand, unitSize: offer.unitSize, image: offer.image, url: offer.url });
+    offerWatchSync(offer);
+  } catch (error) {
+    button.disabled = false;
+    toast(error.message, "error");
+  }
+}
+
 // De rij onderaan de kaart: Vergelijk verpakkingen (een knop), Prijsgeschiedenis en de winkel (twee links) als icoonknoppen rechts,
 // zoals in de compacte rij (sinds 4.8.0; daarvoor twee onderstreepte links op elke kaart). De tekst staat in aria-label en title.
 function offerCardFoot(offer) {
@@ -764,7 +799,7 @@ function offerCardFoot(offer) {
     ? `<button class="icon-button offer-card__compare" type="button" data-compare="${escapeHtml(offer.id)}" title="${compareLabel}" aria-label="${compareLabel}">${mdiIcon(MDI_COMPARE_HORIZONTAL)}</button>`
     : "";
   const history = `<a class="icon-button offer-card__history" href="${escapeHtml(priceHistoryPath(offersState.store, offer.title, offer.id))}" data-route title="${historyLabel}" aria-label="${historyLabel}">${mdiIcon(MDI_CHART_LINE)}</a>`;
-  return `<div class="offer-card__foot">${offerCartSlot(offer, "offer-card__cart")}${compare}${history}${offerStoreLink(offer)}</div>`;
+  return `<div class="offer-card__foot">${offerCartSlot(offer, "offer-card__cart")}${compare}${offerWatchButton(offer)}${history}${offerStoreLink(offer)}</div>`;
 }
 
 // Het plaatje van een aanbieding met de badge en het prijslabel erop (of kaal, in de compacte rij). Zonder plaatje een leeg vlak
@@ -848,7 +883,7 @@ function offerProductRow(offer) {
       <span class="offer-row__price">${offerPriceHtml(offer)}</span>
       <small class="offer-row__unit">${escapeHtml(perUnit)}</small>
       <span class="offer-row__history">${history}</span>
-      <div class="offer-row__links">${offerCartSlot(offer)}${compare}${chart}${offerStoreLink(offer)}</div>
+      <div class="offer-row__links">${offerCartSlot(offer)}${compare}${offerWatchButton(offer)}${chart}${offerStoreLink(offer)}</div>
     </article>`;
 }
 
@@ -943,6 +978,7 @@ function offerPopupHtml(offer, product, packs, activeId = null, { preview = fals
       ${offerHistoryHead(shown, { compact: true, offer, links: !preview })}
       ${offer.badge ? `<p class="muted offer-popup__verdict">${escapeHtml(offerBadgeTitle(offer))}</p>` : ""}
       ${buttons}
+      ${preview ? "" : offerWatchButton(offer, { text: true })}
       ${body}
       ${preview ? "" : `<p class="offer-popup__foot"><a href="${escapeHtml(priceHistoryPath(store, shown.title, shown.productId))}" data-route>${escapeHtml(t("offers.popup.full_history"))}</a></p>`}
     </div>`;
@@ -1598,6 +1634,8 @@ $("#offers-products").addEventListener("click", (event) => {
   if (button) openPackCompare(offersState.store, button.dataset.compare);
   const cart = event.target.closest("[data-offer-cart]");
   if (cart) addOfferToCart(cart);
+  const watch = event.target.closest("[data-offer-watch]");
+  if (watch) offerToggleWatch(watch);
 });
 $("#offers-recipes").addEventListener("click", (event) => {
   const button = event.target.closest(".offer-match, .offer-flag");
@@ -1818,6 +1856,8 @@ document.body.appendChild($("#offer-popup"));
 $("#offer-zoom-close").addEventListener("click", () => $("#offer-zoom-dialog").close());
 $("#offer-zoom-dialog").addEventListener("click", (event) => {
   if (event.target === event.currentTarget) event.currentTarget.close();
+  const watch = event.target.closest("[data-offer-watch]");
+  if (watch) offerToggleWatch(watch);
 });
 $("#offers-view").addEventListener("click", (event) => {
   const button = event.target.closest("[data-view]");

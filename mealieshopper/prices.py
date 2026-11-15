@@ -24,15 +24,17 @@ bij de winkel naar hetzelfde product in andere maten). Ideeën en testgevallen v
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import logging
 import math
 import re
 import secrets
+import sys
 import weakref
 from collections import Counter
-from collections.abc import AsyncIterator, Awaitable, Collection, Sequence
+from collections.abc import AsyncIterator, Awaitable, Collection, Iterator, Sequence
 from contextlib import asynccontextmanager
 from datetime import date, datetime, timedelta, timezone
 from typing import Any, Callable, Iterable, NamedTuple
@@ -52,12 +54,14 @@ from . import (
     offer_ranking,
     offers,
     packs,
+    price_history_index,
     price_import,
     product_links,
     shared_links,
+    tasks,
 )
 from .i18n import tr
-from .regular_price import FRESH_DAYS, Chosen, RegularPoint, choose
+from .regular_price import FRESH_DAYS, POINT_DAY, POINT_SOURCE, Chosen, RegularPoint, choose, regular_point
 
 log = logging.getLogger(__name__)
 
@@ -211,6 +215,9 @@ async def _connect() -> AsyncIterator[aiosqlite.Connection]:
     async with auth.connect() as conn:
         await offers.prepare(conn)
         await auth.ensure_schema(conn, "prices", _setup)
+        # De tabellen van het leesmodel van de prijsgeschiedenis horen bij dit schema (backup.ensure_schemas ziet ze zo), de
+        # triggers controleert `price_history_index.prepare` bij elke aanvraag van de geschiedenis.
+        await auth.ensure_schema(conn, price_history_index.SCHEMA_NAME, price_history_index.SCHEMA)
         yield await shared_links.ensure(await product_links.ensure(conn))
 
 
@@ -437,14 +444,14 @@ class _Names(NamedTuple):
 
 
 async def _known_prices(conn: aiosqlite.Connection, sources: list[tuple[str, tuple[Any, ...]]], ids: list[str]) -> dict[str, set[float]]:
-    """Per product de gewone prijzen uit de bronnen van `_name_sources`."""
+    """Per product de gewone prijzen uit de bronnen van `_name_sources`. De rijen zijn gewone tuples (`_plain_rows`): het zijn er tienduizenden."""
     found: dict[str, set[float]] = {}
     for start in range(0, len(ids), _PRICE_CHUNK):
         chunk: list[str] = ids[start : start + _PRICE_CHUNK]
         for sql, args in sources:
             query: str = f"SELECT DISTINCT product_id, price FROM ({sql}) WHERE product_id IN ({_in(chunk)}) AND price > 0"
-            for row in await conn.execute_fetchall(query, (*args, *chunk)):
-                found.setdefault(str(row["product_id"]), set()).add(float(row["price"]))
+            for product_id, price in await _plain_rows(conn, query, (*args, *chunk)):
+                found.setdefault(str(product_id), set()).add(float(price))
     return found
 
 
@@ -470,10 +477,14 @@ async def _names(conn: aiosqlite.Connection, store: str) -> _Names:
     several: dict[str, set[str]]
     index, several = await compute.run(_name_groups, list(await _name_rows(conn, sources)))
     known: dict[str, set[float]] = await _known_prices(conn, sources, sorted(set().union(*several.values()))) if several else {}
-    shared: dict[str, dict[str, tuple[float, ...]]] = {
-        name: {product_id: tuple(sorted(known.get(product_id, ()))) for product_id in sorted(ids)} for name, ids in several.items()
-    }
+    # Duizenden namen bij een catalogus van productieschaal: het sorteren in een thread, niet op de event loop (CLAUDE.md, compute.run).
+    shared: dict[str, dict[str, tuple[float, ...]]] = await compute.run(_name_prices, several, known) if several else {}
     return _Names(index, shared)
+
+
+def _name_prices(several: dict[str, set[str]], known: dict[str, set[float]]) -> dict[str, dict[str, tuple[float, ...]]]:
+    """Per naam met meer producten: elk product (gesorteerd) met zijn bekende prijzen, oplopend. Puur, voor `compute.run`."""
+    return {name: {product_id: tuple(sorted(known.get(product_id, ()))) for product_id in sorted(ids)} for name, ids in several.items()}
 
 
 def _nearest_priced(choices: dict[str, tuple[float, ...]], row: Any, first: str | None) -> str | None:
@@ -539,23 +550,38 @@ def _bare_index(index: dict[str, str], store: str) -> dict[str, str]:
 _RECEIPT_PRODUCTS_SQL = "SELECT * FROM ah_receipt_products WHERE product_id IS NOT NULL"
 
 
-class _Linked(NamedTuple):
-    """Het webwinkelproduct bij een artikelnummer van de kassabon (`ah_receipt_products`)."""
+# Het webwinkelproduct bij een artikelnummer van de kassabon (`ah_receipt_products`): (product_id, title, brand, unit_size), met het
+# merk en de inhoud None als ze (nog) niet zijn opgezocht of AH ze niet geeft. Een gewone tuple en geen NamedTuple: die volgt de GC
+# altijd, en een volle ronde loopt langs elk gevolgd object (gc_watch.py). Maak hem met een tuple-literal, zoals `_receipt_product_map`.
+_Linked = tuple[str, str, str | None, str | None]
+_LINK_PRODUCT: int = 0
+_LINK_TITLE: int = 1
+_LINK_BRAND: int = 2
+_LINK_UNIT: int = 3
+# De kolommen van de rijen van `_receipt_product_rows`: elk is None als de tabel hem (nog) niet heeft.
+_RECEIPT_PRODUCT_COLUMNS: tuple[str, ...] = ("receipt_product_id", "product_id", "title", "brand", "unit_size")
 
-    product_id: str
-    title: str
-    brand: str | None  # het merk en de inhoud: None als ze (nog) niet zijn opgezocht of AH ze niet geeft
-    unit_size: str | None
 
-
-def _receipt_product_map(rows: Iterable[Any]) -> dict[str, _Linked]:
+def _receipt_product_map(rows: Iterable[Sequence[Any]]) -> dict[str, _Linked]:
+    """De koppelingen uit de rijen van `_receipt_product_rows`: artikelnummer -> `_Linked`."""
     found: dict[str, _Linked] = {}
-    for row in rows:
-        columns = row.keys()  # `brand` en `unit_size` zijn er pas als ah_orders zijn schema heeft bijgewerkt
-        brand: str | None = (row["brand"] if "brand" in columns else None) or None
-        unit_size: str | None = (row["unit_size"] if "unit_size" in columns else None) or None
-        found[str(row["receipt_product_id"])] = _Linked(str(row["product_id"]), row["title"] or "", brand, unit_size)
+    for number, product_id, title, brand, unit_size in rows:
+        found[str(number)] = (str(product_id), title or "", brand or None, unit_size or None)
     return found
+
+
+async def _receipt_product_rows(conn: aiosqlite.Connection) -> list[tuple[Any, ...]]:
+    """De rijen van `_RECEIPT_PRODUCTS_SQL` als gewone tuples met de kolommen van `_RECEIPT_PRODUCT_COLUMNS`. `brand` en `unit_size`
+    zijn er pas als ah_orders zijn schema heeft bijgewerkt: dan zijn ze None."""
+    cursor: aiosqlite.Cursor = await conn.execute(_RECEIPT_PRODUCTS_SQL)
+    cursor.row_factory = None
+    try:
+        rows: list[tuple[Any, ...]] = list(await cursor.fetchall())
+        names: list[str] = [column[0] for column in cursor.description]
+    finally:
+        await cursor.close()
+    at: list[int | None] = [names.index(column) if column in names else None for column in _RECEIPT_PRODUCT_COLUMNS]
+    return [(*(None if index is None else row[index] for index in at),) for row in rows]
 
 
 async def _receipt_products(conn: aiosqlite.Connection) -> dict[str, _Linked]:
@@ -563,7 +589,7 @@ async def _receipt_products(conn: aiosqlite.Connection) -> dict[str, _Linked]:
     `ah_orders.resolve_receipt_products`)."""
     if "ah_receipt_products" not in await _tables(conn):
         return {}
-    return _receipt_product_map(await conn.execute_fetchall(_RECEIPT_PRODUCTS_SQL))
+    return _receipt_product_map(await _receipt_product_rows(conn))
 
 
 # Aankopen uit bevestigingsmails (zie price_import.py), in dezelfde vorm als de regels van een kassabon: zonder id van de webwinkel.
@@ -574,17 +600,27 @@ FROM imported_purchases WHERE store = ? AND day <= ?
 """
 
 
-def _not_in_account(rows: Iterable[Any], numbers: set[str], days: set[str]) -> list[Any]:
+# De kolommen van `_IMPORTED_SQL` en `_RECEIPTS_SQL`, in dezelfde volgorde. De bronregels zijn gewone tuples met deze kolommen en
+# geen `sqlite3.Row`: een Row volgt de GC, en bij AH zijn het tienduizenden regels. `_linked_receipts` maakt er pas bij het koppelen
+# een dict van, een regel tegelijk.
+_SOURCE_COLUMNS: tuple[str, ...] = (
+    "receipt_product_id", "title", "brand", "unit_size", "image", "day", "quantity", "paid", "regular", "source", "ref",
+)  # fmt: skip
+_SOURCE_DAY: int = _SOURCE_COLUMNS.index("day")
+_SOURCE_REF: int = _SOURCE_COLUMNS.index("ref")
+
+
+def _not_in_account(rows: Iterable[Sequence[Any]], numbers: set[str], days: set[str]) -> list[Sequence[Any]]:
     """De ingelezen aankopen zonder die van een bestelling uit je account (`price_import.account_orders`)."""
-    return [row for row in rows if row["ref"] not in numbers and row["day"] not in days]
+    return [row for row in rows if row[_SOURCE_REF] not in numbers and row[_SOURCE_DAY] not in days]
 
 
-async def _imported_rows(conn: aiosqlite.Connection, store: str, today: str) -> list[Any]:
+async def _imported_rows(conn: aiosqlite.Connection, store: str, today: str) -> list[Sequence[Any]]:
     """De ingelezen aankopen van een winkel, zonder de bestellingen die de app inmiddels ook uit je account heeft (zelfde
     bestelnummer, of een bestelling op dezelfde dag): die tellen anders dubbel."""
     if "imported_purchases" not in await _tables(conn):
         return []
-    return _not_in_account(await conn.execute_fetchall(_IMPORTED_SQL, (store, today)), *await price_import.account_orders(conn, store))
+    return _not_in_account(await _plain_rows(conn, _IMPORTED_SQL, (store, today)), *await price_import.account_orders(conn, store))
 
 
 def _shared_link_row(row: Any, link: shared_links.SharedLink) -> dict[str, Any]:
@@ -636,18 +672,18 @@ async def _receipt_rows(conn: aiosqlite.Connection, store: str, today: str) -> l
     Het koppelen zelf is `_link_receipt_rows`, in de threadpool (`_linked_receipts`): bij AH duizenden regels tegen tienduizenden
     namen.
     """
-    rows: list[Any] = await _receipt_source_rows(conn, store, today)
+    rows: list[Sequence[Any]] = await _receipt_source_rows(conn, store, today)
     if not rows:
         return []
     return await compute.run(_linked_receipts, store, rows, await _link_rows(conn, store))
 
 
-async def _receipt_source_rows(conn: aiosqlite.Connection, store: str, today: str) -> list[Any]:
+async def _receipt_source_rows(conn: aiosqlite.Connection, store: str, today: str) -> list[Sequence[Any]]:
     """De regels van `_receipt_rows` voor het koppelen: de ingelezen aankopen (`_imported_rows`) en bij AH de regels van de
     kassabonnen tot en met `today`."""
-    rows: list[Any] = list(await _imported_rows(conn, store, today))
+    rows: list[Sequence[Any]] = list(await _imported_rows(conn, store, today))
     if store == "ah" and _RECEIPT_TABLES <= await _tables(conn):
-        rows += await conn.execute_fetchall(_DATED_RECEIPTS_SQL, (today,))
+        rows += await _plain_rows(conn, _DATED_RECEIPTS_SQL, (today,))
     return rows
 
 
@@ -655,7 +691,7 @@ class _LinkRows(NamedTuple):
     """Wat `_link_receipt_rows` uit de database nodig heeft (`_link_rows`)."""
 
     names: _Names  # `_names`: de catalogus bewaart `names.shared` (`_PriceState`), de prijzen die een koppeling kozen
-    receipt_products: list[Any]  # de rijen van `_RECEIPT_PRODUCTS_SQL` voor `_receipt_product_map`, leeg zonder die tabel en buiten AH
+    receipt_products: list[tuple[Any, ...]]  # `_receipt_product_rows` voor `_receipt_product_map`, leeg zonder die tabel en buiten AH
     mine: product_links.Links  # je eigen koppelingen (`product_links.load`)
     shared: dict[str, shared_links.SharedLink]  # de gedeelde koppelingen zonder de afgewezen (`shared_links.active`)
 
@@ -664,22 +700,23 @@ async def _link_rows(conn: aiosqlite.Connection, store: str) -> _LinkRows:
     """De koppelingen voor `_linked_receipts`. Die van artikelnummers (`ah_receipt_products`) gelden alleen bij AH: hun trigger hoogt
     alleen de versie van AH op, en een product van een andere winkel met hetzelfde nummer is een ander product."""
     wanted: bool = store == "ah" and "ah_receipt_products" in await _tables(conn)
-    products: list[Any] = list(await conn.execute_fetchall(_RECEIPT_PRODUCTS_SQL)) if wanted else []
+    products: list[tuple[Any, ...]] = await _receipt_product_rows(conn) if wanted else []
     shared: dict[str, shared_links.SharedLink] = shared_links.active(store, await shared_links.rejected(conn, store))
     return _LinkRows(await _names(conn, store), products, await product_links.load(conn, store), shared)
 
 
-def _linked_receipts(store: str, rows: list[Any], links: _LinkRows | None) -> list[dict[str, Any]]:
+def _linked_receipts(store: str, rows: list[Sequence[Any]], links: _LinkRows | None) -> list[dict[str, Any]]:
     """`_link_receipt_rows` op de regels van `_receipt_source_rows` met de koppelingen van `_link_rows`, leeg zonder regels. Puur:
     het draait in de threadpool."""
     if not rows or links is None:
         return []
-    return _link_receipt_rows(store, rows, links.names, _receipt_product_map(links.receipt_products), links.mine, links.shared)
+    lines: Iterator[dict[str, Any]] = (dict(zip(_SOURCE_COLUMNS, row)) for row in rows)  # een regel tegelijk: een dict volgt de GC
+    return _link_receipt_rows(store, lines, links.names, _receipt_product_map(links.receipt_products), links.mine, links.shared)
 
 
 def _link_receipt_rows(
     store: str,
-    rows: list[Any],
+    rows: Iterable[Any],
     names: _Names,
     linked: dict[str, _Linked],
     mine: product_links.Links,
@@ -693,7 +730,7 @@ def _link_receipt_rows(
     AH op het artikelnummer), `id`, `name` of `fallback` (`_guessed_row`). De prijsgeschiedenis toont ze allemaal, het oordeel telt
     alleen de bevestigde (`CONFIRMED_LINKS`, zie `_receipt_points`)."""
     bare = _bare_index(names.index, store)
-    webshop: dict[str, _Linked] = {link.product_id: link for link in linked.values()}
+    webshop: dict[str, _Linked] = {link[_LINK_PRODUCT]: link for link in linked.values()}
     titles: dict[str, tuple[str, ...]] = {}  # tuples en geen lijsten: een lijst per product volgt de GC (gc_watch.py)
     for title, product_id in names.index.items():
         titles[product_id] = (*titles.get(product_id, ()), title)
@@ -720,10 +757,10 @@ def _article_row(row: Any, shop: _Linked) -> dict[str, Any]:
     van de koppeling: een bon heeft ze niet."""
     return {
         **dict(row),
-        "product_id": shop.product_id,
-        "title": shop.title or row["title"],
-        "brand": shop.brand,
-        "unit_size": shop.unit_size,
+        "product_id": shop[_LINK_PRODUCT],
+        "title": shop[_LINK_TITLE] or row["title"],
+        "brand": shop[_LINK_BRAND],
+        "unit_size": shop[_LINK_UNIT],
         "receipt_name": row["title"],
         "linked_by": "article",
     }
@@ -749,7 +786,9 @@ def _guessed_row(
     key = own if same_id else (matched or (None if other_product else own) or fallback)
     # Een bonregel met een artikelnummer dat (nog) bij geen enkel product hoort: die kan `history` meteen laten opzoeken.
     # Op naam bij een product dat de app van de bonkoppeling kent: dan ook met het merk en de inhoud van daar.
-    known: dict[str, Any] = {"brand": webshop[key].brand, "unit_size": webshop[key].unit_size} if key in webshop and not row["unit_size"] else {}
+    known: dict[str, Any] = (
+        {"brand": webshop[key][_LINK_BRAND], "unit_size": webshop[key][_LINK_UNIT]} if key in webshop and not row["unit_size"] else {}
+    )
     linked_by: str = "id" if own and key == own else ("name" if key == matched else "fallback")
     return {
         **dict(row),
@@ -771,8 +810,10 @@ def _merge_details(found: dict[str, dict[str, Any]], row_sets: list[list[Any]], 
                 if not details.get(key) and row[column]:
                     details[key] = row[column]
     for linked in linked_products:
-        details = found.get(linked.product_id)
-        for key, value in (("title", linked.title), ("brand", linked.brand), ("unitSize", linked.unit_size)) if details is not None else ():
+        details = found.get(linked[_LINK_PRODUCT])
+        for key, value in (
+            (("title", linked[_LINK_TITLE]), ("brand", linked[_LINK_BRAND]), ("unitSize", linked[_LINK_UNIT])) if details is not None else ()
+        ):
             if not details.get(key) and value:
                 details[key] = value
 
@@ -1257,13 +1298,13 @@ _CATEGORIES_SQL: str = (
 class _CatalogueRows(NamedTuple):
     """Alles wat de bouw van de catalogus (`_build_catalogue`) uit de database nodig heeft, gelezen door `_catalogue_rows`. De
     threadpool leest ze zonder de verbinding. De grote lijsten zijn gewone tuples (`_plain_rows`, kolommen op volgorde): bij AH
-    zijn het samen 150.000 rijen, en een `sqlite3.Row` volgt de GC. De regels van de bon en de koppelingen blijven `sqlite3.Row`:
-    het koppelen leest ze op naam en maakt er dicts van."""
+    zijn het samen 150.000 rijen, en een `sqlite3.Row` volgt de GC. Ook de regels van de bon (`_SOURCE_COLUMNS`) en
+    de koppelingen van AH (`_receipt_product_rows`) zijn tuples: het koppelen maakt er pas een dict van, een regel tegelijk."""
 
     offer_history: list[Any]  # `_KNOWN_OFFERS_SQL`
     observations: list[Any]  # `_KNOWN_OBSERVATIONS_SQL`
     purchases: list[list[Any]]  # `_KNOWN_PURCHASES_SQL`, per aankoopbron van `_purchase_sources`
-    receipts: list[Any]  # de ruwe regels van `_receipt_source_rows`, voor het koppelen
+    receipts: list[Sequence[Any]]  # de ruwe regels van `_receipt_source_rows` (`_SOURCE_COLUMNS`), voor het koppelen
     upcoming: list[Any]  # `_KNOWN_UPCOMING_SQL`: de aanbiedingen die nog niet in de geschiedenis staan
     categories: list[Any]  # `_CATEGORIES_SQL`: de categorie die de winkel bij een aanbieding meegaf
     folder_products: list[Any]  # `_FOLDER_PRODUCTS_SQL`, voor `_line_index`
@@ -1273,7 +1314,7 @@ class _CatalogueRows(NamedTuple):
 async def _catalogue_rows(conn: aiosqlite.Connection, store: str, today: str) -> _CatalogueRows:
     """De rijen voor de catalogus van een winkel op een dag. Alleen queries, het rekenwerk is `_build_catalogue` (alleen `_names`
     vouwt de namen al in de threadpool: welke prijzen het daarna leest, hangt van die vouw af)."""
-    receipts: list[Any] = await _receipt_source_rows(conn, store, today)
+    receipts: list[Sequence[Any]] = await _receipt_source_rows(conn, store, today)
     purchases: list[list[Any]] = [
         await _plain_rows(conn, _KNOWN_PURCHASES_SQL.format(sql=sql), (today,)) for sql in _purchase_sources(await _tables(conn), store)
     ]
@@ -1314,10 +1355,82 @@ _CATALOGUES: dict[tuple[str, str], tuple[str, str, _Catalogue, _PriceState]] = {
 _CATALOGUE_BUILDS: compute.SingleFlight[tuple[str, str, str, str], _Catalogue] = compute.SingleFlight()
 
 
+CATALOGUE_RELEASE_PIECE: int = 5_000  # zoveel producten of bonregels geeft `_release_catalogue` per keer vrij
+
+
+def _holders(held: list[_Catalogue]) -> tuple[_Catalogue, tuple[int, int, int, int]]:
+    """De laatste catalogus uit `held` met het aantal verwijzingen naar hem en naar zijn lijsten en dicts (`receipts`, `products`,
+    `twins`), op altijd dezelfde manier geteld: een Python-versie telt een lokale variabele of een argument anders (sinds 3.14
+    leent de interpreter er een, zonder te tellen), dus een getal als 2 of 4 hardcoden klopt niet overal. `_ALONE` is dit voor een
+    catalogus waar niemand anders naar kijkt, gemeten bij het laden van de module."""
+    catalogue: _Catalogue = held.pop()
+    return catalogue, (
+        sys.getrefcount(catalogue),
+        sys.getrefcount(catalogue.receipts),
+        sys.getrefcount(catalogue.products),
+        sys.getrefcount(catalogue.twins),
+    )
+
+
+_ALONE: tuple[int, int, int, int] = _holders([_Catalogue([], {}, None, {})])[1]  # type: ignore[arg-type]
+
+
+def _release_catalogue(held: list[_Catalogue]) -> None:
+    """Geeft de catalogi in `held` vrij in stukken van `CATALOGUE_RELEASE_PIECE`, in de thread die het vraagt.
+
+    Een catalogus van AH is een bouwwerk van honderdduizenden tuples: in een keer loslaten is een aanroep in C (`dict_dealloc`)
+    van 8 tot 17 ms op de volumedatabase (`test_replacing_a_catalogue_frees_the_old_one_off_the_loop`), op een Raspberry Pi
+    ruim 100 ms, en die houdt de GIL vast, ook in een thread. Liet de loop de laatste verwijzing los (`_CATALOGUES[key] = ...`),
+    dan deed de loop dat zelf. Tussen twee stukken draait Python, en daar kan de loop de GIL krijgen.
+
+    Een lijst of dict leegmaken kan alleen als niemand anders hem leest: `_catch_up` geeft een nieuwe catalogus die de bonregels,
+    de lijnindex en de producten van de oude deelt, en een aanvraag in de threadpool kan de oude nog vasthouden. Daarom alleen een
+    container met precies de verwijzingen die `_ALONE` telt, en alleen als ook de catalogus zelf (`_holders`) alleen van ons is: de
+    catalogus staat niet meer in `_CATALOGUES`, dus er komt geen lezer bij. Wat een ander nog vasthoudt, geeft de laatste lezer vrij."""
+    while held:
+        catalogue, counts = _holders(held)
+        if counts[0] > _ALONE[0]:  # nog een lezer heeft de hele catalogus
+            continue
+        for container, count, alone in zip((catalogue.receipts, catalogue.products, catalogue.twins), counts[1:], _ALONE[1:]):
+            if count > alone:
+                continue
+            if isinstance(container, dict):
+                while container:
+                    for _ in range(min(CATALOGUE_RELEASE_PIECE, len(container))):
+                        container.popitem()
+            else:
+                while container:
+                    del container[-CATALOGUE_RELEASE_PIECE:]
+
+
+def _release_later(held: list[_Catalogue]) -> None:
+    """Geeft de catalogi in `held` vrij in een thread (`_release_catalogue`), of meteen als er geen event loop loopt (de tests, een
+    reset buiten de app). De aanroeper geeft zijn eigen verwijzing los: `held` is de enige."""
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        _release_catalogue(held)
+        return
+    tasks.spawn("release-catalogue", asyncio.to_thread(_release_catalogue, held))
+
+
+def _keep_catalogue(key: tuple[str, str], entry: tuple[str, str, _Catalogue, _PriceState]) -> None:
+    """Schrijft `entry` in `_CATALOGUES`. De catalogus die hij vervangt, gaat in stukken weg in een thread."""
+    old: tuple[str, str, _Catalogue, _PriceState] | None = _CATALOGUES.get(key)
+    _CATALOGUES[key] = entry
+    if old is not None and old[2] is not entry[2]:
+        held: list[_Catalogue] = [old[2]]
+        del old
+        _release_later(held)
+
+
 def forget_catalogues() -> None:
     """Vergeet elke catalogus in het geheugen, met wat de ETag van /api/offers ervan afleidde (`_ANSWER_IDS`, `_SIGNATURES`): na
-    het terugzetten van een back-up en na een fabrieksreset (`auth.forget_cached_data`)."""
+    het terugzetten van een back-up en na een fabrieksreset (`auth.forget_cached_data`). De catalogi gaan in stukken weg in een
+    thread (`_release_catalogue`)."""
+    held: list[_Catalogue] = [entry[2] for entry in _CATALOGUES.values()]
     _CATALOGUES.clear()
+    _release_later(held)
     _ANSWER_IDS.clear()
     _SIGNATURES.clear()
 
@@ -1442,7 +1555,7 @@ async def _catch_up(
     rows: list[Any] = list(await conn.execute_fetchall(_OBSERVED_LAST_SQL, (store,)))
     caught: _Catalogue = await compute.run(_with_last, catalogue, rows)
     if _CATALOGUES.get(key) is found:  # anders bouwde een andere aanvraag hem intussen opnieuw op
-        _CATALOGUES[key] = (version, today, caught, state._replace(prices=counted))
+        _keep_catalogue(key, (version, today, caught, state._replace(prices=counted)))
     return caught
 
 
@@ -1459,6 +1572,7 @@ async def _catalogue(conn: aiosqlite.Connection, store: str, today: str) -> _Cat
         caught: _Catalogue | None = await _catch_up(conn, store, key, found, row["prices"])
         if caught is not None:
             return caught
+    found = None  # de oude catalogus mag tijdens de bouw los: zo is `_release_catalogue` de laatste die hem vasthoudt
     built: _Catalogue = await _CATALOGUE_BUILDS.get((*key, version, today), lambda: _new_catalogue(key, version, today))
     return await _after_build(conn, store, key, version, today, row["prices"], built)
 
@@ -1489,7 +1603,7 @@ async def _new_catalogue(key: tuple[str, str], version: str, today: str) -> _Cat
         counted: int = (await _catalogue_row(conn, key[1]))["prices"]
         rows: _CatalogueRows = await _catalogue_rows(conn, key[1], today)
     catalogue: _Catalogue = await compute.run(_build_catalogue, key[1], today, rows)
-    _CATALOGUES[key] = (version, today, catalogue, _PriceState(counted, rows.links.names.shared if rows.links is not None else {}))
+    _keep_catalogue(key, (version, today, catalogue, _PriceState(counted, rows.links.names.shared if rows.links is not None else {})))
     return catalogue
 
 
@@ -1777,13 +1891,15 @@ def _by_last_word(suffixes: Iterable[str]) -> dict[str, list[str]]:
 async def warm_catalogues(stores: Iterable[str] | None = None, today: str | None = None) -> None:
     """Bouwt de catalogus van elke winkel alvast op (`_catalogue`: de bekende producten en de lijnindex, bij AH ruim twee
     seconden rekenwerk in de threadpool), zodat de eerste aanvraag van /api/offers na een start of een synchronisatie er niet op
-    hoeft te wachten. Een aanvraag die tijdens het opwarmen komt, wacht op dezelfde bouw. Een fout bij een winkel laat de andere
-    met rust: de aanvraag bouwt de catalogus dan zelf."""
+    hoeft te wachten. Een aanvraag die tijdens het opwarmen komt, wacht op dezelfde bouw. Het leesmodel van de prijsgeschiedenis
+    (price_history_index.py) gaat mee, anders betaalt de eerste Prijsgeschiedenis na een start 0,7 tot 1,5 s voor het bijwerken.
+    Een fout bij een winkel laat de andere met rust: de aanvraag bouwt de catalogus dan zelf."""
     day = today or date.today().isoformat()
     for store in stores or offers.STORES:
         try:
             async with _connect() as conn:
-                await _catalogue(conn, store, day)
+                await price_history_index.prepare(conn)
+                await _indexed_catalogue(conn, store, day)  # roept `_catalogue` zelf aan
         except Exception:  # noqa: BLE001 - opwarmen is een extraatje
             log.warning("Catalogus van %s opwarmen mislukt", store, exc_info=True)
 
@@ -1897,6 +2013,12 @@ def _facet_counts(values: Iterable[str], chosen: _Choice, limit: int | None = No
     for value in values:
         if value:
             counts[value] = counts.get(value, 0) + 1
+    return _facet_list(counts, chosen, limit)
+
+
+def _facet_list(counts: dict[str, int], chosen: _Choice, limit: int | None = None) -> list[dict[str, Any]]:
+    """`_facet_counts` uit de aantallen per waarde, zoals het leesmodel ze telt (`price_history_index.page`)."""
+    counts = {value: count for value, count in counts.items() if value and count}
     ordered: list[tuple[str, int]] = sorted(counts.items(), key=lambda item: (-item[1], item[0]))
     kept: list[tuple[str, int]] = (
         ordered if limit is None else ordered[:limit] + [item for item in ordered[limit:] if item[0] in chosen.shown | chosen.hidden]
@@ -1952,40 +2074,162 @@ async def history(
     if lookup and wanted.words and "ah" in stores and only is None:
         await _lookup_receipt_names(lookup, wanted, today)
     async with _connect() as conn:
-        catalogues = {name: await _catalogue(conn, name, today) for name in stores}
+        await price_history_index.prepare(conn)
+        catalogues: dict[str, _Catalogue] = {}
+        fresh: dict[str, price_history_index.Fresh] = {}
+        for name in stores:
+            catalogues[name], fresh[name] = await _indexed_catalogue(conn, name, today)
         receipts = {name: catalogue.receipts for name, catalogue in catalogues.items()}
         unsynced = {name: await _unsynced(conn, name) for name in stores}
         keeps: dict[str, set[str] | None] = {
             name: _with_twins(await _bought(conn, name, today, receipts[name]), catalogues[name].twins) if bought else None for name in stores
         }
-        candidates: dict[tuple[str, str], str] = await compute.run(_history_candidates, catalogues, wanted, only, pinned, keeps)
-        # Het product uit de link staat nergens in de prijsgeschiedenis (alleen in een open bestelling, of in een aanbieding die
-        # net begon): dan toch het product zelf, met wat de app ervan weet. Alleen met een winkel: een id hoort bij een winkel.
-        pinned_known: dict[str, dict[str, Any]] = {}  # winkel -> wat `_pinned` van het product uit de link weet
-        for name in stores:
-            if pinned is not None and store and only is None and (name, pinned) not in candidates:
-                known = await _pinned(conn, name, pinned, await _tables(conn))
-                if known is not None:
-                    candidates[(name, pinned)] = today
-                    pinned_known[name] = known
-        ranked: _Ranked = await compute.run(
-            _rank_history, catalogues, candidates, pinned, only, _Choice.of(brands, brands_out), _Choice.of(categories, categories_out), limit
-        )
+        by_brand: _Choice = _Choice.of(brands, brands_out)
+        by_category: _Choice = _Choice.of(categories, categories_out)
+        ask: _HistoryAsk = _HistoryAsk(stores, bool(store), wanted, only, pinned, keeps, by_brand, by_category, limit, today)
+        ranked: _Ranked
+        pinned_known: dict[str, dict[str, Any]]  # winkel -> wat `_pinned` van het product uit de link weet
+        ranked, pinned_known = await (_indexed_page(conn, ask) if ask.indexed else _indexed_search(conn, ask))
         chosen: list[tuple[str, str]] = ranked.chosen
         found: dict[str, tuple[dict[str, list[Any]], dict[str, list[Any]], dict[str, list[dict[str, Any]]]]] = {}
+        lines: dict[str, dict[str, list[dict[str, Any]]]] = {}
         for name in stores:
             ids = sorted(_with_twins({product_id for store_name, product_id in chosen if store_name == name}, catalogues[name].twins))
+            observed, lines[name] = await _indexed_docs(conn, name, catalogues[name], ids, fresh[name])
             found[name] = (
-                (await _observations(conn, name, ids), await _purchases(conn, name, ids, today, receipts[name]), await _saved_images(conn, name, ids))
-                if ids
-                else ({}, {}, {})
+                (observed, await _purchases(conn, name, ids, today, receipts[name]), await _saved_images(conn, name, ids)) if ids else ({}, {}, {})
             )
         upcoming = {name: await _upcoming(conn, name, [pid for s, pid in chosen if s == name], today) for name in stores}
     offered = {name: await offers.history_of(name, [pid for s, pid in chosen if s == name]) for name in stores}
-    lines = {name: await _line_offers(name, catalogues[name], [pid for s, pid in chosen if s == name]) for name in stores}
     sources: _ProductSources = _ProductSources(catalogues, offered, found, upcoming, pinned_known, lines)
     products: list[dict[str, Any]] = await compute.run(_page_products, chosen, sources, pinned, today)
     return {"products": products, "total": ranked.total, "unsynced": unsynced, "facets": ranked.facets}
+
+
+# --- het leesmodel van de prijsgeschiedenis (price_history_index.py) ---------------------------------------------------
+
+
+async def _indexed_catalogue(conn: aiosqlite.Connection, store: str, today: str) -> tuple[_Catalogue, price_history_index.Fresh]:
+    """De catalogus van een winkel en het leesmodel bijgewerkt tot die catalogus. De versie en de markeringen worden eerst
+    gelezen (`price_history_index.before`), dan de catalogus: zo is die minstens zo nieuw als wat het leesmodel bijwerkt."""
+    row: aiosqlite.Row = await _catalogue_row(conn, store)
+    seen: price_history_index.Before = await price_history_index.before(conn, store, f"{row['token']}:{row['products']}", row["prices"])
+    catalogue: _Catalogue = await _catalogue(conn, store, today)
+    fresh: price_history_index.Fresh = await price_history_index.up_to_date(
+        store, today, seen, catalogue.products, catalogue.twins, catalogue.receipts
+    )
+    return catalogue, fresh
+
+
+class _HistoryAsk(NamedTuple):
+    """Wat `history` vraagt, voor de pagina uit het leesmodel (`_indexed_page`, `_indexed_search`)."""
+
+    stores: list[str]
+    one_store: bool  # `store` was gegeven: alleen dan zoekt `_pinned` een product uit een link dat nergens in de geschiedenis staat
+    wanted: _Query
+    only: str | None
+    pinned: str | None
+    keeps: dict[str, set[str] | None]
+    by_brand: _Choice
+    by_category: _Choice
+    limit: int
+    today: str
+
+    @property
+    def indexed(self) -> bool:
+        """Zonder zoekterm en zonder `product` komt de hele pagina uit de index (`_indexed_page`)."""
+        return not self.wanted.words and not self.wanted.size and self.only is None
+
+
+async def _pinned_known(conn: aiosqlite.Connection, ask: _HistoryAsk, present: Collection[str]) -> dict[str, dict[str, Any]]:
+    """Per winkel waar het product uit de link geen kandidaat is (`present` zijn de winkels waar het dat wel is): wat `_pinned`
+    ervan weet. Het product staat nergens in de prijsgeschiedenis (alleen in een open bestelling, of in een aanbieding die net
+    begon), en komt dan toch, met wat de app ervan weet. Alleen met een winkel: een id hoort bij een winkel."""
+    found: dict[str, dict[str, Any]] = {}
+    if ask.pinned is None or not ask.one_store or ask.only is not None:
+        return found
+    for name in ask.stores:
+        if name not in present:
+            known: dict[str, Any] | None = await _pinned(conn, name, ask.pinned, await _tables(conn))
+            if known is not None:
+                found[name] = known
+    return found
+
+
+async def _indexed_page(conn: aiosqlite.Connection, ask: _HistoryAsk) -> tuple[_Ranked, dict[str, dict[str, Any]]]:
+    """De pagina zonder zoekterm uit de index (`price_history_index.page`), met hetzelfde antwoord als `_history_candidates` en
+    `_rank_history` over de hele catalogus: het product uit de link bovenaan (ook als het nergens in de geschiedenis staat,
+    `_pinned_known`, dan met vandaag als dag), dan de rest op de laatste dag. Het product uit de link telt mee in het totaal en
+    in de keuzelijsten, ook als het filter het weg zou laten."""
+    found: price_history_index.Page = await price_history_index.page(
+        conn,
+        ask.stores,
+        ask.pinned,
+        ask.keeps,
+        price_history_index.Choice(ask.by_brand.shown, ask.by_brand.hidden),
+        price_history_index.Choice(ask.by_category.shown, ask.by_category.hidden),
+        ask.limit,
+    )
+    pinned_known: dict[str, dict[str, Any]] = await _pinned_known(conn, ask, {item.store for item in found.pinned})
+    brands: dict[str, int] = dict(found.brands)
+    categories: dict[str, int] = dict(found.categories)
+    for item in found.pinned:
+        if ask.by_category.passes(item.category):
+            brands[item.brand] = brands.get(item.brand, 0) + 1
+        if ask.by_brand.passes(item.brand):
+            categories[item.category] = categories.get(item.category, 0) + 1
+    tops: list[tuple[str, str, str]] = [(item.day, item.store, item.product_id) for item in found.pinned]
+    tops += [(ask.today, name, str(ask.pinned)) for name in pinned_known]
+    chosen: list[tuple[str, str]] = [(name, product_id) for _, name, product_id in sorted(tops, reverse=True)] + found.rest
+    facets: dict[str, list[dict[str, Any]]] = {
+        "brands": _facet_list(brands, ask.by_brand, FACET_BRANDS),
+        "categories": _facet_list(categories, ask.by_category),
+    }
+    return _Ranked(chosen[: ask.limit], found.total + len(tops), facets), pinned_known
+
+
+async def _indexed_search(conn: aiosqlite.Connection, ask: _HistoryAsk) -> tuple[_Ranked, dict[str, dict[str, Any]]]:
+    """De pagina met een zoekterm, voor een product (`product`) of met Eerder gekocht: de rijen uit de index die kunnen passen,
+    met hun groep (`price_history_index.rows_for`), als kleine catalogus door dezelfde `_history_candidates` en `_rank_history`
+    als vroeger de hele catalogus. Een product dat niet past, kon daar ook niet bij, dus het antwoord is hetzelfde. Met
+    `product` kan alleen zijn groep erbij, en met Eerder gekocht zonder zoekterm alleen wat je kocht (`keeps`, met de andere
+    nummers al erbij)."""
+    small: dict[str, _Catalogue] = {}
+    words: list[str] = ask.wanted.words if ask.only is None else []
+    for name in ask.stores:
+        keep: set[str] | None = ask.keeps.get(name)
+        ids: list[str] = [product_id for product_id in (ask.only, ask.pinned) if product_id is not None]
+        if keep is not None and ask.only is None and not words:
+            ids += sorted(keep)
+        everything: bool = ask.only is None and not words and keep is None
+        rows: list[Any] = await price_history_index.rows_for(conn, name, words, ids, everything)
+        products, twins = await compute.run(price_history_index.known_of, rows)
+        small[name] = _Catalogue([], products, line_offers.LineIndex((), ()), twins)
+    candidates: dict[tuple[str, str], str] = await compute.run(_history_candidates, small, ask.wanted, ask.only, ask.pinned, ask.keeps)
+    pinned_known: dict[str, dict[str, Any]] = await _pinned_known(conn, ask, {name for name, product_id in candidates if product_id == ask.pinned})
+    for name in pinned_known:
+        candidates[(name, str(ask.pinned))] = ask.today
+    ranked: _Ranked = await compute.run(_rank_history, small, candidates, ask.pinned, ask.only, ask.by_brand, ask.by_category, ask.limit)
+    return ranked, pinned_known
+
+
+async def _indexed_docs(
+    conn: aiosqlite.Connection, store: str, catalogue: _Catalogue, ids: list[str], fresh: price_history_index.Fresh
+) -> tuple[dict[str, list[Any]], dict[str, list[dict[str, Any]]]]:
+    """De bewaarde prijzen (`_observations`) en de lijnacties (`_line_offers`) van deze producten: uit hun document in het
+    leesmodel, en voor een product zonder geldig document uit de bronnen, dat dan zijn document krijgt."""
+    if not ids:
+        return {}, {}
+    texts: dict[str, str] = await price_history_index.docs(conn, store, ids, fresh.generation)
+    observed, lines = await compute.run(price_history_index.decode_docs, texts)
+    missing: list[str] = [product_id for product_id in ids if product_id not in texts]
+    if missing:
+        rows: dict[str, list[Any]] = await _observations(conn, store, missing)
+        found: dict[str, list[dict[str, Any]]] = await _line_offers(store, catalogue, missing)
+        await price_history_index.save_docs(conn, store, await compute.run(price_history_index.encode_docs, missing, rows, found), fresh)
+        observed.update(rows)
+        lines.update(found)
+    return observed, lines
 
 
 def _history_candidates(
@@ -2565,7 +2809,7 @@ def _point(points: dict[str, list[RegularPoint]], product_id: Any, day: Any, pri
     value = _number(price)
     if value is None or not day:
         return
-    points.setdefault(str(product_id), []).append(RegularPoint(str(day)[:10], value, source))
+    points.setdefault(str(product_id), []).append(regular_point(str(day)[:10], value, source))
 
 
 def _in_window(day: Any, since: str, until: str, before_until: bool) -> bool:
@@ -2575,13 +2819,12 @@ def _in_window(day: Any, since: str, until: str, before_until: bool) -> bool:
 
 
 async def _search_points(conn: aiosqlite.Connection, store: str, since: str, until: str, ids: list[str] | None) -> list[Any]:
-    """De bewaarde prijzen (`price_observations`) van de dagen in het venster, als rijen met `product_id`, `day` en `price`."""
+    """De bewaarde prijzen (`price_observations`) van de dagen in het venster, als gewone tuples (`_plain_rows`) van `product_id`, `day`
+    en `price`: bij een bouw van het oordeel zijn het er tienduizenden, en een `sqlite3.Row` volgt de GC."""
     wanted = f" AND {_WANTED_SQL}" if ids is not None else ""
     args: tuple[Any, ...] = (store, since, until, PUBLIC_OBSERVED_UNKNOWN) + ((json.dumps(ids),) if ids is not None else ())
-    return list(
-        await conn.execute_fetchall(
-            f"SELECT product_id, day, price FROM price_observations WHERE store = ? AND day >= ? AND day <= ? AND source != ?{wanted}", args
-        )
+    return await _plain_rows(
+        conn, f"SELECT product_id, day, price FROM price_observations WHERE store = ? AND day >= ? AND day <= ? AND source != ?{wanted}", args
     )
 
 
@@ -2621,18 +2864,18 @@ async def _choosable_points(conn: aiosqlite.Connection, store: str, since: str, 
         PUBLIC_OBSERVED_UNKNOWN,
         fresh_from,
     )
-    return list(await conn.execute_fetchall(_CHOOSABLE_SQL, args))
+    return await _plain_rows(conn, _CHOOSABLE_SQL, args)
 
 
 async def _order_points(conn: aiosqlite.Connection, store: str, since: str, until: str, before_until: bool, ids: list[str] | None) -> list[Any]:
-    """De gewone prijs in je bestellingen (`regular` van `_purchase_sources`), als rijen met `product_id`, `day` en `regular`."""
+    """De gewone prijs in je bestellingen (`regular` van `_purchase_sources`), als gewone tuples van `product_id`, `day` en `regular`."""
     last_day = "day < ?" if before_until else "day <= ?"
     wanted = f" AND {_WANTED_SQL}" if ids is not None else ""
     args: tuple[Any, ...] = (since, until) + ((json.dumps(ids),) if ids is not None else ())
     found: list[Any] = []
     for sql in _purchase_sources(await _tables(conn), store):
-        found += await conn.execute_fetchall(
-            f"SELECT product_id, day, regular FROM ({sql}) WHERE day >= ? AND {last_day} AND regular IS NOT NULL{wanted}", args
+        found += await _plain_rows(
+            conn, f"SELECT product_id, day, regular FROM ({sql}) WHERE day >= ? AND {last_day} AND regular IS NOT NULL{wanted}", args
         )
     return found
 
@@ -2766,10 +3009,10 @@ def _regular_from_rows(
     loopt: met tien jaar geschiedenis zijn het voor de aanbiedingen van een week tienduizenden punten."""
     points: dict[str, list[RegularPoint]] = {}
     wanted: set[str] | None = None if ids is None else {str(i) for i in ids}
-    for row in rows.searched:
-        _point(points, row["product_id"], row["day"], row["price"], "search")
-    for row in rows.ordered:
-        _point(points, row["product_id"], row["day"], row["regular"], "order")
+    for product_id, day, price in rows.searched:
+        _point(points, product_id, day, price, "search")
+    for product_id, day, price in rows.ordered:
+        _point(points, product_id, day, price, "order")
     for product_id, day, price, source in _receipt_points(receipts, since, until, purchases_before_until):
         if wanted is None or str(product_id) in wanted:
             _point(points, product_id, day, price, source)
@@ -2784,7 +3027,7 @@ def _regular_for_verdict(points: list[RegularPoint], today: str) -> Chosen | Non
     `_offer_points` dateert een aanbieding (een keten van rijen) op haar einde, of op `until` (hier `today`) als ze nog loopt of
     later eindigt. Een punt `offer` van `today` is dus de van-prijs van een lopende aanbieding: de claim van de winkel die we
     beoordelen, geen bron. De van-prijs van een aanbieding die voor vandaag eindigde telt wel."""
-    return choose([point for point in points if point.source != "offer" or point.day < today], today)
+    return choose([point for point in points if point[POINT_SOURCE] != "offer" or point[POINT_DAY] < today], today)
 
 
 def _regular_of(chosen: Chosen | None) -> dict[str, Any] | None:

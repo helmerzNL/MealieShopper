@@ -35,7 +35,10 @@ from mealieshopper import (  # noqa: E402
     mealie,
     mealie_images,
     oauth,
+    offer_history_index,
+    offers,
     price_archive,
+    price_history_index,
     prices,
     profile,
     push,
@@ -404,6 +407,32 @@ class RoundTripTest(BackupCase):
         self.assertFalse(await loose_names.reject("jumbo", "~kersen"), "de afwijzing was er al")
         self.assertTrue(await loose_names.restore("jumbo", "~kersen"))
 
+    async def test_the_offer_history_read_model_is_rebuilt_by_a_restore(self) -> None:
+        # Het leesmodel van de aanbiedingsgeschiedenis (offer_history_index.py) is afgeleid: niet in de back-up, wel opnieuw
+        # opgebouwd in de transactie van het terugzetten, zodat de eerste pagina daarna niet alles hoeft bij te werken.
+        self.assertLessEqual(set(offer_history_index.TABLES), backup.EXCLUDED_TABLES)
+        with closing(self.connect()) as conn, conn:
+            conn.execute(
+                "INSERT INTO offer_history (store, product_id, title, first_seen, last_seen) "
+                "VALUES ('ah', '1', 'Kaas', '2026-10-01T05:00:00+00:00', '2026-10-02T05:00:00+00:00')"
+            )
+        self.assertEqual((await offers.history("ah"))["total"], 1)
+        response, data = await self.make()
+        self.assertEqual(response.status_code, 200)
+        self.wipe()
+        self.assertEqual((await offers.history("ah"))["total"], 0)
+        self.assertEqual((await self.restore(data))["status"], "done")
+        with closing(self.connect()) as conn:
+            self.assertEqual(conn.execute("SELECT COUNT(*) FROM offer_history_stale").fetchone()[0], 0, "niets meer gemarkeerd")
+            self.assertEqual([tuple(row) for row in conn.execute("SELECT product_id, title FROM offer_history_products")], [("1", "Kaas")])
+        self.assertEqual((await offers.history("ah"))["products"][0]["title"], "Kaas")
+
+    async def test_the_read_model_of_the_price_history_is_left_out(self) -> None:
+        # Het leesmodel van de prijsgeschiedenis (price_history_index.py) is afgeleid: de eerste aanvraag maakt de tabellen aan,
+        # en een teruggezette database krijgt een nieuw token in catalogue_versions, zodat het opnieuw wordt opgebouwd.
+        await prices.history("ah")
+        self.assertLessEqual(set(price_history_index.TABLES), backup.EXCLUDED_TABLES)
+
     async def test_restoring_a_backup_drops_the_cached_catalogue_and_list(self) -> None:
         # Review Focus 4 van taak 9: na het terugzetten staat er niets van de oude database meer in het geheugen.
         self.assertIn("catalogue_versions", backup.EXCLUDED_TABLES)
@@ -611,7 +640,8 @@ class FileContentTest(BackupCase):
             self.assertNotIn(value, outside)
             if len(value) >= 8:
                 self.assertNotIn(value, text)
-        self.assertEqual(backup.unseal(sealed, PASSPHRASE), SECRETS)
+        # Scrypt (15 ms) hoort in een thread, ook in de test: de bewaker van de loop telt hem anders mee.
+        self.assertEqual(await asyncio.to_thread(backup.unseal, sealed, PASSPHRASE), SECRETS)
         self.assertNotIn(PASSPHRASE, text)
         self.assertEqual(sorted(document["secrets"]["links"]), ["ah", "ai_anthropic", "ai_openai", "crisp", "jumbo", "mealie", "picnic"])
         self.assertEqual(sealed["kdf"], "scrypt")
@@ -947,7 +977,7 @@ class RefusalTest(BackupCase):
         self.assertEqual(self.staged_files(), [])
 
     async def test_secrets_in_the_block_must_be_known_links(self) -> None:
-        sealed = backup.seal({"AUTH_MODE": "none"}, PASSPHRASE)
+        sealed = await asyncio.to_thread(backup.seal, {"AUTH_MODE": "none"}, PASSPHRASE)
         await auth.set_secret(mealie.SECRET_TOKEN, "MEALIE-TOKEN-12345678")
         _, data = await self.make(links=True, passphrase=PASSPHRASE)
         planted = self.tweak(data, lambda doc: doc["secrets"].update(sealed=sealed))

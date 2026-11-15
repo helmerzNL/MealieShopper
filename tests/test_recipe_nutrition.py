@@ -5,6 +5,7 @@ import asyncio
 import json
 import os
 import tempfile
+import threading
 import time
 import unittest
 from unittest import mock
@@ -177,6 +178,23 @@ class SearchTest(NutritionCase):
         card = found["recipes"][1]
         self.assertEqual((card["slug"], card["portions"]), ("recept-1", 4))
         self.assertTrue(card["image"] is None or card["image"].startswith("/api/mealie/recipes/"))
+
+    async def test_the_assembly_of_the_page_runs_off_the_event_loop(self):
+        """Het samenstellen van de pagina (36 tot 48 ms bij een paar duizend recepten, een kwart seconde op een Raspberry Pi) loopt
+        in een rekenthread en laat de event loop vrij, met zoekterm en zonder."""
+        loop_thread = threading.get_ident()
+        seen = []
+        real = recipe_nutrition._assemble
+
+        def spy(*args):
+            seen.append(threading.get_ident())
+            return real(*args)
+
+        with routes() as api, mock.patch.object(recipe_nutrition, "_assemble", spy):
+            self.mock_mealie(api)
+            await recipe_nutrition.search("", K(0, 600))
+        self.assertEqual(len(seen), 1)
+        self.assertNotEqual(seen[0], loop_thread)
 
     async def test_only_a_minimum_or_only_a_maximum(self):
         with routes() as api:

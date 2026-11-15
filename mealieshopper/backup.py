@@ -75,11 +75,13 @@ from . import (
     loose_names,
     marleyspoon,
     mealie,
+    offer_history_index,
     offers,
     offers_schedule,
     picnic,
     picnic_orders,
     price_archive_sync,
+    price_history_index,
     price_import,
     prices,
     product_images,
@@ -197,6 +199,12 @@ EXCLUDED_TABLES = frozenset(
         "shared_price_documents",
         "shared_price_sync",  # derived document hashes and scheduler state
         "price_archive_jobs",  # de import van een prijsarchief die loopt (price_archive.py): tijdelijke staat
+        # Het leesmodel van de aanbiedingsgeschiedenis (offer_history_index.py): afgeleid van offer_history, het terugzetten bouwt
+        # het opnieuw op (`replace_everything`).
+        *offer_history_index.TABLES,
+        # Het leesmodel van de prijsgeschiedenis (price_history_index.py): afgeleid van de catalogus en de prijzen. Een teruggezette
+        # database krijgt in catalogue_versions een nieuw token, dus de volgende aanvraag bouwt het opnieuw op.
+        *price_history_index.TABLES,
         "catalogue_versions",  # de versie per winkel van de catalogus van de prijzen (prices._catalogue_version): afgeleid, een teruggezette database krijgt een nieuw token
         # De push van de kooktimers (push.py): een abonnement hoort bij een browser en bij de VAPID-sleutel van deze installatie
         # (die zit er ook niet in), een timer duurt minuten. Na het terugzetten vraagt de app bij de volgende timer een nieuw aan.
@@ -1052,6 +1060,10 @@ def replace_everything(
         }
         # De versies van de catalogus zijn afgeleid (EXCLUDED_TABLES): weg, dan begint elke winkel met een nieuw token.
         conn.execute("DELETE FROM catalogue_versions")
+        if "offer_history" not in kept:
+            # Het leesmodel van de aanbiedingsgeschiedenis is ook afgeleid (EXCLUDED_TABLES): de triggers markeerden elk
+            # teruggezet product, in een keer opnieuw is sneller dan per product bij de volgende aanvraag.
+            offer_history_index.rebuild_now(conn)
         on_commit(conn, summary)
         conn.execute("COMMIT")
         return summary
