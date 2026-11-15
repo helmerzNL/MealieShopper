@@ -8,6 +8,8 @@ Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar
 
 ### Sneller in 4.29.0
 
+Pull request: [#337](https://github.com/helmerzNL/MealieShopper/pull/337).
+
 - **De aanbiedingsgeschiedenis en de prijsgeschiedenis lezen uit een leesmodel.** De prijzen en aanbiedingen veranderen alleen door de dagelijkse taken, een synchronisatie of een import, dus de app rekent ze nu bij het schrijven uit in plaats van bij elke aanvraag. SQLite-triggers op `offer_history` en `price_observations` markeren elk product dat verandert, ook als een oudere versie van de app schrijft, en de volgende aanvraag werkt alleen die producten bij. Op de volumedatabase gaat de Aanbiedingsgeschiedenis van 253 naar 11 ms (in een installatie met een prijsarchief was het ongeveer een seconde), zoeken van 70 tot 223 naar ongeveer 11 ms, en de Prijsgeschiedenis van Albert Heijn van 131 naar 17 ms (alleen gekocht van 79 naar 29 ms). Het antwoord is gelijk aan dat van de oude berekening, wat de tests nagaan.
 - **De eerste aanbiedingen na een start.** Het opwarmen bij de start gaat per winkel, Albert Heijn eerst, en een aanvraag voor een winkel die nog aan de beurt moet komen, gaat voor. Eerder bouwden alle winkels tegelijk, en wachtte de eerste lijst van Albert Heijn tot 3 s op de rest.
 - **De startpagina** compileert haar sjabloon (240 KB) niet meer bij de eerste aanvraag op de event loop: de start doet het in een thread, en elke volgende app in hetzelfde proces laadt de bytecode (16 ms op de ontwikkelmachine, 470 ms op een runner van GitHub).
