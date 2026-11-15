@@ -1274,7 +1274,7 @@ class RegularPricesTest(PricesCase):
 
         found: dict = (await in_db(prices._connect, points))[0]
         self.assertEqual(
-            {key: [(p.price, p.source) for p in value] for key, value in found.items()},
+            {key: [(p[1], p[2]) for p in value] for key, value in found.items()},
             {"1": [(1.19, "search")], "2": [(1.29, "order")], "3": [(2.49, "offer")]},
         )
 
@@ -1309,7 +1309,7 @@ class RegularPricesTest(PricesCase):
 
         everything, picked = await in_db(prices._connect, full, choosable)
         self.assertEqual(
-            {key: sorted((p.day, p.price, p.source) for p in value) for key, value in picked.items()},
+            {key: sorted(tuple(p) for p in value) for key, value in picked.items()},
             {
                 "1": [("2026-09-01", 1.19, "search"), ("2026-09-15", 1.29, "search"), ("2026-09-18", 1.25, "search")],
                 "2": [("2026-04-01", 2.59, "search"), ("2026-05-01", 2.79, "order")],
@@ -2326,7 +2326,7 @@ class RegularPointsTest(PricesCase):
             self.line("receipt", day="2026-09-12", paid=2.79),
         ]
         found = (await self.points(receipts))["1"]
-        self.assertEqual({p.source for p in found}, {"search", "order", "import", "receipt", "offer"})
+        self.assertEqual({p[2] for p in found}, {"search", "order", "import", "receipt", "offer"})
         self.assertEqual(len(found), 5)
 
     async def test_weighed_receipt_line_gives_no_point(self):
@@ -2336,7 +2336,7 @@ class RegularPointsTest(PricesCase):
                 self.line("receipt", day="2026-09-11", quantity=2),
             ]
         )
-        self.assertEqual(found, {"1": [regular_price.RegularPoint("2026-09-11", 2.79, "receipt")]})
+        self.assertEqual(found, {"1": [regular_price.regular_point("2026-09-11", 2.79, "receipt")]})
         self.assertEqual(await self.points([self.line("receipt", quantity=None)]), {})
 
     async def test_ended_offer_point_is_dated_at_its_end(self):
@@ -2355,7 +2355,7 @@ class RegularPointsTest(PricesCase):
         await self.sync_offer("2026-09-29T05:00:00+00:00")
         self.assertEqual(
             (await self.points())["1"],
-            [regular_price.RegularPoint("2026-09-28", 2.49, "offer")],
+            [regular_price.regular_point("2026-09-28", 2.49, "offer")],
         )
 
     async def test_running_offer_point_is_dated_until(self):
@@ -2365,7 +2365,7 @@ class RegularPointsTest(PricesCase):
         )
         self.assertEqual(
             (await self.points())["1"],
-            [regular_price.RegularPoint(self.UNTIL, 2.49, "offer")],
+            [regular_price.regular_point(self.UNTIL, 2.49, "offer")],
         )
 
     async def test_folder_rows_give_no_point(self):
@@ -2404,7 +2404,7 @@ class RegularPointsTest(PricesCase):
         self.assertEqual(set(await self.points(receipts)), {"1", "2"})
         limited = await self.points(receipts, ids=["2"])
         self.assertEqual(set(limited), {"2"})
-        self.assertEqual({p.source for p in limited["2"]}, {"search", "import", "offer"})
+        self.assertEqual({p[2] for p in limited["2"]}, {"search", "import", "offer"})
 
     async def test_points_outside_the_window_are_left_out(self):
         await self.observe("2026-07-01", "1", "AH Pindakaas", 2.99)
@@ -2420,13 +2420,13 @@ class RegularPointsTest(PricesCase):
         await self.sync_offer("2026-09-01T05:00:00+00:00", offer("1", "AH Pindakaas", 1.99, 2.49, "nu 1,99"))
         await self.sync_offer("2026-09-05T05:00:00+00:00", offer("1", "AH Pindakaas", 1.89, 2.59, "nu 1,89"))
         await self.sync_offer("2026-09-10T05:00:00+00:00")
-        self.assertEqual((await self.points())["1"], [regular_price.RegularPoint("2026-09-05", 2.59, "offer")])
+        self.assertEqual((await self.points())["1"], [regular_price.regular_point("2026-09-05", 2.59, "offer")])
 
     async def test_a_running_continued_chain_is_dated_until(self) -> None:
         # De van-prijs veranderde halverwege een aanbieding die nog loopt: de hele keten loopt nog, dus `until`.
         await self.sync_offer("2026-10-10T05:00:00+00:00", offer("1", "AH Pindakaas", 1.50, 2.00, "25% korting"))
         await self.sync_offer("2026-10-15T05:00:00+00:00", offer("1", "AH Pindakaas", 1.50, 2.20, "25% korting"))
-        self.assertEqual((await self.points())["1"], [regular_price.RegularPoint(self.UNTIL, 2.20, "offer")])
+        self.assertEqual((await self.points())["1"], [regular_price.regular_point(self.UNTIL, 2.20, "offer")])
 
     async def test_a_new_period_after_a_chain_is_its_own_point(self) -> None:
         # Een nieuwe periode (`continued` is 0) begint een nieuwe keten, ook direct na de vorige.
@@ -2435,7 +2435,7 @@ class RegularPointsTest(PricesCase):
         await self.sync_offer("2026-09-08T05:00:00+00:00", offer("1", "AH Pindakaas", 1.89, 2.59, "nu 1,89"))
         self.assertEqual(
             (await self.points())["1"],
-            [regular_price.RegularPoint("2026-09-01", 2.49, "offer"), regular_price.RegularPoint(self.UNTIL, 2.59, "offer")],
+            [regular_price.regular_point("2026-09-01", 2.49, "offer"), regular_price.regular_point(self.UNTIL, 2.59, "offer")],
         )
 
 
