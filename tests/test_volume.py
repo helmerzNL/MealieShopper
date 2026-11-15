@@ -1447,7 +1447,14 @@ async def test_the_first_offers_during_warming_wait_on_their_own_store_only(
         return answer, seconds, warmed
 
     # `quiet`: de bouw van een catalogus laat de GC lange rondes doen, en die telt de bewaker mee (zoals bij de koude aanvragen).
-    answer, seconds, warmed = await quiet(action, prepare=cold(volume_dir))
+    # Bevroren zoals productie na de start (`frozen_like_production`): zonder dat liep elke volle ronde ook langs de verzamelde
+    # suite, op de runner 89 tot 123 ms over 170.000 tot 270.000 objecten (PR #337, 2026-11-15). De app draait hier al
+    # (`volume_client`), dus bevriest de test zelf.
+    gc_watch.freeze_after_start()
+    try:
+        answer, seconds, warmed = await quiet(action, prepare=cold(volume_dir))
+    finally:
+        gc.unfreeze()
     assert answer["offers"]
     assert warmed == {"ah"}, f"de aanvraag deelde de rekenthreads met de catalogus van {sorted(warmed - {'ah'})}"
     # De tijd zoals de andere snelheidstests (`_judge_speed`): op CI alleen gemeld, want een runner is zo'n twee keer trager (op
