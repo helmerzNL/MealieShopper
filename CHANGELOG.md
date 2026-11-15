@@ -2,6 +2,22 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub; een stabiele release krijgt de teksten van alle versies sinds de vorige stabiele release.
 
+## v4.28.0
+
+*English summary: The offer history and the price history now read from a read model in the database instead of recomputing everything on each request, because their data only changes through the daily tasks, a sync or an import. SQLite triggers on the source tables mark every product that changes, also when an older version writes, and the next request updates only those. On a database the size of a real installation the offer history takes 11 ms instead of 253 ms (about a second on an installation with a price archive), and the price history of Albert Heijn 17 ms instead of 131 ms. Warming up after a start now goes store by store with Albert Heijn first, so the first offers no longer wait up to 3 s for the other stores. A few more places that would stall a slow device (recipe search, releasing a replaced catalogue) moved off the event loop, and the nightly run keeps fewer objects for the garbage collector.*
+
+### Sneller in 4.28.0
+
+- **De aanbiedingsgeschiedenis en de prijsgeschiedenis lezen uit een leesmodel.** De prijzen en aanbiedingen veranderen alleen door de dagelijkse taken, een synchronisatie of een import, dus de app rekent ze nu bij het schrijven uit in plaats van bij elke aanvraag. SQLite-triggers op `offer_history` en `price_observations` markeren elk product dat verandert, ook als een oudere versie van de app schrijft, en de volgende aanvraag werkt alleen die producten bij. Op de volumedatabase gaat de Aanbiedingsgeschiedenis van 253 naar 11 ms (in een installatie met een prijsarchief was het ongeveer een seconde), zoeken van 70 tot 223 naar ongeveer 11 ms, en de Prijsgeschiedenis van Albert Heijn van 131 naar 17 ms (alleen gekocht van 79 naar 29 ms). Het antwoord is gelijk aan dat van de oude berekening, wat de tests nagaan.
+- **De eerste aanbiedingen na een start.** Het opwarmen bij de start gaat per winkel, Albert Heijn eerst, en een aanvraag voor een winkel die nog aan de beurt moet komen, gaat voor. Eerder bouwden alle winkels tegelijk, en wachtte de eerste lijst van Albert Heijn tot 3 s op de rest.
+- **Recepten zoeken** naar voedingswaarden rekent de pagina buiten de event loop uit (36 tot 48 ms op de loop, op een trager apparaat ruim 250 ms).
+- **Een vervangen catalogus** wordt in stukken vrijgegeven in een rekenthread. In een keer was dat bij Albert Heijn 8 tot 17 ms in een aanroep in C, die ook de event loop vasthield.
+- **Minder objecten voor de garbage collector** in de nachtelijke ronde: de punten van de gewone prijs, de koppelingen en de bonregels zijn gewone tuples, die Python niet volgt (bij een volle ronde 46.000 in plaats van 75.000 objecten).
+
+### Database en back-up in 4.28.0
+
+- Nieuwe tabellen voor de leesmodellen: `offer_history_products`, `offer_history_titles` en `offer_history_stale` (de Aanbiedingsgeschiedenis), en `price_history_products`, `price_history_docs`, `price_history_meta` en `price_history_stale` (de Prijsgeschiedenis), met triggers op `offer_history` en `price_observations`. Ze zijn afgeleid en staan niet in een back-up: de eerste start na de update en het terugzetten van een back-up bouwen ze opnieuw op. Een oudere versie kent ze niet en laat ze staan, en de triggers schrijven alleen in hun eigen tabellen, dus terug naar 4.27.1 kan zonder de kopie van de gegevens: wat die versie schrijft, is daarna gemarkeerd, en de eerste aanvraag van 4.28.0 werkt het bij (nagegaan met 4.27.1 en 4.25.1).
+
 ## v4.27.1
 
 *English summary: Followed products no longer show "packaging unknown" next to a known size. When the kind of packaging cannot be derived from the name or the size (for example Aviko Oma's smulfriet, 750 g), the product shows just **Size: 750 g**; when it is known, size and packaging stay together ("Size and packaging: 1 l · bottle"). In the table of all days an unknown packaging is a dash.*
@@ -60,8 +76,6 @@ Gemeten op een database met de omvang van een echte installatie (`tests/volume.p
 - **Lezen uit de database** voor de sessie en de instellingen gaat over een paar open verbindingen in plaats van een nieuwe verbinding, en dus een nieuwe thread, per aanvraag. Twintig keer `/api/auth/status` startte 140 threads en nu hooguit 4.
 - **Een back-up terugzetten** houdt de app niet meer honderden milliseconden vast: het bestand wordt per rij gelezen in plaats van in een keer.
 - **Ook op een trager apparaat.** Een Raspberry Pi of een goedkope NAS is per kern vijf tot acht keer trager dan de Mac waarop gemeten is, dus de tests zijn ook gedraaid met een grens van 15 ms in plaats van 100 ms. Wat daar bovenuit kwam, staat nu buiten de event loop: het vouwen van de namen bij het oordeel en bij de ingelezen bestellingen, en de nachtelijke ronde langs de productfoto's. Een back-up terugzetten start geen volle opruimronde van de garbage collector meer (dat waren er 24 tot 26 per keer, van 34 tot 56 ms), omdat de rijen van het bestand niet meer elk een object zijn dat Python volgt.
-- **De aanbiedingsgeschiedenis en de prijsgeschiedenis lezen uit een leesmodel.** De prijzen en aanbiedingen veranderen alleen door de dagelijkse taken, een synchronisatie of een import, dus de app rekent ze nu bij het schrijven uit in plaats van bij elke aanvraag. SQLite-triggers op `offer_history` en `price_observations` markeren elk product dat verandert, ook als een oudere versie van de app schrijft, en de volgende aanvraag werkt alleen die producten bij. Op de volumedatabase gaat de Aanbiedingsgeschiedenis van 253 naar 11 ms (in een installatie met een prijsarchief was het ongeveer een seconde), zoeken van 70 tot 223 naar ongeveer 11 ms, en de Prijsgeschiedenis van Albert Heijn van 131 naar 17 ms (alleen gekocht van 79 naar 29 ms). Het antwoord is gelijk aan dat van de oude berekening, wat de tests nagaan.
-- **De eerste aanbiedingen na een start.** Het opwarmen bij de start gaat per winkel, Albert Heijn eerst, en een aanvraag voor een winkel die nog aan de beurt moet komen, gaat voor. Eerder bouwden alle winkels tegelijk, en wachtte de eerste lijst van Albert Heijn tot 3 s op de rest.
 - **Kortere opruimrondes.** Na de start zet de app wat er dan leeft eenmalig opzij voor de garbage collector (`gc.freeze`): zo'n 127.000 objecten van Python, de bibliotheken en de app, die het hele proces blijven bestaan. Een volle opruimronde in de nachtelijke ronde duurt daardoor 9 tot 17 ms in plaats van 33 tot 55 ms.
 
 #### Nieuw
@@ -79,7 +93,6 @@ Gemeten op een database met de omvang van een echte installatie (`tests/volume.p
 
 #### Database
 
-- Nieuwe tabellen voor de leesmodellen: `offer_history_products`, `offer_history_titles` en `offer_history_stale` (de Aanbiedingsgeschiedenis), en `price_history_products`, `price_history_docs`, `price_history_meta` en `price_history_stale` (de Prijsgeschiedenis), met triggers op `offer_history` en `price_observations`. Ze zijn afgeleid en staan niet in een back-up: de eerste start na de update en het terugzetten van een back-up bouwen ze opnieuw op. Een oudere versie kent ze niet en laat ze staan, en de triggers schrijven alleen in hun eigen tabellen, dus terug naar 4.25.1 kan zonder de kopie van de gegevens.
 - Een nieuwe tabel `catalogue_versions` houdt per winkel bij wanneer producten of prijzen veranderden, met eigen triggers. Terug naar 4.25.1 kan zonder de kopie van de gegevens: die versie maakt bij de start haar eigen triggers weer aan.
 
 ### Telemetrie: meten waar een trage pagina zijn tijd laat
