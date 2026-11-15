@@ -54,6 +54,7 @@ from . import (
     offer_ranking,
     offers,
     packs,
+    price_history_index,
     price_import,
     product_links,
     shared_links,
@@ -2003,6 +2004,12 @@ def _facet_counts(values: Iterable[str], chosen: _Choice, limit: int | None = No
     for value in values:
         if value:
             counts[value] = counts.get(value, 0) + 1
+    return _facet_list(counts, chosen, limit)
+
+
+def _facet_list(counts: dict[str, int], chosen: _Choice, limit: int | None = None) -> list[dict[str, Any]]:
+    """`_facet_counts` uit de aantallen per waarde, zoals het leesmodel ze telt (`price_history_index.page`)."""
+    counts = {value: count for value, count in counts.items() if value and count}
     ordered: list[tuple[str, int]] = sorted(counts.items(), key=lambda item: (-item[1], item[0]))
     kept: list[tuple[str, int]] = (
         ordered if limit is None else ordered[:limit] + [item for item in ordered[limit:] if item[0] in chosen.shown | chosen.hidden]
@@ -2058,40 +2065,162 @@ async def history(
     if lookup and wanted.words and "ah" in stores and only is None:
         await _lookup_receipt_names(lookup, wanted, today)
     async with _connect() as conn:
-        catalogues = {name: await _catalogue(conn, name, today) for name in stores}
+        await price_history_index.prepare(conn)
+        catalogues: dict[str, _Catalogue] = {}
+        fresh: dict[str, price_history_index.Fresh] = {}
+        for name in stores:
+            catalogues[name], fresh[name] = await _indexed_catalogue(conn, name, today)
         receipts = {name: catalogue.receipts for name, catalogue in catalogues.items()}
         unsynced = {name: await _unsynced(conn, name) for name in stores}
         keeps: dict[str, set[str] | None] = {
             name: _with_twins(await _bought(conn, name, today, receipts[name]), catalogues[name].twins) if bought else None for name in stores
         }
-        candidates: dict[tuple[str, str], str] = await compute.run(_history_candidates, catalogues, wanted, only, pinned, keeps)
-        # Het product uit de link staat nergens in de prijsgeschiedenis (alleen in een open bestelling, of in een aanbieding die
-        # net begon): dan toch het product zelf, met wat de app ervan weet. Alleen met een winkel: een id hoort bij een winkel.
-        pinned_known: dict[str, dict[str, Any]] = {}  # winkel -> wat `_pinned` van het product uit de link weet
-        for name in stores:
-            if pinned is not None and store and only is None and (name, pinned) not in candidates:
-                known = await _pinned(conn, name, pinned, await _tables(conn))
-                if known is not None:
-                    candidates[(name, pinned)] = today
-                    pinned_known[name] = known
-        ranked: _Ranked = await compute.run(
-            _rank_history, catalogues, candidates, pinned, only, _Choice.of(brands, brands_out), _Choice.of(categories, categories_out), limit
-        )
+        by_brand: _Choice = _Choice.of(brands, brands_out)
+        by_category: _Choice = _Choice.of(categories, categories_out)
+        ask: _HistoryAsk = _HistoryAsk(stores, bool(store), wanted, only, pinned, keeps, by_brand, by_category, limit, today)
+        ranked: _Ranked
+        pinned_known: dict[str, dict[str, Any]]  # winkel -> wat `_pinned` van het product uit de link weet
+        ranked, pinned_known = await (_indexed_page(conn, ask) if ask.indexed else _indexed_search(conn, ask))
         chosen: list[tuple[str, str]] = ranked.chosen
         found: dict[str, tuple[dict[str, list[Any]], dict[str, list[Any]], dict[str, list[dict[str, Any]]]]] = {}
+        lines: dict[str, dict[str, list[dict[str, Any]]]] = {}
         for name in stores:
             ids = sorted(_with_twins({product_id for store_name, product_id in chosen if store_name == name}, catalogues[name].twins))
+            observed, lines[name] = await _indexed_docs(conn, name, catalogues[name], ids, fresh[name])
             found[name] = (
-                (await _observations(conn, name, ids), await _purchases(conn, name, ids, today, receipts[name]), await _saved_images(conn, name, ids))
-                if ids
-                else ({}, {}, {})
+                (observed, await _purchases(conn, name, ids, today, receipts[name]), await _saved_images(conn, name, ids)) if ids else ({}, {}, {})
             )
         upcoming = {name: await _upcoming(conn, name, [pid for s, pid in chosen if s == name], today) for name in stores}
     offered = {name: await offers.history_of(name, [pid for s, pid in chosen if s == name]) for name in stores}
-    lines = {name: await _line_offers(name, catalogues[name], [pid for s, pid in chosen if s == name]) for name in stores}
     sources: _ProductSources = _ProductSources(catalogues, offered, found, upcoming, pinned_known, lines)
     products: list[dict[str, Any]] = await compute.run(_page_products, chosen, sources, pinned, today)
     return {"products": products, "total": ranked.total, "unsynced": unsynced, "facets": ranked.facets}
+
+
+# --- het leesmodel van de prijsgeschiedenis (price_history_index.py) ---------------------------------------------------
+
+
+async def _indexed_catalogue(conn: aiosqlite.Connection, store: str, today: str) -> tuple[_Catalogue, price_history_index.Fresh]:
+    """De catalogus van een winkel en het leesmodel bijgewerkt tot die catalogus. De versie en de markeringen worden eerst
+    gelezen (`price_history_index.before`), dan de catalogus: zo is die minstens zo nieuw als wat het leesmodel bijwerkt."""
+    row: aiosqlite.Row = await _catalogue_row(conn, store)
+    seen: price_history_index.Before = await price_history_index.before(conn, store, f"{row['token']}:{row['products']}", row["prices"])
+    catalogue: _Catalogue = await _catalogue(conn, store, today)
+    fresh: price_history_index.Fresh = await price_history_index.up_to_date(
+        store, today, seen, catalogue.products, catalogue.twins, catalogue.receipts
+    )
+    return catalogue, fresh
+
+
+class _HistoryAsk(NamedTuple):
+    """Wat `history` vraagt, voor de pagina uit het leesmodel (`_indexed_page`, `_indexed_search`)."""
+
+    stores: list[str]
+    one_store: bool  # `store` was gegeven: alleen dan zoekt `_pinned` een product uit een link dat nergens in de geschiedenis staat
+    wanted: _Query
+    only: str | None
+    pinned: str | None
+    keeps: dict[str, set[str] | None]
+    by_brand: _Choice
+    by_category: _Choice
+    limit: int
+    today: str
+
+    @property
+    def indexed(self) -> bool:
+        """Zonder zoekterm en zonder `product` komt de hele pagina uit de index (`_indexed_page`)."""
+        return not self.wanted.words and not self.wanted.size and self.only is None
+
+
+async def _pinned_known(conn: aiosqlite.Connection, ask: _HistoryAsk, present: Collection[str]) -> dict[str, dict[str, Any]]:
+    """Per winkel waar het product uit de link geen kandidaat is (`present` zijn de winkels waar het dat wel is): wat `_pinned`
+    ervan weet. Het product staat nergens in de prijsgeschiedenis (alleen in een open bestelling, of in een aanbieding die net
+    begon), en komt dan toch, met wat de app ervan weet. Alleen met een winkel: een id hoort bij een winkel."""
+    found: dict[str, dict[str, Any]] = {}
+    if ask.pinned is None or not ask.one_store or ask.only is not None:
+        return found
+    for name in ask.stores:
+        if name not in present:
+            known: dict[str, Any] | None = await _pinned(conn, name, ask.pinned, await _tables(conn))
+            if known is not None:
+                found[name] = known
+    return found
+
+
+async def _indexed_page(conn: aiosqlite.Connection, ask: _HistoryAsk) -> tuple[_Ranked, dict[str, dict[str, Any]]]:
+    """De pagina zonder zoekterm uit de index (`price_history_index.page`), met hetzelfde antwoord als `_history_candidates` en
+    `_rank_history` over de hele catalogus: het product uit de link bovenaan (ook als het nergens in de geschiedenis staat,
+    `_pinned_known`, dan met vandaag als dag), dan de rest op de laatste dag. Het product uit de link telt mee in het totaal en
+    in de keuzelijsten, ook als het filter het weg zou laten."""
+    found: price_history_index.Page = await price_history_index.page(
+        conn,
+        ask.stores,
+        ask.pinned,
+        ask.keeps,
+        price_history_index.Choice(ask.by_brand.shown, ask.by_brand.hidden),
+        price_history_index.Choice(ask.by_category.shown, ask.by_category.hidden),
+        ask.limit,
+    )
+    pinned_known: dict[str, dict[str, Any]] = await _pinned_known(conn, ask, {item.store for item in found.pinned})
+    brands: dict[str, int] = dict(found.brands)
+    categories: dict[str, int] = dict(found.categories)
+    for item in found.pinned:
+        if ask.by_category.passes(item.category):
+            brands[item.brand] = brands.get(item.brand, 0) + 1
+        if ask.by_brand.passes(item.brand):
+            categories[item.category] = categories.get(item.category, 0) + 1
+    tops: list[tuple[str, str, str]] = [(item.day, item.store, item.product_id) for item in found.pinned]
+    tops += [(ask.today, name, str(ask.pinned)) for name in pinned_known]
+    chosen: list[tuple[str, str]] = [(name, product_id) for _, name, product_id in sorted(tops, reverse=True)] + found.rest
+    facets: dict[str, list[dict[str, Any]]] = {
+        "brands": _facet_list(brands, ask.by_brand, FACET_BRANDS),
+        "categories": _facet_list(categories, ask.by_category),
+    }
+    return _Ranked(chosen[: ask.limit], found.total + len(tops), facets), pinned_known
+
+
+async def _indexed_search(conn: aiosqlite.Connection, ask: _HistoryAsk) -> tuple[_Ranked, dict[str, dict[str, Any]]]:
+    """De pagina met een zoekterm, voor een product (`product`) of met Eerder gekocht: de rijen uit de index die kunnen passen,
+    met hun groep (`price_history_index.rows_for`), als kleine catalogus door dezelfde `_history_candidates` en `_rank_history`
+    als vroeger de hele catalogus. Een product dat niet past, kon daar ook niet bij, dus het antwoord is hetzelfde. Met
+    `product` kan alleen zijn groep erbij, en met Eerder gekocht zonder zoekterm alleen wat je kocht (`keeps`, met de andere
+    nummers al erbij)."""
+    small: dict[str, _Catalogue] = {}
+    words: list[str] = ask.wanted.words if ask.only is None else []
+    for name in ask.stores:
+        keep: set[str] | None = ask.keeps.get(name)
+        ids: list[str] = [product_id for product_id in (ask.only, ask.pinned) if product_id is not None]
+        if keep is not None and ask.only is None and not words:
+            ids += sorted(keep)
+        everything: bool = ask.only is None and not words and keep is None
+        rows: list[Any] = await price_history_index.rows_for(conn, name, words, ids, everything)
+        products, twins = await compute.run(price_history_index.known_of, rows)
+        small[name] = _Catalogue([], products, line_offers.LineIndex((), ()), twins)
+    candidates: dict[tuple[str, str], str] = await compute.run(_history_candidates, small, ask.wanted, ask.only, ask.pinned, ask.keeps)
+    pinned_known: dict[str, dict[str, Any]] = await _pinned_known(conn, ask, {name for name, product_id in candidates if product_id == ask.pinned})
+    for name in pinned_known:
+        candidates[(name, str(ask.pinned))] = ask.today
+    ranked: _Ranked = await compute.run(_rank_history, small, candidates, ask.pinned, ask.only, ask.by_brand, ask.by_category, ask.limit)
+    return ranked, pinned_known
+
+
+async def _indexed_docs(
+    conn: aiosqlite.Connection, store: str, catalogue: _Catalogue, ids: list[str], fresh: price_history_index.Fresh
+) -> tuple[dict[str, list[Any]], dict[str, list[dict[str, Any]]]]:
+    """De bewaarde prijzen (`_observations`) en de lijnacties (`_line_offers`) van deze producten: uit hun document in het
+    leesmodel, en voor een product zonder geldig document uit de bronnen, dat dan zijn document krijgt."""
+    if not ids:
+        return {}, {}
+    texts: dict[str, str] = await price_history_index.docs(conn, store, ids, fresh.generation)
+    observed, lines = await compute.run(price_history_index.decode_docs, texts)
+    missing: list[str] = [product_id for product_id in ids if product_id not in texts]
+    if missing:
+        rows: dict[str, list[Any]] = await _observations(conn, store, missing)
+        found: dict[str, list[dict[str, Any]]] = await _line_offers(store, catalogue, missing)
+        await price_history_index.save_docs(conn, store, await compute.run(price_history_index.encode_docs, missing, rows, found), fresh)
+        observed.update(rows)
+        lines.update(found)
+    return observed, lines
 
 
 def _history_candidates(
