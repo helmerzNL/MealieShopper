@@ -491,6 +491,8 @@ The **Recipes** sub-tab shows the recipe suggestions: recipes with ingredients o
 
 The **Followed products** subtab (next to the Price history, under Offers) keeps track of single products, apart from the offers. Choose the store and search for a product, or paste a link to a product on **ah.nl** (`…/producten/product/wi4183/…`) or **jumbo.com** (`…/producten/…-123456PAK`): a pasted link looks up that one product right away, even when another store is chosen. Click **Follow**.
 
+<img src="screenshots/en/watched.png" alt="Followed products: Calvé pindakaas marked Single product, €0.30 (+7.5%) more expensive since 1 Jun 2026, its key figures (regular price €4.29, first €3.99, 600 g in a jar) and the line of the regular price with two offers as red dots" width="900">
+
 - **Every night**, with the offers, MealieShopper fetches what each followed product is that day: the regular price, the price at that moment (with the offer, if one ran), the size, the kind of packaging and the image. **Update now** does that straight away.
 - **The line follows the regular price.** A day with an offer is a red dot and does not count as a price change. Above the chart you see how much more expensive or cheaper the product is since the first measurement, with the price per kilo, litre or piece.
 - **What changed** lists per day a different regular price, size, packaging, name or image: so you also spot a smaller pack for the same price. Every new image is saved and the old one stays.

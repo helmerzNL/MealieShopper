@@ -491,6 +491,8 @@ Het subtab **Recepten** toont de receptvoorstellen: recepten waarvan ingrediënt
 
 Het subtab **Gevolgde producten** (naast de Prijsgeschiedenis, onder Aanbiedingen) houdt losse artikelen bij, los van de aanbiedingen. Kies de winkel en zoek een product, of plak een link van een product op **ah.nl** (`…/producten/product/wi4183/…`) of **jumbo.com** (`…/producten/…-123456PAK`): een geplakte link zoekt meteen dat ene product op, ook als er een andere winkel gekozen staat. Klik op **Volgen**.
 
+<img src="screenshots/nl/watched.png" alt="Gevolgde producten: Calvé pindakaas met de markering Los artikel, € 0,30 (+7,5%) duurder sinds 1 jun 2026, de kerngetallen (gewone prijs € 4,29, eerst € 3,99, 600 g in een pot) en de lijn van de gewone prijs met twee aanbiedingen als rode stippen" width="900">
+
 - **Elke nacht**, met de aanbiedingen, haalt MealieShopper van elk gevolgd product op wat het die dag is: de gewone prijs, de prijs van dat moment (met de actie, als er een liep), de maat, het soort verpakking en de afbeelding. **Nu bijwerken** doet dat meteen.
 - **De lijn volgt de gewone prijs.** Een dag met een aanbieding staat er als rode stip bij en telt niet als prijsverandering. Boven de grafiek staat hoeveel duurder of goedkoper het product is sinds de eerste meting, met de prijs per kilo, liter of stuk.
 - **Wat veranderde** noemt per dag een andere gewone prijs, maat, verpakking, naam of afbeelding: zo zie je ook een kleinere verpakking voor dezelfde prijs. Elke nieuwe afbeelding wordt bewaard, de oude blijft staan.

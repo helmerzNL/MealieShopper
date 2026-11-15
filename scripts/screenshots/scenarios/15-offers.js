@@ -1,6 +1,6 @@
 // Het tabblad Aanbiedingen: de AH Bonus van de week van het weekmenu, met de weekkeuze, de looptijd van de bonusweek, wat er al
-// voor later bekend is, de categorieën en de producten met hun prijs per eenheid en oordeel. Daarnaast de Prijsgeschiedenis en
-// Vergelijk verpakkingen.
+// voor later bekend is, de categorieën en de producten met hun prijs per eenheid en oordeel. Daarnaast de Prijsgeschiedenis,
+// Vergelijk verpakkingen en Gevolgde producten.
 const { svg, product, perUnit, WEEK, openSubtab } = require("../demo");
 
 // De taal van de pagina staat in de cookie ms_lang; teksten die normaal van de server komen volgen die.
@@ -295,6 +295,102 @@ const compareAnswer = {
   }),
 };
 
+// ---- Gevolgde producten (/api/watched): losse artikelen waarvan de app elke nacht de gewone prijs, de maat, de verpakking en de
+// afbeelding bewaart. Calvé pindakaas werd in juli duurder en in september kleiner (650 g naar 600 g) met een nieuw etiket; de
+// aanbiedingen zijn rode stippen en tellen niet als prijsverandering.
+
+// Een pot pindakaas met een etiket waarop de inhoud staat. Zelfgetekend.
+function peanutJar(lid, label, size) {
+  return svg(
+    `<rect width="120" height="120" fill="#fff"/><rect x="34" y="14" width="52" height="16" rx="5" fill="${lid}"/>` +
+      `<rect x="28" y="28" width="64" height="80" rx="14" fill="#b9793f"/><rect x="34" y="48" width="52" height="38" rx="6" fill="${label}"/>` +
+      `<text x="60" y="64" font-family="Arial,sans-serif" font-size="9" font-weight="700" fill="#fff" text-anchor="middle">PINDA</text>` +
+      `<text x="60" y="78" font-family="Arial,sans-serif" font-size="9" font-weight="700" fill="#fff" text-anchor="middle">${size}</text>`
+  );
+}
+const JAR_OLD = peanutJar("#d9503f", "#2f6db5", "650 g");
+const JAR_NEW = peanutJar("#d9503f", "#1f4f8f", "600 g");
+
+// Elke dag van begin tot en met 28 oktober een punt: [vanaf, gewone prijs, maat]; de aanbiedingen als [begin, einde, prijs, actie].
+function watchedDays(from, until) {
+  const days = [];
+  for (let day = new Date(`${from}T12:00:00Z`); day <= new Date(`${until}T12:00:00Z`); day.setUTCDate(day.getUTCDate() + 1)) days.push(day.toISOString().slice(0, 10));
+  return days;
+}
+function watchedPoints({ from, title, packaging, steps, offers = [], image }) {
+  return watchedDays(from, "2026-10-28").map((day) => {
+    const [, regular, unitSize, picture] = steps.filter(([start]) => start <= day).pop();
+    const offer = offers.find(([start, end]) => start <= day && day <= end);
+    return {
+      day, price: offer ? offer[2] : regular, regular, onOffer: Boolean(offer), offerLabel: offer ? offer[3] : null, title, unitSize, packaging,
+      image: picture || image,
+    };
+  });
+}
+// Wat er veranderde (watched_products.changes): de gewone prijs, de maat, de verpakking, de naam en de afbeelding.
+function watchedChanges(points) {
+  const found = [];
+  for (let at = 1; at < points.length; at += 1) {
+    const [before, now] = [points[at - 1], points[at]];
+    if (before.regular !== now.regular) found.push({ day: now.day, field: "regular", from: before.regular, to: now.regular });
+    if (before.unitSize !== now.unitSize) found.push({ day: now.day, field: "unitSize", from: before.unitSize, to: now.unitSize });
+    if (before.image !== now.image) found.push({ day: now.day, field: "image", from: before.image, to: now.image });
+  }
+  return found;
+}
+// Een gevolgd product zoals /api/watched het geeft (watched_products.listing).
+function watchedProduct({ store, productId, title, brand, packaging, url, image, savedImages = [], ...rest }) {
+  const points = watchedPoints({ title, packaging, image, ...rest });
+  const regulars = points.map((point) => point.regular);
+  const [first, last] = [points[0], points[points.length - 1]];
+  const change = Math.round((last.regular - first.regular) * 100) / 100;
+  return {
+    store, productId, title, brand, unitSize: last.unitSize, packaging, image: last.image, url,
+    addedAt: `${first.day}T21:14:00Z`, checkedAt: "2026-10-28T05:00:40Z", missingSince: null,
+    price: last.price, regular: last.regular, onOffer: last.onOffer, offerLabel: last.offerLabel,
+    points, changes: watchedChanges(points), savedImages,
+    firstRegular: { day: first.day, price: first.regular }, lastRegular: { day: last.day, price: last.regular },
+    change, changePercent: Math.round((change / first.regular) * 1000) / 10,
+    lowest: Math.min(...regulars), highest: Math.max(...regulars), unitPrice: perUnit(last.regular, last.unitSize),
+  };
+}
+const watchedList = [
+  watchedProduct({
+    store: "ah", productId: "200417", title: "Calvé Pindakaas", brand: "Calvé", packaging: "jar", url: "https://www.example.nl/producten/product/wi200417",
+    from: "2026-06-01", image: JAR_OLD,
+    steps: [["2026-06-01", 3.99, "650 g", JAR_OLD], ["2026-07-20", 4.29, "650 g", JAR_OLD], ["2026-09-07", 4.29, "600 g", JAR_NEW]],
+    offers: [["2026-08-10", "2026-08-16", 3.22, "25% korting"], ["2026-10-12", "2026-10-18", 3.43, "20% korting"]],
+    savedImages: [
+      { id: 41, url: JAR_NEW, title: "Calvé Pindakaas 600 g", savedAt: "2026-09-07T05:00:31Z", width: 800, height: 800 },
+      { id: 40, url: JAR_OLD, title: "Calvé Pindakaas 650 g", savedAt: "2026-06-01T21:14:02Z", width: 800, height: 800 },
+    ],
+  }),
+  watchedProduct({
+    store: "ah", productId: "100008", title: "Lavazza Koffiebonen Crema e Aroma", brand: "Lavazza", packaging: "bag", url: "https://www.example.nl/producten/product/wi100008",
+    from: "2026-06-01", image: product("#7a5236"),
+    steps: [["2026-06-01", 16.99, "1 kg"], ["2026-08-24", 18.99, "1 kg"]],
+    offers: [["2026-10-26", "2026-11-01", 13.99, "voor 13,99"]],
+  }),
+  watchedProduct({
+    store: "jumbo", productId: "178302FLS", title: "Jumbo Halfvolle melk", brand: "Jumbo", packaging: "bottle", url: "https://www.example.nl/producten/178302FLS",
+    from: "2026-06-15", image: product("#5a8fd0", "bottle"),
+    steps: [["2026-06-15", 1.19, "1 l"], ["2026-09-28", 1.15, "1 l"]],
+  }),
+  watchedProduct({
+    store: "picnic", productId: "s1001234", title: "Barilla Spaghetti n° 5", brand: "Barilla", packaging: "box", url: null,
+    from: "2026-07-01", image: product("#3a62b0"),
+    steps: [["2026-07-01", 2.19, "500 g"]],
+    offers: [["2026-09-14", "2026-09-20", 1.64, "25% korting"]],
+  }),
+  watchedProduct({
+    store: "crisp", productId: "40213", title: "Griekse yoghurt vol", brand: "Crisp", packaging: "tub", url: null,
+    from: "2026-07-13", image: product("#dfe7ef", "jar"),
+    steps: [["2026-07-13", 2.95, "500 g"], ["2026-10-05", 3.15, "450 g"]],
+  }),
+];
+const watchedAnswer = { products: watchedList, stores: ["ah", "jumbo", "picnic", "crisp"], max: 500 };
+const watchedKeys = { keys: watchedList.map((item) => `${item.store}:${item.productId}`) };
+
 module.exports = [
   {
     name: "offers",
@@ -405,6 +501,25 @@ module.exports = [
       await page.evaluate(() => openPackCompare("ah", "wi100003"));
       await page.waitForSelector("#compare-dialog-list .compare-item");
       await page.evaluate(() => document.activeElement && document.activeElement.blur());
+      await page.waitForTimeout(400);
+    },
+  },
+  {
+    // Gevolgde producten: links de producten met hoeveel ze duurder of goedkoper werden, rechts Calvé pindakaas met de lijn van de
+    // gewone prijs (de aanbiedingen als rode stippen) en daaronder wat er veranderde.
+    name: "watched",
+    path: "/offers/watched",
+    routes: { "/api/offers*": offersAnswer, "/api/prices/history*": historyAnswer, "/api/watched/keys*": watchedKeys, "/api/watched": watchedAnswer },
+    run: async (page, { device }) => {
+      await page.waitForSelector("#watched-detail .watched-chart");
+      await page.evaluate(() => document.activeElement && document.activeElement.blur());
+      if (device === "phone") {
+        // Op de telefoon staan de lijst en het product onder elkaar: de kop van het product, de kerngetallen en de lijn.
+        await page.evaluate(() => window.scrollTo(0, document.querySelector("#watched-detail").getBoundingClientRect().top + window.scrollY - 70));
+      } else {
+        // Onder 1000 px staan de lijst en het product ook onder elkaar: het product met de kerngetallen en de lijn.
+        await page.evaluate(() => window.scrollTo(0, document.querySelector("#watched-detail").getBoundingClientRect().top + window.scrollY - 90));
+      }
       await page.waitForTimeout(400);
     },
   },
