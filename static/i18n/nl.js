@@ -2171,4 +2171,7 @@ I18N.add("nl", {
   "watched.pack.weighed": "per gewicht",
   "backup.part.watchedProducts": "Gevolgde producten en hun prijzen",
   "watched.stat.size": "Maat",
+  "watched.card.unfollow": "Gevolgd · niet meer volgen",
+  "watched.not_followable": "Dit product kan niet gevolgd worden.",
+  "watched.removed": "{title} wordt niet meer gevolgd.",
 });

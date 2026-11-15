@@ -534,7 +534,8 @@ function offerHistoryPurchasesTable(product, { limit = 0 } = {}) {
 // Gevolgde producten (watched.js): een product dat je volgt, krijgt de markering Los artikel (geen aanbieding); een ander product
 // kun je hier volgen. Alleen bij een winkel waar MealieShopper kan zoeken (niet Lidl en Aldi).
 function offerHistoryWatchHtml(product) {
-  if (typeof watchedIs !== "function" || offersOnlyStore(product.store)) return "";
+  // Een folderactie voor een hele lijn uit het prijsarchief (folder:...) is geen product dat de winkel kent: niet te volgen.
+  if (typeof watchedFollowableId !== "function" || !watchedFollowableId(product.store, product.productId)) return "";
   if (watchedIs(product.store, product.productId)) {
     return `<p class="ohc-watch">${watchedBadge()} <a href="/offers/watched" data-nav>${escapeHtml(t("watched.open_watched"))}</a></p>`;
   }
