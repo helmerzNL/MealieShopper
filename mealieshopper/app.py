@@ -1,3 +1,4 @@
+import asyncio
 import hashlib
 import inspect
 import json
@@ -75,6 +76,7 @@ from . import (
     shared_links_export,
     tasks,
     telemetry,
+    templates,
     updates,
     urls,
     users,
@@ -179,6 +181,7 @@ SWITCH_INTERVAL_SECONDS: float = 0.001
 def create_app() -> Quart:
     sys.setswitchinterval(SWITCH_INTERVAL_SECONDS)  # hier, want run.py en hypercorn (run:app) starten allebei via create_app
     app = Quart(__name__, template_folder="../templates", static_folder="../static")
+    templates.prepare(app)  # een bytecode-cache voor het proces: zie templates.py
     # De versie van de statische bestanden: uit hun inhoud (assets.py), tenzij MEALIESHOPPER_ASSET_VERSION hem vastzet.
     app.config["ASSET_VERSION"] = environ.get("MEALIESHOPPER_ASSET_VERSION") or assets.asset_version(Path(app.static_folder or "static"))
     # Quart bewaart statische bestanden standaard 12 uur in de browser (Flask niet). Met 0 vraagt de browser elke keer na of het
@@ -222,6 +225,8 @@ def create_app() -> Quart:
     @app.before_serving
     async def _startup() -> None:
         """Opstartwerk van de app: database, opruimen en de dagelijkse aanbiedingen-run."""
+        # De sjablonen in een thread, zodat de eerste startpagina ze niet op de event loop compileert (templates.py).
+        await asyncio.to_thread(templates.compile_all, app.jinja_env)
         try:
             await auth.init_db()  # idempotent: schema en migratie een keer bij het starten, `ensure_db` vangt een latere eerste aanroep op
         except (sqlite3.Error, OSError):
@@ -925,15 +930,35 @@ def create_app() -> Quart:
     async def _stop_compute() -> None:
         await compute.stop()
 
+    # De winkels die de opwarmer bij de start nog moet doen, in volgorde (AH eerst). Een aanvraag voor een winkel in de rij zet hem
+    # vooraan (`warm_first`). Alleen de event loop leest en schrijft de lijst, tussen twee await's.
+    warm_queue: list[str] = []
+
+    def warm_first(store: str) -> None:
+        if store in warm_queue:
+            warm_queue.remove(store)
+            warm_queue.insert(0, store)
+
     async def warm_at_start() -> None:
-        await prices.warm_catalogues()
-        await warm_offers()
+        """Warmt winkel voor winkel op: de catalogus en dan het oordeel (`warm_offers`), en pas daarna de volgende winkel. Eerst
+        alle catalogi en dan alle oordelen liet een aanvraag voor AH tijdens het opwarmen concurreren met de bouw van de catalogus
+        van Picnic, Jumbo, Crisp, Lidl en Aldi in de twee rekenthreads, en met hun GIL: op de volumedatabase 1,7 s in plaats van
+        0,9 s, en in productie 3 s. Nu wacht een aanvraag voor de winkel die aan de beurt is op dezelfde bouw (`tasks.share` in
+        `response_cache`), en een aanvraag voor een andere winkel zet die vooraan (`warm_first`)."""
+        warm_queue[:] = list(offers.STORES)
+        while warm_queue:
+            store: str = warm_queue.pop(0)
+            await prices.warm_catalogues([store])
+            await warm_offers((store,))
+
+    app.extensions["mealieshopper_warm_at_start"] = warm_at_start
 
     @app.get("/api/offers")
     async def offers_list():
         # Cache: de browser bewaart de lijst en vraagt bij elke keer alleen of er iets veranderd is (ETag). Is de lijst niet veranderd
         # (geen nieuwe synchronisatie, nog dezelfde dag, dezelfde week), dan volgt een 304 zonder de lijst te laden of te versturen.
         store = request.args.get("store") or "ah"
+        warm_first(store)  # de opwarmer van de start doet de winkel van deze aanvraag nu eerst
         week = offers_week()
         try:
             etag = await offers_etag(store, week)

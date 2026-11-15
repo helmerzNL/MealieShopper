@@ -338,6 +338,25 @@ async def test_stop_returns_when_stopping_the_pool_fails(monkeypatch: pytest.Mon
     assert [type(failure) for failure in failures] == [RuntimeError]
 
 
+async def test_a_failure_when_stopping_is_reported_before_stop_returns(monkeypatch: pytest.MonkeyPatch) -> None:
+    """De fout ging pas naar `threading.excepthook` nadat de thread het wachten had beeindigd: op een trage runner liep de test
+    hierboven daardoor voor de melding uit (CI, PR #337, 2026-11-15). Een trage melding laat zien dat `stop` erop wacht."""
+    failures: list[BaseException | None] = []
+
+    def failing(pool: compute._Pool, seconds: float) -> None:
+        raise RuntimeError("stuk")
+
+    def slow_hook(args: threading.ExceptHookArgs) -> None:
+        time.sleep(0.2)
+        failures.append(args.exc_value)
+
+    monkeypatch.setattr(compute._Pool, "stop", failing)
+    monkeypatch.setattr(threading, "excepthook", slow_hook)
+    assert await compute.run(len, "abc") == 3
+    await asyncio.wait_for(compute.stop(), 5)
+    assert [type(failure) for failure in failures] == [RuntimeError]
+
+
 async def test_single_flight_ignores_a_finished_flight_that_is_not_yet_removed() -> None:
     flight: compute.SingleFlight[str, int] = compute.SingleFlight()
     calls: list[int] = []

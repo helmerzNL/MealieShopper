@@ -42,4 +42,4 @@ jobs:
       # verzameld: de hele suite verzameld verdubbelt de objecten die elke ronde van de GC langsloopt (300.000 in plaats van
       # 130.000, op de runner 120 tot 170 ms per ronde), en een proces met alleen de app lijkt meer op productie.
       - name: Volumetests draaien
-        run: MEALIESHOPPER_TESTING=1 python -m pytest -q -m volume tests/test_volume.py tests/test_name_memo.py
+        run: MEALIESHOPPER_TESTING=1 python -m pytest -q -m volume tests/test_volume.py tests/test_name_memo.py tests/test_offer_history_index.py tests/test_gc_nightly.py tests/test_price_history_index.py

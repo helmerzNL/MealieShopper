@@ -2,6 +2,24 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub; een stabiele release krijgt de teksten van alle versies sinds de vorige stabiele release.
 
+## v4.29.0
+
+*English summary: The offer history and the price history now read from a read model in the database instead of recomputing everything on each request, because their data only changes through the daily tasks, a sync or an import. SQLite triggers on the source tables mark every product that changes, also when an older version writes, and the next request updates only those. On a database the size of a real installation the offer history takes 11 ms instead of 253 ms (about a second on an installation with a price archive), and the price history of Albert Heijn 17 ms instead of 131 ms. Warming up after a start now goes store by store with Albert Heijn first, so the first offers no longer wait up to 3 s for the other stores. A few more places that would stall a slow device (recipe search, releasing a replaced catalogue) moved off the event loop, and the nightly run keeps fewer objects for the garbage collector.*
+
+### Sneller in 4.29.0
+
+- **De aanbiedingsgeschiedenis en de prijsgeschiedenis lezen uit een leesmodel.** De prijzen en aanbiedingen veranderen alleen door de dagelijkse taken, een synchronisatie of een import, dus de app rekent ze nu bij het schrijven uit in plaats van bij elke aanvraag. SQLite-triggers op `offer_history` en `price_observations` markeren elk product dat verandert, ook als een oudere versie van de app schrijft, en de volgende aanvraag werkt alleen die producten bij. Op de volumedatabase gaat de Aanbiedingsgeschiedenis van 253 naar 11 ms (in een installatie met een prijsarchief was het ongeveer een seconde), zoeken van 70 tot 223 naar ongeveer 11 ms, en de Prijsgeschiedenis van Albert Heijn van 131 naar 17 ms (alleen gekocht van 79 naar 29 ms). Het antwoord is gelijk aan dat van de oude berekening, wat de tests nagaan.
+- **De eerste aanbiedingen na een start.** Het opwarmen bij de start gaat per winkel, Albert Heijn eerst, en een aanvraag voor een winkel die nog aan de beurt moet komen, gaat voor. Eerder bouwden alle winkels tegelijk, en wachtte de eerste lijst van Albert Heijn tot 3 s op de rest.
+- **De startpagina** compileert haar sjabloon (240 KB) niet meer bij de eerste aanvraag op de event loop: de start doet het in een thread, en elke volgende app in hetzelfde proces laadt de bytecode (16 ms op de ontwikkelmachine, 470 ms op een runner van GitHub).
+- **Een synchronisatie van de aanbiedingen** bepaalt de categorie van elke aanbieding buiten de event loop (27 ms op de loop bij Albert Heijn, op een trager apparaat 150 ms of meer).
+- **Recepten zoeken** naar voedingswaarden rekent de pagina buiten de event loop uit (36 tot 48 ms op de loop, op een trager apparaat ruim 250 ms).
+- **Een vervangen catalogus** wordt in stukken vrijgegeven in een rekenthread. In een keer was dat bij Albert Heijn 8 tot 17 ms in een aanroep in C, die ook de event loop vasthield.
+- **Minder objecten voor de garbage collector** in de nachtelijke ronde: de punten van de gewone prijs, de koppelingen en de bonregels zijn gewone tuples, die Python niet volgt (bij een volle ronde 46.000 in plaats van 75.000 objecten).
+
+### Database en back-up in 4.29.0
+
+- Nieuwe tabellen voor de leesmodellen: `offer_history_products`, `offer_history_titles` en `offer_history_stale` (de Aanbiedingsgeschiedenis), en `price_history_products`, `price_history_docs`, `price_history_meta` en `price_history_stale` (de Prijsgeschiedenis), met triggers op `offer_history` en `price_observations`. Ze zijn afgeleid en staan niet in een back-up: de eerste start na de update en het terugzetten van een back-up bouwen ze opnieuw op. Een oudere versie kent ze niet en laat ze staan, en de triggers schrijven alleen in hun eigen tabellen, dus terug naar 4.28.0 kan zonder de kopie van de gegevens: wat die versie schrijft, is daarna gemarkeerd, en de eerste aanvraag van 4.29.0 werkt het bij (nagegaan met 4.28.0, 4.27.1 en 4.25.1).
+
 ## v4.28.0
 
 *English summary: You can now follow a product straight from the offers. Every offer card, the compact list and the window of an offer have an eye, **Follow the price (every night)**; clicking it again unfollows. Until now the app only kept the regular price of a product outside an offer when you searched for it, bought it, or (for Albert Heijn) once bought it, so a product you only saw on offer had no price after the offer ended. A folder offer for a whole range, the Bonus Box as a whole and the offers of Lidl and Aldi are not products of a web shop and get no eye; the server now refuses them too, and the Price history no longer offers to follow a folder product from the price archive. `wi4183`, the way AH writes product 4183 on its site, is accepted as 4183.*

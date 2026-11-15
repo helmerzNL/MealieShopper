@@ -33,11 +33,13 @@ SOURCE: Path = Path(__file__).resolve().parent.parent / "mealieshopper"
 FORBIDDEN: tuple[str, ...] = ("import requests", "from requests", "threading.Thread(", "threading.Lock(", "ThreadPoolExecutor", "time.sleep(")
 
 # De bewaker van de event loop (loop_guard.py) draait juist in een eigen thread: een taak op de loop kan zichzelf niet betrappen.
-THREAD_ALLOWED: frozenset[str] = frozenset({"loop_guard.py", "compute.py", "name_keys.py"})
+THREAD_ALLOWED: frozenset[str] = frozenset({"loop_guard.py", "compute.py", "name_keys.py", "templates.py"})
 # Wat die modules daarvoor mogen gebruiken. compute.py heeft een eigen pool van daemonthreads (`compute.run`) met een slot om het
 # maken ervan, dat alleen microseconden wordt vastgehouden. name_keys.py heeft een slot in `TextMemo` om het weghalen en wisselen
 # van een generatie, alleen bij een misser: twee rekenthreads mogen de volgorde niet tegelijk inkorten. Het slot wordt hooguit een
-# paar ms vastgehouden (de kopie van een volle generatie als tuple). Een `ThreadPoolExecutor` of `time.sleep` blijft ook daar verboden.
+# paar ms vastgehouden (de kopie van een volle generatie als tuple). templates.py heeft een slot om de dict met bytecode van de
+# sjablonen (`SharedBytecode`), alleen om een get of set: de start compileert in een thread terwijl een aanvraag kan laden. Een
+# `ThreadPoolExecutor` of `time.sleep` blijft ook daar verboden.
 THREAD_PATTERNS: tuple[str, ...] = ("threading.Thread(", "threading.Lock(")
 
 # Waar `asyncio.to_thread` mag: alleen rond rekenwerk en ander werk dat geen await kent (zie regels.md).
@@ -48,11 +50,13 @@ TO_THREAD_ALLOWED: dict[str, str] = {
     "auth_password.py": "scrypt voor wachtwoorden",
     "backup.py": "zip, versleuteling en de synchrone sqlite3-fases van de back-up",
     "about.py": "git rev-parse (subprocess) voor de commit",
+    "app.py": "de sjablonen van Jinja compileren bij de start (index.html is 240 KB, templates.py)",
     "audit.py": "de export van tot 5000 regels als JSON of CSV",
     "factory_reset.py": "de afbeeldingencache wissen (shutil.rmtree over duizenden bestanden)",
     "compression.py": "een antwoord met tekst verpakken met gzip (de lijst met aanbiedingen is 3,7 MB)",
     "price_archive_sync.py": "begrensde JSON-documenten valideren en per document in SQLite invoegen, met checkpoints en lease",
     "price_archive.py": "een prijsarchief uitpakken en controleren, invoegen en exporteren (zip, tar, gzip, tot een miljoen regels)",
+    "prices.py": "een vervangen catalogus (honderdduizenden tuples) in stukken vrijgeven, zodat de GIL tussen twee stukken vrij komt",
     "uploads.py": "een stuk van een upload (tot 4 MB) naar schijf schrijven",
     "telemetry.py": "bij het afsluiten wachten tot de thread van de bewaker stopt (Thread.join, hooguit loop_guard.JOIN_TIMEOUT)",
 }
@@ -103,7 +107,9 @@ THREAD_ONLY: frozenset[str] = frozenset(
                 "read_file",
                 "_read_file",
                 "_schema_copy",
+                "seal",
                 "unseal",
+                "_derive_key",
                 "_check_staged",
                 "_check_start",
                 "_read_skipped",
@@ -382,3 +388,19 @@ async def test_after_serving_cancels_tasks_and_closes_clients(app: Quart) -> Non
     assert tasks.running() == {}
     assert forever.cancelled()
     assert made.is_closed
+
+
+def test_scrypt_of_the_backup_is_thread_only() -> None:
+    """`backup._derive_key` is scrypt (15 ms bij de kosten van de back-up, ruim 100 ms op een Raspberry Pi) en `seal` en `unseal`
+    roepen hem aan: een `async def` die een van de drie zelf aanroept, houdt de loop vast. Ze horen in een thread."""
+    source: str = (
+        "from . import backup\n"
+        "async def wrong():\n"
+        "    backup.seal(stored, passphrase)\n"
+        "    backup.unseal(sealed, passphrase)\n"
+        "    backup._derive_key(passphrase, salt, n)\n"
+        "async def right():\n"
+        "    await asyncio.to_thread(backup.unseal, sealed, passphrase)\n"
+    )
+    found: list[str] = thread_only_calls("app", ast.parse(source))
+    assert sorted(entry.split(": ", 1)[1] for entry in found) == ["backup._derive_key", "backup.seal", "backup.unseal"]
