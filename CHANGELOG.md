@@ -17,6 +17,7 @@ Pull request: [#336](https://github.com/helmerzNL/MealieShopper/pull/336).
 ### Verbeterd in 4.28.0
 
 - **Alleen echte producten.** Een folderactie voor een hele lijn uit het prijsarchief (`folder:…`) en de Bonus Box als geheel (`bonusbox-…`) zijn geen product dat de winkel kent. Ze krijgen geen oog, de Prijsgeschiedenis biedt een folderproduct niet meer aan om te volgen (daar kon het tot nu toe wel), en de server weigert ze (`watched_products._product_id`). Bij Albert Heijn en Crisp moet het id een getal zijn; `wi4183`, zoals AH product 4183 op de site schrijft, wordt 4183. In het scherm en op de server is het dezelfde regel als die van het mandje (`offerCartId`).
+- **De catalogus van de prijzen houdt de app niet meer stil.** Bij het opbouwen sorteerde `prices._names` per productnaam met meer producten de ids en de bekende prijzen op de event loop zelf: bij een catalogus van productieschaal duizenden namen, en op een trage machine net boven de 100 ms (de volumetest `test_name_memo.py` meldde 102 ms in `prices.py:474`). Dat loopt nu in een thread (`_name_prices` via `compute.run`), zoals het deel erboven al deed. De uitkomst is dezelfde.
 - De handleiding en de README's (Nederlands en Engels) noemen het oog bij de aanbiedingen.
 
 ### Tests in 4.28.0
@@ -25,6 +26,7 @@ Pull request: [#336](https://github.com/helmerzNL/MealieShopper/pull/336).
   - `FollowableIdTest`: een folderactie (AH en Jumbo), de Bonus Box en een id met letters worden geweigerd; `wi4183` wordt 4183 bij volgen en loslaten.
   - `OfferWatchButtonTest`: met de echte functies uit `offers.js` en `watched.js` in Node staat het oog op een gewone aanbieding, met `aria-pressed="true"` als je haar volgt (ook als `wi5000`), en niet bij de Bonus Box, een folderactie of Lidl; de kaart, de rij en het venster hebben de knop, de Prijsgeschiedenis gebruikt dezelfde controle.
 - `tests/test_offers_scan_js.py` laadt `offerWatchButton` mee voor de popup; `tests/test_wayfinding.py` kent het oog in de voet van de kaart en de rij.
+- `tests/test_prices.py` (`SharedPricesTest`): `_name_prices` sorteert de producten en hun prijzen zoals eerst, een product zonder bekende prijs krijgt een lege reeks, en `_names` roept hem via `compute.run` aan.
 - `tests/test_product_images.py` (`test_a_slow_store_does_not_hold_up_the_sync`): de nagemaakte trage download duurt 5 s in plaats van 0,5 s, en de grens is 2 s in plaats van 0,45 s. Op een trage CI-runner kostte het wegschrijven van de synchronisatie alleen al bijna een halve seconde (0,59 s in totaal), terwijl de app niet op de download wachtte. Met een deadline van 10 s (de app wacht dan wel) faalt de test nog steeds, op 5,07 s.
 
 ## v4.27.1
