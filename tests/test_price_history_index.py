@@ -474,6 +474,6 @@ async def test_the_price_history_is_fast_enough(volume_dir: Path, capsys: pytest
         start: float = time.perf_counter()
         await prices.history("ah", today=volume.TODAY)
         best = min(best, time.perf_counter() - start)
-    with capsys.disabled():
-        print(f"\nprices.history(store=ah) warm: {best * 1000:.1f} ms")
-    assert best < 0.05
+    from test_volume import _judge_speed  # de regel van de snelheidstests: op CI alleen melden, een runner is trager
+
+    _judge_speed("prices.history(store=ah) warm", best * 1000, 50, capsys)
