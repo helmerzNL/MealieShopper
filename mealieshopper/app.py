@@ -923,15 +923,35 @@ def create_app() -> Quart:
     async def _stop_compute() -> None:
         await compute.stop()
 
+    # De winkels die de opwarmer bij de start nog moet doen, in volgorde (AH eerst). Een aanvraag voor een winkel in de rij zet hem
+    # vooraan (`warm_first`). Alleen de event loop leest en schrijft de lijst, tussen twee await's.
+    warm_queue: list[str] = []
+
+    def warm_first(store: str) -> None:
+        if store in warm_queue:
+            warm_queue.remove(store)
+            warm_queue.insert(0, store)
+
     async def warm_at_start() -> None:
-        await prices.warm_catalogues()
-        await warm_offers()
+        """Warmt winkel voor winkel op: de catalogus en dan het oordeel (`warm_offers`), en pas daarna de volgende winkel. Eerst
+        alle catalogi en dan alle oordelen liet een aanvraag voor AH tijdens het opwarmen concurreren met de bouw van de catalogus
+        van Picnic, Jumbo, Crisp, Lidl en Aldi in de twee rekenthreads, en met hun GIL: op de volumedatabase 1,7 s in plaats van
+        0,9 s, en in productie 3 s. Nu wacht een aanvraag voor de winkel die aan de beurt is op dezelfde bouw (`tasks.share` in
+        `response_cache`), en een aanvraag voor een andere winkel zet die vooraan (`warm_first`)."""
+        warm_queue[:] = list(offers.STORES)
+        while warm_queue:
+            store: str = warm_queue.pop(0)
+            await prices.warm_catalogues([store])
+            await warm_offers((store,))
+
+    app.extensions["mealieshopper_warm_at_start"] = warm_at_start
 
     @app.get("/api/offers")
     async def offers_list():
         # Cache: de browser bewaart de lijst en vraagt bij elke keer alleen of er iets veranderd is (ETag). Is de lijst niet veranderd
         # (geen nieuwe synchronisatie, nog dezelfde dag, dezelfde week), dan volgt een 304 zonder de lijst te laden of te versturen.
         store = request.args.get("store") or "ah"
+        warm_first(store)  # de opwarmer van de start doet de winkel van deze aanvraag nu eerst
         week = offers_week()
         try:
             etag = await offers_etag(store, week)

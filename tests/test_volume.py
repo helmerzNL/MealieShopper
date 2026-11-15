@@ -1414,3 +1414,125 @@ async def test_an_ai_match_round_does_not_stall(volume_client: TestClientProtoco
         return result
 
     await quiet(ai_round, prepare=restored(path, ("ai_recipe_matches", "ai_recipe_runs")))
+
+
+def _start_warming(client: TestClientProtocol) -> asyncio.Task[Any]:
+    """De opwarmer van de start (`warm_at_start` in app.py), die de tests niet zelf laten lopen. Op een koude database: `cold`."""
+    return asyncio.ensure_future(client.app.extensions["mealieshopper_warm_at_start"]())
+
+
+def _warmed_stores() -> set[str]:
+    return {store for _, store in prices._CATALOGUES}
+
+
+@pytest.mark.volume
+async def test_the_first_offers_during_warming_wait_on_their_own_store_only(volume_client: TestClientProtocol, volume_dir: Path) -> None:
+    """In productie kwam /api/offers?store=ah 8 s na de start binnen terwijl het opwarmen liep: 3017 ms, terwijl hij 40 s later 11 ms
+    duurde. De opwarmer deed eerst alle catalogi en dan alle oordelen, dus de aanvraag deelde de twee rekenthreads (en de GIL) met
+    de bouw van de catalogus van de andere winkels: op de volumedatabase 1,7 s waar de aanvraag zelf 0,9 s rekent. Nu doet de
+    opwarmer AH eerst helemaal (catalogus en oordeel), en de aanvraag wacht op dat oordeel (`response_cache`) in plaats van er
+    naast te rekenen: de andere winkels beginnen pas als ze klaar is."""
+
+    async def action() -> tuple[Any, float, set[str]]:
+        warming: asyncio.Task[Any] = _start_warming(volume_client)
+        while "ah" not in _warmed_stores():  # het punt waarop de aanvraag van productie kwam: de catalogus staat er, het oordeel nog niet
+            await asyncio.sleep(0.01)
+        started: float = time.perf_counter()
+        answer: Any = await _get(volume_client, "/api/offers?store=ah&week=2026-11-09")
+        seconds: float = time.perf_counter() - started
+        warmed: set[str] = _warmed_stores()
+        await warming
+        return answer, seconds, warmed
+
+    # `quiet`: de bouw van een catalogus laat de GC lange rondes doen, en die telt de bewaker mee (zoals bij de koude aanvragen).
+    answer, seconds, warmed = await quiet(action, prepare=cold(volume_dir))
+    assert answer["offers"]
+    assert warmed == {"ah"}, f"de aanvraag deelde de rekenthreads met de catalogus van {sorted(warmed - {'ah'})}"
+    assert seconds < 1.5, f"{seconds:.2f} s"
+
+
+@pytest.mark.volume
+async def test_a_request_for_another_store_during_warming_goes_first(volume_client: TestClientProtocol, volume_dir: Path) -> None:
+    """Vraagt een bezoeker Jumbo terwijl de opwarmer bij AH is, dan komt Jumbo na AH en vooraan de rest van de rij (Picnic stond
+    eerder), zodat hij niet op vijf winkels wacht."""
+
+    async def action() -> tuple[Any, set[str]]:
+        warming: asyncio.Task[Any] = _start_warming(volume_client)
+        await asyncio.sleep(0.05)
+        answer: Any = await _get(volume_client, "/api/offers?store=jumbo&week=2026-11-09")
+        warmed: set[str] = _warmed_stores()
+        await warming
+        return answer, warmed
+
+    answer, warmed = await quiet(action, prepare=cold(volume_dir))
+    assert answer["offers"]
+    assert warmed <= {"ah", "jumbo"}, f"Jumbo wachtte op {sorted(warmed - {'ah', 'jumbo'})}"
+
+
+@pytest.mark.volume
+async def test_replacing_a_catalogue_frees_the_old_one_off_the_loop(volume_client: TestClientProtocol, volume_dir: Path) -> None:
+    """Een catalogus van AH loslaten is een aanroep in C van 8 tot 17 ms (op een Raspberry Pi ruim 100 ms) die de GIL vasthoudt.
+    Wordt hij vervangen, dan gaat hij in stukken weg in een thread (`prices._release_catalogue`), niet op de loop."""
+    await prices.warm_catalogues(["ah"], today=volume.TODAY)
+    key: tuple[str, str] = next(key for key in prices._CATALOGUES if key[1] == "ah")
+    freed: list[tuple[int, int, int]] = []
+    real: Callable[..., None] = prices._release_catalogue
+
+    def spy(held: list[Any]) -> None:
+        before: int = len(held[0].products)
+        real(held)
+        freed.append((threading.get_ident(), before, len(held)))
+
+    # Een nieuwe versie zonder `_CATALOGUES` te legen: de volgende bouw vervangt de catalogus (`cold` leegt hem wel).
+    await asyncio.to_thread(_execute, volume_dir / volume.DB_NAME, "UPDATE catalogue_versions SET products = products + 1")
+    with mock.patch.object(prices, "_release_catalogue", spy):
+        await prices.warm_catalogues(["ah"], today=volume.TODAY)
+        await asyncio.gather(*(task for name, task in tasks.running().items() if name.startswith("release-catalogue")))
+    assert len(freed) == 1, freed
+    thread, before, _ = freed[0]
+    assert thread != threading.get_ident(), "de oude catalogus ging op de loop weg"
+    assert before > prices.CATALOGUE_RELEASE_PIECE, "te klein om het in stukken te meten"
+    assert prices._CATALOGUES[key][2].products, "de nieuwe catalogus mag niet leeg zijn"
+
+
+@pytest.mark.volume
+async def test_a_catalogue_that_is_still_read_is_not_emptied(volume_client: TestClientProtocol, volume_dir: Path) -> None:
+    """Een aanvraag in de threadpool kan de oude catalogus nog lezen, en `_catch_up` deelt zijn lijsten met de nieuwe: wat een
+    ander nog vasthoudt, maakt `_release_catalogue` niet leeg."""
+    await prices.warm_catalogues(["ah"], today=volume.TODAY)
+    key: tuple[str, str] = next(key for key in prices._CATALOGUES if key[1] == "ah")
+    reader: Any = prices._CATALOGUES[key][2]  # een lezer met de hele catalogus
+    products: dict[str, Any] = reader.products  # en een lezer met alleen de producten
+    before: tuple[int, int, int] = (len(reader.products), len(reader.twins), len(reader.receipts))
+    prices._release_catalogue([reader])
+    prices._release_catalogue([reader._replace()])
+    assert (len(reader.products), len(reader.twins), len(reader.receipts)) == before
+    assert len(products) == before[0]
+    del reader, products
+    prices._release_catalogue([prices._CATALOGUES.pop(key)[2]])  # de laatste lezer: nu wel in stukken weg
+
+
+class _Counting(dict):
+    """Een dict die telt hoe vaak `_release_catalogue` er een stuk uit haalt."""
+
+    pops: int = 0
+
+    def popitem(self) -> Any:
+        type(self).pops += 1
+        return super().popitem()
+
+
+@pytest.mark.volume
+def test_a_catalogue_nobody_reads_is_emptied_in_pieces() -> None:
+    """De producten gaan een voor een uit de dict in stukken van `CATALOGUE_RELEASE_PIECE` (de loop kan tussen twee stukken de GIL
+    krijgen), en de lijst bonregels ook: na afloop zijn ze leeg."""
+    products: _Counting = _Counting({str(number): number for number in range(2 * prices.CATALOGUE_RELEASE_PIECE + 7)})
+    receipts: list[Any] = [{"line": number} for number in range(prices.CATALOGUE_RELEASE_PIECE + 3)]
+    twins: dict[str, tuple[str, ...]] = {"a": ("b",)}
+    catalogue: Any = prices._Catalogue(receipts, products, None, twins)  # type: ignore[arg-type]
+    del products, receipts, twins
+    held: list[Any] = [catalogue]
+    del catalogue
+    prices._release_catalogue(held)
+    assert _Counting.pops == 2 * prices.CATALOGUE_RELEASE_PIECE + 7
+    assert held == []

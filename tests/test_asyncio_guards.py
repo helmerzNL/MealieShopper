@@ -53,6 +53,7 @@ TO_THREAD_ALLOWED: dict[str, str] = {
     "compression.py": "een antwoord met tekst verpakken met gzip (de lijst met aanbiedingen is 3,7 MB)",
     "price_archive_sync.py": "begrensde JSON-documenten valideren en per document in SQLite invoegen, met checkpoints en lease",
     "price_archive.py": "een prijsarchief uitpakken en controleren, invoegen en exporteren (zip, tar, gzip, tot een miljoen regels)",
+    "prices.py": "een vervangen catalogus (honderdduizenden tuples) in stukken vrijgeven, zodat de GIL tussen twee stukken vrij komt",
     "uploads.py": "een stuk van een upload (tot 4 MB) naar schijf schrijven",
     "telemetry.py": "bij het afsluiten wachten tot de thread van de bewaker stopt (Thread.join, hooguit loop_guard.JOIN_TIMEOUT)",
 }
@@ -103,7 +104,9 @@ THREAD_ONLY: frozenset[str] = frozenset(
                 "read_file",
                 "_read_file",
                 "_schema_copy",
+                "seal",
                 "unseal",
+                "_derive_key",
                 "_check_staged",
                 "_check_start",
                 "_read_skipped",
@@ -382,3 +385,19 @@ async def test_after_serving_cancels_tasks_and_closes_clients(app: Quart) -> Non
     assert tasks.running() == {}
     assert forever.cancelled()
     assert made.is_closed
+
+
+def test_scrypt_of_the_backup_is_thread_only() -> None:
+    """`backup._derive_key` is scrypt (15 ms bij de kosten van de back-up, ruim 100 ms op een Raspberry Pi) en `seal` en `unseal`
+    roepen hem aan: een `async def` die een van de drie zelf aanroept, houdt de loop vast. Ze horen in een thread."""
+    source: str = (
+        "from . import backup\n"
+        "async def wrong():\n"
+        "    backup.seal(stored, passphrase)\n"
+        "    backup.unseal(sealed, passphrase)\n"
+        "    backup._derive_key(passphrase, salt, n)\n"
+        "async def right():\n"
+        "    await asyncio.to_thread(backup.unseal, sealed, passphrase)\n"
+    )
+    found: list[str] = thread_only_calls("app", ast.parse(source))
+    assert sorted(entry.split(": ", 1)[1] for entry in found) == ["backup._derive_key", "backup.seal", "backup.unseal"]

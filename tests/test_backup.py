@@ -611,7 +611,8 @@ class FileContentTest(BackupCase):
             self.assertNotIn(value, outside)
             if len(value) >= 8:
                 self.assertNotIn(value, text)
-        self.assertEqual(backup.unseal(sealed, PASSPHRASE), SECRETS)
+        # Scrypt (15 ms) hoort in een thread, ook in de test: de bewaker van de loop telt hem anders mee.
+        self.assertEqual(await asyncio.to_thread(backup.unseal, sealed, PASSPHRASE), SECRETS)
         self.assertNotIn(PASSPHRASE, text)
         self.assertEqual(sorted(document["secrets"]["links"]), ["ah", "ai_anthropic", "ai_openai", "crisp", "jumbo", "mealie", "picnic"])
         self.assertEqual(sealed["kdf"], "scrypt")
@@ -947,7 +948,7 @@ class RefusalTest(BackupCase):
         self.assertEqual(self.staged_files(), [])
 
     async def test_secrets_in_the_block_must_be_known_links(self) -> None:
-        sealed = backup.seal({"AUTH_MODE": "none"}, PASSPHRASE)
+        sealed = await asyncio.to_thread(backup.seal, {"AUTH_MODE": "none"}, PASSPHRASE)
         await auth.set_secret(mealie.SECRET_TOKEN, "MEALIE-TOKEN-12345678")
         _, data = await self.make(links=True, passphrase=PASSPHRASE)
         planted = self.tweak(data, lambda doc: doc["secrets"].update(sealed=sealed))

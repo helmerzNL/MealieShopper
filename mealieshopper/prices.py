@@ -24,12 +24,14 @@ bij de winkel naar hetzelfde product in andere maten). Ideeën en testgevallen v
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import logging
 import math
 import re
 import secrets
+import sys
 import weakref
 from collections import Counter
 from collections.abc import AsyncIterator, Awaitable, Collection, Sequence
@@ -55,6 +57,7 @@ from . import (
     price_import,
     product_links,
     shared_links,
+    tasks,
 )
 from .i18n import tr
 from .regular_price import FRESH_DAYS, Chosen, RegularPoint, choose
@@ -1314,10 +1317,82 @@ _CATALOGUES: dict[tuple[str, str], tuple[str, str, _Catalogue, _PriceState]] = {
 _CATALOGUE_BUILDS: compute.SingleFlight[tuple[str, str, str, str], _Catalogue] = compute.SingleFlight()
 
 
+CATALOGUE_RELEASE_PIECE: int = 5_000  # zoveel producten of bonregels geeft `_release_catalogue` per keer vrij
+
+
+def _holders(held: list[_Catalogue]) -> tuple[_Catalogue, tuple[int, int, int, int]]:
+    """De laatste catalogus uit `held` met het aantal verwijzingen naar hem en naar zijn lijsten en dicts (`receipts`, `products`,
+    `twins`), op altijd dezelfde manier geteld: een Python-versie telt een lokale variabele of een argument anders (sinds 3.14
+    leent de interpreter er een, zonder te tellen), dus een getal als 2 of 4 hardcoden klopt niet overal. `_ALONE` is dit voor een
+    catalogus waar niemand anders naar kijkt, gemeten bij het laden van de module."""
+    catalogue: _Catalogue = held.pop()
+    return catalogue, (
+        sys.getrefcount(catalogue),
+        sys.getrefcount(catalogue.receipts),
+        sys.getrefcount(catalogue.products),
+        sys.getrefcount(catalogue.twins),
+    )
+
+
+_ALONE: tuple[int, int, int, int] = _holders([_Catalogue([], {}, None, {})])[1]  # type: ignore[arg-type]
+
+
+def _release_catalogue(held: list[_Catalogue]) -> None:
+    """Geeft de catalogi in `held` vrij in stukken van `CATALOGUE_RELEASE_PIECE`, in de thread die het vraagt.
+
+    Een catalogus van AH is een bouwwerk van honderdduizenden tuples: in een keer loslaten is een aanroep in C (`dict_dealloc`)
+    van 8 tot 17 ms op de volumedatabase (`test_replacing_a_catalogue_frees_the_old_one_off_the_loop`), op een Raspberry Pi
+    ruim 100 ms, en die houdt de GIL vast, ook in een thread. Liet de loop de laatste verwijzing los (`_CATALOGUES[key] = ...`),
+    dan deed de loop dat zelf. Tussen twee stukken draait Python, en daar kan de loop de GIL krijgen.
+
+    Een lijst of dict leegmaken kan alleen als niemand anders hem leest: `_catch_up` geeft een nieuwe catalogus die de bonregels,
+    de lijnindex en de producten van de oude deelt, en een aanvraag in de threadpool kan de oude nog vasthouden. Daarom alleen een
+    container met precies de verwijzingen die `_ALONE` telt, en alleen als ook de catalogus zelf (`_holders`) alleen van ons is: de
+    catalogus staat niet meer in `_CATALOGUES`, dus er komt geen lezer bij. Wat een ander nog vasthoudt, geeft de laatste lezer vrij."""
+    while held:
+        catalogue, counts = _holders(held)
+        if counts[0] > _ALONE[0]:  # nog een lezer heeft de hele catalogus
+            continue
+        for container, count, alone in zip((catalogue.receipts, catalogue.products, catalogue.twins), counts[1:], _ALONE[1:]):
+            if count > alone:
+                continue
+            if isinstance(container, dict):
+                while container:
+                    for _ in range(min(CATALOGUE_RELEASE_PIECE, len(container))):
+                        container.popitem()
+            else:
+                while container:
+                    del container[-CATALOGUE_RELEASE_PIECE:]
+
+
+def _release_later(held: list[_Catalogue]) -> None:
+    """Geeft de catalogi in `held` vrij in een thread (`_release_catalogue`), of meteen als er geen event loop loopt (de tests, een
+    reset buiten de app). De aanroeper geeft zijn eigen verwijzing los: `held` is de enige."""
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        _release_catalogue(held)
+        return
+    tasks.spawn("release-catalogue", asyncio.to_thread(_release_catalogue, held))
+
+
+def _keep_catalogue(key: tuple[str, str], entry: tuple[str, str, _Catalogue, _PriceState]) -> None:
+    """Schrijft `entry` in `_CATALOGUES`. De catalogus die hij vervangt, gaat in stukken weg in een thread."""
+    old: tuple[str, str, _Catalogue, _PriceState] | None = _CATALOGUES.get(key)
+    _CATALOGUES[key] = entry
+    if old is not None and old[2] is not entry[2]:
+        held: list[_Catalogue] = [old[2]]
+        del old
+        _release_later(held)
+
+
 def forget_catalogues() -> None:
     """Vergeet elke catalogus in het geheugen, met wat de ETag van /api/offers ervan afleidde (`_ANSWER_IDS`, `_SIGNATURES`): na
-    het terugzetten van een back-up en na een fabrieksreset (`auth.forget_cached_data`)."""
+    het terugzetten van een back-up en na een fabrieksreset (`auth.forget_cached_data`). De catalogi gaan in stukken weg in een
+    thread (`_release_catalogue`)."""
+    held: list[_Catalogue] = [entry[2] for entry in _CATALOGUES.values()]
     _CATALOGUES.clear()
+    _release_later(held)
     _ANSWER_IDS.clear()
     _SIGNATURES.clear()
 
@@ -1442,7 +1517,7 @@ async def _catch_up(
     rows: list[Any] = list(await conn.execute_fetchall(_OBSERVED_LAST_SQL, (store,)))
     caught: _Catalogue = await compute.run(_with_last, catalogue, rows)
     if _CATALOGUES.get(key) is found:  # anders bouwde een andere aanvraag hem intussen opnieuw op
-        _CATALOGUES[key] = (version, today, caught, state._replace(prices=counted))
+        _keep_catalogue(key, (version, today, caught, state._replace(prices=counted)))
     return caught
 
 
@@ -1459,6 +1534,7 @@ async def _catalogue(conn: aiosqlite.Connection, store: str, today: str) -> _Cat
         caught: _Catalogue | None = await _catch_up(conn, store, key, found, row["prices"])
         if caught is not None:
             return caught
+    found = None  # de oude catalogus mag tijdens de bouw los: zo is `_release_catalogue` de laatste die hem vasthoudt
     built: _Catalogue = await _CATALOGUE_BUILDS.get((*key, version, today), lambda: _new_catalogue(key, version, today))
     return await _after_build(conn, store, key, version, today, row["prices"], built)
 
@@ -1489,7 +1565,7 @@ async def _new_catalogue(key: tuple[str, str], version: str, today: str) -> _Cat
         counted: int = (await _catalogue_row(conn, key[1]))["prices"]
         rows: _CatalogueRows = await _catalogue_rows(conn, key[1], today)
     catalogue: _Catalogue = await compute.run(_build_catalogue, key[1], today, rows)
-    _CATALOGUES[key] = (version, today, catalogue, _PriceState(counted, rows.links.names.shared if rows.links is not None else {}))
+    _keep_catalogue(key, (version, today, catalogue, _PriceState(counted, rows.links.names.shared if rows.links is not None else {})))
     return catalogue
 
 

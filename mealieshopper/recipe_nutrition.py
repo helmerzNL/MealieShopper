@@ -42,7 +42,7 @@ from typing import Any
 
 import aiosqlite
 
-from . import ah, audit, auth, mealie, nutrition, offer_courses, recipe_diet, tasks
+from . import ah, audit, auth, compute, mealie, nutrition, offer_courses, recipe_diet, tasks
 from .i18n import tr
 
 log = logging.getLogger(__name__)
@@ -680,6 +680,25 @@ async def search(
         )
     if not rows and indexing is None and _refresh["error"]:
         raise RuntimeError(_refresh["error"])
+    text = " ".join(str(query or "").split())[:200]
+    # De lijst van Mealie heeft de tags, categorieën en tijden zelf al: die zijn hier het verst bij.
+    listed = await mealie.list_recipes(MAX_RECIPES, search=text) if text else None
+    return await compute.run(_assemble, rows, listed, limits, wanted, number, size, text, indexing)
+
+
+def _assemble(
+    rows: list[Any],
+    listed: list[dict[str, Any]] | None,
+    limits: Limits,
+    wanted: Filters,
+    number: int,
+    size: int,
+    text: str,
+    indexing: dict[str, int] | None,
+) -> dict[str, Any]:
+    """De pagina van `search`: de kaarten van de treffers, gefilterd en geordend. Een pure synchrone functie voor `compute.run`:
+    bij een paar duizend recepten is dit 36 tot 48 ms rekenwerk (`_values`, `_row_facts` en `json.loads` per rij), op een trage
+    machine een kwart seconde, en zo lang staat de event loop dan stil. Leest `rows` en `listed`, schrijft nergens in."""
     known = {row["slug"]: _values(row) for row in rows}
     extra = {row["slug"]: (_derived(row["derived"]), _auto_state(row["auto_tags"])["added"]) for row in rows}
 
@@ -687,10 +706,7 @@ async def search(
         derived, added = extra.get(slug, (None, []))
         return {**facts, "kind": _kind(facts, derived, added)}
 
-    text = " ".join(str(query or "").split())[:200]
-    if text:
-        # De lijst van Mealie heeft de tags, categorieën en tijden zelf al: die zijn hier het verst bij.
-        listed = await mealie.list_recipes(MAX_RECIPES, search=text)
+    if listed is not None:
         candidates = [
             (mealie.recipe_card(summary), known.get(summary["slug"]) or {}, with_kind(summary["slug"], _facts(summary))) for summary in listed
         ]
