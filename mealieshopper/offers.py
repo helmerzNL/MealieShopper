@@ -43,6 +43,7 @@ from . import (
     mealie_images,
     offer_categories,
     offer_courses,
+    offer_history_index,
     offer_translate,
     picnic,
     picnic_recipes,
@@ -279,6 +280,7 @@ async def _setup(conn: aiosqlite.Connection) -> None:
     await _drop_offers_key(conn)
     await conn.executescript(OFFERS_INDEX_SQL)
     await conn.commit()
+    await offer_history_index.prepare(conn)  # het leesmodel van `history`, met de triggers op `offer_history`
     await _repair_open_ends(conn)
     await _repair_measure_prices(conn)
     await _repair_picnic_recipe_images(conn)
@@ -677,6 +679,8 @@ async def sync(store: Any) -> dict[str, Any]:
             rows,
         )
         await _record_history(conn, store, _started(items), now)
+        # De triggers markeerden de producten die veranderden: in dezelfde transactie bijwerken, zodat de pagina er niet op wacht.
+        await offer_history_index.refresh(conn)
         await conn.execute(
             """
             INSERT INTO offers_meta (store, synced_at, personal_error) VALUES (?, ?, ?)
@@ -810,19 +814,8 @@ def _episode_span(row: Any) -> dict[str, Any]:
     return {"start": start.isoformat() if start else None, "end": end.isoformat() if end else None, "open": is_open}
 
 
-# De producten van `history`, het laatst gezien bovenaan, met het totaal ernaast: de database kiest ze, zodat de app alleen de
-# rijen van de producten op de pagina leest. `rank = 1` is de nieuwste rij van een product, die `lastSeen` geeft, en `times` telt
-# de periodes zoals `_history_products`. De volgorde bij een gelijke stand is die van de rijen: winkel en product.
-HISTORY_PAGE_SQL = """
-WITH matched AS (
-    SELECT store, product_id, last_seen,
-           ROW_NUMBER() OVER (PARTITION BY store, product_id ORDER BY first_seen DESC, id DESC) AS rank,
-           SUM(CASE WHEN continued THEN 0 ELSE 1 END) OVER (PARTITION BY store, product_id) AS times
-    FROM offer_history WHERE store IN ({marks}) AND title LIKE ? ESCAPE '\\'
-)
-SELECT store, product_id, COUNT(*) OVER () AS total FROM matched WHERE rank = 1
-ORDER BY last_seen DESC, times DESC, store, product_id LIMIT ?
-"""
+# De rijen van de producten op een pagina van `history`, met dezelfde zoekterm als waarmee het leesmodel ze koos: met een
+# zoekterm tellen alleen de periodes met een passende titel.
 HISTORY_ROWS_SQL = """
 SELECT * FROM offer_history WHERE store = ? AND product_id IN ({marks}) AND title LIKE ? ESCAPE '\\'
 ORDER BY store, product_id, first_seen, id
@@ -835,25 +828,30 @@ async def history(store: Any = None, query: Any = "", limit: Any = 50) -> dict[s
     `store` en `query` (een deel van de titel) zijn optioneel. `timesOnOffer` telt aaneengesloten periodes: een prijswijziging
     tijdens dezelfde aanbieding telt niet als een nieuwe keer.
 
-    De database kiest de producten van de pagina (`HISTORY_PAGE_SQL`) en de app leest alleen hun rijen. Met een prijsarchief
-    staan er ruim honderdduizend rijen in `offer_history`: ze allemaal lezen en omzetten hield de event loop vijf seconden vast.
+    Het leesmodel (offer_history_index.py) kiest de producten van de pagina en telt ze, en de app leest alleen hun rijen. Met een
+    prijsarchief staan er ruim honderdduizend rijen in `offer_history`: ze allemaal lezen en omzetten hield de event loop vijf
+    seconden vast, en ze bij elke aanvraag met een window-functie rangschikken kostte in productie een seconde.
     """
     stores = [_valid_store(store)] if store else list(STORES)
-    pattern = "%" + str(query or "").strip().replace("\\", "\\\\").replace("%", r"\%").replace("_", r"\_") + "%"
+    text: str = str(query or "").strip()
+    pattern = "%" + text.replace("\\", "\\\\").replace("%", r"\%").replace("_", r"\_") + "%"
     try:
         limit = max(1, min(200, int(limit)))
     except (TypeError, ValueError):
         limit = 50
     rows: list[Any] = []
     async with _connect() as conn:
-        page = await conn.execute_fetchall(HISTORY_PAGE_SQL.format(marks=",".join("?" * len(stores))), (*stores, pattern, limit))
+        # Wat een andere schrijver (het prijsarchief, een oudere versie) markeerde, eerst bijwerken: nooit een verouderd antwoord.
+        if await offer_history_index.refresh(conn):
+            await conn.commit()
+        page, total = await offer_history_index.page(conn, stores, pattern if text else None, limit)
         wanted: dict[str, list[str]] = {}
-        for row in page:
-            wanted.setdefault(row["store"], []).append(row["product_id"])
+        for name, product_id in page:
+            wanted.setdefault(name, []).append(product_id)
         for name, ids in wanted.items():
             rows += await conn.execute_fetchall(HISTORY_ROWS_SQL.format(marks=",".join("?" * len(ids))), (name, *ids, pattern))
     products: dict[tuple[str, str], dict[str, Any]] = await compute.run(_history_products, rows)
-    return {"products": [products[(row["store"], row["product_id"])] for row in page], "total": page[0]["total"] if page else 0}
+    return {"products": [products[key] for key in page], "total": total}
 
 
 async def history_of(store: Any, product_ids: Iterable[Any]) -> dict[str, dict[str, Any]]:
