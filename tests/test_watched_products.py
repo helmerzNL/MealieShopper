@@ -4,9 +4,13 @@ Geen test spreekt een echte winkel aan: `ah.get_products_by_ids`, `jumbo.get_pro
 de afbeeldingen worden niet opgehaald (`product_images._fetch_all`).
 """
 
+import json
 import os
 import re
+import shutil
+import subprocess
 import tempfile
+import unittest
 from collections import deque
 from contextlib import closing
 from pathlib import Path
@@ -254,3 +258,66 @@ class PageTest(WatchedCase):
         for kind, _ in watched_products.PACKAGING_WORDS:
             self.assertRegex(script, rf'\b{kind}: "watched\.pack\.{kind}"')
         self.assertTrue(re.search(r"regular: \"watched.change.regular\"", script))
+
+
+class FollowableIdTest(WatchedCase):
+    def test_only_a_real_product_of_a_web_shop_can_be_followed(self):
+        # Een folderactie voor een hele lijn (prijsarchief), de Bonus Box en een AH-id met letters zijn geen product dat de winkel
+        # kent; wi4183 is hoe AH 4183 op de site schrijft (4.28.0).
+        for store, product_id in (("ah", "folder:ah0001"), ("jumbo", "folder:jumbo0009"), ("ah", "bonusbox-12"), ("ah", "abc"), ("crisp", "x1")):
+            with self.subTest(store=store, product_id=product_id), self.assertRaisesRegex(ValueError, "niet gevolgd"):
+                run(watched_products.add(store, product_id, {"title": "Iets"}))
+        self.ah_answer[4183] = ah_product(4183, 1.09)
+        self.assertEqual(run(watched_products.add("ah", "wi4183"))["productId"], "4183")
+        self.assertEqual(run(watched_products.keys()), ["ah:4183"])
+        self.assertTrue(run(watched_products.remove("ah", "wi4183")))
+
+
+@unittest.skipUnless(shutil.which("node"), "Node is niet geinstalleerd")
+class OfferWatchButtonTest(unittest.TestCase):
+    """De knop Prijs volgen op een aanbieding (offers.js), met de echte functies uit offers.js en watched.js in Node."""
+
+    @staticmethod
+    def source(script: str, name: str) -> str:
+        match = re.search(rf"^(?:async )?function {re.escape(name)}\(.*?^}}$", script, re.DOTALL | re.MULTILINE)
+        assert match, name
+        return match.group(0)
+
+    def render(self, store: str, offers: list[dict[str, Any]], watched_keys: list[str]) -> list[dict[str, str]]:
+        offers_js = (ROOT / "static" / "offers.js").read_text(encoding="utf-8")
+        watched_js = (ROOT / "static" / "watched.js").read_text(encoding="utf-8")
+        functions = [self.source(offers_js, name) for name in ("offerCartId", "offerWatchButton")]
+        functions += [self.source(watched_js, name) for name in ("watchedKey", "watchedIs", "watchedFollowableId", "watchedBadge")]
+        script = f"""
+const STORES = {{ ah: {{}}, jumbo: {{}}, picnic: {{}}, crisp: {{}} }};
+const offersState = {{ store: {json.dumps(store)} }};
+const watched = {{ keys: new Set({json.dumps(watched_keys)}) }};
+const t = (key) => key;
+const escapeHtml = (value) => String(value);
+const mdiIcon = () => "<svg></svg>";
+const MDI_EYE = "";
+{chr(10).join(functions)}
+const offers = {json.dumps(offers)};
+console.log(JSON.stringify(offers.map((offer) => ({{ icon: offerWatchButton(offer), text: offerWatchButton(offer, {{ text: true }}) }}))));"""
+        result = subprocess.run(["node", "-e", script], capture_output=True, text=True, timeout=30, check=False)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        return json.loads(result.stdout)
+
+    def test_the_button_is_on_real_products_and_says_when_it_is_followed(self):
+        ah = self.render("ah", [{"id": "4183"}, {"id": "wi5000"}, {"id": "bonusbox-1"}, {"id": "folder:ah0001"}], ["ah:5000"])
+        self.assertIn('data-offer-watch="4183" aria-pressed="false"', ah[0]["icon"])
+        self.assertIn('aria-pressed="true"', ah[1]["icon"], "wi5000 is 5000, en dat volg je al")
+        self.assertIn("is-watched", ah[1]["icon"])
+        self.assertIn("watched.card.unfollow", ah[1]["text"])
+        self.assertEqual((ah[2]["icon"], ah[3]["icon"], ah[3]["text"]), ("", "", ""), "Bonus Box en folderactie: geen knop")
+        self.assertEqual(self.render("jumbo", [{"id": "folder:jumbo1"}, {"id": "123PAK"}], [])[0]["icon"], "")
+        self.assertIn('data-offer-watch="123PAK"', self.render("jumbo", [{"id": "123PAK"}], [])[0]["icon"])
+        self.assertEqual(self.render("lidl", [{"id": "123"}], [])[0]["icon"], "", "Lidl heeft geen webwinkel")
+
+    def test_the_card_the_row_and_the_window_carry_the_button(self):
+        offers_js = (ROOT / "static" / "offers.js").read_text(encoding="utf-8")
+        self.assertIn("${offerWatchButton(offer)}${history}", self.source(offers_js, "offerCardFoot"))
+        self.assertIn("${offerWatchButton(offer)}${chart}", self.source(offers_js, "offerProductRow"))
+        self.assertIn('${preview ? "" : offerWatchButton(offer, { text: true })}', self.source(offers_js, "offerPopupHtml"))
+        history_js = (ROOT / "static" / "offers_history.js").read_text(encoding="utf-8")
+        self.assertIn("watchedFollowableId(product.store, product.productId)", self.source(history_js, "offerHistoryWatchHtml"))

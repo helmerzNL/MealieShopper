@@ -2171,4 +2171,7 @@ I18N.add("en", {
   "watched.pack.weighed": "by weight",
   "backup.part.watchedProducts": "Followed products and their prices",
   "watched.stat.size": "Size",
+  "watched.card.unfollow": "Followed · stop following",
+  "watched.not_followable": "This product cannot be followed.",
+  "watched.removed": "{title} is no longer followed.",
 });

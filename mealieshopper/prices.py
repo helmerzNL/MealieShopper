@@ -470,10 +470,14 @@ async def _names(conn: aiosqlite.Connection, store: str) -> _Names:
     several: dict[str, set[str]]
     index, several = await compute.run(_name_groups, list(await _name_rows(conn, sources)))
     known: dict[str, set[float]] = await _known_prices(conn, sources, sorted(set().union(*several.values()))) if several else {}
-    shared: dict[str, dict[str, tuple[float, ...]]] = {
-        name: {product_id: tuple(sorted(known.get(product_id, ()))) for product_id in sorted(ids)} for name, ids in several.items()
-    }
+    # Duizenden namen bij een catalogus van productieschaal: het sorteren in een thread, niet op de event loop (CLAUDE.md, compute.run).
+    shared: dict[str, dict[str, tuple[float, ...]]] = await compute.run(_name_prices, several, known) if several else {}
     return _Names(index, shared)
+
+
+def _name_prices(several: dict[str, set[str]], known: dict[str, set[float]]) -> dict[str, dict[str, tuple[float, ...]]]:
+    """Per naam met meer producten: elk product (gesorteerd) met zijn bekende prijzen, oplopend. Puur, voor `compute.run`."""
+    return {name: {product_id: tuple(sorted(known.get(product_id, ()))) for product_id in sorted(ids)} for name, ids in several.items()}
 
 
 def _nearest_priced(choices: dict[str, tuple[float, ...]], row: Any, first: str | None) -> str | None:
