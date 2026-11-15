@@ -349,6 +349,11 @@ async def test_two_requests_at_once_rebuild_once(small_dir: Path, monkeypatch: p
         return original(store, *args)
 
     monkeypatch.setattr(price_history_index, "changes", counted)
+    # De versie van de catalogus staat vast voordat de twee aanvragen haar lezen, zoals in test_volume.py: op een lege database
+    # maakt de eerste aanvraag de triggers van de catalogus aan en hoogt daarmee de teller van de producten op, zodat de tweede
+    # een andere versie zag en zelf opbouwde (een op de vijf runs, 2026-11-15).
+    async with prices._connect() as conn:
+        await prices._catalogue_version(conn, "ah")
     first, second = await asyncio.gather(prices.history("ah", today=volume.TODAY), prices.history("ah", today=volume.TODAY))
     assert first == second
     assert writes == ["ah"]

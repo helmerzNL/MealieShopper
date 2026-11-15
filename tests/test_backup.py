@@ -38,6 +38,7 @@ from mealieshopper import (  # noqa: E402
     offer_history_index,
     offers,
     price_archive,
+    price_history_index,
     prices,
     profile,
     push,
@@ -425,6 +426,12 @@ class RoundTripTest(BackupCase):
             self.assertEqual(conn.execute("SELECT COUNT(*) FROM offer_history_stale").fetchone()[0], 0, "niets meer gemarkeerd")
             self.assertEqual([tuple(row) for row in conn.execute("SELECT product_id, title FROM offer_history_products")], [("1", "Kaas")])
         self.assertEqual((await offers.history("ah"))["products"][0]["title"], "Kaas")
+
+    async def test_the_read_model_of_the_price_history_is_left_out(self) -> None:
+        # Het leesmodel van de prijsgeschiedenis (price_history_index.py) is afgeleid: de eerste aanvraag maakt de tabellen aan,
+        # en een teruggezette database krijgt een nieuw token in catalogue_versions, zodat het opnieuw wordt opgebouwd.
+        await prices.history("ah")
+        self.assertLessEqual(set(price_history_index.TABLES), backup.EXCLUDED_TABLES)
 
     async def test_restoring_a_backup_drops_the_cached_catalogue_and_list(self) -> None:
         # Review Focus 4 van taak 9: na het terugzetten staat er niets van de oude database meer in het geheugen.

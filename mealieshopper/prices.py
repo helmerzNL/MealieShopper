@@ -215,6 +215,9 @@ async def _connect() -> AsyncIterator[aiosqlite.Connection]:
     async with auth.connect() as conn:
         await offers.prepare(conn)
         await auth.ensure_schema(conn, "prices", _setup)
+        # De tabellen van het leesmodel van de prijsgeschiedenis horen bij dit schema (backup.ensure_schemas ziet ze zo), de
+        # triggers controleert `price_history_index.prepare` bij elke aanvraag van de geschiedenis.
+        await auth.ensure_schema(conn, price_history_index.SCHEMA_NAME, price_history_index.SCHEMA)
         yield await shared_links.ensure(await product_links.ensure(conn))
 
 
@@ -1884,13 +1887,15 @@ def _by_last_word(suffixes: Iterable[str]) -> dict[str, list[str]]:
 async def warm_catalogues(stores: Iterable[str] | None = None, today: str | None = None) -> None:
     """Bouwt de catalogus van elke winkel alvast op (`_catalogue`: de bekende producten en de lijnindex, bij AH ruim twee
     seconden rekenwerk in de threadpool), zodat de eerste aanvraag van /api/offers na een start of een synchronisatie er niet op
-    hoeft te wachten. Een aanvraag die tijdens het opwarmen komt, wacht op dezelfde bouw. Een fout bij een winkel laat de andere
-    met rust: de aanvraag bouwt de catalogus dan zelf."""
+    hoeft te wachten. Een aanvraag die tijdens het opwarmen komt, wacht op dezelfde bouw. Het leesmodel van de prijsgeschiedenis
+    (price_history_index.py) gaat mee, anders betaalt de eerste Prijsgeschiedenis na een start 0,7 tot 1,5 s voor het bijwerken.
+    Een fout bij een winkel laat de andere met rust: de aanvraag bouwt de catalogus dan zelf."""
     day = today or date.today().isoformat()
     for store in stores or offers.STORES:
         try:
             async with _connect() as conn:
-                await _catalogue(conn, store, day)
+                await price_history_index.prepare(conn)
+                await _indexed_catalogue(conn, store, day)  # roept `_catalogue` zelf aan
         except Exception:  # noqa: BLE001 - opwarmen is een extraatje
             log.warning("Catalogus van %s opwarmen mislukt", store, exc_info=True)
 

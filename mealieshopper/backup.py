@@ -81,6 +81,7 @@ from . import (
     picnic,
     picnic_orders,
     price_archive_sync,
+    price_history_index,
     price_import,
     prices,
     product_images,
@@ -198,6 +199,9 @@ EXCLUDED_TABLES = frozenset(
         # Het leesmodel van de aanbiedingsgeschiedenis (offer_history_index.py): afgeleid van offer_history, het terugzetten bouwt
         # het opnieuw op (`replace_everything`).
         *offer_history_index.TABLES,
+        # Het leesmodel van de prijsgeschiedenis (price_history_index.py): afgeleid van de catalogus en de prijzen. Een teruggezette
+        # database krijgt in catalogue_versions een nieuw token, dus de volgende aanvraag bouwt het opnieuw op.
+        *price_history_index.TABLES,
         "catalogue_versions",  # de versie per winkel van de catalogus van de prijzen (prices._catalogue_version): afgeleid, een teruggezette database krijgt een nieuw token
         # De push van de kooktimers (push.py): een abonnement hoort bij een browser en bij de VAPID-sleutel van deze installatie
         # (die zit er ook niet in), een timer duurt minuten. Na het terugzetten vraagt de app bij de volgende timer een nieuw aan.
