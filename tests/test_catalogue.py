@@ -142,6 +142,9 @@ async def test_a_cancelled_request_does_not_stop_the_build_for_the_others(
         first.cancel()
         held.release.set()
         catalogue: prices._Catalogue = await second
+        # cancel() vraagt het stoppen alleen aan: de eerste aanvraag stopt pas bij haar volgende beurt in de loop. Op een drukke
+        # runner was dat nog niet gebeurd toen de tweede klaar was ("Task cancelling"), dus wacht er eerst op.
+        await asyncio.gather(first, return_exceptions=True)
     assert first.cancelled()
     assert built.call_count == 1
     assert catalogue.products == {}

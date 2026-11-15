@@ -11042,6 +11042,167 @@ html.is-standalone .user-menu__item--standalone:not([hidden]) {
 
 /* Losse aankopen (loose_names.js): een kaart per oude naam, de kandidaten als keuzerondjes. Geen eigen breekpunt: de kandidaten
    vullen het vak met auto-fill en staan op een telefoon onder elkaar. */
+/* Gevolgde producten (watched.js): zoeken of een link plakken, de resultaten, en per product de lijn van de gewone prijs. */
+.badge--watched {
+  --badge: var(--info);
+}
+
+.watched-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.watched-form .searchbar {
+  flex: 1 1 260px;
+  min-width: 0;
+}
+
+.watched-form__store select {
+  width: auto;
+}
+
+.watched-results {
+  display: grid;
+  gap: 8px;
+  margin: 12px 0;
+  padding: 0;
+  list-style: none;
+}
+
+.watched-result {
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--surface);
+}
+
+.watched-result img,
+.watched-result__noimg {
+  width: 48px;
+  height: 48px;
+  object-fit: contain;
+}
+
+.watched-result div {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.watched-result small {
+  color: var(--muted);
+}
+
+.watched-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 16px;
+}
+
+.watched-up {
+  color: var(--danger);
+}
+
+.watched-down {
+  color: var(--primary);
+}
+
+.watched-chart {
+  display: block;
+  max-width: 720px;
+  margin: 12px 0 4px;
+  font-size: var(--text-xs);
+  fill: var(--muted);
+}
+
+.watched-chart__grid {
+  stroke: var(--border);
+  stroke-width: 1;
+}
+
+.watched-chart__line {
+  fill: none;
+  stroke: var(--info);
+  stroke-width: 2;
+}
+
+.watched-chart__dot {
+  fill: var(--info);
+}
+
+.watched-chart__offer {
+  fill: var(--danger);
+}
+
+.watched-legend span {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  margin: 0 4px 0 8px;
+  border-radius: var(--radius-pill);
+  vertical-align: middle;
+}
+
+.watched-legend__line {
+  background: var(--info);
+}
+
+.watched-legend__offer {
+  background: var(--danger);
+}
+
+.watched-changes {
+  margin: 4px 0 12px;
+  padding-left: 18px;
+}
+
+.watched-images ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 4px 0 12px;
+  padding: 0;
+  list-style: none;
+}
+
+.watched-images li {
+  display: grid;
+  gap: 2px;
+  text-align: center;
+}
+
+.watched-images img {
+  width: 96px;
+  height: 96px;
+  object-fit: contain;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: #fff;
+}
+
+.watched-images small {
+  color: var(--muted);
+}
+
+.watched-table {
+  margin: 8px 0 12px;
+}
+
+.loose-card__watch {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+}
+
 .loose-header {
   display: flex;
   flex-wrap: wrap;

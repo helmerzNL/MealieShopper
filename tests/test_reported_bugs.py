@@ -2477,3 +2477,57 @@ class WeeklyCaptureBoundsTest(unittest.TestCase):
                 with self.assertRaises(price_archive.RowError) as error:
                     price_archive.normalise_price({**row, **changes}, bounds)
                 self.assertEqual(error.exception.reason, reason)
+
+
+@unittest.skipUnless(shutil.which("node"), "Node is niet geinstalleerd")
+class WatchedSizeWithoutPackagingTest(unittest.TestCase):
+    def test_2026_11_14_a_known_size_is_not_shown_as_packaging_unknown(self) -> None:
+        # "Hij geeft verpakking onbekend als ik een test uitvoer, maar de verpakkingsgrootte staat er wel bij": bij Aviko Oma's
+        # smulfriet (750 g, geen verpakkingswoord in de naam) stond "Maat en verpakking: 750 g · verpakking onbekend". Nu staat er
+        # alleen de maat; met een bekend soort verpakking blijven ze samen staan.
+        root = Path(__file__).resolve().parent.parent
+        script = (root / "static" / "watched.js").read_text(encoding="utf-8")
+        element = "{ addEventListener() {}, innerHTML: '', value: '', clientWidth: 600 }"
+        prelude = f"""
+const el = () => ({element});
+const $ = () => el();
+const document = {{ querySelector: () => el() }};
+const window = {{ addEventListener() {{}} }};
+const t = (key, params) => key + (params ? JSON.stringify(params) : "");
+const tn = t;
+const escapeHtml = (value) => String(value);
+const storeImage = (url) => url;
+const storeDisplayName = (key) => key;
+const offerHistoryPrice = (value) => `€${{value.toFixed(2)}}`;
+const offerHistoryDay = (iso) => (iso ? Date.parse(String(iso).slice(0, 10)) / 86400000 : null);
+const offerHistoryDayText = (day) => String(day);
+const offerHistoryStat = (label, value) => `<div>${{label}}=${{value}}</div>`;
+const priceHistoryPath = () => "/offers/history";
+const jsonFetch = () => Promise.reject(new Error("geen server"));
+const message = () => {{}};
+const STORES = {{ ah: {{ name: "Albert Heijn" }} }};
+const I18N = {{ formatNumber: (value) => String(value) }};
+"""
+        product = {
+            "store": "ah",
+            "productId": "1",
+            "title": "Aviko Oma's smulfriet",
+            "brand": "Aviko",
+            "unitSize": "750 g",
+            "packaging": None,
+            "price": 2.89,
+            "regular": 2.89,
+            "points": [{"day": "2026-11-14", "price": 2.89, "regular": 2.89, "onOffer": False, "unitSize": "750 g", "packaging": None}],
+            "changes": [],
+            "savedImages": [],
+        }
+        bag = {**product, "title": "Aviko Frites zak", "packaging": "bag"}
+        run = f"""{prelude}
+{script}
+console.log(JSON.stringify([watchedDetailHtml({json.dumps(product)}, 600), watchedDetailHtml({json.dumps(bag)}, 600)]));"""
+        result = subprocess.run(["node", "-e", run], capture_output=True, text=True, timeout=30, check=False)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        unknown, known = json.loads(result.stdout)
+        self.assertIn("<div>watched.stat.size=750 g</div>", unknown)
+        self.assertNotIn("watched.pack.unknown", unknown)
+        self.assertIn("<div>watched.stat.packaging=750 g · watched.pack.bag</div>", known)

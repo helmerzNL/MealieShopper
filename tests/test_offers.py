@@ -1310,11 +1310,13 @@ class OffersTabMarkupTest(AppTestCase):
         self.assertIn('<div class="subtab-menu" id="offers-store-menu" hidden>', section)
         self.assertLess(section.index("offers-store-menu"), section.index('data-subtab="offers-items"'))
         self.assertEqual(
-            re.findall(r'<a class="subtab[^"]*" data-subtab="([\w-]+)"', section), ["offers-items", "offers-suggestions", "offers-history"]
+            re.findall(r'<a class="subtab[^"]*" data-subtab="([\w-]+)"', section),
+            ["offers-items", "offers-suggestions", "offers-history", "offers-watched"],
         )
         self.assertIn('<div id="offers-items" class="subpanel is-active">', section)
         self.assertIn('<div id="offers-suggestions" class="subpanel">', section)
         self.assertIn('<div id="offers-history" class="subpanel">', section)
+        self.assertIn('<div id="offers-watched" class="subpanel">', section)  # Gevolgde producten (4.27.0)
         self.assertNotIn("offers-store-slot", section)
 
     def test_the_price_history_tab_is_wired_to_the_history_route(self):

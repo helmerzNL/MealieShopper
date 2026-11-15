@@ -109,6 +109,7 @@ function looseCardHtml(card, store) {
         <button type="button" class="button" data-loose-confirm${selected ? "" : " disabled"}>${escapeHtml(t("loose.confirm"))}</button>
         <button type="button" class="button button--secondary" data-product-link data-store="${escapeHtml(store)}" data-name="${escapeHtml(card.name)}">${escapeHtml(t("loose.search_own"))}</button>
         <button type="button" class="button button--secondary" data-loose-reject>${escapeHtml(t("loose.reject"))}</button>
+        ${typeof STORES !== "undefined" && STORES[store] ? `<label class="loose-card__watch"><input type="checkbox" data-loose-watch> ${escapeHtml(t("watched.loose_also"))}</label>` : ""}
       </div>
     </article>`;
 }
@@ -442,11 +443,28 @@ async function looseConfirm(button) {
   const picked = card?.querySelector("input[type=radio]:checked");
   if (!card || !picked) return;
   const key = card.dataset.looseCard;
+  // Met het vinkje "Prijs ook volgen" komt het gekozen product ook bij Gevolgde producten (watched.js).
+  const watch = Boolean(card.querySelector("[data-loose-watch]")?.checked);
+  const store = looseState.store;
   // Alleen de sleutel en het gekozen productnummer: de server weet welk product dat is.
   await loosePost("confirm", { store: looseState.store, key, productId: picked.value }, button, () => {
     looseDropCard(key);
     looseAnnounce("ms:loose-confirmed"); // een eigen koppeling erbij: de teller van de export (shared_links_export.js) ververst
+    if (watch) looseWatch(store, key, picked.value);
   });
+}
+
+// Volg het gekozen product, met wat de kaart ervan weet (naam, maat, afbeelding) voor als de winkel nu niet antwoordt.
+async function looseWatch(store, key, productId) {
+  if (typeof watchedFollow !== "function") return;
+  const candidate = (looseState.cards.find((item) => item.key === key)?.candidates || []).find((item) => String(item.productId) === String(productId));
+  const known = candidate ? { title: candidate.title, brand: candidate.brand, unitSize: candidate.unitSize, image: candidate.image, price: candidate.price } : null;
+  try {
+    const added = await watchedFollow(store, productId, known);
+    looseMessage(t("watched.added", { title: added.title }), "success");
+  } catch (error) {
+    looseMessage(error.message);
+  }
 }
 
 async function looseReject(button) {

@@ -93,6 +93,7 @@ from . import (
     tasks,
     thread_db,
     uploads,
+    watched_products,
 )
 from .i18n import tr
 
@@ -149,6 +150,8 @@ DATA_TABLES = (
     "offers_meta",
     "price_observations",
     "product_images",
+    "watched_products",  # de producten die je volgt (watched_products.py): je eigen keuze
+    "watched_prices",  # hun prijs, maat, verpakking en afbeelding per dag: niet opnieuw op te halen
     "imported_purchases",
     "product_links",  # je eigen koppelingen van bonregels en ingelezen aankopen aan een product (#238): werk van de gebruiker
     "shared_link_rejections",  # de gedeelde koppelingen die je afwees met Klopt niet (shared_links.py): ook werk van de gebruiker
@@ -278,6 +281,7 @@ PARTS: dict[str, tuple[str, ...]] = {
     "judgements": ("offer_rejections", "offer_verdicts", "ai_recipe_matches", "ai_recipe_runs"),
     "prices": ("price_observations",),
     "productImages": ("product_images",),
+    "watchedProducts": ("watched_products", "watched_prices"),  # de gevolgde producten met hun prijzen per dag (4.27.0)
     "importedPurchases": ("imported_purchases",),
     "productLinks": ("product_links", "shared_link_rejections", "loose_names"),
     "profiles": ("user_profiles",),
@@ -297,6 +301,7 @@ COUNT_GROUPS: dict[str, tuple[str, ...]] = {
     "offerHistory": ("offer_history",),
     "prices": ("price_observations",),
     "productImages": ("product_images",),
+    "watchedProducts": ("watched_products",),
     "importedPurchases": ("imported_purchases",),
     "productLinks": ("product_links", "shared_link_rejections"),
     "recipes": ("ah_saved_recipes", "offer_recipes"),
@@ -324,6 +329,7 @@ SCHEMA_OWNERS = (
     product_links,
     profile,
     shared_links,
+    watched_products,
 )
 
 JOB_SCHEMA = """

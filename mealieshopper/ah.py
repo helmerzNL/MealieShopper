@@ -1017,6 +1017,9 @@ async def get_products_by_ids(product_ids: list[int]) -> list[dict[str, Any]]:
                 "price": item.get("currentPrice") or item.get("priceBeforeBonus") or 0,
                 "image": ((item.get("images") or [{}])[0]).get("url"),
                 "isBonus": bool(item.get("isBonus")),
+                # De gewone prijs tijdens een bonus en de actietekst, voor de gevolgde producten (watched_products.py).
+                "priceBefore": item.get("priceBeforeBonus") if item.get("isBonus") else None,
+                "promoLabel": item.get("bonusMechanism") or None,
             }
         )
     return products

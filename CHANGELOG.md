@@ -2,6 +2,48 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub; een stabiele release krijgt de teksten van alle versies sinds de vorige stabiele release.
 
+## v4.27.1
+
+*English summary: Followed products no longer show "packaging unknown" next to a known size. When the kind of packaging cannot be derived from the name or the size (for example Aviko Oma's smulfriet, 750 g), the product shows just **Size: 750 g**; when it is known, size and packaging stay together ("Size and packaging: 1 l · bottle"). In the table of all days an unknown packaging is a dash.*
+
+### Verbeterd in 4.27.1
+
+Pull request: [#334](https://github.com/helmerzNL/MealieShopper/pull/334).
+
+- **Gevolgde producten: een bekende maat leest niet meer als "verpakking onbekend".** Na de melding dat er bij een test "verpakking onbekend" stond terwijl de verpakkingsgrootte er wel bij stond. De maat (750 g) haalt de app bij de winkel; het soort verpakking (zak, fles, pot, ...) leidt hij af uit de naam en de maat, en bij "Aviko Oma's smulfriet · 750 g" staat daar geen verpakkingswoord in. Het kerngetal heette dan *Maat en verpakking: 750 g · verpakking onbekend*. Nu staat er alleen *Maat: 750 g*; is het soort verpakking bekend, dan blijft het *Maat en verpakking: 1 l · fles*. In de tabel met alle dagen staat een onbekende verpakking als streepje. In de lijst en de zoekresultaten stond een onbekende verpakking al niet.
+
+### Tests in 4.27.1
+
+- `tests/test_reported_bugs.py` (`WatchedSizeWithoutPackagingTest`): met de echte `watchedDetailHtml` in Node staat bij een onbekende verpakking alleen de maat, zonder "verpakking onbekend", en bij een bekende verpakking de maat en de verpakking samen. De test faalt op de code van 4.27.0.
+- `tests/test_catalogue.py`: de test van een afgebroken aanvraag tijdens het bouwen van de catalogus wacht nu tot die aanvraag echt gestopt is, voordat hij dat controleert. `cancel()` vraagt het stoppen alleen aan; op een drukke CI-runner was de aanvraag nog bezig met stoppen (`Task cancelling`) en faalde de test af en toe.
+
+## v4.27.0
+
+*English summary: New subtab **Followed products** next to the Price history. Follow single products at Albert Heijn, Jumbo, Picnic or Crisp: search for them, or paste a product link from ah.nl or jumbo.com and MealieShopper looks up that product. Every night, with the offers, the app saves for each followed product the regular price, the price at that moment, the size, the kind of packaging and the image, apart from the offers. Per product you see a line of the regular price (an offer is a dot and does not count as a price change), how much more expensive or cheaper it got since the first measurement, the price per unit, what changed (price, size, packaging, name, image), the saved images and a table of all days. In the Price history a followed product carries the marker **Single product**, and you can follow a product there with **Follow the price**; on Loose purchases you tick **Also follow the price** when linking. The followed products are a new part of the backup.*
+
+### Nieuw in 4.27.0
+
+Pull request: [#333](https://github.com/helmerzNL/MealieShopper/pull/333).
+
+- **Gevolgde producten**, een nieuw subtab naast de Prijsgeschiedenis (`/offers/watched`, `static/watched.js`, `mealieshopper/watched_products.py`). Je volgt losse artikelen, los van de aanbiedingen, om te zien of ze over tijd duurder (of kleiner) worden.
+  - **Zoeken of een link plakken.** Kies de winkel (Albert Heijn, Jumbo, Picnic of Crisp) en zoek, of plak een productlink van ah.nl (`/producten/product/wi4183/…`) of jumbo.com (`/producten/…-123456PAK`). Een link zoekt meteen dat ene product op bij de winkel van de link (`watched_products.parse_url`), ook als er een andere winkel gekozen staat; een onbekende link zegt welke links werken.
+  - **Elke nacht bijgewerkt.** De dagelijkse run (`offers_schedule.run_all`) roept `watched_products.refresh_nightly` aan: AH in groepjes van 30 op product-id (`ah.get_products_by_ids`, in het tempo en met het uurbudget van de bonnen), Jumbo per artikel (`jumbo.get_product`), Picnic en Crisp met een zoekopdracht op de naam waarin hetzelfde product-id moet zitten, met een seconde rust tussen de aanvragen. **Nu bijwerken** doet hetzelfde op afroep. Een winkel of product dat faalt laat de rest doorgaan; een product dat de winkel niet meer geeft krijgt *niet gevonden bij de winkel*, tot het terug is.
+  - **Wat er bewaard wordt.** Per product en dag één punt in `watched_prices`: de prijs van dat moment, de gewone prijs (bij een aanbieding de prijs ervoor, als de winkel die noemt), of er een aanbieding liep en met welke tekst, de naam, de maat, het soort verpakking en het adres van de afbeelding. De afbeelding zelf komt in `product_images` (een nieuwe komt erbij, de oude blijft), en de gewone prijs ook in `price_observations`, zodat het product in de Prijsgeschiedenis staat. `ah.get_products_by_ids` geeft daarvoor nu ook de prijs vóór de bonus en de actietekst.
+  - **Het soort verpakking** (`watched_products.packaging_type`) volgt uit de naam en de maat: multiverpakking ("6 x 330 ml"), blik, fles, pot of glas, pak, bak of beker, tube, zak, doos, bos, per stuk of per gewicht. Zonder verpakkingswoord is het onbekend; de winkels geven het niet als apart veld.
+  - **Per product** de lijn van de gewone prijs (een dag met een aanbieding is een rode stip en telt niet als prijsverandering), hoeveel duurder of goedkoper sinds de eerste meting (in euro en procent), de laagste en hoogste gewone prijs, de prijs per eenheid, **Wat veranderde** (gewone prijs, maat, verpakking, naam, afbeelding), de bewaarde afbeeldingen en een tabel met alle dagen. **Niet meer volgen** laat de bewaarde prijzen staan; ze komen terug als je het product opnieuw volgt. Hooguit 500 producten.
+- **De Prijsgeschiedenis markeert gevolgde producten** met **Los artikel** (geen aanbieding), in de lijst en bij het product, met een link naar Gevolgde producten. Een ander product volg je daar met **Prijs volgen (elke nacht)**.
+- **Losse aankopen**: bij het koppelen van een naam zet het vinkje **Prijs ook volgen** het gekozen product meteen bij Gevolgde producten.
+- De handleiding en de README's (Nederlands en Engels) beschrijven Gevolgde producten.
+
+### Database en back-up in 4.27.0
+
+- Twee nieuwe tabellen: `watched_products` (de producten die je volgt) en `watched_prices` (per product en dag de prijs, maat, verpakking en afbeelding). Ze staan in `backup.DATA_TABLES` en vormen samen het nieuwe onderdeel **Gevolgde producten en hun prijzen** (`watchedProducts`). Een back-up van een eerdere versie heeft dat onderdeel niet; terugzetten laat het dan zoals het is. Geen wijziging in Compose- of `.env`-bestanden.
+- Nieuwe API: `GET /api/watched`, `GET /api/watched/keys`, `GET /api/watched/search?store=&q=` (ook met een productlink), `POST /api/watched`, `DELETE /api/watched/<winkel>/<product-id>` en `POST /api/watched/refresh`.
+
+### Tests in 4.27.0
+
+- `tests/test_watched_products.py`: het soort verpakking uit naam en maat; productlinks van AH en Jumbo (en wat geen productlink is); zoeken met een link vraagt het product bij de winkel van de link; volgen geeft het eerste punt en een prijs in de Prijsgeschiedenis; elke nacht een punt erbij, met een hogere gewone prijs en een kleinere maat als veranderingen en een actieprijs niet; een aanbieding zonder prijs ervoor is geen gewone prijs; een product dat de winkel niet geeft heet niet gevonden en daarna weer gevonden; loslaten bewaart de prijzen; zonder antwoord van de winkel geldt wat de pagina wist; AH in groepjes van 30; de nachtelijke run en een falende winkel; de back-up; de API; het subtab, de markering en het vinkje op de pagina.
+
 ## v4.26.0
 
 *English summary: The app no longer stands still while it computes, and it brings four improvements that so far ran only in builds of this fork. **Never blocking**: the heavy work behind the offers, the price history, the verdict, the nightly run and a backup restore runs in worker threads, and the event loop that answers every request is never held for 100 ms or longer, measured under load on a database the size of a real installation. Judging the offers of Albert Heijn takes about 0.9 s instead of 2 s, and a stall of 100 ms or longer now fails the tests. The tests also ran with a 15 ms limit, to cover devices five to eight times slower: after its start the app sets what is alive aside for the garbage collector once (`MEALIESHOPPER_GC_FREEZE=false` turns that off), so a full pass takes 9 to 17 ms instead of 33 to 55 ms, and a backup restore no longer starts full passes at all. **Telemetry**: with `MEALIESHOPPER_TELEMETRY=true` every answer carries a `Server-Timing` header, slow requests and stalls are logged with the function and the line that held the event loop, and the admin sees the numbers per route at `/api/telemetry`. **Price index**: the daily task fetches the weekly regular price from ahprijsindex.nl for each Albert Heijn product you bought, so its offers are judged against a fresh price (`MEALIESHOPPER_PRICE_INDEX=false` turns it off). **Faster**: JSON, scripts and styles go to the browser with gzip, the offers pages load fast again with a price archive, and SQLite runs in WAL so a writer no longer blocks the readers (`MEALIESHOPPER_SQLITE_WAL=false` turns that off for a data folder on a network share).*
