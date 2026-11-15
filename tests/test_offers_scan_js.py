@@ -86,6 +86,7 @@ PRELUDE = "\n".join(
             "offersLoadFilters",
             "offersUnitLabel",
             "offerPopupHtml",
+            "offerWatchButton",
             "offerAsProduct",
             "offerForPack",
             "offerPopupPacks",

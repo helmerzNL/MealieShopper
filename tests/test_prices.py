@@ -2470,3 +2470,22 @@ class NamesOffTheLoopTest(PricesCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SharedPricesTest(unittest.TestCase):
+    """`prices._name_prices`: het deel van `_names` dat sinds 4.28.0 in een thread loopt (via `compute.run`), niet op de event loop."""
+
+    def test_products_and_prices_are_sorted_and_an_unknown_price_is_empty(self) -> None:
+        several = {"halfvolle melk": {"9", "10", "2"}, "bloemkool": {"7", "3"}}
+        known = {"9": {1.29, 1.09}, "2": {0.99}, "3": {2.49, 1.99, 2.19}}
+        self.assertEqual(
+            prices._name_prices(several, known),
+            {"halfvolle melk": {"10": (), "2": (0.99,), "9": (1.09, 1.29)}, "bloemkool": {"3": (1.99, 2.19, 2.49), "7": ()}},
+        )
+        self.assertEqual(list(prices._name_prices(several, known)["halfvolle melk"]), ["10", "2", "9"], "ids als tekst gesorteerd, zoals eerst")
+        self.assertEqual(prices._name_prices({}, {}), {})
+
+    def test_names_runs_it_off_the_event_loop(self) -> None:
+        import inspect  # pylint: disable=import-outside-toplevel
+
+        self.assertIn("await compute.run(_name_prices, several, known)", inspect.getsource(prices._names))
