@@ -13,6 +13,7 @@ from __future__ import annotations
 import asyncio
 import functools
 import queue
+import sys
 import threading
 import time
 from collections.abc import Awaitable, Callable, Hashable
@@ -166,6 +167,11 @@ async def stop() -> None:
     def finish() -> None:
         try:
             pool.stop(SHUTDOWN_SECONDS)
+        except BaseException:  # noqa: BLE001 - eerst melden, dan het wachten beeindigen
+            # Zelf melden, voor `settle`: liet de fout de thread uit, dan kwam `threading.excepthook` pas na `settle`, en kon wie op
+            # `stop` wachtte al verder zijn voordat de fout gemeld was (CI, PR #337, 2026-11-15).
+            exc_type, exc_value, exc_traceback = sys.exc_info()
+            threading.excepthook(threading.ExceptHookArgs((exc_type, exc_value, exc_traceback, threading.current_thread())))
         finally:
             try:
                 loop.call_soon_threadsafe(settle)
