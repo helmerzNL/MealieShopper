@@ -2,6 +2,18 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub; een stabiele release krijgt de teksten van alle versies sinds de vorige stabiele release.
 
+## v4.30.0
+
+*English summary: Shared AH weekly prices now come as a validated, prepared SQLite database. Price history and offer annotations read the selected products directly, which avoids rebuilding the complete shared catalogue on a small server. Existing installations migrate in the background without deleting old rows. Exact legacy imports follow later source corrections, while local observations keep priority. Updates pause for foreground requests, retain the previous valid copy on failure and keep working offline from the local copy.*
+
+### Gedeelde prijzen in 4.30.0
+
+- **Een vooraf opgebouwde database.** De centrale publicatie bereidt productnamen, prijsperiodes en zoekgegevens voor. De app downloadt alleen een gewijzigde versie, controleert die volledig op de achtergrond en wisselt daarna de actieve kopie. Open aanvragen kunnen de vorige kopie uitlezen. De gewone JSON-documenten blijven beschikbaar voor oudere versies.
+- **Begrensd lezen.** De prijsgeschiedenis leest de gevraagde producten en periodes rechtstreeks. De aanbiedingen lezen compacte prijsgegevens, zonder alle weekpunten uit te pakken. Zo hoeft een lichte server de gedeelde prijscatalogus niet in het geheugen op te bouwen.
+- **Automatische migratie.** Bestaande installaties vergelijken hun oude prijsregels op de achtergrond met de centrale bron. Alleen volledig gelijke regels worden herkend als oude gedeelde import. Die volgen daarna broncorrecties. Eigen waarnemingen en onbekende of afwijkende regels houden voorrang. De oorspronkelijke regels blijven ongewijzigd bewaard voor terugrollen.
+- **Voorrang voor aanvragen.** De achtergrondcontrole en migratie geven voorrang aan actieve aanvragen. Een mislukte update laat de vorige goedgekeurde kopie staan, die ook zonder verbinding bruikbaar blijft. Bij te weinig schijfruimte wordt de update uitgesteld.
+- **Back-up en herstel.** De herkomst van nieuwe lokale prijswaarnemingen gaat mee in de back-up. De gedeelde database en afgeleide migratie- en zoekgegevens worden na terugzetten opnieuw opgehaald of opgebouwd. Bestellingen, bonnen en correcties blijven lokaal.
+
 ## v4.29.0
 
 *English summary: The offer history and the price history now read from a read model in the database instead of recomputing everything on each request, because their data only changes through the daily tasks, a sync or an import. SQLite triggers on the source tables mark every product that changes, also when an older version writes, and the next request updates only those. On a database the size of a real installation the offer history takes 11 ms instead of 253 ms (about a second on an installation with a price archive), and the price history of Albert Heijn 17 ms instead of 131 ms. Warming up after a start now goes store by store with Albert Heijn first, so the first offers no longer wait up to 3 s for the other stores. A few more places that would stall a slow device (recipe search, releasing a replaced catalogue) moved off the event loop, and the nightly run keeps fewer objects for the garbage collector.*
