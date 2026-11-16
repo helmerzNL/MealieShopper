@@ -12,7 +12,7 @@ Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar
 - **Begrensd lezen.** De prijsgeschiedenis leest de gevraagde producten en periodes rechtstreeks. De aanbiedingen lezen compacte prijsgegevens, zonder alle weekpunten uit te pakken. Zo hoeft een lichte server de gedeelde prijscatalogus niet in het geheugen op te bouwen.
 - **Automatische migratie.** Bestaande installaties vergelijken hun oude prijsregels op de achtergrond met de centrale bron. Alleen volledig gelijke regels worden herkend als oude gedeelde import. Die volgen daarna broncorrecties. Eigen waarnemingen en onbekende of afwijkende regels houden voorrang. De oorspronkelijke regels blijven ongewijzigd bewaard voor terugrollen.
 - **Voorrang voor aanvragen.** De achtergrondcontrole en migratie geven voorrang aan actieve aanvragen. Een mislukte update laat de vorige goedgekeurde kopie staan, die ook zonder verbinding bruikbaar blijft. Bij te weinig schijfruimte wordt de update uitgesteld.
-- **Back-up en herstel.** De herkomst van nieuwe lokale prijswaarnemingen gaat mee in de back-up. De gedeelde database en afgeleide migratie- en zoekgegevens worden na terugzetten opnieuw opgehaald of opgebouwd. Bestellingen, bonnen en correcties blijven lokaal.
+- **Back-up en herstel.** De vastgelegde herkomst van prijswaarnemingen gaat mee in de back-up. De gedeelde database en afgeleide migratie- en zoekgegevens worden na terugzetten opnieuw opgehaald of opgebouwd. Bestellingen, bonnen en correcties blijven lokaal.
 
 ## v4.29.0
 
