@@ -465,3 +465,20 @@ def test_abandoned_generation_is_cleaned_before_disk_budget_check(store: Any, tm
     fourth: dict[str, Any] = publish(store, tmp_path, [{**row, "price": 4} for row in rows()])
     assert store.generation() == fourth["artifact"]["sha256"]
     assert not (store.root / f"{abandoned['artifact']['sha256']}.sqlite").exists()
+
+
+async def test_downloaded_candidate_activates_without_redundant_sd_copy(store: Any, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from mealieshopper.shared_prices import store as store_module
+
+    store._prepare()
+    abandoned: Path = store.root / "candidate.download"
+    abandoned.write_bytes(b"abandoned")
+    abandoned.chmod(0o400)
+    candidate: Path = tmp_path / "one-write.sqlite"
+    descriptor: dict[str, Any] = build_snapshot(candidate, rows())
+    monkeypatch.setattr(store_module.shutil, "copyfileobj", lambda *args: pytest.fail("Downloaded candidate was copied a second time"))
+    with respx.mock() as mock:
+        mock.get("https://data.mealieshopper.nl/shared-prices/v1/manifest.json").respond(200, json={"format_version": 1, "datasets": [descriptor]})
+        mock.get(f"https://data.mealieshopper.nl/{descriptor['artifact']['path']}").respond(200, content=candidate.read_bytes())
+        assert (await store.refresh_if_due(force=True))["changed"]
+        assert store.generation() == descriptor["artifact"]["sha256"]

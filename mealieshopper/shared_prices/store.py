@@ -151,9 +151,10 @@ class GenerationStore:
         finally:
             lock.close()
 
-    def _space(self, required: int) -> None:
+    def _space(self, required: int, allocated: bool = False) -> None:
         total: int = sum(path.stat().st_size for path in self.root.glob("*.sqlite"))
-        if total + required > RETAINED_BYTES or shutil.disk_usage(self.root).free < required + CHUNK_BYTES:
+        needed: int = 0 if allocated else required
+        if total + required > RETAINED_BYTES or shutil.disk_usage(self.root).free < needed + CHUNK_BYTES:
             raise ValueError("Insufficient space for a new snapshot")
 
     def _install(self, candidate: Path, descriptor: dict[str, Any]) -> None:
@@ -162,15 +163,21 @@ class GenerationStore:
         self.cleanup()
         digest: str = descriptor["artifact"]["sha256"]
         destination: Path = self.root / f"{digest}.sqlite"
-        staging: Path = self.root / "candidate.install"
-        staging.unlink(missing_ok=True)
+        downloaded: bool = candidate == self.root / "candidate.download"
+        staging: Path = candidate if downloaded else self.root / "candidate.install"
+        if not downloaded:
+            staging.unlink(missing_ok=True)
         try:
-            self._space(descriptor["artifact"]["bytes"])
-            with candidate.open("rb") as source, staging.open("wb") as target:
-                shutil.copyfileobj(source, target, CHUNK_BYTES)
-                target.flush()
-                os.fsync(target.fileno())
-            validate_file(staging, descriptor)
+            self._space(descriptor["artifact"]["bytes"], downloaded)
+            if downloaded:
+                with staging.open("rb") as source:
+                    os.fsync(source.fileno())
+            else:
+                with candidate.open("rb") as source, staging.open("wb") as target:
+                    shutil.copyfileobj(source, target, CHUNK_BYTES)
+                    target.flush()
+                    os.fsync(target.fileno())
+                validate_file(staging, descriptor)
             os.chmod(staging, 0o400)
             with self._selection(exclusive=True):
                 if not destination.exists():
@@ -261,7 +268,7 @@ class GenerationStore:
             if await _thread(self.generation) == descriptor["artifact"]["sha256"]:
                 return {"state": "ready", "changed": False}
             await _thread(self.cleanup)
-            await _thread(self._space, descriptor["artifact"]["bytes"] * 2)
+            await _thread(self._space, descriptor["artifact"]["bytes"])
             try:
                 await self._download(client, price_archive.DATA_SITE_URL, descriptor)
                 return {"state": "ready", "changed": True}
@@ -283,6 +290,7 @@ class GenerationStore:
 
     async def _download(self, client: httpx.AsyncClient, base: str, descriptor: dict[str, Any]) -> None:
         path: Path = self.root / "candidate.download"
+        await _thread(path.unlink, missing_ok=True)
         handle: BinaryIO = await _thread(path.open, "wb")
         received: int = 0
         try:
