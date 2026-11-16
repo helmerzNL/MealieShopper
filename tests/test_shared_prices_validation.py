@@ -91,3 +91,37 @@ def test_fixture_receipt_name_lookups_have_exact_indexed_keys(tmp_path: Path) ->
                 conn.execute(f"EXPLAIN QUERY PLAN SELECT product_id FROM search_names WHERE store=? AND {column}=?", ("ah", "value")).fetchall()
             )
             assert "USING" in plan and "INDEX" in plan
+
+
+@pytest.mark.parametrize("damage", ["huge_integer_price", "nonfinite_pack_projection"])
+async def test_extreme_numeric_values_reject_and_schedule_retry_without_losing_active(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, damage: str
+) -> None:
+    import time
+
+    import respx
+
+    monkeypatch.setenv("MEALIESHOPPER_SHARED_PRICES", "true")
+    store: GenerationStore = GenerationStore(tmp_path / "store")
+    good: Path = tmp_path / "good.sqlite"
+    original: dict[str, Any] = build_snapshot(good, [row()])
+    store.install(good, original)
+    candidate: Path = tmp_path / "extreme.sqlite"
+    data: dict[str, Any] = {**row(), "unit_size": "9" * 400 + " kg"} if damage == "nonfinite_pack_projection" else row()
+    descriptor: dict[str, Any] = build_snapshot(candidate, [data])
+    if damage == "huge_integer_price":
+        with sqlite3.connect(candidate) as conn:
+            conn.execute("UPDATE price_periods SET values_json=?", (json.dumps({"price": 10**400}),))
+    body: bytes = candidate.read_bytes()
+    digest: str = hashlib.sha256(body).hexdigest()
+    descriptor["artifact"].update(bytes=len(body), sha256=digest, path=f"shared-prices/v1/ah-ahprijsindex/{digest}.sqlite")
+    with pytest.raises(ValueError):
+        validate_file(candidate, descriptor)
+    with respx.mock() as mock:
+        mock.get("https://data.mealieshopper.nl/shared-prices/v1/manifest.json").respond(200, json={"format_version": 1, "datasets": [descriptor]})
+        mock.get(f"https://data.mealieshopper.nl/{descriptor['artifact']['path']}").respond(200, content=body)
+        result: dict[str, Any] = await store.refresh_if_due(force=True)
+    assert result["state"] == "error" and not result["changed"]
+    assert store.generation() == original["artifact"]["sha256"]
+    schedule: dict[str, Any] = json.loads((store.root / "schedule.json").read_text())
+    assert 890 < schedule["next_check"] - time.time() <= 900

@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-import math
 import sqlite3
+import sys
 from collections.abc import Callable
 from datetime import date
 from typing import Any
@@ -46,11 +46,15 @@ def _metadata(value: Any, decode: Decoder, descriptor: dict[str, Any], product_i
     return metadata
 
 
+def _finite_number(value: Any) -> bool:
+    return type(value) in (int, float) and -sys.float_info.max <= value <= sys.float_info.max
+
+
 def _values(value: Any, price: Any, decode: Decoder) -> dict[str, Any]:
     values: dict[str, Any] = _object(value, decode)
     raw: Any = values.get("price")
-    _check(type(raw) in (int, float) and math.isfinite(raw) and raw > 0, "Invalid original price")
-    _check(type(price) in (int, float) and math.isfinite(price) and price == raw, "Price projection mismatch")
+    _check(_finite_number(raw) and raw > 0, "Invalid original price")
+    _check(_finite_number(price) and price == raw, "Price projection mismatch")
     _check(values.keys() <= {"price", "seen_at"}, "Unknown observation values")
     return values
 
@@ -171,6 +175,7 @@ def _names(
         metadata: dict[str, Any] = _metadata(row[0], decode, descriptor, product["product_id"])
         size: tuple[float, str] | None = prices._size_of(metadata.get("unit_size"), metadata.get("title"))
         if size:
+            _check(_finite_number(size[0]) and size[0] > 0, "Invalid pack size projection")
             sizes.add(size)
         title: str = metadata.get("title") or ""
         expected.add((title, prices._fold_name(f"{title} {metadata.get('brand') or ''}"), *(size or (None, None))))
