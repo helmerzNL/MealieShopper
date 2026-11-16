@@ -10,7 +10,7 @@ from typing import Any
 
 
 def build_snapshot(path: Path, rows: list[dict[str, Any]]) -> dict[str, Any]:
-    from mealieshopper import prices
+    from mealieshopper import name_keys, prices
 
     path.parent.mkdir(parents=True, exist_ok=True)
     conn: sqlite3.Connection = sqlite3.connect(path)
@@ -24,8 +24,10 @@ CREATE TABLE products(store TEXT,product_id TEXT,title TEXT,brand TEXT,unit_size
 first_day TEXT,last_day TEXT,version_id INTEGER,family_key TEXT,category TEXT,twin_key TEXT,PRIMARY KEY(store,product_id));
 CREATE INDEX products_recent ON products(store,last_day,product_id);
 CREATE INDEX products_family ON products(store,family_key,product_id);
-CREATE TABLE search_names(store TEXT,product_id TEXT,name TEXT,search TEXT,amount REAL,unit TEXT);
+CREATE TABLE search_names(store TEXT,product_id TEXT,name TEXT,search TEXT,amount REAL,unit TEXT,folded_name TEXT,near_name TEXT);
 CREATE INDEX search_product ON search_names(store,product_id);
+CREATE INDEX search_folded ON search_names(store,folded_name,product_id);
+CREATE INDEX search_near ON search_names(store,near_name,product_id);
 CREATE TABLE price_periods(store TEXT,product_id TEXT,source TEXT,first_day TEXT,last_day TEXT,step_days INTEGER,
 observation_count INTEGER,version_id INTEGER,price REAL,values_json TEXT,PRIMARY KEY(store,product_id,source,first_day));
 CREATE INDEX periods_product ON price_periods(store,product_id,first_day,last_day);
@@ -51,13 +53,15 @@ CREATE TABLE product_facts(store TEXT,product_id TEXT,facts_json TEXT,PRIMARY KE
         )
         size: tuple[float, str] | None = prices._size_of(row.get("unit_size"), row.get("title"))
         conn.execute(
-            "INSERT INTO search_names VALUES (?,?,?,?,?,?)",
+            "INSERT INTO search_names VALUES (?,?,?,?,?,?,?,?)",
             (
                 row["store"],
                 row["product_id"],
                 row.get("title", ""),
                 prices._fold_name(f"{row.get('title') or ''} {row.get('brand') or ''}"),
                 *(size or (None, None)),
+                prices._fold_name(row.get("title", "")),
+                name_keys.key(row.get("title", "")),
             ),
         )
         grouped.setdefault(row["product_id"], []).append({**row, "_version": index})

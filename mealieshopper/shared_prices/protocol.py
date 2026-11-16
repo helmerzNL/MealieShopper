@@ -11,6 +11,9 @@ from contextlib import closing
 from pathlib import Path
 from typing import Any
 
+from .pressure import Budget
+from .validation import validate_contents
+
 MANIFEST_BYTES: int = 1024 * 1024
 DATABASE_BYTES: int = 32 * 1024 * 1024
 RETAINED_BYTES: int = 256 * 1024 * 1024
@@ -139,29 +142,44 @@ def connect(path: Path) -> sqlite3.Connection:
     return conn
 
 
-def validate_file(path: Path, descriptor: dict[str, Any]) -> None:
+def validate_file(path: Path, descriptor: dict[str, Any], budget: Budget | None = None) -> None:
     validate_dataset(descriptor)
     if path.stat().st_size != descriptor["artifact"]["bytes"]:
         raise ValueError("Snapshot size mismatch")
     digest: Any = hashlib.sha256()
     with path.open("rb") as handle:
-        while chunk := handle.read(CHUNK_BYTES):
+        while True:
+            if budget is not None:
+                budget.checkpoint()
+            chunk: bytes = handle.read(CHUNK_BYTES)
+            if not chunk:
+                break
             digest.update(chunk)
     if digest.hexdigest() != descriptor["artifact"]["sha256"]:
         raise ValueError("Snapshot checksum mismatch")
     try:
         with closing(connect(path)) as conn:
-            _validate_database(conn, descriptor)
+            if budget is not None:
+                budget.checkpoint()
+                conn.set_progress_handler(budget.progress, 1000)
+            _validate_database(conn, descriptor, budget)
     except sqlite3.Error as exc:
         raise ValueError("Invalid snapshot database") from exc
 
 
-def _validate_database(conn: sqlite3.Connection, descriptor: dict[str, Any]) -> None:
+def _validate_database(conn: sqlite3.Connection, descriptor: dict[str, Any], budget: Budget | None = None) -> None:
     if conn.execute("PRAGMA application_id").fetchone()[0] != APPLICATION_ID or conn.execute("PRAGMA user_version").fetchone()[0] != 1:
         raise ValueError("Unsupported SQLite snapshot")
     schema: list[sqlite3.Row] = conn.execute("SELECT type,name,sql FROM sqlite_schema").fetchall()
-    if any(row["type"] not in {"table", "index"} or "virtual table" in (row["sql"] or "").lower() for row in schema):
+    if any(
+        row["type"] not in {"table", "index"}
+        or re.search(r"\bCREATE\s+VIRTUAL\s+TABLE\b", re.sub(r"/\*.*?\*/|--[^\n]*", " ", row["sql"] or "", flags=re.DOTALL), flags=re.IGNORECASE)
+        for row in schema
+    ):
         raise ValueError("Only ordinary snapshot tables and indexes are allowed")
+    expected_tables: set[str] = set(COLUMNS) | {"sqlite_stat1", "sqlite_stat4"}
+    if any(row["type"] == "table" and row["name"] not in expected_tables for row in schema):
+        raise ValueError("Unknown snapshot table")
     for table, expected in COLUMNS.items():
         columns: set[str] = {row["name"] for row in conn.execute(f"PRAGMA table_info({table})")}
         if not expected <= columns:
@@ -185,15 +203,4 @@ def _validate_database(conn: sqlite3.Connection, descriptor: dict[str, Any]) -> 
             raise ValueError(f"Snapshot identity mismatch: {key}")
     if [row[0] for row in conn.execute("PRAGMA integrity_check")] != ["ok"]:
         raise ValueError("Snapshot integrity failed")
-    for table, column in (("product_versions", "metadata_json"), ("price_periods", "values_json"), ("product_facts", "facts_json")):
-        cursor: sqlite3.Cursor = conn.execute(f"SELECT {column} FROM {table}")
-        for row in cursor:
-            if not isinstance(row[0], str) or not isinstance(strict_json(row[0], CHUNK_BYTES), dict):
-                raise ValueError("Invalid snapshot row JSON")
-    invalid: sqlite3.Row | None = conn.execute(
-        "SELECT 1 FROM price_periods WHERE step_days!=7 OR observation_count<1 OR first_day>last_day "
-        "OR date(first_day) IS NULL OR date(last_day) IS NULL "
-        "OR julianday(last_day)-julianday(first_day)!=(observation_count-1)*7 LIMIT 1"
-    ).fetchone()
-    if invalid is not None:
-        raise ValueError("Invalid observation period")
+    validate_contents(conn, descriptor, strict_json, budget)

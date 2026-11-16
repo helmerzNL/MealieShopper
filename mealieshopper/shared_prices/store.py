@@ -19,6 +19,7 @@ import httpx
 
 from mealieshopper import http_client, tasks
 
+from .pressure import Budget
 from .protocol import CHUNK_BYTES, MANIFEST_BYTES, RETAINED_BYTES, SHA256, strict_json, validate_dataset, validate_file, validate_manifest
 from .reader import Snapshot
 
@@ -29,11 +30,13 @@ MANIFEST_PATH: str = "shared-prices/v1/manifest.json"
 log: logging.Logger = logging.getLogger(__name__)
 
 
-async def _thread(function: Callable[..., T], *args: Any, **kwargs: Any) -> T:
+async def _thread(function: Callable[..., T], *args: Any, _budget: Budget | None = None, **kwargs: Any) -> T:
     work: asyncio.Task[T] = asyncio.create_task(asyncio.to_thread(function, *args, **kwargs))
     try:
         return await tasks.share(work)
     except asyncio.CancelledError:
+        if _budget is not None:
+            _budget.cancel()
         try:
             await work
         except Exception:
@@ -147,7 +150,7 @@ class GenerationStore:
         if lock is None:
             raise ValueError("Snapshot updater already running")
         try:
-            self._install(candidate, descriptor)
+            self._install(candidate, descriptor, Budget())
         finally:
             lock.close()
 
@@ -157,9 +160,10 @@ class GenerationStore:
         if total + required > RETAINED_BYTES or shutil.disk_usage(self.root).free < needed + CHUNK_BYTES:
             raise ValueError("Insufficient space for a new snapshot")
 
-    def _install(self, candidate: Path, descriptor: dict[str, Any]) -> None:
+    def _install(self, candidate: Path, descriptor: dict[str, Any], budget: Budget | None = None) -> None:
+        budget = budget or Budget()
         validate_dataset(descriptor)
-        validate_file(candidate, descriptor)
+        validate_file(candidate, descriptor, budget)
         self.cleanup()
         digest: str = descriptor["artifact"]["sha256"]
         destination: Path = self.root / f"{digest}.sqlite"
@@ -169,25 +173,34 @@ class GenerationStore:
             staging.unlink(missing_ok=True)
         try:
             self._space(descriptor["artifact"]["bytes"], downloaded)
+            budget.checkpoint()
             if downloaded:
                 with staging.open("rb") as source:
                     os.fsync(source.fileno())
             else:
                 with candidate.open("rb") as source, staging.open("wb") as target:
-                    shutil.copyfileobj(source, target, CHUNK_BYTES)
+                    while True:
+                        budget.checkpoint()
+                        chunk: bytes = source.read(CHUNK_BYTES)
+                        if not chunk:
+                            break
+                        target.write(chunk)
                     target.flush()
                     os.fsync(target.fileno())
-                validate_file(staging, descriptor)
+                validate_file(staging, descriptor, budget)
             os.chmod(staging, 0o400)
+            if destination.exists():
+                validate_file(destination, descriptor, budget)
+            budget.checkpoint()
             with self._selection(exclusive=True):
                 if not destination.exists():
                     os.replace(staging, destination)
-                else:
-                    validate_file(destination, descriptor)
                 old: dict[str, Any] = self._pointer()
-                previous: Any = old.get("active")
+                previous: Any = self._chosen(descriptor["store"])
                 if previous and previous["artifact"]["sha256"] == digest:
                     previous = old.get("previous")
+                    if not self._ready(previous, descriptor["store"]) or previous["artifact"]["sha256"] == digest:
+                        previous = None
                 self._write_json("active.json", {"active": descriptor, "previous": previous})
         finally:
             staging.unlink(missing_ok=True)
@@ -241,7 +254,7 @@ class GenerationStore:
         try:
             if not await _thread(self._due, force):
                 return {"state": "not_due", "changed": False}
-            result: dict[str, Any] = await self._refresh()
+            result: dict[str, Any] = await self._refresh(Budget())
             await _thread(self._schedule, REFRESH_SECONDS)
             return result
         except asyncio.CancelledError:
@@ -258,11 +271,12 @@ class GenerationStore:
         except OSError:
             log.warning("Could not persist shared snapshot retry schedule", exc_info=True)
 
-    async def _refresh(self) -> dict[str, Any]:
+    async def _refresh(self, budget: Budget) -> dict[str, Any]:
         from mealieshopper import price_archive
 
+        await _thread(budget.checkpoint, _budget=budget)
         client: httpx.AsyncClient = http_client.client("shared-snapshots", timeout=60.0, follow_redirects=False)
-        manifest: dict[str, Any] = await self._manifest(client, price_archive.DATA_SITE_URL)
+        manifest: dict[str, Any] = await self._manifest(client, price_archive.DATA_SITE_URL, budget)
         for attempt in range(2):
             descriptor: dict[str, Any] = manifest["datasets"][0]
             if await _thread(self.generation) == descriptor["artifact"]["sha256"]:
@@ -270,41 +284,45 @@ class GenerationStore:
             await _thread(self.cleanup)
             await _thread(self._space, descriptor["artifact"]["bytes"])
             try:
-                await self._download(client, price_archive.DATA_SITE_URL, descriptor)
+                await self._download(client, price_archive.DATA_SITE_URL, descriptor, budget)
                 return {"state": "ready", "changed": True}
             except httpx.HTTPStatusError as exc:
                 if exc.response.status_code != 404 or attempt:
                     raise
-                manifest = await self._manifest(client, price_archive.DATA_SITE_URL)
+                manifest = await self._manifest(client, price_archive.DATA_SITE_URL, budget)
         raise ValueError("Snapshot disappeared")
 
-    async def _manifest(self, client: httpx.AsyncClient, base: str) -> dict[str, Any]:
+    async def _manifest(self, client: httpx.AsyncClient, base: str, budget: Budget) -> dict[str, Any]:
         body: bytearray = bytearray()
+        await _thread(budget.checkpoint, _budget=budget)
         async with client.stream("GET", f"{base}/{MANIFEST_PATH}", headers={"Accept-Encoding": "identity"}) as response:
             response.raise_for_status()
             async for chunk in response.aiter_bytes(chunk_size=CHUNK_BYTES):
+                await _thread(budget.checkpoint, _budget=budget)
                 if len(body) + len(chunk) > MANIFEST_BYTES:
                     raise ValueError("Manifest exceeds size limit")
                 body.extend(chunk)
         return await _thread(validate_manifest, bytes(body))
 
-    async def _download(self, client: httpx.AsyncClient, base: str, descriptor: dict[str, Any]) -> None:
+    async def _download(self, client: httpx.AsyncClient, base: str, descriptor: dict[str, Any], budget: Budget) -> None:
         path: Path = self.root / "candidate.download"
         await _thread(path.unlink, missing_ok=True)
         handle: BinaryIO = await _thread(path.open, "wb")
         received: int = 0
         try:
+            await _thread(budget.checkpoint, _budget=budget)
             async with client.stream("GET", f"{base}/{descriptor['artifact']['path']}", headers={"Accept-Encoding": "identity"}) as response:
                 response.raise_for_status()
                 if response.headers.get("content-encoding", "identity") != "identity":
                     raise ValueError("Compressed snapshot transport is unsupported")
                 async for chunk in response.aiter_bytes(chunk_size=CHUNK_BYTES):
+                    await _thread(budget.checkpoint, _budget=budget)
                     received += len(chunk)
                     if received > descriptor["artifact"]["bytes"]:
                         raise ValueError("Snapshot download exceeds declared size")
                     await _thread(handle.write, chunk)
             await _thread(handle.close)
-            await _thread(self._install, path, descriptor)
+            await _thread(self._install, path, descriptor, budget, _budget=budget)
         finally:
             await _thread(handle.close)
             await _thread(path.unlink, missing_ok=True)

@@ -8,11 +8,23 @@ from typing import Any
 
 from mealieshopper import auth
 
+from .pressure import foreground_finished, foreground_started, yield_background
 from .protocol import validate_manifest
 from .reader import Snapshot
 from .store import GenerationStore
 
-__all__: list[str] = ["GenerationStore", "Snapshot", "generation", "lease", "refresh_if_due", "reset", "validate_manifest"]
+__all__: list[str] = [
+    "GenerationStore",
+    "Snapshot",
+    "generation",
+    "lease",
+    "refresh_if_due",
+    "reset",
+    "validate_manifest",
+    "foreground_started",
+    "foreground_finished",
+    "yield_background",
+]
 
 
 def _store() -> GenerationStore:
