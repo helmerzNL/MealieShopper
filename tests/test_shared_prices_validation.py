@@ -125,3 +125,18 @@ async def test_extreme_numeric_values_reject_and_schedule_retry_without_losing_a
     assert store.generation() == original["artifact"]["sha256"]
     schedule: dict[str, Any] = json.loads((store.root / "schedule.json").read_text())
     assert 890 < schedule["next_check"] - time.time() <= 900
+
+
+def test_unrepresentable_original_pack_accepts_null_projection(tmp_path: Path) -> None:
+    path: Path = tmp_path / "unrepresentable.sqlite"
+    descriptor: dict[str, Any] = build_snapshot(path, [{**row(), "title": "Milk " + "9" * 400 + " g"}])
+    with sqlite3.connect(path) as conn:
+        conn.execute("UPDATE search_names SET amount=NULL,unit=NULL")
+        conn.execute("UPDATE products SET twin_key=''")
+    body: bytes = path.read_bytes()
+    digest: str = hashlib.sha256(body).hexdigest()
+    descriptor["artifact"].update(bytes=len(body), sha256=digest, path=f"shared-prices/v1/ah-ahprijsindex/{digest}.sqlite")
+    validate_file(path, descriptor)
+    store: GenerationStore = GenerationStore(tmp_path / "accepted")
+    store.install(path, descriptor)
+    assert store.generation() == digest

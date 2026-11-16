@@ -174,8 +174,9 @@ def _names(
         _checkpoint(budget)
         metadata: dict[str, Any] = _metadata(row[0], decode, descriptor, product["product_id"])
         size: tuple[float, str] | None = prices._size_of(metadata.get("unit_size"), metadata.get("title"))
+        if size and (not _finite_number(size[0]) or size[0] <= 0):
+            size = None
         if size:
-            _check(_finite_number(size[0]) and size[0] > 0, "Invalid pack size projection")
             sizes.add(size)
         title: str = metadata.get("title") or ""
         expected.add((title, prices._fold_name(f"{title} {metadata.get('brand') or ''}"), *(size or (None, None))))

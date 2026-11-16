@@ -56,6 +56,7 @@ CREATE TABLE IF NOT EXISTS shared_price_keys (
  store TEXT NOT NULL, product_id TEXT NOT NULL, same_key TEXT NOT NULL, family_key TEXT NOT NULL,
  PRIMARY KEY(store,product_id)
 );
+CREATE INDEX IF NOT EXISTS shared_price_keys_same ON shared_price_keys(store,same_key,product_id);
 CREATE INDEX IF NOT EXISTS shared_price_keys_family ON shared_price_keys(store,family_key,product_id);
 CREATE TRIGGER IF NOT EXISTS shared_price_changed_insert AFTER INSERT ON price_observations BEGIN
  DELETE FROM shared_price_equivalence WHERE store=NEW.store AND product_id=NEW.product_id AND day=NEW.day;
@@ -86,8 +87,9 @@ async def _setup(conn: aiosqlite.Connection) -> None:
     from . import shared_price_lines
 
     existed: Any = await auth.fetchone(conn, "SELECT 1 FROM sqlite_master WHERE type='table' AND name='shared_price_lines'")
+    groups_existed: Any = await auth.fetchone(conn, "SELECT 1 FROM sqlite_master WHERE type='index' AND name='shared_price_keys_same'")
     await conn.executescript(SCHEMA + shared_price_lines.SCHEMA)
-    if existed is None:
+    if existed is None or groups_existed is None:
         await conn.execute("DELETE FROM shared_price_build")
         await conn.commit()
 
@@ -272,7 +274,8 @@ async def prepare(store: str = "ah") -> None:
         while True:
             await shared_prices.yield_background()
             async with prices._connect() as conn:
-                version: str = await revision(conn, store)
+                full_revision: str = await revision(conn, store)
+                version: str = build_revision(full_revision, prices._now()[:10])
                 state: Any = await auth.fetchone(
                     conn, "SELECT generation,cursor,revision,ready_revision FROM shared_price_build WHERE store=?", (store,)
                 )
@@ -287,7 +290,7 @@ async def prepare(store: str = "ah") -> None:
                     ("SELECT product_id FROM price_history_products WHERE store=?", (store,)),
                     *[(f"SELECT product_id FROM ({sql})", ()) for sql in prices._purchase_sources(tables, store)],
                 ]
-                await shared_price_readmodel.prepare_receipts(conn, store, prices._now()[:10], version, snapshot)
+                await shared_price_readmodel.prepare_receipts(conn, store, prices._now()[:10], full_revision, snapshot)
                 sources.append(("SELECT product_id FROM shared_price_receipts WHERE store=?", (store,)))
                 candidates: set[str] = set()
                 for sql, args in sources:
@@ -300,7 +303,7 @@ async def prepare(store: str = "ah") -> None:
                     )
                 ids: list[str] = sorted(candidates)[:BATCH_SIZE]
                 await conn.execute("BEGIN IMMEDIATE")
-                if await revision(conn, store) != version:
+                if build_revision(await revision(conn, store), prices._now()[:10]) != version:
                     await conn.rollback()
                     continue
                 await shared_price_readmodel.index_batch(conn, snapshot, store, prices._now()[:10], ids)
@@ -407,3 +410,7 @@ def shadow_sql(row: str) -> str:
         "EXISTS(SELECT 1 FROM main.shared_price_equivalence e WHERE e.store=" + row + ".store "
         "AND e.product_id=" + row + ".product_id AND e.day=" + row + ".day) AND " + coverage_sql(row)
     )
+
+
+def build_revision(revision: str, today: str) -> str:
+    return f"{revision}|{today}|search-v2"

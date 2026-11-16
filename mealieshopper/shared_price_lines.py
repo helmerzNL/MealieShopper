@@ -71,11 +71,11 @@ async def candidates(conn: aiosqlite.Connection, store: str, products: dict[str,
         return []
     current: str = await shared_price_overlay.revision(conn, store)
     state: Any = await auth.fetchone(conn, "SELECT ready_revision FROM shared_price_build WHERE store=?", (store,))
-    if state and state[0] == current:
+    if state and str(state[0]).split("|", 1)[0] == current:
         return list(
             await conn.execute_fetchall(
-                "SELECT DISTINCT l.product_id,l.title FROM shared_price_lines l "
-                "JOIN json_each(?) p ON l.first_word=json_extract(p.value,'$[0]') AND l.second_word=json_extract(p.value,'$[1]') "
+                "SELECT DISTINCT l.product_id,l.title FROM json_each(?) p "
+                "CROSS JOIN shared_price_lines l INDEXED BY shared_price_lines_pair ON l.first_word=json_extract(p.value,'$[0]') AND l.second_word=json_extract(p.value,'$[1]') "
                 "WHERE l.store=? AND l.kind IN(SELECT value FROM json_each(?)) ORDER BY l.product_id",
                 (json.dumps(pairs), store, json.dumps(kinds)),
             )

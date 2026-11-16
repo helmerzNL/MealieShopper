@@ -39,6 +39,13 @@ async def install(conn: aiosqlite.Connection, snapshot: Any, stores: list[str], 
     if snapshot is not None:
         await attach(conn, snapshot)
     await shared_price_transition.install(conn, snapshot, stores, today, receipts)
+    from . import shared_price_search
+
+    await conn.create_function("ms_history_merged_key", 2, shared_price_search.merged_key, deterministic=True)
+    pending: list[Any] = list(await conn.execute_fetchall("SELECT 1 FROM _private_history_context WHERE ready=0 LIMIT 1"))
+    if not pending:
+        await shared_price_search.install(conn, snapshot)
+        return
     sql: str = """
     CREATE TEMP VIEW price_history_products AS
     WITH public AS (
@@ -48,7 +55,7 @@ async def install(conn: aiosqlite.Connection, snapshot: Any, stores: list[str], 
        COALESCE((SELECT json_group_array(json_array(amount,unit)) FROM
                   (SELECT DISTINCT amount,unit FROM shared_public.search_names n
                    WHERE n.store=p.store AND n.product_id=p.product_id AND amount IS NOT NULL)),'[]') AS sizes,
-       COALESCE(p.brand,'') AS brand,COALESCE(p.category,'') AS category,
+       COALESCE(p.brand,'') AS brand,ms_history_category(p.store,p.title) AS category,
        COALESCE((SELECT group_concat(search || char(10) || replace(search,' ',''),char(10))
                  FROM shared_public.search_names n WHERE n.store=p.store AND n.product_id=p.product_id),'') AS search,
        p.twin_key AS same_key
@@ -61,7 +68,7 @@ async def install(conn: aiosqlite.Connection, snapshot: Any, stores: list[str], 
          (SELECT json_group_array(json(value)) FROM (SELECT value FROM json_each(p.sizes) UNION SELECT value FROM json_each(l.sizes))) END AS sizes,
        COALESCE(NULLIF(l.brand,''),p.brand) AS brand,COALESCE(NULLIF(l.category,''),p.category) AS category,
        p.search || char(10) || COALESCE(l.search,'') AS search,
-       COALESCE(NULLIF(l.same_key,''),NULLIF(p.same_key,''),'id:' || p.store || ':' || p.product_id) AS same_key
+       COALESCE(NULLIF(ms_history_merged_key(COALESCE(NULLIF(l.same_key,''),p.same_key),CASE WHEN l.product_id IS NULL THEN p.sizes ELSE (SELECT json_group_array(json(value)) FROM (SELECT value FROM json_each(p.sizes) UNION SELECT value FROM json_each(l.sizes))) END),''),'id:' || p.store || ':' || p.product_id) AS same_key
       FROM public p LEFT JOIN temp._private_history_products l USING(store,product_id)
       UNION ALL
       SELECT l.store,l.product_id,l.last,l.names,l.sizes,l.brand,l.category,l.search,
@@ -91,6 +98,9 @@ async def install(conn: aiosqlite.Connection, snapshot: Any, stores: list[str], 
 
 
 def _selected_rows(sql: str) -> str:
+    if " GROUP BY " in sql:
+        source, group = sql.rsplit(" GROUP BY ", 1)
+        return source + " AND product_id IN (SELECT value FROM json_each(?)) GROUP BY " + group
     return f"SELECT * FROM ({sql}) WHERE product_id IN (SELECT value FROM json_each(?))"
 
 
@@ -153,6 +163,12 @@ async def index_batch(conn: aiosqlite.Connection, snapshot: Any, store: str, tod
     """Reuse the existing private search index, one bounded product batch at a time."""
     from . import prices
 
+    old_keys: list[str] = [
+        row[0]
+        for row in await conn.execute_fetchall(
+            "SELECT same_key FROM shared_price_keys WHERE store=? AND product_id IN(SELECT value FROM json_each(?))", (store, json.dumps(ids))
+        )
+    ]
     private_observed: dict[str, list[Any]] = await private_metadata(conn, snapshot, store, ids)
     selected: Any = await catalogue(conn, snapshot, store, today, ids, private_observed, False)
     from . import shared_price_lines
@@ -181,6 +197,10 @@ async def index_batch(conn: aiosqlite.Connection, snapshot: Any, store: str, tod
         "INSERT OR REPLACE INTO shared_price_keys VALUES(?,?,?,?)",
         [(store, pid, known[prices._SAME], _family_key(store, known)) for pid, known in products.items()],
     )
+
+    from . import shared_price_search
+
+    await shared_price_search.update_groups(conn, store, sorted(set(old_keys) | {known[prices._SAME] for known in products.values()}))
 
 
 async def history(
@@ -265,7 +285,7 @@ async def signature(store: str, today: str) -> str:
         revision: str = await shared_price_overlay.revision(conn, store)
     pinned: tuple[str, Any] | None = _PINNED.get()
     generation: str | None = getattr(pinned[1], "generation", None) if pinned and pinned[0] == store else shared_prices.generation(store)
-    return f"prepared-v1:{generation or 'private'}:{revision}:{today}"
+    return f"prepared-v2:{generation or 'private'}:{revision}:{today}"
 
 
 async def verdict_facts(store: str, items: list[dict[str, Any]], today: str) -> Any:
@@ -292,6 +312,8 @@ async def verdict_facts(store: str, items: list[dict[str, Any]], today: str) -> 
                 conn, snapshot, store, all_ids, prices._days_ago(today, prices.REGULAR_HISTORY_DAYS), today
             )
             selected: Any = await catalogue(conn, snapshot, store, today, all_ids, observed, False)
+            historical_metadata: dict[str, Any] = await compute.run(_family_metadata, store, family)
+            selected = selected._replace(products={**historical_metadata, **selected.products})
             from . import shared_price_lines
 
             fallback: dict[str, Any] = await compute.run(prices._fallback_known, items)
@@ -305,7 +327,8 @@ async def verdict_facts(store: str, items: list[dict[str, Any]], today: str) -> 
             regulars: dict[str, Any] = await compute.run(
                 prices._regular_from_rows, rows, selected.receipts, prices._days_ago(today, prices.REGULAR_HISTORY_DAYS), today, False, ids
             )
-            recent: list[Any] = await compute.run(_recent, observed, prices._days_ago(today, prices.PACK_DAYS), today)
+            ordering: dict[str, tuple[Any, ...]] = await pack_order(conn, snapshot, store, all_ids, prices._days_ago(today, prices.PACK_DAYS), today)
+            recent: list[Any] = await compute.run(_recent, observed, prices._days_ago(today, prices.PACK_DAYS), today, ordering)
             episodes: list[Any] = list(
                 await conn.execute_fetchall(
                     "SELECT * FROM offer_history WHERE store=? AND COALESCE(valid_until,substr(last_seen,1,10))>=? "
@@ -330,12 +353,12 @@ def _searched(observed: dict[str, list[Any]], ids: set[str]) -> list[tuple[str, 
     ]
 
 
-def _recent(observed: dict[str, list[Any]], since: str, until: str) -> list[Any]:
+def _recent(observed: dict[str, list[Any]], since: str, until: str, ordering: dict[str, tuple[Any, ...]]) -> list[Any]:
     from . import prices
 
     return sorted(
         (row for rows in observed.values() for row in rows if since <= row["day"] <= until and row["source"] != prices.PUBLIC_OBSERVED_UNKNOWN),
-        key=lambda row: row["day"],
+        key=lambda row: (ordering.get(row["product_id"], ("", 1, row["product_id"])), row["day"]),
     )
 
 
@@ -404,7 +427,7 @@ def _decode_candidates(rows: list[Any]) -> dict[str, list[dict[str, Any]]]:
 async def prepare_receipts(conn: aiosqlite.Connection, store: str, today: str, revision: str, snapshot: Any = None) -> None:
     from . import auth, prices
 
-    revision = f"{revision}:{getattr(snapshot, 'generation', 'private')}:{today}"
+    revision = f"receipts-v2:{revision}:{getattr(snapshot, 'generation', 'private')}:{today}"
     state: Any = await auth.fetchone(conn, "SELECT revision FROM shared_price_receipt_meta WHERE store=?", (store,))
     if state and state[0] == revision:
         return
@@ -445,7 +468,7 @@ def _receipt_key(row: dict[str, Any]) -> tuple[Any, ...]:
 async def receipt_rows(conn: aiosqlite.Connection, snapshot: Any, store: str, today: str, ids: list[str] | None = None) -> list[dict[str, Any]]:
     from . import auth, prices
 
-    revision: str = f"{await shared_price_overlay.revision(conn, store)}:{getattr(snapshot, 'generation', 'private')}:{today}"
+    revision: str = f"receipts-v2:{await shared_price_overlay.revision(conn, store)}:{getattr(snapshot, 'generation', 'private')}:{today}"
     state: Any = await auth.fetchone(conn, "SELECT revision FROM shared_price_receipt_meta WHERE store=?", (store,))
     if state and state[0] == revision:
         return await _stored_receipts(conn, store, today, ids)
@@ -500,14 +523,15 @@ async def link_receipts(conn: aiosqlite.Connection, snapshot: Any, store: str, r
             (store, *params),
         )
         names += public
-        selected: list[str] = sorted({row[0] for row in public})
+    index, several = await compute.run(prices._name_groups, names)
+    ambiguous: list[str] = sorted(set().union(*several.values())) if several else []
+    if snapshot is not None and ambiguous:
         public_prices = await prices._plain_rows(
             conn,
             "SELECT DISTINCT product_id,price FROM shared_public.price_periods WHERE store=? "
             "AND product_id IN(SELECT value FROM json_each(?)) AND price>0",
-            (store, json.dumps(selected)),
+            (store, json.dumps(ambiguous)),
         )
-    index, several = await compute.run(prices._name_groups, names)
     known: dict[str, set[float]] = await prices._known_prices(conn, sources, sorted(set().union(*several.values()))) if several else {}
     for pid, price in public_prices:
         known.setdefault(str(pid), set()).add(float(price))
@@ -539,12 +563,20 @@ def _receipt_candidates(raw: list[Any], store: str) -> tuple[list[str], list[str
 
 
 def _missing_receipts(raw: list[Any], stored: list[dict[str, Any]]) -> tuple[list[Any], list[dict[str, Any]]]:
+    from collections import defaultdict, deque
+
     from . import prices
 
-    raw_by_key: dict[tuple[Any, ...], Any] = {_receipt_key(dict(zip(prices._SOURCE_COLUMNS, row, strict=True))): row for row in raw}
-    kept: list[dict[str, Any]] = [row for row in stored if _receipt_key(row) in raw_by_key]
-    existing: set[tuple[Any, ...]] = {_receipt_key(row) for row in kept}
-    return [row for key, row in raw_by_key.items() if key not in existing], kept
+    remaining: dict[tuple[Any, ...], Any] = defaultdict(deque)
+    for index, row in enumerate(raw):
+        remaining[_receipt_key(dict(zip(prices._SOURCE_COLUMNS, row, strict=True)))].append((index, row))
+    kept: list[dict[str, Any]] = []
+    for row in stored:
+        key: tuple[Any, ...] = _receipt_key(row)
+        if remaining[key]:
+            remaining[key].popleft()
+            kept.append(row)
+    return [row for _, row in sorted(item for rows in remaining.values() for item in rows)], kept
 
 
 async def private_metadata(conn: aiosqlite.Connection, snapshot: Any, store: str, ids: list[str]) -> dict[str, list[Any]]:
@@ -566,3 +598,55 @@ def _metadata_by_product(rows: list[Any]) -> dict[str, list[Any]]:
     for row in rows:
         found.setdefault(row["product_id"], []).append(row)
     return found
+
+
+def _family_metadata(store: str, families: dict[str, list[dict[str, Any]]]) -> dict[str, Any]:
+    from . import offer_categories, prices
+
+    known: dict[str, Any] = {}
+    for members in families.values():
+        for row in members:
+            pid: str = str(row["product_id"])
+            title: str = str(row.get("title") or "")
+            brand: str = str(row.get("brand") or "")
+            size: tuple[float, str] | None = prices._size_of(row.get("unit_size"), title)
+            sizes: list[tuple[float, str]] = [size] if size else []
+            known[pid] = prices._known(
+                str(row.get("last_day") or ""),
+                [prices._fold_name(f"{title} {brand}")],
+                sizes,
+                brand,
+                offer_categories.offer_category(store, title),
+                prices._same_key(pid, title, brand, sizes),
+            )
+    return known
+
+
+async def pack_order(conn: aiosqlite.Connection, snapshot: Any, store: str, ids: list[str], since: str, until: str) -> dict[str, tuple[Any, ...]]:
+    from . import prices
+
+    selected: str = json.dumps(ids)
+    rows: list[Any] = list(
+        await conn.execute_fetchall(
+            """
+    SELECT w.value,p.day,p.rowid FROM json_each(?) w CROSS JOIN price_observations p ON p.rowid=(
+      SELECT o.rowid FROM price_observations o WHERE o.store=? AND o.product_id=w.value AND o.day>=? AND o.day<=?
+       AND o.source!=? ORDER BY o.day LIMIT 1)
+    """,
+            (selected, store, since, until, prices.PUBLIC_OBSERVED_UNKNOWN),
+        )
+    )
+    order: dict[str, tuple[Any, ...]] = {row[0]: (row[1], 0, int(row[2])) for row in rows}
+    if snapshot is not None:
+        public: list[Any] = list(
+            await conn.execute_fetchall(
+                """
+        SELECT product_id,min(date(first_day,printf('+%d days',max(0,CAST((julianday(?)-julianday(first_day)+step_days-1)/step_days AS INTEGER))*step_days))) AS day
+        FROM shared_public.price_periods WHERE store=? AND product_id IN(SELECT value FROM json_each(?)) AND last_day>=? AND first_day<=? GROUP BY product_id
+        """,
+                (since, store, selected, since, until),
+            )
+        )
+        for row in public:
+            order.setdefault(row[0], (row[1], 1, row[0]))
+    return order

@@ -1987,13 +1987,21 @@ def _without_own_weeks(lines: list[dict[str, Any]], episodes: list[dict[str, Any
 async def _lookup_receipt_names(lookup: Callable[[list[str]], Awaitable[Any]], wanted: "_Query", today: str) -> None:
     """Laat de namen op de bon die bij de zoekterm passen en nog bij geen product horen meteen opzoeken (zie `history`)."""
     async with _connect() as conn:
-        rows = (await _catalogue(conn, "ah", today)).receipts
-    names = sorted({row["title"] for row in rows if row.get("lookup") and wanted.wants({_fold_name(row["title"])}, set())})
+        if shared_price_overlay.enabled():
+            with shared_price_readmodel.response_lease("ah") as snapshot:
+                rows: list[dict[str, Any]] = await shared_price_readmodel.receipt_rows(conn, snapshot, "ah", today)
+        else:
+            rows = (await _catalogue(conn, "ah", today)).receipts
+    names: list[str] = await compute.run(_receipt_names_to_lookup, rows, wanted)
     if names:
         try:
             await lookup(names)
         except Exception:  # noqa: BLE001 - zonder koppeling staat de regel er gewoon met de naam op de bon
             log.warning("Namen op de bon opzoeken mislukt", exc_info=True)
+
+
+def _receipt_names_to_lookup(rows: list[dict[str, Any]], wanted: "_Query") -> list[str]:
+    return sorted({row["title"] for row in rows if row.get("lookup") and wanted.wants({_fold_name(row["title"])}, set())})
 
 
 FACET_BRANDS: int = 500  # zoveel merken hooguit in de keuzelijst van de prijsgeschiedenis, de meest voorkomende eerst
@@ -2179,7 +2187,11 @@ async def _indexed_page(conn: aiosqlite.Connection, ask: _HistoryAsk) -> tuple[_
     `_rank_history` over de hele catalogus: het product uit de link bovenaan (ook als het nergens in de geschiedenis staat,
     `_pinned_known`, dan met vandaag als dag), dan de rest op de laatste dag. Het product uit de link telt mee in het totaal en
     in de keuzelijsten, ook als het filter het weg zou laten."""
-    found: price_history_index.Page = await price_history_index.page(
+    from . import shared_price_search
+
+    prepared: bool = bool(await conn.execute_fetchall("SELECT 1 FROM sqlite_temp_master WHERE name='_shared_history_grouped'"))
+    select_page: Any = shared_price_search.page if prepared else price_history_index.page
+    found: price_history_index.Page = await select_page(
         conn,
         ask.stores,
         ask.pinned,

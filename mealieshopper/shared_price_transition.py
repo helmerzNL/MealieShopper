@@ -15,7 +15,7 @@ async def install(conn: aiosqlite.Connection, snapshot: Any, stores: list[str], 
 
     await conn.execute("CREATE TEMP TABLE _private_history_context(store TEXT PRIMARY KEY,today TEXT,ready INTEGER)")
     for store in stores:
-        revision: str = await shared_price_overlay.revision(conn, store)
+        revision: str = shared_price_overlay.build_revision(await shared_price_overlay.revision(conn, store), today)
         state: Any = await conn.execute_fetchall("SELECT generation,ready_revision FROM shared_price_build WHERE store=?", (store,))
         generation: str = snapshot.generation if snapshot is not None and store == "ah" else ""
         ready: bool = bool(state and state[0][0] == generation and state[0][1] == revision)

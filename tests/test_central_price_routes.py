@@ -154,6 +154,7 @@ async def test_direct_write_immediately_joins_the_prepared_page(data_dir: Path, 
 
 @pytest.mark.asyncio
 async def test_differential_history_filters_twins_pins_receipts_and_offers(data_dir: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(prices, "_now", lambda: "2026-10-03T12:00:00Z")
     from copy import deepcopy
 
     from mealieshopper import offer_categories, price_import
@@ -420,7 +421,7 @@ async def test_selected_catalogue_decodes_only_selected_cached_receipt_documents
                 for number in range(8000)
             ],
         )
-        await conn.execute("INSERT INTO shared_price_receipt_meta VALUES(?,?)", ("ah", f"{revision}:private:{today}"))
+        await conn.execute("INSERT INTO shared_price_receipt_meta VALUES(?,?)", ("ah", f"receipts-v2:{revision}:private:{today}"))
         await conn.commit()
     original: Any = shared_price_readmodel._decode_receipts
 
@@ -478,3 +479,239 @@ async def test_cancelled_annotation_keeps_generation_lease_until_worker_finishes
     with pytest.raises(asyncio.CancelledError):
         await task
     assert active[0] == 0
+
+
+@pytest.mark.asyncio
+async def test_folder_pair_lookup_uses_bounded_index_probes(data_dir: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from unittest.mock import AsyncMock
+
+    from mealieshopper import shared_price_lines
+
+    async with prices._connect() as conn:
+        await conn.executemany(
+            "INSERT INTO shared_price_lines VALUES(?,?,?,?,?,?)",
+            [("ah", f"folder:{number}", f"other{number}", "missing", "", "Unrelated") for number in range(5000)]
+            + [("ah", "folder:match", "melk", "ah", "", "Alle AH Melk")],
+        )
+        await conn.execute("INSERT INTO shared_price_build VALUES('ah','','','ready','ready')")
+        await conn.commit()
+        monkeypatch.setattr(shared_price_overlay, "revision", AsyncMock(return_value="ready"))
+        work: list[int] = [0]
+
+        def progress() -> int:
+            work[0] += 100
+            return 0
+
+        await conn.set_progress_handler(progress, 100)
+        found: list[Any] = await shared_price_lines.candidates(conn, "ah", {"1": prices._known("2026-10-01", ["ah melk"], [])})
+        assert [row[0] for row in found] == ["folder:match"]
+        assert work[0] < 5000, work[0]
+
+
+@pytest.mark.asyncio
+async def test_public_category_infers_like_legacy_without_raw_category(data_dir: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(prices, "_now", lambda: "2026-10-03T12:00:00Z")
+    from mealieshopper import offer_categories
+
+    install(data_dir, [{**row(), "category": None}])
+    monkeypatch.setenv("MEALIESHOPPER_SHARED_PRICES", "true")
+    category: str = offer_categories.offer_category("ah", "AH Melk")
+    for prepared in (False, True):
+        if prepared:
+            await shared_price_overlay.prepare()
+        result: dict[str, Any] = await prices.history("ah", categories=[category], today="2026-10-03")
+        assert result["total"] == 1
+        assert result["facets"]["categories"] == [{"value": category, "count": 1}]
+
+
+@pytest.mark.asyncio
+async def test_duplicate_import_lines_keep_multiplicity_and_order_cold_and_warm(data_dir: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(prices, "_now", lambda: "2026-10-03T12:00:00Z")
+    from mealieshopper import price_import
+
+    install(data_dir, [row()])
+    monkeypatch.setenv("MEALIESHOPPER_SHARED_PRICES", "true")
+    async with price_import._connect() as conn:
+        await conn.executemany(
+            "INSERT INTO imported_purchases(store,order_ref,position,day,title,quantity,paid,regular,imported_at) "
+            "VALUES('ah','own',?,'2026-10-01','AH Melk',1,?,2.0,'now')",
+            [(0, 1.8), (1, 1.9), (2, 1.8)],
+        )
+        await conn.commit()
+    for prepared in (False, True):
+        if prepared:
+            await shared_price_overlay.prepare()
+        result: dict[str, Any] = await prices.history("ah", product="1", today="2026-10-03")
+        assert result["products"][0]["timesBought"] == 3
+        assert [purchase["price"] for purchase in result["products"][0]["purchases"]] == [1.8, 1.9, 1.8]
+
+
+@pytest.mark.asyncio
+async def test_public_private_twins_use_merged_historical_sizes(data_dir: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(prices, "_now", lambda: "2026-10-03T12:00:00Z")
+    from mealieshopper import price_archive
+
+    public: list[dict[str, Any]] = [row(), row("2", unit="2 l")]
+    install(data_dir, public)
+    async with prices._connect() as conn:
+        await conn.executemany(
+            "INSERT INTO price_observations VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+            [price_archive.normalise_price(item, price_archive.Today()) for item in public],
+        )
+        await conn.execute("DELETE FROM shared_price_origins")
+        await conn.commit()
+    await prices.record("ah", [{"id": "1", "title": "AH Melk", "brand": "AH", "unitSize": "2 l", "price": 3.0}], now="2026-10-02T12:00:00Z")
+    expected: dict[str, Any] = await prices.history("ah", today="2026-10-03")
+    assert expected["total"] == 2
+    monkeypatch.setenv("MEALIESHOPPER_SHARED_PRICES", "true")
+    for prepared in (False, True):
+        if prepared:
+            await shared_price_overlay.prepare()
+        assert await prices.history("ah", today="2026-10-03") == expected
+
+
+@pytest.mark.asyncio
+async def test_family_metadata_outlives_regular_price_candidate_window(data_dir: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    install(data_dir, [row(), row("2", day="2014-01-01", unit="2 l", price=3.0)])
+    monkeypatch.setenv("MEALIESHOPPER_SHARED_PRICES", "true")
+    items: list[dict[str, Any]] = [{"id": 1, "title": "AH Melk", "brand": "AH", "unitSize": "1 l", "price": 1.0}]
+    await prices.annotate("ah", items, today="2026-10-03")
+    assert items[0]["family"]["unknownPacks"] is True
+    assert [pack["productId"] for pack in items[0]["family"]["packs"]] == ["1"]
+
+
+@pytest.mark.asyncio
+async def test_private_readiness_rolls_over_for_future_receipt_days(data_dir: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from mealieshopper import price_import
+
+    monkeypatch.setenv("MEALIESHOPPER_SHARED_PRICES", "true")
+    monkeypatch.setattr(prices, "_now", lambda: "2026-10-02T12:00:00Z")
+    async with price_import._connect() as conn:
+        await conn.execute(
+            "INSERT INTO imported_purchases(store,order_ref,position,day,title,quantity,paid,imported_at) VALUES('ah','future',0,'2026-10-03','Private milk',1,2.0,'now')"
+        )
+        await conn.commit()
+    await shared_price_overlay.prepare()
+    assert (await prices.history("ah", today="2026-10-02"))["total"] == 0
+    monkeypatch.setattr(prices, "_now", lambda: "2026-10-03T12:00:00Z")
+    assert (await prices.history("ah", today="2026-10-03"))["total"] == 1
+    await shared_price_overlay.prepare()
+    assert (await prices.history("ah", today="2026-10-03"))["total"] == 1
+
+
+@pytest.mark.asyncio
+async def test_selected_catalogue_bounds_sql_grouping_before_materialisation(data_dir: Path) -> None:
+    from contextlib import closing
+
+    from mealieshopper import shared_price_readmodel, thread_db
+
+    async with prices._connect():
+        pass
+
+    def populate() -> None:
+        with closing(thread_db.connect()) as conn:
+            conn.executemany(
+                "INSERT INTO offer_history(store,product_id,title,first_seen,last_seen) VALUES('ah',?,?,'2026-10-01','2026-10-01')",
+                [(str(number), f"Product {number}") for number in range(20000)],
+            )
+            conn.commit()
+
+    await asyncio.to_thread(populate)
+    async with prices._connect() as conn:
+        await shared_price_overlay.revision(conn, "ah")
+        work: list[int] = [0]
+
+        def progress() -> int:
+            work[0] += 100
+            return 0
+
+        await conn.set_progress_handler(progress, 100)
+        selected: Any = await shared_price_readmodel.catalogue(conn, None, "ah", "2026-10-03", ["1"], include_lines=False)
+        assert set(selected.products) == {"1"}
+        assert work[0] < 5000, work[0]
+
+
+@pytest.mark.asyncio
+async def test_private_twins_across_background_batches_match_legacy(data_dir: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(prices, "_now", lambda: "2026-10-03T12:00:00Z")
+    await prices.record("ah", [{"id": "000first", "title": "AH Melk", "brand": "AH", "unitSize": "1 l", "price": 2.0}], now="2026-10-01T12:00:00Z")
+    await prices.record(
+        "ah",
+        [{"id": f"p{number:03d}", "title": f"Unique product {number}", "brand": "AH", "unitSize": "500 g", "price": 1.0} for number in range(63)],
+        now="2026-10-01T12:00:00Z",
+    )
+    await prices.record("ah", [{"id": "zzlast", "title": "AH Melk", "brand": "AH", "unitSize": "1 l", "price": 2.1}], now="2026-10-02T12:00:00Z")
+    expected: dict[str, Any] = await prices.history("ah", today="2026-10-03", limit=200)
+    assert expected["total"] == 64
+    monkeypatch.setenv("MEALIESHOPPER_SHARED_PRICES", "true")
+    await shared_price_overlay.prepare()
+    assert await prices.history("ah", today="2026-10-03", limit=200) == expected
+
+
+@pytest.mark.asyncio
+async def test_cold_http_search_lookup_uses_prepared_receipts_without_catalogue(data_dir: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from unittest.mock import AsyncMock
+
+    install(data_dir, [row()])
+    monkeypatch.setenv("MEALIESHOPPER_SHARED_PRICES", "true")
+    monkeypatch.setattr(prices, "_catalogue_rows", raising_catalogue)
+    lookup: AsyncMock = AsyncMock()
+    result: dict[str, Any] = await prices.history("ah", "melk", today="2026-10-03", lookup=lookup)
+    assert result["total"] == 1
+    lookup.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_receipt_ambiguity_uses_public_prices_even_when_public_name_differs(data_dir: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from mealieshopper import price_archive, price_import, shared_price_readmodel
+
+    public: dict[str, Any] = row("1", title="Public Other Item", price=2.0)
+    install(data_dir, [public])
+    async with prices._connect() as conn:
+        await conn.execute(
+            "INSERT INTO price_observations VALUES(?,?,?,?,?,?,?,?,?,?,?)", price_archive.normalise_price(public, price_archive.Today())
+        )
+        await conn.execute("DELETE FROM shared_price_origins")
+        await conn.commit()
+    await prices.record(
+        "ah", [{"id": "1", "title": "Receipt Label", "price": 1.0}, {"id": "2", "title": "Receipt Label", "price": 2.1}], now="2026-10-02T12:00:00Z"
+    )
+    async with price_import._connect() as conn:
+        await conn.execute(
+            "INSERT INTO imported_purchases(store,order_ref,position,day,title,quantity,paid,regular,imported_at) VALUES('ah','ambiguous',0,'2026-10-02','Receipt Label',1,2.0,2.0,'now')"
+        )
+        await conn.commit()
+    async with prices._connect() as conn:
+        expected: list[dict[str, Any]] = await prices._receipt_rows(conn, "ah", "2026-10-03")
+    assert expected[0]["product_id"] == "1"
+    monkeypatch.setenv("MEALIESHOPPER_SHARED_PRICES", "true")
+    await shared_price_overlay.prepare()
+    async with prices._connect() as conn:
+        with shared_prices.lease("ah") as snapshot:
+            actual: list[dict[str, Any]] = await shared_price_readmodel.receipt_rows(conn, snapshot, "ah", "2026-10-03")
+    assert actual == expected
+
+
+@pytest.mark.asyncio
+async def test_family_pack_size_ties_preserve_retained_observation_order(data_dir: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from copy import deepcopy
+
+    from mealieshopper import price_archive
+
+    monkeypatch.setattr(prices, "_now", lambda: "2026-10-03T12:00:00Z")
+    public: dict[str, Any] = row("10")
+    install(data_dir, [public])
+    await prices.record("ah", [{"id": "20", "title": "AH Melk", "brand": "AH", "unitSize": "1 l", "price": 2.0}], now="2026-10-01T12:00:00Z")
+    async with prices._connect() as conn:
+        await conn.execute(
+            "INSERT INTO price_observations VALUES(?,?,?,?,?,?,?,?,?,?,?)", price_archive.normalise_price(public, price_archive.Today())
+        )
+        await conn.execute("DELETE FROM shared_price_origins WHERE product_id='10'")
+        await conn.commit()
+    items: list[dict[str, Any]] = [{"id": pid, "title": "AH Melk", "brand": "AH", "unitSize": "1 l", "price": 1.5} for pid in ("10", "20")]
+    expected: list[dict[str, Any]] = await prices.annotate("ah", deepcopy(items), today="2026-10-03")
+    assert expected[0]["family"]["packs"][0]["productId"] == "20"
+    monkeypatch.setenv("MEALIESHOPPER_SHARED_PRICES", "true")
+    await shared_price_overlay.prepare()
+    actual: list[dict[str, Any]] = await prices.annotate("ah", deepcopy(items), today="2026-10-03")
+    assert actual == expected
