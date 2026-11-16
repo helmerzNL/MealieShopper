@@ -88,6 +88,7 @@ async def install(conn: aiosqlite.Connection, snapshot: Any) -> None:
       ON k.store=w.store AND k.same_key=w.same_key
     CROSS JOIN main.price_history_products p ON p.store=k.store AND p.product_id=k.product_id
     """)
+    await conn.execute("CREATE INDEX _shared_history_rows_same ON _shared_history_rows(store,same_key,product_id)")
     await conn.execute("""
     CREATE TEMP TABLE _shared_history_grouped AS
     WITH ranked AS (
