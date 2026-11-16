@@ -112,6 +112,9 @@ async def test_extreme_numeric_values_reject_and_schedule_retry_without_losing_a
     if damage == "huge_integer_price":
         with sqlite3.connect(candidate) as conn:
             conn.execute("UPDATE price_periods SET values_json=?", (json.dumps({"price": 10**400}),))
+    else:
+        with sqlite3.connect(candidate) as conn:
+            conn.execute("UPDATE search_names SET amount=?,unit='mass'", (float("inf"),))
     body: bytes = candidate.read_bytes()
     digest: str = hashlib.sha256(body).hexdigest()
     descriptor["artifact"].update(bytes=len(body), sha256=digest, path=f"shared-prices/v1/ah-ahprijsindex/{digest}.sqlite")
@@ -127,9 +130,13 @@ async def test_extreme_numeric_values_reject_and_schedule_retry_without_losing_a
     assert 890 < schedule["next_check"] - time.time() <= 900
 
 
-def test_unrepresentable_original_pack_accepts_null_projection(tmp_path: Path) -> None:
-    path: Path = tmp_path / "unrepresentable.sqlite"
-    descriptor: dict[str, Any] = build_snapshot(path, [{**row(), "title": "Milk " + "9" * 400 + " g"}])
+@pytest.mark.parametrize("title", ["Milk " + "9" * 400 + " g", "Milk " + "9" * 400 + " x 1 g", "Milk " + "9" * 308 + " kg"])
+async def test_unrepresentable_original_pack_accepts_null_projection(data_dir: Path, monkeypatch: pytest.MonkeyPatch, title: str) -> None:
+    from mealieshopper import prices
+
+    assert prices._size_of(None, title) is None
+    path: Path = data_dir / "unrepresentable.sqlite"
+    descriptor: dict[str, Any] = build_snapshot(path, [{**row(), "title": title}])
     with sqlite3.connect(path) as conn:
         conn.execute("UPDATE search_names SET amount=NULL,unit=NULL")
         conn.execute("UPDATE products SET twin_key=''")
@@ -137,6 +144,11 @@ def test_unrepresentable_original_pack_accepts_null_projection(tmp_path: Path) -
     digest: str = hashlib.sha256(body).hexdigest()
     descriptor["artifact"].update(bytes=len(body), sha256=digest, path=f"shared-prices/v1/ah-ahprijsindex/{digest}.sqlite")
     validate_file(path, descriptor)
-    store: GenerationStore = GenerationStore(tmp_path / "accepted")
+    store: GenerationStore = GenerationStore(data_dir / "shared-prices")
     store.install(path, descriptor)
     assert store.generation() == digest
+    monkeypatch.setenv("MEALIESHOPPER_SHARED_PRICES", "true")
+    result: dict[str, Any] = await prices.history("ah", query=title, product="p1", today="2026-01-02")
+    assert result["total"] == 1
+    assert result["products"][0]["title"] == title
+    assert result["products"][0]["regularPrice"] == 1.0

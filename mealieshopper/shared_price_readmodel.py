@@ -313,7 +313,15 @@ async def verdict_facts(store: str, items: list[dict[str, Any]], today: str) -> 
             )
             selected: Any = await catalogue(conn, snapshot, store, today, all_ids, observed, False)
             historical_metadata: dict[str, Any] = await compute.run(_family_metadata, store, family)
-            selected = selected._replace(products={**historical_metadata, **selected.products})
+            private_metadata: list[Any] = list(
+                await conn.execute_fetchall(
+                    "SELECT p.* FROM json_each(?) w CROSS JOIN main.price_history_products p ON p.store=? AND p.product_id=w.value",
+                    (json.dumps(all_ids), store),
+                )
+            )
+            private_known: dict[str, Any]
+            private_known, _ = await compute.run(price_history_index.known_of, private_metadata)
+            selected = selected._replace(products={**private_known, **historical_metadata, **selected.products})
             from . import shared_price_lines
 
             fallback: dict[str, Any] = await compute.run(prices._fallback_known, items)

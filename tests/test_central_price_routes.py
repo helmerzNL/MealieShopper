@@ -715,3 +715,20 @@ async def test_family_pack_size_ties_preserve_retained_observation_order(data_di
     await shared_price_overlay.prepare()
     actual: list[dict[str, Any]] = await prices.annotate("ah", deepcopy(items), today="2026-10-03")
     assert actual == expected
+
+
+@pytest.mark.asyncio
+async def test_private_family_metadata_outlives_regular_price_window(data_dir: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from copy import deepcopy
+
+    monkeypatch.setattr(prices, "_now", lambda: "2026-10-03T12:00:00Z")
+    install(data_dir, [row()])
+    await prices.record("ah", [{"id": "1", "title": "AH Melk", "brand": "AH", "unitSize": "1 l", "price": 2.0}], now="2026-10-01T12:00:00Z")
+    await prices.record("ah", [{"id": "2", "title": "AH Melk", "brand": "AH", "unitSize": "2 l", "price": 3.0}], now="2014-10-01T12:00:00Z")
+    items: list[dict[str, Any]] = [{"id": "1", "title": "AH Melk", "brand": "AH", "unitSize": "1 l", "price": 1.0}]
+    expected: list[dict[str, Any]] = await prices.annotate("ah", deepcopy(items), today="2026-10-03")
+    assert expected[0]["family"]["unknownPacks"] is True
+    monkeypatch.setenv("MEALIESHOPPER_SHARED_PRICES", "true")
+    await shared_price_overlay.prepare()
+    actual: list[dict[str, Any]] = await prices.annotate("ah", deepcopy(items), today="2026-10-03")
+    assert actual == expected
