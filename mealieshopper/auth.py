@@ -219,7 +219,7 @@ def request_is_secure() -> bool:
 
 
 @asynccontextmanager
-async def connect() -> AsyncIterator[aiosqlite.Connection]:
+async def connect(*, uri: bool = False) -> AsyncIterator[aiosqlite.Connection]:
     """Een kortlevende aiosqlite-verbinding, een per bewerking. Sluit bij het verlaten, maar commit niet.
 
     Wie schrijft, eindigt dus zelf met `await conn.commit()`. De rijen zijn `sqlite3.Row` (`aiosqlite.Row` is
@@ -227,7 +227,7 @@ async def connect() -> AsyncIterator[aiosqlite.Connection]:
     """
     ensure_data_dir()
     opened: float = time.perf_counter()
-    async with aiosqlite.connect(db_path(), timeout=BUSY_SECONDS) as conn:
+    async with aiosqlite.connect(db_path(), timeout=BUSY_SECONDS, uri=uri) as conn:
         telemetry.watch(conn, opened)  # doet niets zonder MEALIESHOPPER_TELEMETRY
         conn.row_factory = aiosqlite.Row
         yield conn

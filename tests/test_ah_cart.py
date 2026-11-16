@@ -63,6 +63,12 @@ class ParsePackSizeTest(AppTestCase):
         for text in (None, "", "doos", "naar smaak"):
             self.assertIsNone(ah.parse_pack_size(text), repr(text))
 
+    def test_unrepresentable_sizes_are_unknown(self) -> None:
+        text: str
+        for text in ("9" * 400 + " g", "9" * 400 + " x 1 g", "9" * 308 + " kg"):
+            with self.subTest(text=text):
+                self.assertIsNone(ah.parse_pack_size(text))
+
 
 class PacksNeededTest(AppTestCase):
     def test_eggs_by_the_pack(self):

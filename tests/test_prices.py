@@ -769,7 +769,8 @@ class VerdictTest(PricesCase):
 
     async def test_warm_catalogues_builds_the_catalogue_before_the_first_request(self):
         prices._CATALOGUES.clear()
-        await prices.warm_catalogues(["ah"], today=TODAY)
+        with mock.patch.dict(os.environ, {"MEALIESHOPPER_SHARED_PRICES": "false"}):
+            await prices.warm_catalogues(["ah"], today=TODAY)
         self.assertEqual([key[1] for key in prices._CATALOGUES], ["ah"])
 
     async def test_the_price_signature_changes_with_the_catalogue(self):
@@ -1873,6 +1874,12 @@ class IngredientKindTest(PricesCase):
 class CatalogueTest(PricesCase):
     """De catalogus (`prices._catalogue`): de gekoppelde bonregels en de namen van alle producten blijven bewaard tot een tabel
     eronder verandert, door welke verbinding ook. Triggers op die tabellen hogen de versie op."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        legacy: Any = mock.patch.dict(os.environ, {"MEALIESHOPPER_SHARED_PRICES": "false"})
+        legacy.start()
+        self.addCleanup(legacy.stop)
 
     async def observe(self, day, product_id, title, price):
         await prices.record(

@@ -58,6 +58,8 @@ from . import (
     price_import,
     product_links,
     shared_links,
+    shared_price_overlay,
+    shared_price_readmodel,
     tasks,
 )
 from .i18n import tr
@@ -212,12 +214,13 @@ async def _connect() -> AsyncIterator[aiosqlite.Connection]:
 
     Eerst het schema van de aanbiedingen en zijn migraties (`offers.prepare`, het maakt ook `offer_history` aan), dan dit schema en
     `product_links.ensure` (de tabel en de SQL-functie `ms_fold`) en `shared_links.ensure` (de afgewezen gedeelde koppelingen)."""
-    async with auth.connect() as conn:
+    async with auth.connect(uri=True) as conn:
         await offers.prepare(conn)
         await auth.ensure_schema(conn, "prices", _setup)
         # De tabellen van het leesmodel van de prijsgeschiedenis horen bij dit schema (backup.ensure_schemas ziet ze zo), de
         # triggers controleert `price_history_index.prepare` bij elke aanvraag van de geschiedenis.
         await auth.ensure_schema(conn, price_history_index.SCHEMA_NAME, price_history_index.SCHEMA)
+        await shared_price_overlay.ensure(conn)
         yield await shared_links.ensure(await product_links.ensure(conn))
 
 
@@ -305,6 +308,13 @@ async def record(store: str, products: Iterable[Any], source: str = "search", no
                 """,
                 rows,
             )
+            if shared_price_overlay.enabled():
+                with shared_price_readmodel.response_lease(store) as snapshot:
+                    ids: list[str] = sorted({row[1] for row in rows})
+                    for start in range(0, len(ids), shared_price_overlay.BATCH_SIZE):
+                        await shared_price_readmodel.index_batch(
+                            conn, snapshot, store, stamp[:10], ids[start : start + shared_price_overlay.BATCH_SIZE]
+                        )
             await conn.commit()
         return len(rows)
     except Exception:  # noqa: BLE001 - het bijhouden mag een zoekopdracht nooit laten mislukken
@@ -1894,6 +1904,10 @@ async def warm_catalogues(stores: Iterable[str] | None = None, today: str | None
     hoeft te wachten. Een aanvraag die tijdens het opwarmen komt, wacht op dezelfde bouw. Het leesmodel van de prijsgeschiedenis
     (price_history_index.py) gaat mee, anders betaalt de eerste Prijsgeschiedenis na een start 0,7 tot 1,5 s voor het bijwerken.
     Een fout bij een winkel laat de andere met rust: de aanvraag bouwt de catalogus dan zelf."""
+    if shared_price_overlay.enabled():
+        for store in stores or offers.STORES:
+            await shared_price_overlay.prepare(store)
+        return
     day = today or date.today().isoformat()
     for store in stores or offers.STORES:
         try:
@@ -1973,13 +1987,21 @@ def _without_own_weeks(lines: list[dict[str, Any]], episodes: list[dict[str, Any
 async def _lookup_receipt_names(lookup: Callable[[list[str]], Awaitable[Any]], wanted: "_Query", today: str) -> None:
     """Laat de namen op de bon die bij de zoekterm passen en nog bij geen product horen meteen opzoeken (zie `history`)."""
     async with _connect() as conn:
-        rows = (await _catalogue(conn, "ah", today)).receipts
-    names = sorted({row["title"] for row in rows if row.get("lookup") and wanted.wants({_fold_name(row["title"])}, set())})
+        if shared_price_overlay.enabled():
+            with shared_price_readmodel.response_lease("ah") as snapshot:
+                rows: list[dict[str, Any]] = await shared_price_readmodel.receipt_rows(conn, snapshot, "ah", today)
+        else:
+            rows = (await _catalogue(conn, "ah", today)).receipts
+    names: list[str] = await compute.run(_receipt_names_to_lookup, rows, wanted)
     if names:
         try:
             await lookup(names)
         except Exception:  # noqa: BLE001 - zonder koppeling staat de regel er gewoon met de naam op de bon
             log.warning("Namen op de bon opzoeken mislukt", exc_info=True)
+
+
+def _receipt_names_to_lookup(rows: list[dict[str, Any]], wanted: "_Query") -> list[str]:
+    return sorted({row["title"] for row in rows if row.get("lookup") and wanted.wants({_fold_name(row["title"])}, set())})
 
 
 FACET_BRANDS: int = 500  # zoveel merken hooguit in de keuzelijst van de prijsgeschiedenis, de meest voorkomende eerst
@@ -2073,6 +2095,10 @@ async def history(
     pinned = str(pin) if pin not in (None, "") else None
     if lookup and wanted.words and "ah" in stores and only is None:
         await _lookup_receipt_names(lookup, wanted, today)
+    if shared_price_overlay.enabled():
+        return await shared_price_readmodel.history(
+            stores, wanted, limit, today, bought, only, pinned, _Choice.of(brands, brands_out), _Choice.of(categories, categories_out), bool(store)
+        )
     async with _connect() as conn:
         await price_history_index.prepare(conn)
         catalogues: dict[str, _Catalogue] = {}
@@ -2161,7 +2187,11 @@ async def _indexed_page(conn: aiosqlite.Connection, ask: _HistoryAsk) -> tuple[_
     `_rank_history` over de hele catalogus: het product uit de link bovenaan (ook als het nergens in de geschiedenis staat,
     `_pinned_known`, dan met vandaag als dag), dan de rest op de laatste dag. Het product uit de link telt mee in het totaal en
     in de keuzelijsten, ook als het filter het weg zou laten."""
-    found: price_history_index.Page = await price_history_index.page(
+    from . import shared_price_search
+
+    prepared: bool = bool(await conn.execute_fetchall("SELECT 1 FROM sqlite_temp_master WHERE name='_shared_history_grouped'"))
+    select_page: Any = shared_price_search.page if prepared else price_history_index.page
+    found: price_history_index.Page = await select_page(
         conn,
         ask.stores,
         ask.pinned,
@@ -2670,6 +2700,8 @@ async def offers_signature(store: Any) -> str:
     try:
         key: str = offers._valid_store(store)
         today: str = _now()[:10]
+        if shared_price_overlay.enabled():
+            return await shared_price_readmodel.signature(key, today)
         async with _connect() as conn:
             if await _catalogue_or_none(conn, key, today) is None:
                 raise LookupError(f"geen catalogus van {key} op {today}")
@@ -3133,6 +3165,8 @@ class _VerdictFacts(NamedTuple):
 
 async def _verdict_facts(store: str, items: list[dict[str, Any]], today: str) -> _VerdictFacts:
     """Haalt op wat `_judge` nodig heeft: alleen queries en de catalogus, het rekenwerk zit in de helpers via `compute.run`."""
+    if shared_price_overlay.enabled():
+        return await shared_price_readmodel.verdict_facts(store, items, today)
     ids: list[str] = sorted({str(offer.get("id")) for offer in items})  # alleen de geschiedenis van deze producten telt, zie _WANTED_SQL
     async with _connect() as conn:
         catalogue: _Catalogue | None = await _catalogue_or_none(conn, store, today)
@@ -3191,6 +3225,9 @@ async def _verdict_lines(store: str, catalogue: _Catalogue | None, items: list[d
 
 async def _annotate(store: str, items: list[dict[str, Any]], today: str) -> None:
     """Haalt de feiten op (`_verdict_facts`) en laat `_judge` het oordeel buiten de event loop uitrekenen (`compute.run`)."""
+    if shared_price_overlay.enabled():
+        await shared_price_readmodel.annotate(store, items, today)
+        return
     facts: _VerdictFacts = await _verdict_facts(store, items, today)
     await compute.run(_judge, store, items, today, facts)
 

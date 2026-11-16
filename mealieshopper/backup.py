@@ -90,6 +90,8 @@ from . import (
     request_body,
     server_settings,
     shared_links,
+    shared_price_overlay,
+    shared_prices,
     tasks,
     thread_db,
     uploads,
@@ -149,6 +151,7 @@ DATA_TABLES = (
     "offer_history",
     "offers_meta",
     "price_observations",
+    "shared_price_origins",
     "product_images",
     "watched_products",  # de producten die je volgt (watched_products.py): je eigen keuze
     "watched_prices",  # hun prijs, maat, verpakking en afbeelding per dag: niet opnieuw op te halen
@@ -205,6 +208,7 @@ EXCLUDED_TABLES = frozenset(
         # Het leesmodel van de prijsgeschiedenis (price_history_index.py): afgeleid van de catalogus en de prijzen. Een teruggezette
         # database krijgt in catalogue_versions een nieuw token, dus de volgende aanvraag bouwt het opnieuw op.
         *price_history_index.TABLES,
+        *shared_price_overlay.TABLES,
         "catalogue_versions",  # de versie per winkel van de catalogus van de prijzen (prices._catalogue_version): afgeleid, een teruggezette database krijgt een nieuw token
         # De push van de kooktimers (push.py): een abonnement hoort bij een browser en bij de VAPID-sleutel van deze installatie
         # (die zit er ook niet in), een timer duurt minuten. Na het terugzetten vraagt de app bij de volgende timer een nieuw aan.
@@ -279,7 +283,7 @@ PARTS: dict[str, tuple[str, ...]] = {
     "offers": ("offers", "offers_meta"),  # de aanbiedingen van nu en wanneer ze per winkel zijn opgehaald; de app haalt ze zelf weer op
     "offerHistory": ("offer_history",),  # de historie haalt de app niet opnieuw op
     "judgements": ("offer_rejections", "offer_verdicts", "ai_recipe_matches", "ai_recipe_runs"),
-    "prices": ("price_observations",),
+    "prices": ("price_observations", "shared_price_origins"),
     "productImages": ("product_images",),
     "watchedProducts": ("watched_products", "watched_prices"),  # de gevolgde producten met hun prijzen per dag (4.27.0)
     "importedPurchases": ("imported_purchases",),
@@ -1011,6 +1015,8 @@ def replace_everything(
         conn.execute("PRAGMA busy_timeout = 30000")  # een lopende synchronisatie mag even afmaken
         conn.execute("BEGIN IMMEDIATE")
         price_archive_sync.reset(conn)
+        shared_price_overlay.reset(conn)
+        shared_prices.reset()
         kept = plan.kept_tables()  # niet in het bestand of overgeslagen: blijft zoals het is
         for table in reversed(DATA_TABLES):
             if table not in kept:
@@ -1021,6 +1027,8 @@ def replace_everything(
         for table in DATA_TABLES:
             if table in kept:
                 continue
+            if table == shared_price_overlay.ORIGIN_TABLE:
+                conn.execute("DELETE FROM shared_price_origins")
             groups: dict[tuple[str, ...], list[tuple[Any, ...]]] = {}
             rows: Rows = prepared.get(table, Rows())
             for names, values in zip(rows.names, rows.values, strict=True):
@@ -1031,7 +1039,8 @@ def replace_everything(
                 groups.setdefault(names, []).append(values)
             for names, batch in groups.items():
                 if names:
-                    sql = f"INSERT INTO {_quote(table)} ({', '.join(_quote(n) for n in names)}) VALUES ({', '.join('?' for _ in names)})"
+                    verb: str = "INSERT OR REPLACE" if table == shared_price_overlay.ORIGIN_TABLE else "INSERT"
+                    sql = f"{verb} INTO {_quote(table)} ({', '.join(_quote(n) for n in names)}) VALUES ({', '.join('?' for _ in names)})"
                     conn.executemany(sql, batch)
                 else:
                     for _ in batch:

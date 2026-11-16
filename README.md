@@ -42,7 +42,7 @@ Je weekmenu plannen in [Mealie](https://mealie.io) en in je mandje zetten bij [A
 
 ---
 
-Gedeelde AH-weekprijzen worden automatisch aangevuld vanaf [data.mealieshopper.nl](https://data.mealieshopper.nl), zonder gekoppeld account. Alleen gewijzigde gewone JSON-documenten worden opgehaald, met controle van de index, precieze lengte en SHA-256. Zelf waargenomen prijzen gaan voor. Met `MEALIESHOPPER_SHARED_PRICES=false` zet je dit uit. Zie [de handleiding](docs/handleiding.md#prijsarchief-importeren).
+Gedeelde AH-weekprijzen worden automatisch gelezen uit een vooraf opgebouwde SQLite-database van [data.mealieshopper.nl](https://data.mealieshopper.nl), zonder gekoppeld account. De app haalt alleen een gewijzigde versie op, controleert de lengte, SHA-256 en inhoud, en wisselt daarna naar de nieuwe kopie. Je eigen prijswaarnemingen gaan voor. Bestaande installaties gaan automatisch over, met behoud van de oude prijsregels. Met `MEALIESHOPPER_SHARED_PRICES=false` zet je dit uit. Zie [de handleiding](docs/handleiding.md#prijsarchief-importeren).
 
 ## Inhoud
 

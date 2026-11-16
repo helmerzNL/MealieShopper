@@ -61,9 +61,13 @@ def parse_pack_size(unit_size: Any) -> tuple[float, str] | None:
         return None
     match = _PACK_SIZE_RE.search(text)
     if match:
-        multiplier = int(match.group(1) or 1)
-        amount = float(match.group(2).replace(",", ".")) * multiplier
-        return _measure(amount, match.group(3))
+        try:
+            multiplier: int = int(match.group(1) or 1)
+            amount: float = float(match.group(2).replace(",", ".")) * multiplier
+            measured: tuple[float, str] | None = _measure(amount, match.group(3))
+        except (ValueError, OverflowError):
+            return None
+        return measured if measured and math.isfinite(measured[0]) else None
     if re.search(r"\bper stuk\b|\bstuk\b", text):
         return 1.0, "count"
     return None

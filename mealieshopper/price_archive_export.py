@@ -37,6 +37,7 @@ zo'n regel is `url` leeg, en het schema weigert zo'n adres. De regel zelf (produ
 from __future__ import annotations
 
 import hashlib
+import heapq
 import json
 import re
 import zipfile
@@ -45,7 +46,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import IO, Any, Iterable
 
-from . import about, offers, thread_db
+from . import about, offers, shared_price_overlay, shared_prices, thread_db
 from .price_archive import (
     EXPORT_MANIFEST,
     FORMAT,
@@ -122,6 +123,52 @@ def _rows(conn: Any, sql: str, fields: Iterable[str]) -> Iterable[dict[str, Any]
         yield dict(zip(names, values))
 
 
+def _price_key(row: dict[str, Any]) -> tuple[str, str, str, str]:
+    return row["store"], str(row["day"])[:7], row["day"], row["product_id"]
+
+
+def _public_price_rows(conn: Any) -> Iterable[dict[str, Any]]:
+    sql: str = """
+    WITH RECURSIVE observed(store,product_id,source,day,last_day,step_days,version_id,values_json) AS (
+     SELECT store,product_id,source,first_day,last_day,step_days,version_id,values_json FROM shared_public.price_periods
+     UNION ALL SELECT store,product_id,source,date(day,printf('+%d days',step_days)),last_day,step_days,version_id,values_json
+       FROM observed WHERE date(day,printf('+%d days',step_days))<=last_day
+    )
+    SELECT o.*,v.metadata_json FROM observed o JOIN shared_public.product_versions v USING(version_id)
+    WHERE NOT EXISTS(SELECT 1 FROM main.price_observations p WHERE p.store=o.store AND p.product_id=o.product_id AND p.day=o.day
+       AND NOT EXISTS(SELECT 1 FROM main.shared_price_equivalence e WHERE e.store=p.store AND e.product_id=p.product_id AND e.day=p.day))
+    ORDER BY o.store,substr(o.day,1,7),o.day,o.product_id
+    """
+    bounds: Today = Today()
+    for row in conn.execute(sql):
+        record: dict[str, Any] = {
+            **json.loads(row["metadata_json"]),
+            **json.loads(row["values_json"]),
+            "store": row["store"],
+            "product_id": row["product_id"],
+            "source": row["source"],
+            "day": row["day"],
+        }
+        yield dict(zip(PRICE_COLUMNS, normalise_price(record, bounds), strict=True))
+
+
+def _price_rows(conn: Any) -> Iterable[dict[str, Any]]:
+    if not shared_price_overlay.enabled():
+        yield from _rows(conn, PRICES_SQL, PRICE_FIELDS)
+        return
+    with shared_prices.lease("ah") as snapshot:
+        if snapshot is None:
+            yield from _rows(conn, PRICES_SQL, PRICE_FIELDS)
+            return
+        conn.execute("ATTACH DATABASE ? AS shared_public", (f"{snapshot.path.as_uri()}?mode=ro&immutable=1",))
+        conn.execute("PRAGMA shared_public.trusted_schema=OFF")
+        conn.execute("PRAGMA shared_public.cache_size=-2048")
+        private_sql: str = PRICES_SQL.replace(
+            "FROM price_observations ORDER BY", "FROM price_observations p WHERE NOT (" + shared_price_overlay.shadow_sql("p") + ") ORDER BY"
+        )
+        yield from heapq.merge(_rows(conn, private_sql, PRICE_FIELDS), _public_price_rows(conn), key=_price_key)
+
+
 def write_export(path: Path) -> dict[str, Any]:
     """Schrijft de export naar `path` (een ZIP) en geeft de kop terug: de bestanden en hoeveel regels per winkel.
 
@@ -129,7 +176,8 @@ def write_export(path: Path) -> dict[str, Any]:
     bounds = Today()
     now = datetime.now(timezone.utc).replace(microsecond=0)
     stamp = (now.year, now.month, now.day, now.hour, now.minute, now.second)
-    with closing(thread_db.connect()) as conn, zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as archive:
+    with closing(thread_db.connect(uri=True)) as conn, zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as archive:
+        conn.execute("BEGIN")
         writer = _Writer(archive, stamp)
         try:
             for row in _rows(conn, OFFERS_SQL, OFFER_FIELDS):
@@ -142,7 +190,7 @@ def write_export(path: Path) -> dict[str, Any]:
                     writer.skipped["offers"] += 1
                     continue
                 writer.write("offers", row["store"], month, row, "offer")
-            for row in _rows(conn, PRICES_SQL, PRICE_FIELDS):
+            for row in _price_rows(conn):
                 month = _month(row["day"])
                 try:
                     normalise_price(row, bounds)
@@ -389,7 +437,8 @@ def write_site_export(path: Path, limit: int = SITE_DOC_BYTES) -> dict[str, Any]
         seen.add(key)
         return False
 
-    with closing(thread_db.connect()) as conn, zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as archive:
+    with closing(thread_db.connect(uri=True)) as conn, zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as archive:
+        conn.execute("BEGIN")
         writer = _SiteWriter(archive, stamp, limit)
         for row in _rows(conn, OFFERS_SQL, OFFER_FIELDS):
             try:
@@ -408,7 +457,7 @@ def write_site_export(path: Path, limit: int = SITE_DOC_BYTES) -> dict[str, Any]
             if duplicate("offers", record, original):
                 continue
             writer.write("offers", record["store"], match[1], record)
-        for row in _rows(conn, PRICES_SQL, PRICE_FIELDS):
+        for row in _price_rows(conn):
             try:
                 record = dict(zip(PRICE_COLUMNS, normalise_price(row, bounds)))
             except RowError:
