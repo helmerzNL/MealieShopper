@@ -112,13 +112,13 @@ async def catalogue(
     ids: list[str],
     observed: dict[str, list[Any]] | None = None,
     include_lines: bool = True,
+    receipts: list[dict[str, Any]] | None = None,
 ) -> Any:
     """Only the selected products use legacy rows while migration is in progress."""
     from . import prices
 
     wanted: str = json.dumps(ids)
-    receipts: list[dict[str, Any]] = await receipt_rows(conn, snapshot, store, today, ids)
-    receipts = await compute.run(_wanted_receipts, receipts, set(ids))
+    receipts = await receipt_rows(conn, snapshot, store, today, ids) if receipts is None else await compute.run(_wanted_receipts, receipts, set(ids))
     observed = observed if observed is not None else await shared_price_overlay.observations(conn, snapshot, store, ids)
     observations: list[tuple[Any, ...]] = await compute.run(_known_observations, observed)
     tables: set[str] = await prices._tables(conn)
@@ -223,7 +223,9 @@ async def history(
     with ExitStack() as leases:
         snapshots: dict[str, Any] = {store: leases.enter_context(shared_prices.lease(store)) for store in stores}
         async with prices._connect() as conn:
-            receipts: dict[str, list[dict[str, Any]]] = {store: await receipt_rows(conn, snapshots[store], store, today) for store in stores}
+            receipts: dict[str, list[dict[str, Any]]] = (
+                {store: await receipt_rows(conn, snapshots[store], store, today) for store in stores} if bought else {}
+            )
             await install(conn, snapshots.get("ah"), stores, today, receipts)
             keeps: dict[str, set[str] | None] = {
                 store: await prices._bought(conn, store, today, receipts[store]) if bought else None for store in stores
@@ -239,7 +241,8 @@ async def history(
             else:
                 # A direct observation can precede the next background index batch.
                 small: dict[str, Any] = {
-                    store: await catalogue(conn, snapshots[store], store, today, [only], include_lines=False) for store in stores
+                    store: await catalogue(conn, snapshots[store], store, today, [only], include_lines=False, receipts=receipts.get(store))
+                    for store in stores
                 }
                 candidates: dict[tuple[str, str], str] = await compute.run(prices._history_candidates, small, wanted, only, pinned, keeps)
                 ranked = await compute.run(prices._rank_history, small, candidates, pinned, only, by_brand, by_category, limit)
@@ -255,10 +258,10 @@ async def history(
                 _, twins = await compute.run(price_history_index.known_of, rows)
                 ids = sorted(prices._with_twins(set(ids), twins))
                 observed: dict[str, list[Any]] = await shared_price_overlay.observations(conn, snapshots[store], store, ids)
-                selected: Any = await catalogue(conn, snapshots[store], store, today, ids, observed)
-                catalogues[store] = selected._replace(receipts=receipts[store], twins={**selected.twins, **twins})
+                selected: Any = await catalogue(conn, snapshots[store], store, today, ids, observed, receipts=receipts.get(store))
+                catalogues[store] = selected._replace(twins={**selected.twins, **twins})
                 found[store] = (
-                    (observed, await prices._purchases(conn, store, ids, today, receipts[store]), await prices._saved_images(conn, store, ids))
+                    (observed, await prices._purchases(conn, store, ids, today, selected.receipts), await prices._saved_images(conn, store, ids))
                     if ids
                     else ({}, {}, {})
                 )

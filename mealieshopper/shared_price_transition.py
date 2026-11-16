@@ -11,8 +11,10 @@ from . import compute, shared_price_overlay
 
 
 async def install(conn: aiosqlite.Connection, snapshot: Any, stores: list[str], today: str, receipts: dict[str, list[dict[str, Any]]]) -> None:
-    from . import prices
+    """Fill the request receipt map only where stale metadata needs the complete receipt set."""
+    from . import prices, shared_price_readmodel
 
+    fallback_receipts: dict[str, list[dict[str, Any]]] = {}
     await conn.execute("CREATE TEMP TABLE _private_history_context(store TEXT PRIMARY KEY,today TEXT,ready INTEGER)")
     for store in stores:
         revision: str = shared_price_overlay.build_revision(await shared_price_overlay.revision(conn, store), today)
@@ -20,10 +22,15 @@ async def install(conn: aiosqlite.Connection, snapshot: Any, stores: list[str], 
         generation: str = snapshot.generation if snapshot is not None and store == "ah" else ""
         ready: bool = bool(state and state[0][0] == generation and state[0][1] == revision)
         await conn.execute("INSERT INTO _private_history_context VALUES(?,?,?)", (store, today, int(ready)))
+        if not ready:
+            if store not in receipts:
+                receipts[store] = await shared_price_readmodel.receipt_rows(conn, snapshot if store == "ah" else None, store, today)
+            fallback_receipts[store] = receipts[store]
     await conn.execute(
         "CREATE TEMP TABLE _private_receipt_metadata(store TEXT,product_id TEXT,title TEXT,brand TEXT,unit_size TEXT,last TEXT,priority INTEGER)"
     )
-    await conn.executemany("INSERT INTO _private_receipt_metadata VALUES(?,?,?,?,?,?,?)", await compute.run(_receipt_metadata, receipts))
+    if fallback_receipts:
+        await conn.executemany("INSERT INTO _private_receipt_metadata VALUES(?,?,?,?,?,?,?)", await compute.run(_receipt_metadata, fallback_receipts))
     await conn.create_function("ms_history_size", 2, _size, deterministic=True)
     await conn.create_function("ms_history_key", 4, _key, deterministic=True)
     await conn.create_function("ms_history_category", 2, _category, deterministic=True)
