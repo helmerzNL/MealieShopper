@@ -197,6 +197,9 @@ async def index_batch(conn: aiosqlite.Connection, snapshot: Any, store: str, tod
         "INSERT OR REPLACE INTO shared_price_keys VALUES(?,?,?,?)",
         [(store, pid, known[prices._SAME], _family_key(store, known)) for pid, known in products.items()],
     )
+    families: list[tuple[str, str, str]] = await compute.run(_family_memberships, store, products)
+    await conn.executemany("DELETE FROM shared_price_families WHERE store=? AND product_id=?", [(store, pid) for pid in ids])
+    await conn.executemany("INSERT OR IGNORE INTO shared_price_families VALUES(?,?,?)", families)
 
     from . import shared_price_search
 
@@ -278,6 +281,18 @@ def _family_key(store: str, known: Any) -> str:
     return prices.base_title(name)
 
 
+def _family_memberships(store: str, products: dict[str, Any]) -> list[tuple[str, str, str]]:
+    from . import prices
+
+    found: set[tuple[str, str, str]] = set()
+    for pid, known in products.items():
+        suffixes: set[str] = {store, prices._fold_name(known[prices._BRAND])} - {""}
+        for name in known[prices._NAMES]:
+            names: list[str] = [name] + [name[: -len(suffix) - 1] for suffix in suffixes if name.endswith(" " + suffix)]
+            found.update((store, key, pid) for candidate in names if (key := prices.base_title(candidate)))
+    return sorted(found)
+
+
 async def signature(store: str, today: str) -> str:
     from . import prices, shared_prices
 
@@ -285,7 +300,7 @@ async def signature(store: str, today: str) -> str:
         revision: str = await shared_price_overlay.revision(conn, store)
     pinned: tuple[str, Any] | None = _PINNED.get()
     generation: str | None = getattr(pinned[1], "generation", None) if pinned and pinned[0] == store else shared_prices.generation(store)
-    return f"prepared-v2:{generation or 'private'}:{revision}:{today}"
+    return f"prepared-v3:{generation or 'private'}:{revision}:{today}"
 
 
 async def verdict_facts(store: str, items: list[dict[str, Any]], today: str) -> Any:
@@ -303,7 +318,7 @@ async def verdict_facts(store: str, items: list[dict[str, Any]], today: str) -> 
             family_ids.update(
                 row[0]
                 for row in await conn.execute_fetchall(
-                    "SELECT product_id FROM shared_price_keys WHERE store=? AND family_key IN (SELECT value FROM json_each(?))",
+                    "SELECT DISTINCT product_id FROM shared_price_families WHERE store=? AND family_key IN (SELECT value FROM json_each(?))",
                     (store, json.dumps(keys)),
                 )
             )

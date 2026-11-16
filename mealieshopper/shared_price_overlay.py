@@ -23,6 +23,7 @@ TABLES: tuple[str, ...] = (
     "shared_price_equivalence",
     "shared_price_migration",
     "shared_price_keys",
+    "shared_price_families",
     "shared_price_build",
     "shared_price_receipts",
     "shared_price_receipt_meta",
@@ -58,6 +59,11 @@ CREATE TABLE IF NOT EXISTS shared_price_keys (
 );
 CREATE INDEX IF NOT EXISTS shared_price_keys_same ON shared_price_keys(store,same_key,product_id);
 CREATE INDEX IF NOT EXISTS shared_price_keys_family ON shared_price_keys(store,family_key,product_id);
+CREATE TABLE IF NOT EXISTS shared_price_families (
+ store TEXT NOT NULL, family_key TEXT NOT NULL, product_id TEXT NOT NULL,
+ PRIMARY KEY(store,family_key,product_id)
+) WITHOUT ROWID;
+CREATE INDEX IF NOT EXISTS shared_price_families_product ON shared_price_families(store,product_id);
 CREATE TRIGGER IF NOT EXISTS shared_price_changed_insert AFTER INSERT ON price_observations BEGIN
  DELETE FROM shared_price_equivalence WHERE store=NEW.store AND product_id=NEW.product_id AND day=NEW.day;
  INSERT INTO shared_price_origins VALUES(NEW.store,NEW.product_id,NEW.day,'local')
@@ -88,8 +94,9 @@ async def _setup(conn: aiosqlite.Connection) -> None:
 
     existed: Any = await auth.fetchone(conn, "SELECT 1 FROM sqlite_master WHERE type='table' AND name='shared_price_lines'")
     groups_existed: Any = await auth.fetchone(conn, "SELECT 1 FROM sqlite_master WHERE type='index' AND name='shared_price_keys_same'")
+    families_existed: Any = await auth.fetchone(conn, "SELECT 1 FROM sqlite_master WHERE type='table' AND name='shared_price_families'")
     await conn.executescript(SCHEMA + shared_price_lines.SCHEMA)
-    if existed is None or groups_existed is None:
+    if existed is None or groups_existed is None or families_existed is None:
         await conn.execute("DELETE FROM shared_price_build")
         await conn.commit()
 
@@ -413,4 +420,4 @@ def shadow_sql(row: str) -> str:
 
 
 def build_revision(revision: str, today: str) -> str:
-    return f"{revision}|{today}|search-v2"
+    return f"{revision}|{today}|search-v3"

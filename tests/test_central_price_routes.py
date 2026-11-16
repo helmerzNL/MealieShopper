@@ -732,3 +732,37 @@ async def test_private_family_metadata_outlives_regular_price_window(data_dir: P
     await shared_price_overlay.prepare()
     actual: list[dict[str, Any]] = await prices.annotate("ah", deepcopy(items), today="2026-10-03")
     assert actual == expected
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "title,old_title,brand,size",
+    [
+        ("Polderpracht Kaarsen mini", "Polderpra Kaarsen", "Polderpracht", "10 stuks"),
+        ("Twentse Hoeve Croissants light", "Twentse Hoeve Croissant light", "Twentse Hoeve", "6 stuks"),
+    ],
+)
+async def test_family_lookup_preserves_every_historical_name(
+    data_dir: Path, monkeypatch: pytest.MonkeyPatch, title: str, old_title: str, brand: str, size: str
+) -> None:
+    from copy import deepcopy
+
+    monkeypatch.setattr(prices, "_now", lambda: "2026-10-03T12:00:00Z")
+    install(data_dir, [{**row(), "title": title, "brand": brand, "unit_size": size}])
+    await prices.record("ah", [{"id": "1", "title": title, "brand": brand, "unitSize": size, "price": 2.0}], now="2026-10-01T12:00:00Z")
+    for day, name in (("2014-01-01", old_title), ("2014-01-02", title)):
+        await prices.record("ah", [{"id": "2", "title": name, "brand": brand, "unitSize": size, "price": 2.0}], now=day + "T12:00:00Z")
+    items: list[dict[str, Any]] = [{"id": "1", "title": title, "brand": brand, "unitSize": size, "price": 1.0, "unitPrice": 1.0}]
+    expected: list[dict[str, Any]] = await prices.annotate("ah", deepcopy(items), today="2026-10-03")
+    assert expected[0]["family"]["unknownPacks"] is True
+    monkeypatch.setenv("MEALIESHOPPER_SHARED_PRICES", "true")
+    await shared_price_overlay.prepare()
+    actual: list[dict[str, Any]] = await prices.annotate("ah", deepcopy(items), today="2026-10-03")
+    assert actual == expected
+
+    async with prices._connect() as conn:
+        await conn.execute("DROP TABLE shared_price_families")
+        await shared_price_overlay._setup(conn)
+        assert not await conn.execute_fetchall("SELECT 1 FROM shared_price_build")
+    await shared_price_overlay.prepare()
+    assert await prices.annotate("ah", deepcopy(items), today="2026-10-03") == expected
