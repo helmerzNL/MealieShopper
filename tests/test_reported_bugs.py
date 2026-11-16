@@ -2434,16 +2434,20 @@ async def test_2026_11_13_shared_weekly_prices_default_without_accounts(data_dir
     """2026-11-13: shared historical AH prices were never fetched automatically."""
     from datetime import datetime, timezone
 
-    from mealieshopper import price_archive_sync
+    from mealieshopper import price_archive_sync, shared_price_overlay, shared_prices
 
     monkeypatch.delenv("MEALIESHOPPER_SHARED_PRICES", raising=False)
     assert price_archive_sync.enabled()
     with (
-        mock.patch.object(price_archive_sync, "run_if_due", mock.AsyncMock(return_value={"documents": 1})) as shared,
+        mock.patch.object(shared_prices, "refresh_if_due", mock.AsyncMock(return_value={"changed": False})) as shared,
+        mock.patch.object(shared_price_overlay, "reconcile_if_due", mock.AsyncMock()) as overlay,
+        mock.patch.object(price_archive_sync, "run_if_due", mock.AsyncMock()) as legacy,
         mock.patch.object(offers_schedule, "_claim", mock.AsyncMock(return_value=False)),
     ):
         await offers_schedule.run_if_due(datetime(2026, 11, 13, 6, tzinfo=timezone.utc))
     shared.assert_awaited_once()
+    overlay.assert_awaited_once()
+    legacy.assert_not_awaited()
 
 
 class WeeklyCaptureBoundsTest(unittest.TestCase):

@@ -134,7 +134,12 @@ def _import_document(owner: str, path: str, size: int, digest: str, body: bytes)
             ).fetchone()
             if lease is None:
                 raise RuntimeError("Shared price lease expired")
+            protected: set[tuple[str, str, str]] = {
+                tuple(row) for row in conn.execute("SELECT store,product_id,day FROM shared_price_origins WHERE origin='local'")
+            }
+            rows = [row for row in rows if row[:3] not in protected]
             saved: sqlite3.Cursor = conn.executemany(SAVE_SQL, rows)
+            conn.executemany("INSERT OR REPLACE INTO shared_price_origins VALUES(?,?,?,'shared-json')", [row[:3] for row in rows])
             changed: int = saved.rowcount
             conn.execute(
                 "INSERT INTO shared_price_documents VALUES (?,?,?,?) ON CONFLICT(path) DO UPDATE SET "

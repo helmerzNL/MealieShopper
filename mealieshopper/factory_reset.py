@@ -24,7 +24,7 @@ from typing import Any
 
 from quart import Quart, jsonify
 
-from . import audit, auth, auth_password, backup, price_archive, request_body
+from . import audit, auth, auth_password, backup, price_archive, request_body, shared_prices
 from .i18n import tr
 
 CONFIRM_PHRASE = "RESET"
@@ -57,6 +57,7 @@ async def wipe_data() -> list[str]:
     await auth.close_readers()
     await audit.close_writer()
     removed: list[str] = await asyncio.to_thread(_remove_files)
+    shared_prices.reset()
     auth.forget_runtime_state()  # zonder herstart maakt de volgende aanvraag een nieuwe, lege database
     return removed
 

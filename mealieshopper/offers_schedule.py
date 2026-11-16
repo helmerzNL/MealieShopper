@@ -30,6 +30,8 @@ from . import (
     prices,
     purchase_sync,
     recipe_nutrition,
+    shared_price_overlay,
+    shared_prices,
     tasks,
     watched_products,
 )
@@ -123,7 +125,7 @@ async def run_all(trigger: str, now: datetime | None = None, *, wait_for_images:
         purchases = await purchase_sync.sync_nightly()
         if purchases is not None:
             result = {**result, "purchases": purchases}
-    shared: dict[str, Any] | None = await price_archive_sync.run_if_due()
+    shared: dict[str, Any] | None = await shared_prices.refresh_if_due() if shared_price_overlay.enabled() else None
     if shared is not None:
         result = {**result, "priceArchive": shared}
     await prices.warm_catalogues()  # de catalogus is na de synchronisatie anders: nu opbouwen, niet bij de eerste aanvraag
@@ -235,7 +237,9 @@ async def _claim(now: datetime) -> bool:
 async def run_if_due(now: datetime | None = None) -> bool:
     """Voer de dagelijkse run uit als het tijd is en niemand anders hem al deed. Geeft terug of hij liep."""
     now = now or _local_now()
-    await price_archive_sync.run_if_due(now.timestamp())
+    if shared_price_overlay.enabled():
+        await shared_prices.refresh_if_due()
+        await shared_price_overlay.reconcile_if_due()
     if not enabled():
         return False
     if not await _claim(now):
