@@ -58,6 +58,7 @@ from . import (
     price_import,
     product_links,
     shared_links,
+    shared_price_dirty,
     shared_price_overlay,
     shared_price_readmodel,
     tasks,
@@ -308,13 +309,8 @@ async def record(store: str, products: Iterable[Any], source: str = "search", no
                 """,
                 rows,
             )
-            if shared_price_overlay.enabled():
-                with shared_price_readmodel.response_lease(store) as snapshot:
-                    ids: list[str] = sorted({row[1] for row in rows})
-                    for start in range(0, len(ids), shared_price_overlay.BATCH_SIZE):
-                        await shared_price_readmodel.index_batch(
-                            conn, snapshot, store, stamp[:10], ids[start : start + shared_price_overlay.BATCH_SIZE]
-                        )
+            # Het leesmodel van de gedeelde prijzen (`shared_price_dirty`) kreeg via zijn triggers een rij per product: de
+            # volgende aanvraag of bouw werkt alleen die producten bij.
             await conn.commit()
         return len(rows)
     except Exception:  # noqa: BLE001 - het bijhouden mag een zoekopdracht nooit laten mislukken
@@ -1989,6 +1985,7 @@ async def _lookup_receipt_names(lookup: Callable[[list[str]], Awaitable[Any]], w
     async with _connect() as conn:
         if shared_price_overlay.enabled():
             with shared_price_readmodel.response_lease("ah") as snapshot:
+                await shared_price_dirty.refresh(conn, snapshot, "ah", today)
                 rows: list[dict[str, Any]] = await shared_price_readmodel.receipt_rows(conn, snapshot, "ah", today)
         else:
             rows = (await _catalogue(conn, "ah", today)).receipts

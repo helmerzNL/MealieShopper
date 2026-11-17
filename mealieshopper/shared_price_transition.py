@@ -16,11 +16,11 @@ async def install(conn: aiosqlite.Connection, snapshot: Any, stores: list[str], 
 
     fallback_receipts: dict[str, list[dict[str, Any]]] = {}
     await conn.execute("CREATE TEMP TABLE _private_history_context(store TEXT PRIMARY KEY,today TEXT,ready INTEGER)")
+    from . import shared_price_dirty
+
     for store in stores:
-        revision: str = shared_price_overlay.build_revision(await shared_price_overlay.revision(conn, store), today)
-        state: Any = await conn.execute_fetchall("SELECT generation,ready_revision FROM shared_price_build WHERE store=?", (store,))
         generation: str = snapshot.generation if snapshot is not None and store == "ah" else ""
-        ready: bool = bool(state and state[0][0] == generation and state[0][1] == revision)
+        ready: bool = await shared_price_dirty.ready(conn, store, generation, today)
         await conn.execute("INSERT INTO _private_history_context VALUES(?,?,?)", (store, today, int(ready)))
         if not ready:
             if store not in receipts:
