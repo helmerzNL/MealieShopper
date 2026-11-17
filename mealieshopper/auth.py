@@ -35,7 +35,25 @@ SESSION_RENEW_AFTER_SECONDS = 24 * 60 * 60
 SESSION_ABSOLUTE_SECONDS = 365 * 24 * 60 * 60
 _INITIALIZED = False
 BUSY_SECONDS: float = 30.0  # zo lang wacht een verbinding op het slot van een andere schrijver (sqlite3 zelf: 5 s)
+MMAP_MB_DEFAULT: int = 1024  # zie `mmap_bytes`
 log: logging.Logger = logging.getLogger(__name__)
+
+
+def mmap_bytes() -> int:
+    """Hoeveel van de database elke verbinding via mmap leest (`PRAGMA mmap_size`): `MEALIESHOPPER_SQLITE_MMAP_MB` megabyte,
+    standaard `MMAP_MB_DEFAULT`, en 0 (of minder) zet het uit. Een waarde die geen getal is, geeft de standaard.
+
+    Zonder mmap haalt SQLite elke pagina van 4 KB met een eigen leesopdracht op. Op de server staat de database op ZFS met
+    records van 128 KB, en daar kostte een scan van `offer_history` in de container 290 ms, met mmap 80 ms (17-11-2026). De
+    pagina's staan dan in de page cache van het systeem, die alle verbindingen delen, in plaats van in een kleine cache per
+    verbinding. Schrijven gaat zoals altijd via de WAL."""
+    raw: str = os.environ.get("MEALIESHOPPER_SQLITE_MMAP_MB", "").strip()
+    try:
+        megabytes: int = int(raw) if raw else MMAP_MB_DEFAULT
+    except ValueError:
+        megabytes = MMAP_MB_DEFAULT
+    return max(megabytes, 0) * 1024 * 1024
+
 
 # De schema's die dit proces al aanmaakte, per database-pad: elke module maakt haar tabellen, indexen en migraties een keer per
 # proces, niet bij elke verbinding. `forget_runtime_state` wist het, zodat een nieuwe database na een fabrieksreset het schema
@@ -228,9 +246,16 @@ async def connect(*, uri: bool = False) -> AsyncIterator[aiosqlite.Connection]:
     ensure_data_dir()
     opened: float = time.perf_counter()
     async with aiosqlite.connect(db_path(), timeout=BUSY_SECONDS, uri=uri) as conn:
+        await _map(conn)  # voor `watch`: de telling van de queries per aanvraag blijft die van de aanvraag zelf
         telemetry.watch(conn, opened)  # doet niets zonder MEALIESHOPPER_TELEMETRY
         conn.row_factory = aiosqlite.Row
         yield conn
+
+
+async def _map(conn: aiosqlite.Connection) -> None:
+    """Zet `PRAGMA mmap_size` op `mmap_bytes` voor deze verbinding."""
+    async with conn.execute(f"PRAGMA mmap_size = {mmap_bytes()}"):
+        pass
 
 
 async def _open_reader(path: str) -> aiosqlite.Connection:
@@ -241,6 +266,7 @@ async def _open_reader(path: str) -> aiosqlite.Connection:
         conn.row_factory = aiosqlite.Row
         async with conn.execute("PRAGMA query_only = ON"):
             pass
+        await _map(conn)
     except BaseException:
         await conn.close()
         raise
