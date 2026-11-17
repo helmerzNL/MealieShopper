@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="nl">
+<html lang="nl"{% if week_start_hint is not none %} data-week-start="{{ week_start_hint }}"{% endif %}>
   <head>
     <meta charset="utf-8">
     <meta name="ms-asset-version" content="{{ config.ASSET_VERSION }}">

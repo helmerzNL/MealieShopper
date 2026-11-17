@@ -287,6 +287,13 @@ function routerRetry() {
   routerApply(pending);
 }
 
+// Het scherm uit het adres toont de lijst passkeys (Profiel, Beveiliging): dan opent het pas als die lijst er is
+// (refreshAuthStatus), zodat het scherm niet eerst zonder passkeys staat. De andere schermen gebruiken de lijst niet.
+function routerNeedsCredentials(href = window.location.href) {
+  const [root, sub] = new URL(href, window.location.origin).pathname.split("/").filter(Boolean);
+  return root === "profile" && sub === "security";
+}
+
 // Na het inloggen een keer: het scherm uit het adres openen.
 function routerStart() {
   if (router.started) return;

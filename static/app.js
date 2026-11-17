@@ -1,7 +1,17 @@
+// De eerste dag van de week voor het eerste laden: van de server (data-week-start) of zoals dit toestel hem het laatst uit
+// /api/mealie/status kreeg (initialWeekStart, applyWeekStart).
+const WEEK_START_KEY = "ms-week-start";
+const INITIAL_WEEK_START = initialWeekStart();
+
 const state = {
   weekOffset: 0,
-  firstDayOfWeek: 1, // waar de week begint, zoals Mealie telt (0 = zondag, 1 = maandag); komt uit /api/mealie/status
-  weekStartKnown: false, // het antwoord van /api/mealie/status is binnen (of mislukt): tot dan is de week een gok, zie weekStartSettled
+  // Waar de week begint, zoals Mealie telt (0 = zondag, 1 = maandag), uit /api/mealie/status. Tot dat antwoord er is, geldt de
+  // dag die de server in de pagina meegaf, of die dit toestel de vorige keer kreeg.
+  firstDayOfWeek: INITIAL_WEEK_START ?? 1,
+  // De eerste dag is bekend: het antwoord van /api/mealie/status is binnen (of mislukt), of de pagina of dit toestel kent de dag
+  // al. Zonder die dag is de week een gok, en wacht Aanbiedingen (zie weekStartSettled). Wijkt het antwoord af van de dag waarmee
+  // de pagina begon, dan laadt Aanbiedingen alsnog de goede week (applyWeekStart, offersWeekStartChanged).
+  weekStartKnown: INITIAL_WEEK_START !== null,
   entries: null,
   planAutoLoaded: false, // het weekmenu is na het koppelen van Mealie eenmaal vanzelf geladen
   auth: null,
@@ -443,23 +453,44 @@ function continueAfterLogin() {
   return true;
 }
 
+// De status van de koppelingen en de updatecheck: ze gaan tegelijk de deur uit en tekenen zelf hun antwoord.
+function refreshLinkStatuses() {
+  refreshAhStatus();
+  refreshMealieStatus();
+  if (typeof refreshPicnicStatus === "function") refreshPicnicStatus();
+  if (typeof refreshJumboStatus === "function") refreshJumboStatus();
+  if (typeof refreshCrispStatus === "function") refreshCrispStatus();
+  if (typeof startUpdateCheck === "function") startUpdateCheck();
+}
+
+// De inlogstatus, en met toegang tot de app de koppelingen en het scherm uit het adres. De installatiehulp is openbaar en hangt
+// niet van de sessie af, dus die vragen we tegelijk met de inlogstatus op. De passkeys gebruikt alleen Profiel, Beveiliging: de
+// koppelingen en het scherm wachten er niet op, behalve op dat adres (routerNeedsCredentials). Daarvoor wachtte elke stap op de
+// vorige, en kwam /api/offers pas na vier rondes van de browser naar de server.
 async function refreshAuthStatus() {
+  const onboarding = typeof loadOnboardingStatus === "function" ? loadOnboardingStatus() : null;
   state.auth = await jsonFetch("/api/auth/status");
   if (typeof appearanceFromProfile === "function") appearanceFromProfile(); // de weergave van deze gebruiker
-  if (typeof loadOnboardingStatus === "function") await loadOnboardingStatus();
+  await onboarding; // vangt zelf zijn fouten af
   renderAuthState();
   if (continueAfterLogin()) return state.auth;
-  await loadCredentials();
-  if (state.auth?.authenticated || !state.auth?.enabled) {
-    refreshAhStatus();
-    refreshMealieStatus();
-    if (typeof refreshPicnicStatus === "function") refreshPicnicStatus();
-    if (typeof refreshJumboStatus === "function") refreshJumboStatus();
-    if (typeof refreshCrispStatus === "function") refreshCrispStatus();
-    if (typeof startUpdateCheck === "function") startUpdateCheck();
-    if (typeof routerStart === "function") routerStart();
+  const inApp = Boolean(state.auth?.authenticated || !state.auth?.enabled);
+  const waitForCredentials = typeof routerNeedsCredentials === "function" && routerNeedsCredentials();
+  // Het scherm eerst: over HTTP/1.1 heeft de browser zes verbindingen per server, en de passkeys en de vijf koppelingen namen ze
+  // alle zes, zodat /api/offers in de rij stond.
+  if (inApp && !waitForCredentials) startRouter();
+  const credentials = loadCredentials();
+  if (inApp) refreshLinkStatuses();
+  if (inApp && waitForCredentials) {
+    await credentials;
+    startRouter();
   }
+  await credentials; // wie hierop wacht, krijgt de nieuwe lijst passkeys, of de fout
   return state.auth;
+}
+
+function startRouter() {
+  if (typeof routerStart === "function") routerStart();
 }
 
 async function registerPasskey({ username, credentialName, messageTarget, invite }) {
@@ -1975,12 +2006,50 @@ function renderWeekStartChoice(weekStart) {
   select.value = weekStart.setting || "";
 }
 
+// Een eerste dag van de week als tekst ("0" t/m "6"), of null. Alleen die telt: Number("") is ook 0, en dat is zondag.
+function parseWeekStart(value) {
+  return /^[0-6]$/.test(value || "") ? Number(value) : null;
+}
+
+// De eerste dag van de week die de server bij het laden al wist (data-week-start op <html>, mealie.week_start_hint), of null.
+// De server vraagt Mealie daarvoor niet: die dag kan oud zijn, en /api/mealie/status controleert hem nog.
+function pageWeekStart() {
+  return parseWeekStart(document.documentElement.dataset.weekStart);
+}
+
+// De eerste dag van de week die dit toestel het laatst uit /api/mealie/status kreeg, of null als die niet bekend is. Zonder
+// opslag (privévenster, geblokkeerd) is hij onbekend.
+function storedWeekStart() {
+  try {
+    return parseWeekStart(window.localStorage.getItem(WEEK_START_KEY));
+  } catch {
+    return null;
+  }
+}
+
+// De eerste dag van de week voor het eerste laden: die van de server gaat voor, want dat is wat hij nu weet. Een vers
+// browserprofiel heeft zo geen onthouden dag nodig. Null als geen van beide hem kent: dan wacht Aanbiedingen op de status.
+function initialWeekStart() {
+  return pageWeekStart() ?? storedWeekStart();
+}
+
+function rememberWeekStart(day) {
+  try {
+    window.localStorage.setItem(WEEK_START_KEY, String(day));
+  } catch {
+    // Zonder opslag geldt de volgende keer alleen de dag uit de pagina (data-week-start). Ontbreekt die ook, dan wacht
+    // Aanbiedingen weer op /api/mealie/status.
+  }
+}
+
 // Waar de week begint, uit /api/mealie/status: een vaste dag van de beheerder, anders die uit Mealie, anders maandag.
-// Geeft true als de week nu op een andere dag begint.
+// Geeft true als de week nu op een andere dag begint. Het toestel onthoudt de dag, ook als hij gelijk bleef: zo hoeft Aanbiedingen
+// bij het volgende openen niet op het antwoord te wachten (zie state.weekStartKnown).
 function applyWeekStart(weekStart) {
   if (!weekStart) return false;
   renderWeekStartChoice(weekStart);
   const day = Number.isInteger(weekStart.day) && weekStart.day >= 0 && weekStart.day <= 6 ? weekStart.day : 1;
+  rememberWeekStart(day);
   if (day === state.firstDayOfWeek) return false;
   state.firstDayOfWeek = day;
   // De week uit het adres is geteld met de oude eerste dag: opnieuw tellen, anders schuift een week die op zondag begint er een op.
