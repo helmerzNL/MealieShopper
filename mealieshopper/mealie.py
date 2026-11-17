@@ -773,6 +773,24 @@ async def week_start() -> dict[str, Any]:
     return {"day": day, "source": source, "setting": setting, "mealie": from_mealie}
 
 
+async def week_start_hint() -> int | None:
+    """De eerste dag van de week voor de startpagina (`data-week-start`), zonder Mealie te vragen: de vaste dag van de beheerder,
+    anders wat `first_day_of_week` al van Mealie hoorde (ook als die tien minuten om zijn), en zonder Mealie maandag, zoals
+    `week_start`. None zolang Mealie gekoppeld is maar nog niet antwoordde: dan wacht de pagina op /api/mealie/status, dat het
+    onthoudt. Een vers browserprofiel hoeft zo geen ronde op die status te wachten voordat het de aanbiedingen vraagt (17-11-2026).
+    De client controleert de dag nog met /api/mealie/status."""
+    setting: str = await week_start_setting()
+    if setting:
+        return int(setting)
+    base, _token = await _endpoint()
+    if not base:
+        return WEEK_START_DEFAULT
+    cached: tuple[float, int | None] | None = _week_start_cache.get(base)
+    if cached is None:
+        return None
+    return cached[1] if cached[1] is not None else WEEK_START_DEFAULT
+
+
 async def recipe_page_url(slug: str) -> str:
     """Het adres van een recept in Mealie: /g/<groep>/r/<recept>, of het oude /recipe/<recept> als de groep onbekend is."""
     base = await mealie_url()
