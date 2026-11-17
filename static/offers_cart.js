@@ -9,7 +9,8 @@ const OFFER_CART_PAUSE = 400; // zo lang na de laatste klik gaat het aantal naar
 const OFFER_CART_FRESH = 60000; // binnen een minuut vraagt een nieuwe lading van de pagina het mandje niet opnieuw op
 
 // ready: het mandje van deze winkel is gelezen. counts: product-id -> aantal. timers: product-id -> wachtende verzending.
-const offerCart = { store: "", ready: false, counts: new Map(), timers: new Map(), loadId: 0, loadedAt: 0 };
+// loading: de winkel waarvan het mandje nu gelezen wordt ("" als er niets loopt).
+const offerCart = { store: "", ready: false, counts: new Map(), timers: new Map(), loadId: 0, loadedAt: 0, loading: "" };
 
 // AH is altijd een keuze (zonder koppeling mislukt het lezen en blijven de knoppen weg), de andere winkels alleen gekoppeld.
 function offerCartAvailable(store) {
@@ -56,9 +57,13 @@ function paintOfferCart(id = null) {
 }
 
 // Leest het mandje van de winkel van de aanbiedingen. Mislukt dat (niet gekoppeld, winkel onbereikbaar), dan blijven de knoppen weg.
+// Opent de pagina, dan vragen het openen van het scherm en het openen van het subtab allebei het mandje op: de tweede wacht dan op
+// de aanvraag die al loopt, in plaats van de winkel nog eens te vragen (zoals offersRequest bij de aanbiedingen).
 async function loadOfferCart(store, { force = false } = {}) {
   if (!force && offerCart.store === store && offerCart.ready && Date.now() - offerCart.loadedAt < OFFER_CART_FRESH) return;
+  if (!force && offerCart.loading === store) return;
   const loadId = ++offerCart.loadId;
+  offerCart.loading = ""; // het antwoord van een eerdere aanvraag telt vanaf nu niet meer
   offerCart.timers.forEach((timer) => clearTimeout(timer));
   offerCart.timers.clear();
   if (offerCart.store !== store) {
@@ -72,6 +77,7 @@ async function loadOfferCart(store, { force = false } = {}) {
     paintOfferCart();
     return;
   }
+  offerCart.loading = store;
   try {
     const cart = await jsonFetch(`/api/${store}/cart`);
     if (loadId !== offerCart.loadId) return;
@@ -81,6 +87,8 @@ async function loadOfferCart(store, { force = false } = {}) {
   } catch (error) {
     if (loadId !== offerCart.loadId) return;
     offerCart.ready = false;
+  } finally {
+    if (loadId === offerCart.loadId) offerCart.loading = "";
   }
   paintOfferCart();
 }
