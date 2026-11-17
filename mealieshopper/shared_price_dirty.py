@@ -256,9 +256,12 @@ def parse_receipts(value: Any) -> tuple[str, str, str] | None:
 
 
 async def token(conn: aiosqlite.Connection, store: str) -> str:
+    """The random token of the catalogue of `store`: a restored or new database has another one. Read straight from its row,
+    without the check of the catalogue triggers (`prices._catalogue_row`, which scans every trigger) unless the row is missing."""
     from . import prices
 
-    return str((await prices._catalogue_row(conn, store))["token"])
+    row: Any = await auth.fetchone(conn, "SELECT token FROM catalogue_versions WHERE store=?", (store,))
+    return str(row[0] if row is not None else (await prices._catalogue_row(conn, store))["token"])
 
 
 def _clean_here(store: str) -> bool:

@@ -394,24 +394,18 @@ async def candidates(conn: aiosqlite.Connection, snapshot: Any, store: str, ids:
     shadow: str = " AND NOT (" + shadow_sql("p") + ")" if snapshot is not None else ""
     # Two local rows per product suffice: the lowest fresh point and the newest point.
     # The mask query below still sees every private day, including non-regular observations.
+    # Each is one probe of the primary key (store, product, day) per product: the window of ten years stays unread.
+    usable: str = "p.store=? AND p.product_id=w.value AND p.day<=? AND p.source!=? AND typeof(p.price) IN ('real','integer') AND p.price>0" + shadow
+    fresh: str = prices._days_ago(until, prices.FRESH_DAYS)
     local: list[Any] = list(
         await conn.execute_fetchall(
-            "WITH selected AS (SELECT p.* FROM price_observations p WHERE p.store=? "
-            "AND p.product_id IN (SELECT value FROM json_each(?)) AND p.day>=? AND p.day<=? "
-            "AND p.source!=? AND typeof(p.price) IN ('real','integer') AND p.price>0" + shadow + "), "
-            "ranked AS (SELECT *,row_number() OVER(PARTITION BY product_id ORDER BY "
-            "CASE WHEN day>=? THEN 0 ELSE 1 END, CASE WHEN day>=? THEN price END,day DESC) AS chosen,"
-            "row_number() OVER(PARTITION BY product_id ORDER BY day DESC) AS newest FROM selected) "
-            "SELECT * FROM ranked WHERE chosen=1 OR newest=1 ORDER BY product_id,day",
-            (
-                store,
-                json.dumps(ids),
-                since,
-                until,
-                prices.PUBLIC_OBSERVED_UNKNOWN,
-                prices._days_ago(until, prices.FRESH_DAYS),
-                prices._days_ago(until, prices.FRESH_DAYS),
-            ),
+            "WITH wanted AS MATERIALIZED (SELECT DISTINCT value FROM json_each(?)), picked AS MATERIALIZED ("
+            "SELECT (SELECT p.rowid FROM price_observations p WHERE " + usable + " AND p.day>=? ORDER BY p.day DESC LIMIT 1) AS id FROM wanted w "
+            "UNION SELECT (SELECT p.rowid FROM price_observations p WHERE "
+            + usable
+            + " AND p.day>=? ORDER BY p.price,p.day DESC LIMIT 1) FROM wanted w) "
+            "SELECT p.* FROM picked c CROSS JOIN price_observations p ON p.rowid=c.id ORDER BY p.product_id,p.day",
+            (json.dumps(ids), store, until, prices.PUBLIC_OBSERVED_UNKNOWN, since, store, until, prices.PUBLIC_OBSERVED_UNKNOWN, max(since, fresh)),
         )
     )
     public: dict[str, list[dict[str, Any]]] = (

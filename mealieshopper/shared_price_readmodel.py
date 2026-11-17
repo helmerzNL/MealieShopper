@@ -337,8 +337,9 @@ async def verdict_facts(store: str, items: list[dict[str, Any]], today: str) -> 
             family_ids.update(
                 row[0]
                 for row in await conn.execute_fetchall(
-                    "SELECT DISTINCT product_id FROM shared_price_families WHERE store=? AND family_key IN (SELECT value FROM json_each(?))",
-                    (store, json.dumps(keys)),
+                    # One probe of the primary key per family: with `IN` SQLite chose the index per product and read the whole store.
+                    "SELECT DISTINCT f.product_id FROM json_each(?) w CROSS JOIN shared_price_families f ON f.store=? AND f.family_key=w.value",
+                    (json.dumps(keys), store),
                 )
             )
             all_ids: list[str] = sorted(set(ids) | family_ids)

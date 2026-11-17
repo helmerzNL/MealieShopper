@@ -2360,6 +2360,7 @@ SEEN_DAYS = 30  # "laagste sinds <maand>": de milde trede voor een installatie d
 GOOD_DISCOUNT = 0.20  # vanaf 20% onder de gewone prijs (regular_price.choose) is het echt voordelig
 OFTEN_PER_YEAR = 6  # zo vaak of vaker per jaar in de aanbieding: het komt vaak terug
 PACK_DAYS = 60  # hoe oud een prijs van een andere verpakking mag zijn om mee te vergelijken
+BASE_TITLE_SIZE: int = 32_768  # de namen van de aanbiedingen en hun families van een week, met ruimte
 REGULAR_HISTORY_DAYS = 3650  # zo ver terug zoekt het oordeel bij de aanbiedingen een gewone prijs (regular_price.choose kiest)
 PACK_MARGIN = 0.02  # een andere verpakking telt pas als goedkoper bij minstens 2% verschil per eenheid
 COMPARE_LIMIT = 30  # genoeg om ook de grote verpakking (zoals 1000 g rundergehakt) tussen de resultaten te krijgen
@@ -2416,8 +2417,10 @@ def unit_price(price: Any, unit_size: Any) -> dict[str, Any] | None:
     return {"value": round(value / per, 2), "unit": _UNIT_NAMES[kind]}
 
 
+@name_keys.memo(BASE_TITLE_SIZE)
 def base_title(title: Any) -> str:
-    """De naam van een product zonder maten en verpakkingswoorden, in kleine letters: om verpakkingen van hetzelfde product te herkennen."""
+    """De naam van een product zonder maten en verpakkingswoorden, in kleine letters: om verpakkingen van hetzelfde product te herkennen.
+    Onthouden (`name_keys.TextMemo`): het oordeel bij de aanbiedingen vraagt bij elke aanvraag dezelfde paar duizend namen."""
     text = _SIZE_RE.sub(" ", ah_lists._fold(title).replace("-", " "))
     return " ".join(word for word in re.findall(r"[a-z0-9]+", text) if word not in _PACK_WORDS)
 
