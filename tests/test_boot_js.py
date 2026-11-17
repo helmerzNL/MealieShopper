@@ -1,6 +1,6 @@
-"""Het opstarten van de pagina: welke aanvragen tegelijk gaan, waarop het scherm uit het adres wacht, en de onthouden eerste dag
-van de week. De echte functies uit static/app.js, router.js, onboarding.js en offers.js draaien hier in Node. Zonder Node slaan de
-tests over.
+"""Het opstarten van de pagina: welke aanvragen tegelijk gaan, waarop het scherm uit het adres wacht, en de eerste dag van de week
+die de pagina van de server meekrijgt of die het toestel onthield. De echte functies uit static/app.js, router.js, onboarding.js en
+offers.js draaien hier in Node. Zonder Node slaan die tests over.
 
 Gemeten op 17 november 2026: een koude /offers vroeg /api/auth/status, /api/onboarding/status, /api/auth/credentials en
 /api/mealie/status na elkaar op, voor /api/offers de deur uit ging.
@@ -11,8 +11,15 @@ import os
 import re
 import shutil
 import subprocess
+import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
+
+from helpers import AppTestCase
+
+from mealieshopper import auth, mealie
+from mealieshopper.app import create_app
 
 ROOT: Path = Path(__file__).resolve().parents[1]
 APP_JS: str = (ROOT / "static" / "app.js").read_text(encoding="utf-8")
@@ -214,13 +221,16 @@ function storage(stored) {
 class RememberedWeekStartTest(unittest.TestCase):
     """Aanbiedingen wachtte bij elk openen een ronde op /api/mealie/status voor de eerste dag van de week. Nu onthoudt het toestel die dag."""
 
-    def initial_state(self, stored: object) -> dict:
+    def initial_state(self, stored: object, page: str | None = None) -> dict:
+        # `page`: data-week-start op <html>, zoals de server hem meegaf (None: geen attribuut).
         top: str = APP_JS[: APP_JS.index("// Material Design Icons")]
+        dataset: str = json.dumps({} if page is None else {"weekStart": page})
         script: str = "\n".join(
             [
                 STORAGE_PAGE,
                 f"const window = {{ localStorage: storage({json.dumps(stored)}) }};",
-                function_source(APP_JS, "storedWeekStart"),
+                f"const document = {{ documentElement: {{ dataset: {dataset} }} }};",
+                *(function_source(APP_JS, name) for name in ("parseWeekStart", "pageWeekStart", "storedWeekStart", "initialWeekStart")),
                 top,
                 "console.log(JSON.stringify({ first: state.firstDayOfWeek, known: state.weekStartKnown }));",
             ]
@@ -235,6 +245,16 @@ class RememberedWeekStartTest(unittest.TestCase):
     def test_anything_else_is_unknown_and_the_offers_wait_as_before(self) -> None:
         for stored in (None, "", "7", "-1", "1.0", " 1", "01", "zondag", "throw"):
             self.assertEqual(self.initial_state(stored), {"first": 1, "known": False}, repr(stored))
+        self.assertEqual(self.initial_state(None, page=""), {"first": 1, "known": False}, "een leeg attribuut")
+
+    def test_a_fresh_profile_starts_with_the_day_from_the_server(self) -> None:
+        self.assertEqual(self.initial_state(None, page="0"), {"first": 0, "known": True})
+        self.assertEqual(self.initial_state("throw", page="6"), {"first": 6, "known": True}, "ook zonder opslag")
+
+    def test_the_server_goes_before_the_remembered_day(self) -> None:
+        # De server weet wat de beheerder nu instelde, het toestel wat het de vorige keer hoorde.
+        self.assertEqual(self.initial_state("6", page="1"), {"first": 1, "known": True})
+        self.assertEqual(self.initial_state("6", page="7"), {"first": 6, "known": True}, "een onzinnig attribuut telt niet")
 
     def apply(self, stored: object, first: int, days: list[int]) -> dict:
         script: str = "\n".join(
@@ -367,6 +387,54 @@ loadOfferCart("picnic"); await settle();
 console.log(JSON.stringify({ asked }));
 """)
         self.assertEqual(result["asked"], ["/api/ah/cart", "/api/ah/cart", "/api/ah/cart", "/api/picnic/cart"])
+
+
+class WeekStartHintPageTest(AppTestCase):
+    """De pagina draagt de eerste dag van de week die de server al weet (mealie.week_start_hint) als data-week-start op <html>,
+    zodat een vers browserprofiel bij Aanbiedingen niet op /api/mealie/status hoeft te wachten."""
+
+    def setUp(self) -> None:
+        tmp: tempfile.TemporaryDirectory[str] = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        patcher = mock.patch.dict(os.environ, {"MEALIESHOPPER_DATA_DIR": tmp.name, "MEALIESHOPPER_AUTH_SECRET": "test-secret"})
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        for key in ("MEALIE_URL", "MEALIE_API_TOKEN"):
+            os.environ.pop(key, None)
+        auth._INITIALIZED = False
+        mealie._week_start_cache.clear()
+        self.addCleanup(mealie._week_start_cache.clear)
+        self.client = self.client_for(create_app())
+
+    async def week_start_attribute(self, path: str = "/offers") -> str | None:
+        reply = await self.client.get(path)
+        self.assertEqual(reply.status_code, 200)
+        tag: re.Match[str] | None = re.search(r"<html\b[^>]*>", reply.get_data(as_text=True))
+        assert tag is not None
+        found: re.Match[str] | None = re.search(r'\sdata-week-start="([^"]*)"', tag.group(0))
+        return found.group(1) if found else None
+
+    async def link_mealie(self) -> None:
+        await auth.set_secret("MEALIE_URL", "https://mealie.example.nl")
+        await auth.set_secret("MEALIE_API_TOKEN", "eyJhbGciOiJIUzI1NiJ9.geheime-mealie-token.handtekening")
+
+    async def test_without_mealie_the_page_says_monday(self) -> None:
+        self.assertEqual(await self.week_start_attribute(), "1")
+        self.assertEqual(await self.week_start_attribute("/"), "1", "elke pagina van de app")
+
+    async def test_the_fixed_day_of_the_owner(self) -> None:
+        await auth.set_setting(mealie.SETTING_WEEK_START, "0")
+        self.assertEqual(await self.week_start_attribute(), "0")
+
+    async def test_what_mealie_said_earlier(self) -> None:
+        await self.link_mealie()
+        mealie._week_start_cache["https://mealie.example.nl"] = (0.0, 6)
+        self.assertEqual(await self.week_start_attribute(), "6")
+
+    async def test_no_attribute_while_mealie_has_not_answered(self) -> None:
+        # Dan wacht Aanbiedingen op /api/mealie/status, zoals voorheen (of gebruikt de dag die het toestel onthield).
+        await self.link_mealie()
+        self.assertIsNone(await self.week_start_attribute())
 
 
 if __name__ == "__main__":

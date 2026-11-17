@@ -1,16 +1,17 @@
-// De eerste dag van de week, zoals dit toestel hem het laatst uit /api/mealie/status kreeg (storedWeekStart, applyWeekStart).
+// De eerste dag van de week voor het eerste laden: van de server (data-week-start) of zoals dit toestel hem het laatst uit
+// /api/mealie/status kreeg (initialWeekStart, applyWeekStart).
 const WEEK_START_KEY = "ms-week-start";
-const STORED_WEEK_START = storedWeekStart();
+const INITIAL_WEEK_START = initialWeekStart();
 
 const state = {
   weekOffset: 0,
   // Waar de week begint, zoals Mealie telt (0 = zondag, 1 = maandag), uit /api/mealie/status. Tot dat antwoord er is, geldt de
-  // dag die dit toestel de vorige keer kreeg.
-  firstDayOfWeek: STORED_WEEK_START ?? 1,
-  // De eerste dag is bekend: het antwoord van /api/mealie/status is binnen (of mislukt), of dit toestel kent de dag van de vorige
-  // keer. Zonder die dag is de week een gok, en wacht Aanbiedingen (zie weekStartSettled). Wijkt het antwoord af van de onthouden
-  // dag, dan laadt Aanbiedingen alsnog de goede week (applyWeekStart, offersWeekStartChanged).
-  weekStartKnown: STORED_WEEK_START !== null,
+  // dag die de server in de pagina meegaf, of die dit toestel de vorige keer kreeg.
+  firstDayOfWeek: INITIAL_WEEK_START ?? 1,
+  // De eerste dag is bekend: het antwoord van /api/mealie/status is binnen (of mislukt), of de pagina of dit toestel kent de dag
+  // al. Zonder die dag is de week een gok, en wacht Aanbiedingen (zie weekStartSettled). Wijkt het antwoord af van de dag waarmee
+  // de pagina begon, dan laadt Aanbiedingen alsnog de goede week (applyWeekStart, offersWeekStartChanged).
+  weekStartKnown: INITIAL_WEEK_START !== null,
   entries: null,
   planAutoLoaded: false, // het weekmenu is na het koppelen van Mealie eenmaal vanzelf geladen
   auth: null,
@@ -2005,22 +2006,39 @@ function renderWeekStartChoice(weekStart) {
   select.value = weekStart.setting || "";
 }
 
-// De eerste dag van de week die dit toestel het laatst uit /api/mealie/status kreeg, of null als die niet bekend is. Alleen een
-// dag van 0 tot en met 6 telt: Number("") is ook 0, en dat is zondag. Zonder opslag (privévenster, geblokkeerd) is hij onbekend.
+// Een eerste dag van de week als tekst ("0" t/m "6"), of null. Alleen die telt: Number("") is ook 0, en dat is zondag.
+function parseWeekStart(value) {
+  return /^[0-6]$/.test(value || "") ? Number(value) : null;
+}
+
+// De eerste dag van de week die de server bij het laden al wist (data-week-start op <html>, mealie.week_start_hint), of null.
+// De server vraagt Mealie daarvoor niet: die dag kan oud zijn, en /api/mealie/status controleert hem nog.
+function pageWeekStart() {
+  return parseWeekStart(document.documentElement.dataset.weekStart);
+}
+
+// De eerste dag van de week die dit toestel het laatst uit /api/mealie/status kreeg, of null als die niet bekend is. Zonder
+// opslag (privévenster, geblokkeerd) is hij onbekend.
 function storedWeekStart() {
   try {
-    const value = window.localStorage.getItem(WEEK_START_KEY);
-    return /^[0-6]$/.test(value || "") ? Number(value) : null;
+    return parseWeekStart(window.localStorage.getItem(WEEK_START_KEY));
   } catch {
     return null;
   }
+}
+
+// De eerste dag van de week voor het eerste laden: die van de server gaat voor, want dat is wat hij nu weet. Een vers
+// browserprofiel heeft zo geen onthouden dag nodig. Null als geen van beide hem kent: dan wacht Aanbiedingen op de status.
+function initialWeekStart() {
+  return pageWeekStart() ?? storedWeekStart();
 }
 
 function rememberWeekStart(day) {
   try {
     window.localStorage.setItem(WEEK_START_KEY, String(day));
   } catch {
-    // Zonder opslag wacht Aanbiedingen bij de volgende keer weer op /api/mealie/status.
+    // Zonder opslag geldt de volgende keer alleen de dag uit de pagina (data-week-start). Ontbreekt die ook, dan wacht
+    // Aanbiedingen weer op /api/mealie/status.
   }
 }
 
