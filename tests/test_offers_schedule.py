@@ -182,6 +182,32 @@ class WarmerTest(unittest.IsolatedAsyncioTestCase):
             release.set()
             await asyncio.gather(*tasks.running().values())
 
+    async def test_nightly_run_warms_again_when_the_round_finishes(self) -> None:
+        # 17-11-2026: de ronde voor losse namen schreef om 05:04 tot 05:06 nog 17 koppelingen (product_links), na het opwarmen van
+        # de nachtelijke run. Daarmee veranderde de ETag, en de eerste /api/offers van de dag rekende 6,3 s op de aanvraag.
+        release = asyncio.Event()
+
+        async def slow_round(trigger: str, now=None, only=None) -> dict:
+            await release.wait()
+            self.order.append("round")
+            return {}
+
+        offers_schedule.set_warmer(self.step("warmer"))
+        self.addAsyncCleanup(tasks.cancel_all)
+        with mock.patch.object(loose_names, "run_all_stores", slow_round), mock.patch.object(image_cache, "prefetch_nightly", self.step("nightly")):
+            await asyncio.wait_for(self.run_all(wait_for_images=True, real_start=True), timeout=2)
+            self.assertEqual(self.order.count("warmer"), 1, "de run warmt meteen op, de ronde loopt nog")
+            release.set()
+            await asyncio.wait_for(asyncio.gather(*tasks.running().values()), timeout=2)
+        self.assertEqual(self.order[-2:], ["round", "warmer"], "na de ronde nog een keer opwarmen")
+
+    async def test_nightly_run_does_not_warm_twice_without_a_running_round(self) -> None:
+        offers_schedule.set_warmer(self.step("warmer"))
+        with mock.patch.object(image_cache, "prefetch_nightly", self.step("nightly")):
+            await self.run_all(wait_for_images=True)
+        await asyncio.gather(*tasks.running().values())
+        self.assertEqual(self.order.count("warmer"), 1)
+
     async def test_nightly_run_starts_the_round_after_the_extras(self) -> None:
         self.loose_start.side_effect = lambda *args: self.order.append("loose") or True
         with mock.patch.object(image_cache, "prefetch_nightly", self.step("nightly")):

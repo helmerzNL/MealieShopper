@@ -55,6 +55,9 @@ _task: asyncio.Task[None] | None = None
 # De opwarmer van /api/offers (create_app registreert hem): rekent na een synchronisatie het oordeel alvast uit, zodat de
 # eerste bezoeker niet wacht. Zonder registratie (tests, scripts) doet de synchronisatie niets extra's.
 _warmer: Callable[[], Awaitable[None]] | None = None
+# De rondes die de nachtelijke run start zonder erop te wachten en die in de catalogustabellen schrijven (prices.CATALOGUE_TABLES):
+# de koppelingen van de losse namen (product_links) en de weekprijzen van de prijsindex (price_observations).
+CATALOGUE_WRITERS: tuple[str, ...] = (loose_names.TASK_NAME, ah_price_index.TASK_NAME)
 
 
 def set_warmer(warmer: Callable[[], Awaitable[None]] | None) -> None:
@@ -158,6 +161,7 @@ async def run_all(trigger: str, now: datetime | None = None, *, wait_for_images:
     if _warmer is not None:
         if wait_for_images:
             await _warm()
+            _warm_after_writers()
         else:
             tasks.spawn("warm-offers", _warm())
     return result
@@ -186,6 +190,27 @@ async def _start_recipe_index() -> None:
         await recipe_nutrition.refresh_nightly()
     except Exception:  # noqa: BLE001 - een extraatje: een fout bij het starten mag de nachtelijke run niet laten falen
         log.warning("Receptencache bijwerken starten mislukt", exc_info=True)
+
+
+def _running_writers() -> list[asyncio.Task[Any]]:
+    """De rondes van `CATALOGUE_WRITERS` die nu nog lopen."""
+    running: dict[str, asyncio.Task[Any]] = tasks.running()
+    return [task for name in CATALOGUE_WRITERS if (task := running.get(name)) is not None and not task.done()]
+
+
+def _warm_after_writers() -> None:
+    """Loopt er na het opwarmen nog een ronde van `CATALOGUE_WRITERS`, dan warmt een eigen task op zodra die allemaal klaar zijn.
+    Op 17-11-2026 schreef de ronde voor losse namen nog twee minuten koppelingen na het opwarmen: de ETag veranderde, en de eerste
+    bezoeker van die dag wachtte 6,3 s op een lijst die de app op de aanvraag uitrekende."""
+    writers: list[asyncio.Task[Any]] = _running_writers()
+    if writers:
+        tasks.spawn("warm-offers-after-rounds", _warm_when_done(writers))
+
+
+async def _warm_when_done(writers: list[asyncio.Task[Any]]) -> None:
+    # `asyncio.wait` geeft geen fout van een ronde door: een mislukte of geannuleerde ronde telt ook als klaar.
+    await asyncio.wait(writers)
+    await _warm()
 
 
 async def _warm() -> None:
