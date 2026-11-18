@@ -4382,6 +4382,96 @@ html:has(#cook-mode[open]) {
   height: 22px;
 }
 
+/* Het weekmenu bewerken (plan_drag.js): de knop naast Synchroniseren staat aan als een gevulde knop (aria-pressed). In de
+   bewerkstand heeft elke maaltijd een gestippelde rand en een grijphand, en verdwijnt het potlood: een maaltijd sleep je dan,
+   je opent haar niet. `touch-action: none` alleen op de maaltijden, zodat je op een telefoon nog scrolt via de rest van de dag. */
+.icon-button[aria-pressed="true"] {
+  border-color: var(--primary);
+  background: var(--primary);
+  color: var(--on-primary);
+}
+
+@media (hover: hover) {
+  .icon-button[aria-pressed="true"]:hover {
+    border-color: var(--primary-strong);
+    background: var(--primary-strong);
+    color: var(--on-primary);
+  }
+}
+
+.plan-arrange-hint {
+  margin: 12px 0 0;
+}
+
+.is-arranging .meal--planned {
+  border: 1px dashed var(--border-strong);
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+
+.is-arranging .meal__open {
+  padding-right: 8px;
+  cursor: grab;
+}
+
+.is-arranging .meal__image {
+  -webkit-user-drag: none;
+}
+
+.is-arranging .meal__edit {
+  display: none;
+}
+
+.is-arranging .meal--planned.is-dragging {
+  opacity: 0.35;
+}
+
+/* De dag waar de maaltijd boven hangt, en de pijl naar een andere week waar ze even op blijft staan. */
+.day-card.is-drop-target {
+  border-color: var(--primary);
+  background: var(--selection);
+  box-shadow: 0 0 0 2px var(--primary), var(--shadow-md);
+}
+
+.icon-button.is-drop-hover {
+  border-color: var(--primary);
+  background: var(--selection);
+  color: var(--primary-strong);
+  box-shadow: 0 0 0 2px var(--primary);
+}
+
+/* De maaltijd onder je vinger of muis: een losse kopie die het venster volgt. */
+.meal-ghost {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 1000;
+  margin: 0;
+  border: 1px solid var(--primary);
+  background: var(--surface);
+  box-shadow: var(--shadow-lg);
+  pointer-events: none;
+  cursor: grabbing;
+}
+
+.meal-ghost .meal__edit {
+  display: none;
+}
+
+.meal-ghost .meal__open {
+  padding-right: 8px;
+}
+
+body.is-plan-dragging,
+body.is-plan-dragging * {
+  cursor: grabbing !important;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
 /* De plan-dialoog: dag en maaltijd naast elkaar, een segmentbediening voor recept of notitie en een lijst recepten uit Mealie. */
 .plan-dialog {
   width: min(560px, calc(100vw - 32px));
