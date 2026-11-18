@@ -474,9 +474,10 @@ async def relink_receipts(
     caller's transaction. With `mark` the products whose lines changed are marked for the drain (`shared_price_dirty`). With
     `same_names` the drain proved that the selected names did not change (only the prices of a name with more products): the
     linking then reads the names it stored instead of scanning every name of the store (without a public snapshot only)."""
-    from . import prices, shared_price_dirty
+    from . import price_import, prices, shared_price_dirty
 
     raw: list[Any] = await prices._receipt_source_rows(conn, store, today)
+    accounts: tuple[set[str], set[str]] = await price_import.account_orders(conn, store)
     if same_names and snapshot is None:
         receipts, prices_state = await _link_with_stored_names(conn, store, raw)
         state: ReceiptState | None = None
@@ -494,6 +495,10 @@ async def relink_receipts(
         for table in ("shared_price_receipt_keys", "shared_price_receipt_names"):
             await conn.execute(f"DELETE FROM {table} WHERE store=?", (store,))
         await conn.executemany("INSERT OR IGNORE INTO shared_price_receipt_keys VALUES(?,?,?)", [(store, kind, value) for kind, value in state.keys])
+        await conn.executemany(
+            "INSERT OR IGNORE INTO shared_price_receipt_keys VALUES(?,?,?)",
+            [(store, "account", number) for number in sorted(accounts[0])] + [(store, "account_day", day) for day in sorted(accounts[1])],
+        )
         await conn.executemany("INSERT OR IGNORE INTO shared_price_receipt_names VALUES(?,?,?,?)", [(store, *name) for name in state.names])
     await conn.execute("DELETE FROM shared_price_receipt_prices WHERE store=?", (store,))
     await conn.executemany("INSERT INTO shared_price_receipt_prices VALUES(?,?,?)", [(store, pid, known) for pid, known in prices_state])

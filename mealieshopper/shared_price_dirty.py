@@ -90,7 +90,7 @@ class Source(NamedTuple):
     store: str
     marks: tuple[str, ...]
     items: str = ""  # an order table: the table with its lines, whose products and names the order marks
-    columns: tuple[str, ...] = ()  # an order table: only an update of one of these columns marks
+    columns: tuple[str, ...] = ()  # only an update of one of these columns marks (all columns when empty)
     added: tuple[str, ...] = ()  # marks only for an insert or a delete
 
 
@@ -101,20 +101,33 @@ def sources() -> tuple[Source, ...]:
         Source("price_observations", "{row}.store", (PRODUCT, NAME)),
         Source("offer_history", "{row}.store", (PRODUCT, NAME)),
         Source("offers", "{row}.store", (PRODUCT,)),
-        Source("imported_purchases", "{row}.store", (RECEIPTS,)),
-        Source("ah_receipts", "'ah'", (RECEIPTS,)),
-        Source("ah_receipt_items", "'ah'", (RECEIPTS,)),
-        Source("ah_receipt_products", "'ah'", (RECEIPTS,)),
+        # The receipt tables mark only for an update of a column the linking reads: the nightly `prices.fill_regular_prices`
+        # writes `regular_price` and `regular_checked_at` of every line it checks.
+        Source(
+            "imported_purchases",
+            "{row}.store",
+            (RECEIPTS,),
+            columns=("store", "order_ref", "position", "day", "title", "quantity", "paid", "regular"),
+        ),
+        Source("ah_receipts", "'ah'", (RECEIPTS,), columns=("receipt_id", "date_time")),
+        Source("ah_receipt_items", "'ah'", (RECEIPTS,), columns=("receipt_id", "position", "product_id", "name", "quantity", "price", "amount")),
+        Source("ah_receipt_products", "'ah'", (RECEIPTS,), columns=("receipt_product_id", "product_id", "title", "brand", "unit_size")),
         Source("product_links", "{row}.store", ("own_link",)),
         Source("shared_link_rejections", "{row}.store", ("rejection",)),
         Source("shared_price_equivalence", "{row}.store", (PRODUCT, "equivalent_name")),
     ]
     for store, purchases in prices._PURCHASES.items():
         for (items, orders), _ in purchases:
-            found.append(Source(items, f"'{store}'", (PRODUCT, NAME), added=(ACCOUNTS,)))
+            found.append(Source(items, f"'{store}'", (PRODUCT, NAME), columns=ITEM_COLUMNS, added=(ACCOUNTS,)))
             found.append(Source(orders, f"'{store}'", ("order", ACCOUNTS), items=items, columns=("kind", "status", "delivery_date", "first_seen")))
     return tuple(found)
 
+
+# The columns of a line of an order that the read model reads (`prices._PURCHASES`, the names and the account orders): not
+# `regular_price` and `regular_checked_at`, which the nightly `prices.fill_regular_prices` writes.
+ITEM_COLUMNS: tuple[str, ...] = (
+    "order_id", "position", "product_id", "title", "brand", "unit_size", "image", "quantity", "amount", "price", "price_before_bonus", "bonus", "list_price",
+)  # fmt: skip
 
 _UPSERT_SQL: str = " ON CONFLICT(store,kind,product_id,title) DO UPDATE SET n=n+1"
 _UPSERT: str = _UPSERT_SQL + ";"
@@ -176,11 +189,23 @@ def trigger_sql(source: Source, op: str, columns: set[str], keys: list[list[str]
     rows with the same key as the new row: `INSERT OR REPLACE` and `UPDATE OR REPLACE` delete those without firing a delete
     trigger (unless `recursive_triggers` is on). For an update that keeps its key that is the row itself, marked anyway."""
     if op in ("REPLACE", "REPLACE_UPDATE"):
+        # Only the product and name of the row that goes: every other mark of a table depends on its key, which the new row
+        # shares and marks itself. Before an insert only a row that differs from the new one (an upsert updates the row instead,
+        # and its update trigger sees the old one), before an update only when a key column changes (else nothing can conflict).
+        named: Source = source._replace(marks=tuple(mark for mark in source.marks if mark in (PRODUCT, NAME)), added=())
+        differs: str = " OR ".join(f"x.{column} IS NOT NEW.{column}" for column in ("product_id", "title") if column in columns) or "0"
         body: str = " ".join(
-            _statements(_parts(source, "x", True), f"{source.table} x", " AND ".join(f"x.{column}=NEW.{column}" for column in key)) for key in keys
+            _statements(
+                _parts(named, "x", False),
+                f"{source.table} x",
+                " AND ".join(f"x.{column}=NEW.{column}" for column in key) + (f" AND ({differs})" if op == "REPLACE" else ""),
+            )
+            for key in keys
         )
+        changed: str = " OR ".join(sorted({f"NEW.{column} IS NOT OLD.{column}" for key in keys for column in key})) or "0"
         event: str = "INSERT" if op == "REPLACE" else "UPDATE"
-        return f"CREATE TRIGGER IF NOT EXISTS {trigger_name(source.table, op)} BEFORE {event} ON {source.table} BEGIN {body or 'SELECT 1;'} END"
+        when: str = "" if op == "REPLACE" else f" WHEN {changed}"
+        return f"CREATE TRIGGER IF NOT EXISTS {trigger_name(source.table, op)} BEFORE {event} ON {source.table}{when} BEGIN {body or 'SELECT 1;'} END"
     rows: tuple[str, ...] = {"INSERT": ("NEW",), "DELETE": ("OLD",), "UPDATE": ("OLD", "NEW")}[op]
     event = op
     if op == "UPDATE" and source.columns:
@@ -470,6 +495,8 @@ async def _receipts_round(conn: aiosqlite.Connection, snapshot: Any, store: str,
         await conn.execute(_RECEIPT_ROWS_SQL, (store, kinds))
         return False
     relink: str = await _relink(conn, snapshot, store, rows, parsed[2], today)
+    if relink == SAME_NAMES and len(rows) >= RECEIPT_BATCH:
+        relink = ALL_LINES  # the rows beyond this batch were not checked, and the relink below takes them all
     if relink:
         from . import shared_price_readmodel
 
@@ -493,7 +520,7 @@ async def _relink(conn: aiosqlite.Connection, snapshot: Any, store: str, rows: l
     kinds: set[str] = {row[0] for row in rows}
     if RECEIPTS in kinds:
         return ALL_LINES
-    if ACCOUNTS in kinds and await conn.execute_fetchall("SELECT 1 FROM imported_purchases WHERE store=? LIMIT 1", (store,)):
+    if ACCOUNTS in kinds and await _accounts_moved(conn, store):
         return ALL_LINES
     if linked_day != today and await _lines_between(conn, store, min(linked_day, today), max(linked_day, today)):
         return ALL_LINES
@@ -511,6 +538,21 @@ async def _relink(conn: aiosqlite.Connection, snapshot: Any, store: str, rows: l
     if several and await _prices_moved(conn, snapshot, store, several):
         return SAME_NAMES if snapshot is None else ALL_LINES
     return ""
+
+
+async def _accounts_moved(conn: aiosqlite.Connection, store: str) -> bool:
+    """Whether the account orders that replace an import (`price_import.account_orders`) are another set than the linking
+    used. A sync saves an order again and deletes and inserts its lines: that changes nothing here as long as the same orders
+    keep lines. Without imports of the store they change nothing at all."""
+    from . import price_import
+
+    if not await conn.execute_fetchall("SELECT 1 FROM imported_purchases WHERE store=? LIMIT 1", (store,)):
+        return False
+    numbers, days = await price_import.account_orders(conn, store)
+    stored: list[Any] = list(
+        await conn.execute_fetchall("SELECT kind,value FROM shared_price_receipt_keys WHERE store=? AND kind IN('account','account_day')", (store,))
+    )
+    return {("account", number) for number in numbers} | {("account_day", day) for day in days} != {(str(row[0]), str(row[1])) for row in stored}
 
 
 def _link_key(kind: str, key: str) -> tuple[str, str]:

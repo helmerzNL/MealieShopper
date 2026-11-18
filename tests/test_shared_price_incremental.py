@@ -349,11 +349,7 @@ def _differences(incremental: dict[str, Any], scratch: dict[str, Any]) -> list[s
     return [name for name in incremental if incremental[name] != scratch[name]]
 
 
-@pytest.mark.asyncio
-@pytest.mark.parametrize("seed", SEEDS)
-async def test_incremental_read_model_equals_a_build_from_scratch(
-    data_dir: Path, tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch, seed: int
-) -> None:
+async def _series(data_dir: Path, tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch, seed: int) -> None:
     rng: random.Random = random.Random(seed)
     clock: Clock = Clock("2026-10-10")
     monkeypatch.setattr(prices, "_now", clock.now)
@@ -376,6 +372,27 @@ async def test_incremental_read_model_equals_a_build_from_scratch(
         scratch: dict[str, Any] = await _from_scratch(data_dir, tmp_path_factory.mktemp(f"scratch{seed}-{step}"), monkeypatch, clock)
         different: list[str] = _differences(incremental, scratch)
         assert not different, (steps, different, {name: (incremental[name], scratch[name]) for name in different[:2]})
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("seed", SEEDS)
+async def test_incremental_read_model_equals_a_build_from_scratch(
+    data_dir: Path, tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch, seed: int
+) -> None:
+    await _series(data_dir, tmp_path_factory, monkeypatch, seed)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("seed", [101, 102])
+async def test_incremental_read_model_in_rounds_of_one_row_equals_a_build_from_scratch(
+    data_dir: Path, tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch, seed: int
+) -> None:
+    """The same with rounds of one product and one pending name or link: a relink after a full batch takes the rows beyond it."""
+    from mealieshopper import shared_price_dirty
+
+    monkeypatch.setattr(shared_price_dirty, "BATCH_SIZE", 1)
+    monkeypatch.setattr(shared_price_dirty, "RECEIPT_BATCH", 1)
+    await _series(data_dir, tmp_path_factory, monkeypatch, seed)
 
 
 async def _small_model(monkeypatch: pytest.MonkeyPatch, clock: Clock) -> None:
@@ -455,3 +472,68 @@ async def test_a_backlog_beyond_the_budget_of_a_request_drains_in_the_background
     assert sorted(ids[0] for ids in indexed) == ["2", "3", "4"]
     async with prices._connect() as conn:
         assert await shared_price_dirty.ready(conn, "ah", "", clock.day)
+
+
+@pytest.mark.asyncio
+async def test_the_writers_of_a_sync_and_the_nightly_fill_leave_the_receipt_lines_alone(data_dir: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A sync saves an order again with the same lines (`ah_orders._save_order`: an upsert of the order, then its lines deleted
+    and inserted), and the nightly run fills `regular_price` of the lines (`prices.fill_regular_prices`). With imports present
+    neither may make the drain link every receipt line again, and the fill marks no product at all."""
+    from mealieshopper import shared_price_readmodel, telemetry
+
+    clock: Clock = Clock("2026-10-10")
+    monkeypatch.setattr(prices, "_now", clock.now)
+    monkeypatch.setattr(offers, "_now", clock.now)
+    monkeypatch.setenv("MEALIESHOPPER_SHARED_PRICES", "true")
+    monkeypatch.setenv("MEALIESHOPPER_TELEMETRY", "true")
+    await _tables()
+    rng: random.Random = random.Random(7)
+    for write in (_observe, _observe, _offer, _receipt, _imported, _imported):
+        await write(rng, clock)
+    header: dict[str, Any] = {"id": 1001, "deliveryDate": clock.ago(2), "state": "DELIVERED"}
+    lines: list[dict[str, Any]] = [
+        {"productId": int(pid), "title": title, "brand": brand, "unitSize": unit, "quantity": 1, "price": 1.5}
+        for pid, (title, brand, unit) in list(TITLES.items())[:2]
+    ]
+    async with ah_orders._connect() as conn:
+        await ah_orders._save_order(conn, header, "delivered", lines)
+        await conn.commit()
+    await shared_price_overlay.prepare("ah")
+
+    indexed: list[list[str]] = []
+    original_index: Any = shared_price_readmodel.index_batch
+
+    async def index_batch(conn: Any, snapshot: Any, store: str, day: str, ids: list[str]) -> None:
+        indexed.append(list(ids))
+        await original_index(conn, snapshot, store, day, ids)
+
+    queries: list[str] = []
+    original_query: Any = telemetry.Recording.add_query
+
+    def add_query(self: Any, seconds: float, label: str) -> None:
+        queries.append(label)
+        original_query(self, seconds, label)
+
+    monkeypatch.setattr(shared_price_readmodel, "index_batch", index_batch)
+    monkeypatch.setattr(telemetry.Recording, "add_query", add_query)
+
+    async def request() -> None:
+        recording: telemetry.Recording = telemetry.Recording("GET", "/api/offers")
+        token: Any = telemetry._current.set(recording)
+        try:
+            await prices.annotate("ah", [{"id": "1", "title": TITLES["1"][0], "price": 1.0}], clock.day)
+        finally:
+            telemetry._current.reset(token)
+
+    async with ah_orders._connect() as conn:
+        await ah_orders._save_order(conn, header, "delivered", lines)
+        await conn.commit()
+    await request()
+    assert sorted(pid for ids in indexed for pid in ids) == ["1", "2"]  # the products of the lines, and nothing else
+    assert not [sql for sql in queries if "WITH names AS MATERIALIZED" in sql], "every receipt line linked again"
+    indexed.clear()
+    queries.clear()
+    assert await prices.fill_regular_prices("ah", order_ids=[1001], now=clock.now()) == len(lines)
+    await request()
+    assert indexed == []
+    assert not [sql for sql in queries if "WITH names AS MATERIALIZED" in sql], "every receipt line linked again"
