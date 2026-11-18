@@ -293,7 +293,7 @@ async def prepare(store: str = "ah") -> None:
                     break
             await asyncio.sleep(0)
         async with prices._connect() as conn:
-            await shared_price_dirty.refresh(conn, snapshot, store, prices._now()[:10], wait_ms=None)
+            await shared_price_dirty.refresh(conn, snapshot, store, prices._now()[:10], request=False)
 
 
 async def _build_step(conn: aiosqlite.Connection, snapshot: Any, store: str, generation: str) -> bool:

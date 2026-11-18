@@ -45,6 +45,10 @@ RECEIPTS_FORMAT: str = "receipts-v3"
 BATCH_SIZE: int = 64
 MAX_ROUNDS: int = 4096
 REQUEST_WAIT_MS: int = 500  # how long a request waits for another writer before it answers from the fallbacks
+# How many pending products a request re-indexes itself (about 1 s on the copy of production). A larger backlog (an import of the
+# price archive) goes on in the background, and the request answers from the fallbacks meanwhile.
+REQUEST_PRODUCTS: int = 2048
+RECEIPT_BATCH: int = 2000  # pending names and links read per round
 
 PRODUCT: str = "product"
 NAME: str = "name"
@@ -71,11 +75,12 @@ CREATE TABLE IF NOT EXISTS shared_price_receipt_prices (
 """
 TABLES: tuple[str, ...] = ("shared_price_dirty", "shared_price_receipt_keys", "shared_price_receipt_names", "shared_price_receipt_prices")
 TRIGGER_PREFIX: str = "shared_price_dirty_"
-OPS: tuple[str, ...] = ("INSERT", "UPDATE", "DELETE", "REPLACE")
+OPS: tuple[str, ...] = ("INSERT", "UPDATE", "DELETE", "REPLACE", "REPLACE_UPDATE")
 
 # The stores a request found clean after its own `refresh`, so that the readers of that request skip the check.
 _CLEAN: ContextVar[tuple[tuple[str, str], ...]] = ContextVar("shared_price_clean", default=())
 _LOCKS: weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, dict[tuple[str, str], asyncio.Lock]] = weakref.WeakKeyDictionary()
+_DRAINS: dict[tuple[str, str], asyncio.Task[Any]] = {}  # the background drain per database and store (`_drain_later`)
 
 
 class Source(NamedTuple):
@@ -167,15 +172,17 @@ def trigger_name(table: str, op: str) -> str:
 
 
 def trigger_sql(source: Source, op: str, columns: set[str], keys: list[list[str]]) -> str:
-    """The trigger of `op` on a source table. `REPLACE` is a trigger before every insert that marks the rows with the same key:
-    an `INSERT OR REPLACE` deletes them without firing a delete trigger (unless `recursive_triggers` is on)."""
-    if op == "REPLACE":
+    """The trigger of `op` on a source table. `REPLACE` and `REPLACE_UPDATE` run before every insert and update and mark the
+    rows with the same key as the new row: `INSERT OR REPLACE` and `UPDATE OR REPLACE` delete those without firing a delete
+    trigger (unless `recursive_triggers` is on). For an update that keeps its key that is the row itself, marked anyway."""
+    if op in ("REPLACE", "REPLACE_UPDATE"):
         body: str = " ".join(
             _statements(_parts(source, "x", True), f"{source.table} x", " AND ".join(f"x.{column}=NEW.{column}" for column in key)) for key in keys
         )
-        return f"CREATE TRIGGER IF NOT EXISTS {trigger_name(source.table, op)} BEFORE INSERT ON {source.table} BEGIN {body or 'SELECT 1;'} END"
+        event: str = "INSERT" if op == "REPLACE" else "UPDATE"
+        return f"CREATE TRIGGER IF NOT EXISTS {trigger_name(source.table, op)} BEFORE {event} ON {source.table} BEGIN {body or 'SELECT 1;'} END"
     rows: tuple[str, ...] = {"INSERT": ("NEW",), "DELETE": ("OLD",), "UPDATE": ("OLD", "NEW")}[op]
-    event: str = op
+    event = op
     if op == "UPDATE" and source.columns:
         watched: list[str] = [column for column in source.columns if column in columns]
         event = "UPDATE OF " + ",".join(watched) if watched else op
@@ -241,7 +248,8 @@ def code() -> str:
     the same code: a write no longer rebuilds the whole model, so a deploy of other code starts one build instead."""
     from . import about
 
-    return f"{about.version()}@{environ.get('MEALIESHOPPER_COMMIT', '').strip()[:7]}"
+    commit: str = environ.get("MEALIESHOPPER_COMMIT", "").strip()
+    return f"{about.version()}@{'' if commit.lower() == 'unknown' else commit[:7]}"  # "unknown" as `about.read_commit` reads it
 
 
 def build_revision(token: str, day: str) -> str:
@@ -341,33 +349,63 @@ async def receipts_linked(conn: aiosqlite.Connection, store: str, generation: st
 # --- the drain ----------------------------------------------------------------------------------------------------------
 
 
-async def refresh(conn: aiosqlite.Connection, snapshot: Any, store: str, today: str, *, wait_ms: int | None = REQUEST_WAIT_MS) -> bool:
+async def refresh(conn: aiosqlite.Connection, snapshot: Any, store: str, today: str, *, request: bool = True) -> bool:
     """Drain the pending changes of `store`, one bounded round per transaction, and remember for this request whether the
-    store ended clean. `wait_ms` bounds the wait for another writer: a request then answers from the fallbacks instead."""
+    store ended clean. A request waits at most `REQUEST_WAIT_MS` for another writer and re-indexes at most `REQUEST_PRODUCTS`
+    products: past that the rest goes on in the background (`_drain_later`), and the readers of the request use the fallbacks.
+    The build (`request=False`) waits as long as any connection and drains everything."""
+    wait_ms: int | None = REQUEST_WAIT_MS if request else None
+    budget: int | None = REQUEST_PRODUCTS if request else None
     key: tuple[str, str] = (str(auth.db_path()), store)
     locks: dict[tuple[str, str], asyncio.Lock] = _LOCKS.setdefault(asyncio.get_running_loop(), {})
     lock: asyncio.Lock = locks.setdefault(key, asyncio.Lock())
     clean: bool = False
-    async with lock:
-        if wait_ms is not None:
-            await conn.execute(f"PRAGMA busy_timeout={int(wait_ms)}")
-        try:
-            await ensure_triggers(conn)
-            for _ in range(MAX_ROUNDS):
-                if not await _round(conn, snapshot, store, today):
-                    clean = True
-                    break
-                await asyncio.sleep(0)
-        except sqlite3.OperationalError as exc:
-            if "locked" not in str(exc) and "busy" not in str(exc):
-                log.warning("Could not refresh the read model of %s", store, exc_info=True)
-        except Exception:  # noqa: BLE001 - the readers fall back to the sources, so a failed drain never fails a request
+    indexed: int = 0
+    if wait_ms is not None:
+        await conn.execute(f"PRAGMA busy_timeout={int(wait_ms)}")
+    try:
+        await ensure_triggers(conn)
+        for _ in range(MAX_ROUNDS):
+            if budget is not None and indexed >= budget:
+                _drain_later(store)
+                break
+            async with lock:  # per round, so that a long drain in the background lets a request in between
+                worked, products = await _round(conn, snapshot, store, today)
+            if not worked:
+                clean = True
+                break
+            indexed += products
+            await asyncio.sleep(0)
+    except sqlite3.OperationalError as exc:
+        if "locked" not in str(exc) and "busy" not in str(exc):
             log.warning("Could not refresh the read model of %s", store, exc_info=True)
-        finally:
-            if wait_ms is not None:
-                await conn.execute(f"PRAGMA busy_timeout={int(auth.BUSY_SECONDS * 1000)}")
+    except Exception:  # noqa: BLE001 - the readers fall back to the sources, so a failed drain never fails a request
+        log.warning("Could not refresh the read model of %s", store, exc_info=True)
+    finally:
+        if wait_ms is not None:
+            await conn.execute(f"PRAGMA busy_timeout={int(auth.BUSY_SECONDS * 1000)}")
     _mark_clean(store, clean)
     return clean
+
+
+def _drain_later(store: str) -> None:
+    """Drain the rest of `store` in the background (`shared_price_overlay.prepare`), once per database and store at a time."""
+    from . import shared_price_overlay, tasks
+
+    key: tuple[str, str] = (str(auth.db_path()), store)
+    running: asyncio.Task[Any] | None = _DRAINS.get(key)
+    if running is not None and not running.done():
+        return
+    task: asyncio.Task[Any] = tasks.spawn(f"shared-price-drain-{store}", shared_price_overlay.prepare(store))
+    _DRAINS[key] = task
+    task.add_done_callback(lambda done: _DRAINS.pop(key, None) if _DRAINS.get(key) is done else None)
+
+
+async def drained(store: str) -> None:
+    """Wait for the background drain of `store`, if one runs (the tests)."""
+    running: asyncio.Task[Any] | None = _DRAINS.get((str(auth.db_path()), store))
+    if running is not None:
+        await running
 
 
 async def _pending(conn: aiosqlite.Connection, snapshot: Any, store: str, today: str) -> bool:
@@ -384,20 +422,21 @@ async def _pending(conn: aiosqlite.Connection, snapshot: Any, store: str, today:
     return receipts is not None and receipts[1] == generation and receipts[2] != today
 
 
-async def _round(conn: aiosqlite.Connection, snapshot: Any, store: str, today: str) -> bool:
-    """One transaction of the drain: the receipt lines first (a relink changes the products of its lines), then one batch of
-    products. True when this round changed something, so another may have work."""
+async def _round(conn: aiosqlite.Connection, snapshot: Any, store: str, today: str) -> tuple[bool, int]:
+    """One transaction of the drain: the pending names and links first (a relink changes the products of its lines), then one
+    batch of products. Whether this round changed something (so another may have work), and how many products it re-indexed."""
     if not await _pending(conn, snapshot, store, today):
-        return False
+        return False, 0
     generation: str = getattr(snapshot, "generation", "") if snapshot is not None else ""
     await conn.execute("BEGIN IMMEDIATE")
     try:
         current: str = await token(conn, store)
+        products: int = 0
         worked: bool = await _receipts_round(conn, snapshot, store, today, generation, current)
         if not worked:
-            worked = await _products_round(conn, snapshot, store, today, generation, current)
+            worked, products = await _products_round(conn, snapshot, store, today, generation, current)
         await conn.commit()
-        return worked
+        return worked, products
     except BaseException:
         await conn.rollback()
         raise
@@ -411,28 +450,36 @@ async def _taken(conn: aiosqlite.Connection, store: str, rows: Iterable[Any]) ->
     )
 
 
+_RECEIPT_ROWS_SQL: str = "DELETE FROM shared_price_dirty WHERE store=? AND kind IN(SELECT value FROM json_each(?))"
+
+
 async def _receipts_round(conn: aiosqlite.Connection, snapshot: Any, store: str, today: str, generation: str, current: str) -> bool:
+    """The pending names and links, `RECEIPT_BATCH` at a time. True when it relinked or left more of them for the next round.
+    Inside the transaction of the round no other writer adds a row, so a relink covers every pending one."""
+    kinds: str = json.dumps(list(RECEIPT_KINDS))
     rows: list[Any] = list(
         await conn.execute_fetchall(
-            "SELECT kind,product_id,title,n FROM shared_price_dirty WHERE store=? AND kind IN(SELECT value FROM json_each(?))",
-            (store, json.dumps(list(RECEIPT_KINDS))),
+            "SELECT kind,product_id,title,n FROM shared_price_dirty WHERE store=? AND kind IN(SELECT value FROM json_each(?)) LIMIT ?",
+            (store, kinds, RECEIPT_BATCH),
         )
     )
     meta: Any = await auth.fetchone(conn, "SELECT revision FROM shared_price_receipt_meta WHERE store=?", (store,))
     parsed: tuple[str, str, str] | None = parse_receipts(meta[0] if meta else None)
     if parsed is None or parsed[0] != current or parsed[1] != generation:
         # No stored lines of this token and generation: a reader links from scratch until a build links them again.
-        await _taken(conn, store, rows)
+        await conn.execute(_RECEIPT_ROWS_SQL, (store, kinds))
         return False
     relink: str = await _relink(conn, snapshot, store, rows, parsed[2], today)
     if relink:
         from . import shared_price_readmodel
 
         await shared_price_readmodel.relink_receipts(conn, snapshot, store, today, generation, current, mark=True, same_names=relink == SAME_NAMES)
-    elif parsed[2] != today:
+        await conn.execute(_RECEIPT_ROWS_SQL, (store, kinds))
+        return True
+    if parsed[2] != today:
         await conn.execute("UPDATE shared_price_receipt_meta SET revision=? WHERE store=?", (receipt_revision(current, generation, today), store))
     await _taken(conn, store, rows)
-    return bool(relink)
+    return len(rows) >= RECEIPT_BATCH
 
 
 ALL_LINES: str = "all"
@@ -453,10 +500,8 @@ async def _relink(conn: aiosqlite.Connection, snapshot: Any, store: str, rows: l
     links: list[tuple[str, str]] = [_link_key(str(row[1]), str(row[2])) for row in rows if row[0] == LINK]
     if any(kind == "?" for kind, _ in links):
         return ALL_LINES
-    names: list[tuple[str, str]] = [(str(row[1]), str(row[2])) for row in rows if row[0] == NAME]
-    probes: list[list[str]] = await compute.run(_name_probes, names)
-    several_probes: list[list[str]] = [["several", pid] for pid in sorted({pid for pid, _ in names})]
-    found: set[tuple[str, str]] = await _keys(conn, store, [list(key) for key in links] + probes + several_probes)
+    names: list[tuple[str, str]] = await compute.run(_names_of, rows)
+    found: set[tuple[str, str]] = await _keys(conn, store, await compute.run(_probes, links, names))
     if any(key in found for key in links):
         return ALL_LINES
     relevant: list[tuple[str, str]] = await compute.run(_relevant_names, names, found)
@@ -472,14 +517,20 @@ def _link_key(kind: str, key: str) -> tuple[str, str]:
     return ({"article": "article", "name": "name", "rejection": "shared"}.get(kind, "?"), key)
 
 
-def _name_probes(names: list[tuple[str, str]]) -> list[list[str]]:
-    """The keys that put a (product, title) pair among the names the linking reads: its product, its folded title and its key."""
+def _names_of(rows: list[Any]) -> list[tuple[str, str]]:
+    return [(str(row[1]), str(row[2])) for row in rows if row[0] == NAME]
+
+
+def _probes(links: list[tuple[str, str]], names: list[tuple[str, str]]) -> str:
+    """As JSON, the keys to look up for the pending links and names: the key of each link, and for each (product, title) pair
+    the keys that put it among the names the linking reads (its product, folded title and key) and its product as one of a
+    name with more products."""
     from . import name_keys, product_links
 
-    found: set[tuple[str, str]] = set()
+    found: set[tuple[str, str]] = set(links)
     for pid, title in names:
-        found.update({("id", pid), ("fold", product_links.fold(title)), ("near", name_keys.key(title))})
-    return [list(probe) for probe in sorted(found)]
+        found.update({("id", pid), ("fold", product_links.fold(title)), ("near", name_keys.key(title)), ("several", pid)})
+    return json.dumps([list(probe) for probe in sorted(found)])
 
 
 def _relevant_names(names: list[tuple[str, str]], found: set[tuple[str, str]]) -> list[tuple[str, str]]:
@@ -494,14 +545,12 @@ def _relevant_names(names: list[tuple[str, str]], found: set[tuple[str, str]]) -
     )
 
 
-async def _keys(conn: aiosqlite.Connection, store: str, probes: list[list[str]]) -> set[tuple[str, str]]:
-    if not probes:
-        return set()
+async def _keys(conn: aiosqlite.Connection, store: str, probes: str) -> set[tuple[str, str]]:
     rows: list[Any] = list(
         await conn.execute_fetchall(
             "SELECT k.kind,k.value FROM json_each(?) w CROSS JOIN shared_price_receipt_keys k "
             "ON k.store=? AND k.kind=json_extract(w.value,'$[0]') AND k.value=json_extract(w.value,'$[1]')",
-            (json.dumps(probes), store),
+            (probes, store),
         )
     )
     return {(str(row[0]), str(row[1])) for row in rows}
@@ -560,13 +609,13 @@ async def _lines_between(conn: aiosqlite.Connection, store: str, after: str, unt
     return False
 
 
-async def _products_round(conn: aiosqlite.Connection, snapshot: Any, store: str, today: str, generation: str, current: str) -> bool:
+async def _products_round(conn: aiosqlite.Connection, snapshot: Any, store: str, today: str, generation: str, current: str) -> tuple[bool, int]:
     from . import shared_price_readmodel
 
     build: Any = await auth.fetchone(conn, "SELECT generation,ready_revision FROM shared_price_build WHERE store=?", (store,))
     parsed: tuple[str, str] | None = parse_build(build[1]) if build and build[0] == generation else None
     if parsed is None or parsed[0] != current:
-        return False  # the pending products wait for the build, which reads them as they are when it gets there
+        return False, 0  # the pending products wait for the build, which reads them as they are when it gets there
     worked: bool = False
     if parsed[1] != today:
         await mark_day(conn, store, min(parsed[1], today), max(parsed[1], today))
@@ -580,10 +629,10 @@ async def _products_round(conn: aiosqlite.Connection, snapshot: Any, store: str,
         )
     )
     if not rows:
-        return worked
+        return worked, 0
     await shared_price_readmodel.index_batch(conn, snapshot, store, today, [str(row[1]) for row in rows])
     await _taken(conn, store, rows)
-    return True
+    return True, len(rows)
 
 
 async def mark_day(conn: aiosqlite.Connection, store: str, after: str, until: str) -> None:

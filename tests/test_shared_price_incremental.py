@@ -159,6 +159,14 @@ async def _history(rng: random.Random, clock: Clock) -> None:
     )
 
 
+async def _move_history(rng: random.Random, clock: Clock) -> None:
+    """An `UPDATE OR REPLACE` that gives one period the id of another: the other is deleted without a delete trigger."""
+    found: list[tuple[Any, ...]] = await _rows("SELECT id FROM offer_history ORDER BY id")
+    if len(found) > 1:
+        moved, taken = rng.sample([row[0] for row in found], 2)
+        await _write("UPDATE OR REPLACE offer_history SET id=? WHERE id=?", (taken, moved))
+
+
 async def _end_history(rng: random.Random, clock: Clock) -> None:
     found: list[tuple[Any, ...]] = await _rows("SELECT id FROM offer_history ORDER BY id")
     if found:
@@ -280,6 +288,7 @@ WRITES: tuple[Any, ...] = (
     _forget_offer,
     _history,
     _end_history,
+    _move_history,
     _receipt,
     _forget_receipt_line,
     _receipt_product,
@@ -417,5 +426,32 @@ async def test_a_build_of_other_code_is_not_trusted(data_dir: Path, monkeypatch:
         assert not await shared_price_dirty.ready(conn, "ah", "", clock.day)
         assert not await shared_price_dirty.receipts_linked(conn, "ah", "")
     await shared_price_overlay.prepare("ah")
+    async with prices._connect() as conn:
+        assert await shared_price_dirty.ready(conn, "ah", "", clock.day)
+
+
+@pytest.mark.asyncio
+async def test_a_backlog_beyond_the_budget_of_a_request_drains_in_the_background(data_dir: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from mealieshopper import shared_price_dirty, shared_price_readmodel
+
+    clock: Clock = Clock("2026-10-10")
+    await _small_model(monkeypatch, clock)
+    monkeypatch.setattr(shared_price_dirty, "BATCH_SIZE", 1)
+    monkeypatch.setattr(shared_price_dirty, "REQUEST_PRODUCTS", 1)
+    for pid in ("2", "3", "4"):
+        await _write("UPDATE price_observations SET price=price+1 WHERE store='ah' AND product_id=?", (pid,))
+    indexed: list[list[str]] = []
+    original: Any = shared_price_readmodel.index_batch
+
+    async def index_batch(conn: Any, snapshot: Any, store: str, day: str, ids: list[str]) -> None:
+        indexed.append(list(ids))
+        await original(conn, snapshot, store, day, ids)
+
+    monkeypatch.setattr(shared_price_readmodel, "index_batch", index_batch)
+    expected: list[dict[str, Any]] = [{"id": "1", "title": TITLES["1"][0], "price": 1.0}]
+    await prices.annotate("ah", expected, clock.day)
+    assert indexed[:1] == [["2"]]  # the request itself re-indexed one product, the rest went on in the background
+    await shared_price_dirty.drained("ah")
+    assert sorted(ids[0] for ids in indexed) == ["2", "3", "4"]
     async with prices._connect() as conn:
         assert await shared_price_dirty.ready(conn, "ah", "", clock.day)
