@@ -8,12 +8,19 @@ Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar
 
 ### Gedeelde prijzen in 4.30.0
 
+Pull request: [#341](https://github.com/helmerzNL/MealieShopper/pull/341).
+
 - **Een vooraf opgebouwde database.** De centrale publicatie bereidt productnamen, prijsperiodes en zoekgegevens voor. De app downloadt alleen een gewijzigde versie, controleert die volledig op de achtergrond en wisselt daarna de actieve kopie. Open aanvragen kunnen de vorige kopie uitlezen. De gewone JSON-documenten blijven beschikbaar voor oudere versies.
 - **Begrensd lezen.** De prijsgeschiedenis leest de gevraagde producten en periodes rechtstreeks. De aanbiedingen lezen compacte prijsgegevens, zonder alle weekpunten uit te pakken. Zo hoeft een lichte server de gedeelde prijscatalogus niet in het geheugen op te bouwen.
 - **Warme prijsgeschiedenis.** Een samengestelde index voorkomt dat de groepsquery dezelfde winkelrijen telkens opnieuw doorzoekt. Zodra de leesindex gereed is, leest een gewone aanvraag alleen de bonregels van de gekozen producten en hun gekoppelde varianten. Op de ARM64 Docker-proef met 1 CPU en 1 GiB daalt p95 van de warme geschiedenis van 157 naar 84 ms en van een productvraag van 92 naar 34 ms. De volledige antwoorden blijven gelijk.
 - **Automatische migratie.** Bestaande installaties vergelijken hun oude prijsregels op de achtergrond met de centrale bron. Alleen volledig gelijke regels worden herkend als oude gedeelde import. Die volgen daarna broncorrecties. Eigen waarnemingen en onbekende of afwijkende regels houden voorrang. De oorspronkelijke regels blijven ongewijzigd bewaard voor terugrollen.
 - **Voorrang voor aanvragen.** De achtergrondcontrole en migratie geven voorrang aan actieve aanvragen. Een mislukte update laat de vorige goedgekeurde kopie staan, die ook zonder verbinding bruikbaar blijft. Bij te weinig schijfruimte wordt de update uitgesteld.
 - **Back-up en herstel.** De vastgelegde herkomst van prijswaarnemingen gaat mee in de back-up. De gedeelde database en afgeleide migratie- en zoekgegevens worden na terugzetten opnieuw opgehaald of opgebouwd. Bestellingen, bonnen en correcties blijven lokaal.
+
+### Documentatie in 4.30.0
+
+- **Gevolgde producten** heeft een schermafbeelding in de handleiding, in het Nederlands en het Engels ([#340](https://github.com/helmerzNL/MealieShopper/pull/340)).
+- De changelog van 4.29.0 noemt pull request #337 ([#339](https://github.com/helmerzNL/MealieShopper/pull/339)).
 
 ## v4.29.0
 

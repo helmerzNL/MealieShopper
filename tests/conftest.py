@@ -147,6 +147,19 @@ def fresh_auth_state() -> None:
     auth.forget_runtime_state()
 
 
+@pytest.fixture(autouse=True)
+def fresh_shared_price_pressure(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Elke test begint zonder voorgrondaanvragen en zonder afkoeltijd van de gedeelde prijzen.
+
+    `pressure._pressure` hoort bij het proces. Duurde een aanvraag in een eerdere test op dezelfde worker langer dan
+    100 ms, dan wachtte de volgende test die een snapshot installeert tot 1 s op de afkoeltijd, en dat telde de
+    bewaking als stilstand van de event loop.
+    """
+    from mealieshopper.shared_prices import pressure
+
+    monkeypatch.setattr(pressure, "_pressure", pressure.Pressure())
+
+
 @pytest.fixture
 def data_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Path]:
     """Tijdelijke datamap, ruimt zichzelf op via tmp_path en monkeypatch."""
