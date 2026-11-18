@@ -543,6 +543,39 @@ async def test_building_the_catalogue_does_not_stall(volume_dir: Path) -> None:
     )
 
 
+def _pending_products(path: Path) -> int:
+    with contextlib.closing(sqlite3.connect(path)) as conn:
+        return int(conn.execute("SELECT count(*) FROM shared_price_dirty WHERE store='ah' AND kind='product'").fetchone()[0])
+
+
+@pytest.mark.volume
+async def test_draining_a_bulk_write_of_the_shared_read_model_does_not_stall(volume_dir: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Het leesmodel van de gedeelde prijzen (`shared_price_dirty`) op de schaal van productie. Na een synchronisatie van de
+    aanbiedingen (elk product van `offers`) en een prijs van een op de tien producten met prijzen werkt een aanvraag die
+    producten af, zonder dat de event loop stilstaat, en daarna is het leesmodel klaar. De bouw vooraf loopt buiten de meting."""
+    from mealieshopper import shared_price_dirty, shared_price_overlay
+
+    monkeypatch.setenv("MEALIESHOPPER_SHARED_PRICES", "true")
+    await shared_price_overlay.prepare("ah")
+    items: list[dict[str, Any]] = (await offers.load("ah", volume.TODAY))["offers"]
+    assert items
+
+    async def bulk_write() -> None:
+        await asyncio.to_thread(_execute, volume_dir / volume.DB_NAME, "UPDATE offers SET position=position WHERE store='ah'")
+        await asyncio.to_thread(
+            _execute,
+            volume_dir / volume.DB_NAME,
+            "UPDATE price_observations SET price=price WHERE rowid IN (SELECT max(rowid) FROM price_observations WHERE store='ah' "
+            "GROUP BY product_id HAVING abs(random()) % 10 = 0)",
+        )
+        assert await asyncio.to_thread(_pending_products, volume_dir / volume.DB_NAME) >= len(items)
+
+    await quiet(lambda: prices.annotate("ah", [dict(item) for item in items], volume.TODAY), prepare=bulk_write)
+    async with prices._connect() as conn:
+        assert await shared_price_dirty.ready(conn, "ah", "", volume.TODAY)
+        assert not await conn.execute_fetchall("SELECT 1 FROM shared_price_dirty WHERE store='ah' LIMIT 1")
+
+
 class _Wrapper:
     """Zoals hypercorn 0.18 `ProtocolWrapper`: zijn `send` is een gebonden methode van de server."""
 

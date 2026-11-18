@@ -58,6 +58,7 @@ from . import (
     price_import,
     product_links,
     shared_links,
+    shared_price_dirty,
     shared_price_overlay,
     shared_price_readmodel,
     tasks,
@@ -308,13 +309,8 @@ async def record(store: str, products: Iterable[Any], source: str = "search", no
                 """,
                 rows,
             )
-            if shared_price_overlay.enabled():
-                with shared_price_readmodel.response_lease(store) as snapshot:
-                    ids: list[str] = sorted({row[1] for row in rows})
-                    for start in range(0, len(ids), shared_price_overlay.BATCH_SIZE):
-                        await shared_price_readmodel.index_batch(
-                            conn, snapshot, store, stamp[:10], ids[start : start + shared_price_overlay.BATCH_SIZE]
-                        )
+            # Het leesmodel van de gedeelde prijzen (`shared_price_dirty`) kreeg via zijn triggers een rij per product: de
+            # volgende aanvraag of bouw werkt alleen die producten bij.
             await conn.commit()
         return len(rows)
     except Exception:  # noqa: BLE001 - het bijhouden mag een zoekopdracht nooit laten mislukken
@@ -1989,6 +1985,7 @@ async def _lookup_receipt_names(lookup: Callable[[list[str]], Awaitable[Any]], w
     async with _connect() as conn:
         if shared_price_overlay.enabled():
             with shared_price_readmodel.response_lease("ah") as snapshot:
+                await shared_price_dirty.refresh(conn, snapshot, "ah", today)
                 rows: list[dict[str, Any]] = await shared_price_readmodel.receipt_rows(conn, snapshot, "ah", today)
         else:
             rows = (await _catalogue(conn, "ah", today)).receipts
@@ -2363,6 +2360,7 @@ SEEN_DAYS = 30  # "laagste sinds <maand>": de milde trede voor een installatie d
 GOOD_DISCOUNT = 0.20  # vanaf 20% onder de gewone prijs (regular_price.choose) is het echt voordelig
 OFTEN_PER_YEAR = 6  # zo vaak of vaker per jaar in de aanbieding: het komt vaak terug
 PACK_DAYS = 60  # hoe oud een prijs van een andere verpakking mag zijn om mee te vergelijken
+BASE_TITLE_SIZE: int = 32_768  # de namen van de aanbiedingen en hun families van een week, met ruimte
 REGULAR_HISTORY_DAYS = 3650  # zo ver terug zoekt het oordeel bij de aanbiedingen een gewone prijs (regular_price.choose kiest)
 PACK_MARGIN = 0.02  # een andere verpakking telt pas als goedkoper bij minstens 2% verschil per eenheid
 COMPARE_LIMIT = 30  # genoeg om ook de grote verpakking (zoals 1000 g rundergehakt) tussen de resultaten te krijgen
@@ -2419,8 +2417,10 @@ def unit_price(price: Any, unit_size: Any) -> dict[str, Any] | None:
     return {"value": round(value / per, 2), "unit": _UNIT_NAMES[kind]}
 
 
+@name_keys.memo(BASE_TITLE_SIZE)
 def base_title(title: Any) -> str:
-    """De naam van een product zonder maten en verpakkingswoorden, in kleine letters: om verpakkingen van hetzelfde product te herkennen."""
+    """De naam van een product zonder maten en verpakkingswoorden, in kleine letters: om verpakkingen van hetzelfde product te herkennen.
+    Onthouden (`name_keys.TextMemo`): het oordeel bij de aanbiedingen vraagt bij elke aanvraag dezelfde paar duizend namen."""
     text = _SIZE_RE.sub(" ", ah_lists._fold(title).replace("-", " "))
     return " ".join(word for word in re.findall(r"[a-z0-9]+", text) if word not in _PACK_WORDS)
 

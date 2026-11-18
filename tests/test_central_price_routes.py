@@ -405,11 +405,12 @@ async def test_folder_line_lookup_only_builds_selected_candidates(data_dir: Path
 
 @pytest.mark.asyncio
 async def test_selected_catalogue_decodes_only_selected_cached_receipt_documents(data_dir: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    from mealieshopper import shared_price_readmodel
+    from mealieshopper import shared_price_dirty, shared_price_readmodel
 
     today: str = "2026-10-03"
     async with prices._connect() as conn:
-        revision: str = await shared_price_overlay.revision(conn, "ah")
+        await shared_price_dirty.ensure_triggers(conn)
+        token: str = await shared_price_dirty.token(conn, "ah")
         await conn.executemany(
             "INSERT INTO shared_price_receipts VALUES(?,?,?)",
             [
@@ -421,7 +422,7 @@ async def test_selected_catalogue_decodes_only_selected_cached_receipt_documents
                 for number in range(8000)
             ],
         )
-        await conn.execute("INSERT INTO shared_price_receipt_meta VALUES(?,?)", ("ah", f"receipts-v2:{revision}:private:{today}"))
+        await conn.execute("INSERT INTO shared_price_receipt_meta VALUES(?,?)", ("ah", shared_price_dirty.receipt_revision(token, "", today)))
         await conn.commit()
     original: Any = shared_price_readmodel._decode_receipts
 
@@ -483,19 +484,19 @@ async def test_cancelled_annotation_keeps_generation_lease_until_worker_finishes
 
 @pytest.mark.asyncio
 async def test_folder_pair_lookup_uses_bounded_index_probes(data_dir: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    from unittest.mock import AsyncMock
 
-    from mealieshopper import shared_price_lines
+    from mealieshopper import shared_price_dirty, shared_price_lines
 
     async with prices._connect() as conn:
+        await shared_price_dirty.ensure_triggers(conn)
         await conn.executemany(
             "INSERT INTO shared_price_lines VALUES(?,?,?,?,?,?)",
             [("ah", f"folder:{number}", f"other{number}", "missing", "", "Unrelated") for number in range(5000)]
             + [("ah", "folder:match", "melk", "ah", "", "Alle AH Melk")],
         )
-        await conn.execute("INSERT INTO shared_price_build VALUES('ah','','','ready','ready')")
+        ready: str = shared_price_dirty.build_revision(await shared_price_dirty.token(conn, "ah"), "2026-10-01")
+        await conn.execute("INSERT INTO shared_price_build VALUES('ah','','',?,?)", (ready, ready))
         await conn.commit()
-        monkeypatch.setattr(shared_price_overlay, "revision", AsyncMock(return_value="ready"))
         work: list[int] = [0]
 
         def progress() -> int:

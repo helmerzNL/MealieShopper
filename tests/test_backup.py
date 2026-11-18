@@ -433,6 +433,15 @@ class RoundTripTest(BackupCase):
         await prices.history("ah")
         self.assertLessEqual(set(price_history_index.TABLES), backup.EXCLUDED_TABLES)
 
+    async def test_the_change_tracking_of_the_shared_read_model_is_left_out(self) -> None:
+        # De wachtrij van het leesmodel van de gedeelde prijzen en wat het koppelen van de bonregels las (shared_price_dirty.py) zijn
+        # afgeleid: niet in de back-up. Een teruggezette database krijgt een nieuw token in catalogue_versions, en dan bouwt het
+        # leesmodel opnieuw op, zonder rijen van de oude database.
+        from mealieshopper import shared_price_dirty, shared_price_overlay
+
+        self.assertLessEqual(set(shared_price_dirty.TABLES), set(shared_price_overlay.TABLES))
+        self.assertLessEqual(set(shared_price_dirty.TABLES), backup.EXCLUDED_TABLES)
+
     async def test_restoring_a_backup_drops_the_cached_catalogue_and_list(self) -> None:
         # Review Focus 4 van taak 9: na het terugzetten staat er niets van de oude database meer in het geheugen.
         self.assertIn("catalogue_versions", backup.EXCLUDED_TABLES)

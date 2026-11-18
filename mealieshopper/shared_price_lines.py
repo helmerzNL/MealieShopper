@@ -64,14 +64,13 @@ def wanted(products: dict[str, Any]) -> tuple[list[list[str]], list[str]]:
 
 
 async def candidates(conn: aiosqlite.Connection, store: str, products: dict[str, Any]) -> list[Any]:
-    from . import auth, shared_price_overlay
+    from . import shared_price_dirty
 
     pairs, kinds = await compute.run(wanted, products)
     if not pairs:
         return []
-    current: str = await shared_price_overlay.revision(conn, store)
-    state: Any = await auth.fetchone(conn, "SELECT ready_revision FROM shared_price_build WHERE store=?", (store,))
-    if state and str(state[0]).split("|", 1)[0] == current:
+    # The lines depend on the folder rows of `offer_history` only, not on the day or the public generation.
+    if await shared_price_dirty.ready(conn, store, None, None):
         return list(
             await conn.execute_fetchall(
                 "SELECT DISTINCT l.product_id,l.title FROM json_each(?) p "
