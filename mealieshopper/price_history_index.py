@@ -436,48 +436,52 @@ async def page(
     by_brand: Choice,
     by_category: Choice,
     limit: int,
+    *,
+    table: str = "price_history_products",
+    shadowed: bool = False,
 ) -> Page:
     """De pagina van de prijsgeschiedenis zonder zoekterm en zonder `product`, uit `price_history_products`: zoals
     `prices._history_candidates` en `prices._rank_history` het over de hele catalogus doen, maar met de index. Elke groep
     telt een keer onder zijn `lead`. Het product uit de link (`pinned`) neemt de plek van zijn groep over, en komt apart terug.
     Met Eerder gekocht (`keeps`: de gekochte nummers met hun andere nummers, per winkel) alleen de groepen die je kocht."""
+    extra: str = " AND NOT EXISTS(SELECT 1 FROM temp._shared_history_rows x WHERE x.store=p.store AND x.product_id=p.product_id)" if shadowed else ""
     found: list[Pinned] = []
     excluded: list[tuple[str, str]] = []  # (winkel, lead) van de groep van het product uit de link
     if pinned is not None:
         for row in await conn.execute_fetchall(
-            f"SELECT store, product_id, day, brand, category, lead FROM price_history_products WHERE store IN ({','.join('?' * len(stores))}) "
-            "AND product_id = ?",
+            f"SELECT store, product_id, day, brand, category, lead FROM {table} AS p WHERE store IN ({','.join('?' * len(stores))}) "
+            f"AND product_id = ?{extra}",
             (*stores, pinned),
         ):
             found.append(Pinned(row["store"], row["product_id"], row["day"], row["brand"], row["category"]))
             excluded.append((row["store"], row["lead"]))
     if any(keeps.get(name) is not None for name in stores):
-        return Page(found, *await _bought_page(conn, stores, keeps, excluded, by_brand, by_category, limit))
+        return Page(found, *await _bought_page(conn, stores, keeps, excluded, by_brand, by_category, limit, table=table, shadowed=shadowed))
     where: list[str] = [f"store IN ({','.join('?' * len(stores))})", "product_id = lead"]
     args: list[Any] = list(stores)
     for name, lead in excluded:
         where.append("NOT (store = ? AND product_id = ?)")
         args += [name, lead]
-    base: str = " AND ".join(where)
+    base: str = " AND ".join(where) + extra
     brand_sql, brand_args = _passes("brand", by_brand)
     category_sql, category_args = _passes("category", by_category)
     brands: dict[str, int] = {
         row[0]: row[1]
         for row in await conn.execute_fetchall(
-            f"SELECT brand, COUNT(*) FROM price_history_products WHERE {base} AND {category_sql} GROUP BY brand", (*args, *category_args)
+            f"SELECT brand, COUNT(*) FROM {table} AS p WHERE {base} AND {category_sql} GROUP BY brand", (*args, *category_args)
         )
     }
     categories: dict[str, int] = {
         row[0]: row[1]
         for row in await conn.execute_fetchall(
-            f"SELECT category, COUNT(*) FROM price_history_products WHERE {base} AND {brand_sql} GROUP BY category", (*args, *brand_args)
+            f"SELECT category, COUNT(*) FROM {table} AS p WHERE {base} AND {brand_sql} GROUP BY category", (*args, *brand_args)
         )
     }
     total: int = sum(count for brand, count in brands.items() if by_brand.passes(brand))
     rest: list[tuple[str, str]] = [
         (row[0], row[1])
         for row in await conn.execute_fetchall(
-            f"SELECT store, product_id FROM price_history_products WHERE {base} AND {brand_sql} AND {category_sql} "
+            f"SELECT store, product_id FROM {table} AS p WHERE {base} AND {brand_sql} AND {category_sql} "
             "ORDER BY day DESC, store DESC, product_id DESC LIMIT ?",
             (*args, *brand_args, *category_args, limit),
         )
@@ -493,16 +497,20 @@ async def _bought_page(
     by_brand: Choice,
     by_category: Choice,
     limit: int,
+    *,
+    table: str = "price_history_products",
+    shadowed: bool = False,
 ) -> tuple[list[tuple[str, str]], int, dict[str, int], dict[str, int]]:
     """`page` met Eerder gekocht: de rijen van wat je kocht (een paar duizend) op hun nummer opgezocht, en de telling en de
     volgorde in `bought_page`. De index over alle producten zou hier langs alle 74.000 rijen van AH lopen."""
+    extra: str = " AND NOT EXISTS(SELECT 1 FROM temp._shared_history_rows x WHERE x.store=p.store AND x.product_id=p.product_id)" if shadowed else ""
     rows: list[Any] = []
     for name in stores:
         keep: set[str] | None = keeps.get(name)
         if keep:
             rows += await conn.execute_fetchall(
-                "SELECT p.store, p.product_id, p.day, p.brand, p.category FROM json_each(?) AS k CROSS JOIN price_history_products AS p "
-                "ON p.store = ? AND p.product_id = k.value WHERE p.product_id = p.lead",
+                f"SELECT p.store, p.product_id, p.day, p.brand, p.category FROM json_each(?) AS k CROSS JOIN {table} AS p "
+                f"ON p.store = ? AND p.product_id = k.value WHERE p.product_id = p.lead{extra}",
                 (json.dumps(sorted(keep), ensure_ascii=False), name),
             )
     return await compute.run(bought_page, [tuple(row) for row in rows], set(excluded), by_brand, by_category, limit)

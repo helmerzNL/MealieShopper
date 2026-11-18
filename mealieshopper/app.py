@@ -13,7 +13,7 @@ from typing import Any
 from urllib.parse import quote_plus
 
 import httpx
-from quart import Quart, Response, jsonify, redirect, render_template, request, send_file, send_from_directory
+from quart import Quart, Response, g, jsonify, redirect, render_template, request, send_file, send_from_directory
 from quart.json.provider import DefaultJSONProvider
 
 from . import (
@@ -74,6 +74,9 @@ from . import (
     server_settings,
     shared_links,
     shared_links_export,
+    shared_price_overlay,
+    shared_price_readmodel,
+    shared_prices,
     tasks,
     telemetry,
     templates,
@@ -202,6 +205,26 @@ def create_app() -> Quart:
     app.asgi_app = ForwardedHeaders(FinishAfterDisconnect(app.asgi_app))  # type: ignore[method-assign]
     # Met MEALIESHOPPER_TELEMETRY: de duur van elke aanvraag, buiten om de rest heen en voor de eerste before_request (telemetry.py).
     telemetry.register(app)
+
+    @app.before_request
+    async def _shared_foreground_start() -> None:
+        g.shared_price_foreground = shared_prices.foreground_started()
+
+    def _shared_foreground_finish() -> None:
+        token: Any = getattr(g, "shared_price_foreground", None)
+        if token is not None:
+            g.shared_price_foreground = None
+            shared_prices.foreground_finished(token)
+
+    @app.after_request
+    async def _shared_foreground_response(response: Response) -> Response:
+        _shared_foreground_finish()
+        return response
+
+    @app.teardown_request
+    async def _shared_foreground_teardown(error: BaseException | None) -> None:
+        _shared_foreground_finish()
+
     # De receptvoorstellen bij Aanbiedingen staan standaard verborgen zolang de koppelingen niet goed genoeg zijn.
     app.config["OFFERS_RECIPES"] = environ.get("MEALIESHOPPER_OFFERS_RECIPES", "false").strip().lower() in {"1", "true", "yes", "on"}
 
@@ -912,10 +935,18 @@ def create_app() -> Quart:
         for store in stores or offers.STORES:
             for week in (today.isoformat(), (today + timedelta(days=7)).isoformat()):
                 try:
-                    etag = await offers_etag(store, week)
-                    await offers_cache.get(offers_cache_key(store, week), etag, lambda: offers_body(store, week))
+                    if shared_price_overlay.enabled():
+                        with shared_price_readmodel.response_lease(store):
+                            await shared_price_overlay.await_owned(_warm_prepared(store, week))
+                    else:
+                        etag = await offers_etag(store, week)
+                        await offers_cache.get(offers_cache_key(store, week), etag, lambda: offers_body(store, week))
                 except Exception:  # noqa: BLE001 - opwarmen is een extraatje
                     app.logger.warning("Aanbiedingen van %s opwarmen mislukt", store, exc_info=True)
+
+    async def _warm_prepared(store: str, week: str) -> None:
+        etag: str = await offers_etag(store, week)
+        await offers_cache.get(offers_cache_key(store, week), etag, lambda: offers_body(store, week))
 
     app.extensions["mealieshopper_warm_offers"] = warm_offers
     offers_schedule.set_warmer(warm_offers)
@@ -955,6 +986,12 @@ def create_app() -> Quart:
 
     @app.get("/api/offers")
     async def offers_list():
+        if shared_price_overlay.enabled():
+            with shared_price_readmodel.response_lease(request.args.get("store") or "ah"):
+                return await shared_price_overlay.await_owned(_offers_list())
+        return await _offers_list()
+
+    async def _offers_list():
         # Cache: de browser bewaart de lijst en vraagt bij elke keer alleen of er iets veranderd is (ETag). Is de lijst niet veranderd
         # (geen nieuwe synchronisatie, nog dezelfde dag, dezelfde week), dan volgt een 304 zonder de lijst te laden of te versturen.
         store = request.args.get("store") or "ah"

@@ -180,10 +180,18 @@ async def test_scheduler_checks_shared_data_without_repeating_store_sync(synced:
     from mealieshopper import offers_schedule
 
     module, site = synced
+    from mealieshopper import shared_price_overlay, shared_prices
+
     moment: datetime = datetime(2026, 11, 13, 6, tzinfo=timezone.utc)
-    with mock.patch.object(offers_schedule, "_claim", mock.AsyncMock(return_value=False)), mock.patch.object(offers_schedule, "run_all") as stores:
+    with (
+        mock.patch.object(offers_schedule, "_claim", mock.AsyncMock(return_value=False)),
+        mock.patch.object(offers_schedule, "run_all") as stores,
+        mock.patch.object(shared_prices, "refresh_if_due", mock.AsyncMock(return_value={"changed": False})) as prepared,
+        mock.patch.object(shared_price_overlay, "reconcile_if_due", mock.AsyncMock()),
+    ):
         await offers_schedule.run_if_due(moment)
-    assert len(rows()) == 1
+    prepared.assert_awaited_once()
+    assert rows() == []
     stores.assert_not_called()
 
 
