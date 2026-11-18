@@ -31,7 +31,6 @@ import sqlite3
 import weakref
 from collections.abc import Iterable, Sequence
 from contextvars import ContextVar
-from os import environ
 from typing import Any, NamedTuple
 
 import aiosqlite
@@ -40,6 +39,9 @@ from . import auth, compute
 
 log: logging.Logger = logging.getLogger(__name__)
 
+# The formats of the derived rows. A write no longer rebuilds the whole model, so a change to how a product row, a folder line
+# or a linked receipt line is derived must bump its format: the next start then builds again. A deploy of other code alone does
+# not, so the first visitor after a deploy pays nothing.
 FORMAT: str = "search-v4"
 RECEIPTS_FORMAT: str = "receipts-v3"
 BATCH_SIZE: int = 64
@@ -268,33 +270,24 @@ async def ensure_triggers(conn: aiosqlite.Connection) -> None:
     await conn.commit()
 
 
-def code() -> str:
-    """The version and commit of this build (`MEALIESHOPPER_COMMIT`, set in the image). The derived rows are only trusted from
-    the same code: a write no longer rebuilds the whole model, so a deploy of other code starts one build instead."""
-    from . import about
-
-    commit: str = environ.get("MEALIESHOPPER_COMMIT", "").strip()
-    return f"{about.version()}@{'' if commit.lower() == 'unknown' else commit[:7]}"  # "unknown" as `about.read_commit` reads it
-
-
 def build_revision(token: str, day: str) -> str:
-    return f"{FORMAT}|{token}|{day}|{code()}"
+    return f"{FORMAT}|{token}|{day}"
 
 
 def parse_build(value: Any) -> tuple[str, str] | None:
-    """(token, day) of a build revision of this format and code, or None."""
+    """(token, day) of a build revision of this format, or None."""
     parts: list[str] = str(value or "").split("|")
-    return (parts[1], parts[2]) if len(parts) == 4 and parts[0] == FORMAT and parts[3] == code() else None
+    return (parts[1], parts[2]) if len(parts) == 3 and parts[0] == FORMAT else None
 
 
 def receipt_revision(token: str, generation: str, day: str) -> str:
-    return f"{RECEIPTS_FORMAT}|{token}|{generation}|{day}|{code()}"
+    return f"{RECEIPTS_FORMAT}|{token}|{generation}|{day}"
 
 
 def parse_receipts(value: Any) -> tuple[str, str, str] | None:
-    """(token, generation, day) of a receipt revision of this format and code, or None."""
+    """(token, generation, day) of a receipt revision of this format, or None."""
     parts: list[str] = str(value or "").split("|")
-    return (parts[1], parts[2], parts[3]) if len(parts) == 5 and parts[0] == RECEIPTS_FORMAT and parts[4] == code() else None
+    return (parts[1], parts[2], parts[3]) if len(parts) == 4 and parts[0] == RECEIPTS_FORMAT else None
 
 
 async def token(conn: aiosqlite.Connection, store: str) -> str:

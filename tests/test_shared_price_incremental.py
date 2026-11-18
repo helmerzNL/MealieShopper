@@ -431,14 +431,16 @@ async def test_a_new_day_reindexes_only_the_products_whose_rows_depend_on_the_da
 
 
 @pytest.mark.asyncio
-async def test_a_build_of_other_code_is_not_trusted(data_dir: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_a_build_of_another_format_is_built_again_but_a_deploy_alone_is_not(data_dir: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     from mealieshopper import shared_price_dirty
 
     clock: Clock = Clock("2026-10-10")
     await _small_model(monkeypatch, clock)
+    monkeypatch.setenv("MEALIESHOPPER_COMMIT", "0123abcdef")  # a deploy of another commit
     async with prices._connect() as conn:
         assert await shared_price_dirty.ready(conn, "ah", "", clock.day)
-    monkeypatch.setenv("MEALIESHOPPER_COMMIT", "0123abcdef")  # a deploy of another commit
+    monkeypatch.setattr(shared_price_dirty, "FORMAT", "search-test")  # derived rows of another format
+    monkeypatch.setattr(shared_price_dirty, "RECEIPTS_FORMAT", "receipts-test")
     async with prices._connect() as conn:
         assert not await shared_price_dirty.ready(conn, "ah", "", clock.day)
         assert not await shared_price_dirty.receipts_linked(conn, "ah", "")
