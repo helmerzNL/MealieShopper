@@ -467,13 +467,22 @@ def _decode_candidates(rows: list[Any]) -> dict[str, list[dict[str, Any]]]:
     return shared_price_overlay.normalise_public(found)
 
 
-async def relink_receipts(conn: aiosqlite.Connection, snapshot: Any, store: str, today: str, generation: str, token: str, *, mark: bool) -> None:
+async def relink_receipts(
+    conn: aiosqlite.Connection, snapshot: Any, store: str, today: str, generation: str, token: str, *, mark: bool, same_names: bool = False
+) -> None:
     """Link every receipt line of `store` again and store the lines with what the linking read (`ReceiptState`), inside the
-    caller's transaction. With `mark` the products whose lines changed are marked for the drain (`shared_price_dirty`)."""
+    caller's transaction. With `mark` the products whose lines changed are marked for the drain (`shared_price_dirty`). With
+    `same_names` the drain proved that the selected names did not change (only the prices of a name with more products): the
+    linking then reads the names it stored instead of scanning every name of the store (without a public snapshot only)."""
     from . import prices, shared_price_dirty
 
     raw: list[Any] = await prices._receipt_source_rows(conn, store, today)
-    receipts, state = await _link_with_state(conn, snapshot, store, raw)
+    if same_names and snapshot is None:
+        receipts, prices_state = await _link_with_stored_names(conn, store, raw)
+        state: ReceiptState | None = None
+    else:
+        receipts, state = await _link_with_state(conn, snapshot, store, raw)
+        prices_state = state.prices
     documents: dict[str, str] = await compute.run(_receipt_docs, receipts)
     old: dict[str, str] = {
         str(row[0]): str(row[1]) for row in await conn.execute_fetchall("SELECT product_id,doc FROM shared_price_receipts WHERE store=?", (store,))
@@ -481,11 +490,13 @@ async def relink_receipts(conn: aiosqlite.Connection, snapshot: Any, store: str,
     changed: list[str] = await compute.run(_changed_docs, old, documents)
     await conn.executemany("DELETE FROM shared_price_receipts WHERE store=? AND product_id=?", [(store, pid) for pid in changed])
     await conn.executemany("INSERT INTO shared_price_receipts VALUES(?,?,?)", [(store, pid, documents[pid]) for pid in changed if pid in documents])
-    for table in ("shared_price_receipt_keys", "shared_price_receipt_names", "shared_price_receipt_prices"):
-        await conn.execute(f"DELETE FROM {table} WHERE store=?", (store,))
-    await conn.executemany("INSERT OR IGNORE INTO shared_price_receipt_keys VALUES(?,?,?)", [(store, kind, value) for kind, value in state.keys])
-    await conn.executemany("INSERT OR IGNORE INTO shared_price_receipt_names VALUES(?,?,?,?)", [(store, *name) for name in state.names])
-    await conn.executemany("INSERT INTO shared_price_receipt_prices VALUES(?,?,?)", [(store, pid, known) for pid, known in state.prices])
+    if state is not None:
+        for table in ("shared_price_receipt_keys", "shared_price_receipt_names"):
+            await conn.execute(f"DELETE FROM {table} WHERE store=?", (store,))
+        await conn.executemany("INSERT OR IGNORE INTO shared_price_receipt_keys VALUES(?,?,?)", [(store, kind, value) for kind, value in state.keys])
+        await conn.executemany("INSERT OR IGNORE INTO shared_price_receipt_names VALUES(?,?,?,?)", [(store, *name) for name in state.names])
+    await conn.execute("DELETE FROM shared_price_receipt_prices WHERE store=?", (store,))
+    await conn.executemany("INSERT INTO shared_price_receipt_prices VALUES(?,?,?)", [(store, pid, known) for pid, known in prices_state])
     await conn.execute(
         "INSERT OR REPLACE INTO shared_price_receipt_meta VALUES(?,?)", (store, shared_price_dirty.receipt_revision(token, generation, today))
     )
@@ -583,7 +594,8 @@ async def _link_with_state(conn: aiosqlite.Connection, snapshot: Any, store: str
             conn,
             "WITH names AS MATERIALIZED (SELECT product_id,title FROM (" + sql + ") GROUP BY product_id,title) "
             "SELECT product_id,title FROM names WHERE product_id IN(SELECT value FROM json_each(?)) "
-            "OR ms_fold(title) IN(SELECT value FROM json_each(?)) OR ms_receipt_near(title) IN(SELECT value FROM json_each(?))",
+            "OR ms_fold(title) IN(SELECT value FROM json_each(?)) OR ms_receipt_near(title) IN(SELECT value FROM json_each(?)) "
+            "ORDER BY product_id,title",
             (*args, *params),
         )
         names += found
@@ -625,6 +637,37 @@ async def _link_with_state(conn: aiosqlite.Connection, snapshot: Any, store: str
         shared_links.active(store, await shared_links.rejected(conn, store)),
     )
     return await compute.run(prices._linked_receipts, store, raw, links), state
+
+
+async def _link_with_stored_names(conn: aiosqlite.Connection, store: str, raw: list[Any]) -> tuple[list[dict[str, Any]], list[tuple[str, str]]]:
+    """Link the receipt lines against the names the last full linking selected (`shared_price_receipt_names`, in the order of
+    their sources and of `ORDER BY product_id,title`) with the current prices, and give the new prices per product (without a
+    public snapshot)."""
+    from . import prices, product_links, shared_links
+
+    if not raw:
+        return [], []
+    stored: list[Any] = list(await conn.execute_fetchall("SELECT source,product_id,title FROM shared_price_receipt_names WHERE store=?", (store,)))
+    names: list[tuple[str, str]] = await compute.run(_stored_names, stored)
+    index, several = await compute.run(prices._name_groups, names)
+    ambiguous: list[str] = sorted(set().union(*several.values())) if several else []
+    sources: list[tuple[str, tuple[Any, ...]]] = await receipt_name_sources(conn, None, store)
+    known: dict[str, set[float]] = await prices._known_prices(conn, sources, ambiguous) if several else {}
+    shared: dict[str, Any] = await compute.run(prices._name_prices, several, known) if several else {}
+    tables: set[str] = await prices._tables(conn)
+    article: list[Any] = await prices._receipt_product_rows(conn) if store == "ah" and "ah_receipt_products" in tables else []
+    links: Any = prices._LinkRows(
+        prices._Names(index, shared),
+        article,
+        await product_links.load(conn, store),
+        shared_links.active(store, await shared_links.rejected(conn, store)),
+    )
+    found: list[dict[str, Any]] = await compute.run(prices._linked_receipts, store, raw, links)
+    return found, [(pid, json.dumps(sorted(known.get(pid, ())))) for pid in ambiguous]
+
+
+def _stored_names(rows: list[Any]) -> list[tuple[str, str]]:
+    return [(str(row[1]), str(row[2])) for row in sorted(rows, key=lambda row: (int(row[0]), str(row[1]), str(row[2])))]
 
 
 def _receipt_state(

@@ -31,6 +31,7 @@ import sqlite3
 import weakref
 from collections.abc import Iterable, Sequence
 from contextvars import ContextVar
+from os import environ
 from typing import Any, NamedTuple
 
 import aiosqlite
@@ -235,24 +236,32 @@ async def ensure_triggers(conn: aiosqlite.Connection) -> None:
     await conn.commit()
 
 
+def code() -> str:
+    """The version and commit of this build (`MEALIESHOPPER_COMMIT`, set in the image). The derived rows are only trusted from
+    the same code: a write no longer rebuilds the whole model, so a deploy of other code starts one build instead."""
+    from . import about
+
+    return f"{about.version()}@{environ.get('MEALIESHOPPER_COMMIT', '').strip()[:7]}"
+
+
 def build_revision(token: str, day: str) -> str:
-    return f"{FORMAT}|{token}|{day}"
+    return f"{FORMAT}|{token}|{day}|{code()}"
 
 
 def parse_build(value: Any) -> tuple[str, str] | None:
-    """(token, day) of a build revision of this format, or None."""
+    """(token, day) of a build revision of this format and code, or None."""
     parts: list[str] = str(value or "").split("|")
-    return (parts[1], parts[2]) if len(parts) == 3 and parts[0] == FORMAT else None
+    return (parts[1], parts[2]) if len(parts) == 4 and parts[0] == FORMAT and parts[3] == code() else None
 
 
 def receipt_revision(token: str, generation: str, day: str) -> str:
-    return f"{RECEIPTS_FORMAT}|{token}|{generation}|{day}"
+    return f"{RECEIPTS_FORMAT}|{token}|{generation}|{day}|{code()}"
 
 
 def parse_receipts(value: Any) -> tuple[str, str, str] | None:
-    """(token, generation, day) of a receipt revision of this format, or None."""
+    """(token, generation, day) of a receipt revision of this format and code, or None."""
     parts: list[str] = str(value or "").split("|")
-    return (parts[1], parts[2], parts[3]) if len(parts) == 4 and parts[0] == RECEIPTS_FORMAT else None
+    return (parts[1], parts[2], parts[3]) if len(parts) == 5 and parts[0] == RECEIPTS_FORMAT and parts[4] == code() else None
 
 
 async def token(conn: aiosqlite.Connection, store: str) -> str:
@@ -415,42 +424,48 @@ async def _receipts_round(conn: aiosqlite.Connection, snapshot: Any, store: str,
         # No stored lines of this token and generation: a reader links from scratch until a build links them again.
         await _taken(conn, store, rows)
         return False
-    relink: bool = await _must_relink(conn, snapshot, store, rows, parsed[2], today)
+    relink: str = await _relink(conn, snapshot, store, rows, parsed[2], today)
     if relink:
         from . import shared_price_readmodel
 
-        await shared_price_readmodel.relink_receipts(conn, snapshot, store, today, generation, current, mark=True)
+        await shared_price_readmodel.relink_receipts(conn, snapshot, store, today, generation, current, mark=True, same_names=relink == SAME_NAMES)
     elif parsed[2] != today:
         await conn.execute("UPDATE shared_price_receipt_meta SET revision=? WHERE store=?", (receipt_revision(current, generation, today), store))
     await _taken(conn, store, rows)
-    return relink
+    return bool(relink)
 
 
-async def _must_relink(conn: aiosqlite.Connection, snapshot: Any, store: str, rows: list[Any], linked_day: str, today: str) -> bool:
-    """Whether a pending change can move a receipt line: a new receipt or import, an account order, a line that a new day
-    reveals or hides, a link with the key of a line, a name the linking read (or could now read) or a price of a product
-    whose name has more than one product."""
+ALL_LINES: str = "all"
+SAME_NAMES: str = "same names"
+
+
+async def _relink(conn: aiosqlite.Connection, snapshot: Any, store: str, rows: list[Any], linked_day: str, today: str) -> str:
+    """How a pending change can move a receipt line, or "" when it cannot. `ALL_LINES`: a new receipt or import, an account
+    order, a line that a new day reveals or hides, a link with the key of a line, or a name the linking read (or could now read).
+    `SAME_NAMES`: only a price of a product whose name has more than one product, so the selected names stay as they are."""
     kinds: set[str] = {row[0] for row in rows}
     if RECEIPTS in kinds:
-        return True
+        return ALL_LINES
     if ACCOUNTS in kinds and await conn.execute_fetchall("SELECT 1 FROM imported_purchases WHERE store=? LIMIT 1", (store,)):
-        return True
+        return ALL_LINES
     if linked_day != today and await _lines_between(conn, store, min(linked_day, today), max(linked_day, today)):
-        return True
+        return ALL_LINES
     links: list[tuple[str, str]] = [_link_key(str(row[1]), str(row[2])) for row in rows if row[0] == LINK]
     if any(kind == "?" for kind, _ in links):
-        return True
+        return ALL_LINES
     names: list[tuple[str, str]] = [(str(row[1]), str(row[2])) for row in rows if row[0] == NAME]
     probes: list[list[str]] = await compute.run(_name_probes, names)
     several_probes: list[list[str]] = [["several", pid] for pid in sorted({pid for pid, _ in names})]
     found: set[tuple[str, str]] = await _keys(conn, store, [list(key) for key in links] + probes + several_probes)
     if any(key in found for key in links):
-        return True
+        return ALL_LINES
     relevant: list[tuple[str, str]] = await compute.run(_relevant_names, names, found)
     if relevant and await _names_moved(conn, snapshot, store, relevant):
-        return True
+        return ALL_LINES
     several: list[str] = sorted({pid for pid, _ in names if ("several", pid) in found})
-    return bool(several) and await _prices_moved(conn, snapshot, store, several)
+    if several and await _prices_moved(conn, snapshot, store, several):
+        return SAME_NAMES if snapshot is None else ALL_LINES
+    return ""
 
 
 def _link_key(kind: str, key: str) -> tuple[str, str]:

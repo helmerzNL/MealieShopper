@@ -367,3 +367,55 @@ async def test_incremental_read_model_equals_a_build_from_scratch(
         scratch: dict[str, Any] = await _from_scratch(data_dir, tmp_path_factory.mktemp(f"scratch{seed}-{step}"), monkeypatch, clock)
         different: list[str] = _differences(incremental, scratch)
         assert not different, (steps, different, {name: (incremental[name], scratch[name]) for name in different[:2]})
+
+
+async def _small_model(monkeypatch: pytest.MonkeyPatch, clock: Clock) -> None:
+    monkeypatch.setattr(prices, "_now", clock.now)
+    monkeypatch.setattr(offers, "_now", clock.now)
+    monkeypatch.setenv("MEALIESHOPPER_SHARED_PRICES", "true")
+    await _tables()
+    for pid, (title, brand, unit) in TITLES.items():
+        await _write(
+            "INSERT INTO price_observations(store,product_id,day,source,title,brand,unit_size,price,seen_at) VALUES('ah',?,?,'search',?,?,?,2.0,?)",
+            (pid, clock.ago(3), title, brand, unit, clock.now()),
+        )
+    await _write("INSERT INTO offers(store,product_id,position,title,brand,unit_size,price) VALUES('ah','1',0,?,?,?,1.0)", TITLES["1"])
+    await shared_price_overlay.prepare("ah")
+
+
+@pytest.mark.asyncio
+async def test_a_new_day_reindexes_only_the_products_whose_rows_depend_on_the_day(data_dir: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from mealieshopper import shared_price_dirty, shared_price_readmodel
+
+    clock: Clock = Clock("2026-10-10")
+    await _small_model(monkeypatch, clock)
+    indexed: list[list[str]] = []
+    original: Any = shared_price_readmodel.index_batch
+
+    async def index_batch(conn: Any, snapshot: Any, store: str, day: str, ids: list[str]) -> None:
+        indexed.append(list(ids))
+        await original(conn, snapshot, store, day, ids)
+
+    monkeypatch.setattr(shared_price_readmodel, "index_batch", index_batch)
+    clock.day = clock.ago(-1)
+    await prices.annotate("ah", [{"id": "1", "title": TITLES["1"][0], "price": 1.0}], clock.day)
+    assert indexed == [["1"]], indexed  # only the product in `offers`: no purchase or receipt line is dated on the new day
+    async with prices._connect() as conn:
+        assert await shared_price_dirty.ready(conn, "ah", "", clock.day)
+
+
+@pytest.mark.asyncio
+async def test_a_build_of_other_code_is_not_trusted(data_dir: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from mealieshopper import shared_price_dirty
+
+    clock: Clock = Clock("2026-10-10")
+    await _small_model(monkeypatch, clock)
+    async with prices._connect() as conn:
+        assert await shared_price_dirty.ready(conn, "ah", "", clock.day)
+    monkeypatch.setenv("MEALIESHOPPER_COMMIT", "0123abcdef")  # a deploy of another commit
+    async with prices._connect() as conn:
+        assert not await shared_price_dirty.ready(conn, "ah", "", clock.day)
+        assert not await shared_price_dirty.receipts_linked(conn, "ah", "")
+    await shared_price_overlay.prepare("ah")
+    async with prices._connect() as conn:
+        assert await shared_price_dirty.ready(conn, "ah", "", clock.day)
