@@ -52,6 +52,7 @@ class StartTest(unittest.IsolatedAsyncioTestCase):
         due = mock.AsyncMock(side_effect=[True, RuntimeError("stuk"), False])
         with (
             mock.patch.object(offers_schedule, "run_if_due", due),
+            mock.patch.object(offers_schedule, "_seconds_to_day_change", return_value=24 * 60 * 60.0),  # ver van middernacht
             mock.patch.object(offers_schedule.asyncio, "sleep", fake_sleep),
             self.assertLogs(offers_schedule.log, logging.INFO) as logs,
         ):
@@ -201,6 +202,31 @@ class WarmerTest(unittest.IsolatedAsyncioTestCase):
             await asyncio.wait_for(asyncio.gather(*tasks.running().values()), timeout=2)
         self.assertEqual(self.order[-2:], ["round", "warmer"], "na de ronde nog een keer opwarmen")
 
+    async def test_a_round_that_finishes_during_the_warm_still_gets_a_second_warm(self) -> None:
+        # De ronde schrijft en eindigt terwijl de opwarmer nog rekent: die zag haar schrijfactie dan misschien niet meer.
+        release = asyncio.Event()
+
+        async def round_that_ends_during_the_warm(trigger: str, now=None, only=None) -> dict:
+            await release.wait()
+            self.order.append("round")
+            return {}
+
+        async def warmer() -> None:
+            self.order.append("warmer")
+            if not release.is_set():
+                release.set()
+                await asyncio.sleep(0.01)  # de ronde eindigt nu, de opwarmer is nog bezig
+
+        offers_schedule.set_warmer(warmer)
+        self.addAsyncCleanup(tasks.cancel_all)
+        with (
+            mock.patch.object(loose_names, "run_all_stores", round_that_ends_during_the_warm),
+            mock.patch.object(image_cache, "prefetch_nightly", self.step("nightly")),
+        ):
+            await asyncio.wait_for(self.run_all(wait_for_images=True, real_start=True), timeout=2)
+            await asyncio.wait_for(asyncio.gather(*tasks.running().values()), timeout=2)
+        self.assertEqual(self.order[-3:], ["warmer", "round", "warmer"])
+
     async def test_nightly_run_does_not_warm_twice_without_a_running_round(self) -> None:
         offers_schedule.set_warmer(self.step("warmer"))
         with mock.patch.object(image_cache, "prefetch_nightly", self.step("nightly")):
@@ -226,3 +252,67 @@ class WarmerTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.order[-1], "record")
         self.assertIn("nightly", self.order, "de foto's na de start gingen door")
         self.assertTrue(any("losse namen" in record.getMessage() for record in logs.records))
+
+
+class DayChangeTest(unittest.IsolatedAsyncioTestCase):
+    """De ETag van /api/offers bevat de dag (lokaal voor de aanbiedingen, UTC voor het oordeel): na middernacht is elke lijst
+    ongeldig. De lus warmt daarom op na elke dagwissel, anders rekende de eerste bezoeker tussen middernacht en de nachtelijke
+    run (05:00) de lijst op de aanvraag uit (18-11-2026)."""
+
+    def setUp(self) -> None:
+        self.warmed: list[str] = []
+
+        async def warmer() -> None:
+            self.warmed.append("warmer")
+
+        offers_schedule.set_warmer(warmer)
+        self.addCleanup(offers_schedule.set_warmer, None)
+        self.catalogues: mock.AsyncMock = mock.AsyncMock()
+        patcher = mock.patch.object(prices, "warm_catalogues", self.catalogues)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_the_next_day_change_is_the_earliest_midnight(self) -> None:
+        cet: offers_schedule.timezone = offers_schedule.timezone(offers_schedule.timedelta(hours=1))
+        late: offers_schedule.datetime = offers_schedule.datetime(2026, 11, 17, 23, 30, tzinfo=cet)  # 22:30 UTC
+        with mock.patch.object(offers_schedule, "_local_now", return_value=late):
+            seconds: float = offers_schedule._seconds_to_day_change()
+        self.assertAlmostEqual(seconds, 30 * 60 + offers_schedule.DAY_CHANGE_DELAY, delta=1)
+        after: offers_schedule.datetime = offers_schedule.datetime(2026, 11, 18, 0, 30, tzinfo=cet)  # 23:30 UTC
+        with mock.patch.object(offers_schedule, "_local_now", return_value=after):
+            seconds = offers_schedule._seconds_to_day_change()
+        self.assertAlmostEqual(seconds, 30 * 60 + offers_schedule.DAY_CHANGE_DELAY, delta=1, msg="nu komt middernacht in UTC eerst")
+
+    async def test_a_new_day_warms_the_catalogues_and_the_offers_once(self) -> None:
+        cet: offers_schedule.timezone = offers_schedule.timezone(offers_schedule.timedelta(hours=1))
+        before: offers_schedule.datetime = offers_schedule.datetime(2026, 11, 17, 23, 59, tzinfo=cet)
+        with mock.patch.object(offers_schedule, "_local_now", return_value=before):
+            offers_schedule._remember_day()
+            self.assertFalse(await offers_schedule.warm_if_new_day())
+        self.assertEqual(self.warmed, [])
+        local_midnight: offers_schedule.datetime = offers_schedule.datetime(2026, 11, 18, 0, 0, 10, tzinfo=cet)
+        with mock.patch.object(offers_schedule, "_local_now", return_value=local_midnight):
+            self.assertTrue(await offers_schedule.warm_if_new_day())
+            self.assertFalse(await offers_schedule.warm_if_new_day(), "dezelfde dag: niet nog een keer")
+        utc_midnight: offers_schedule.datetime = offers_schedule.datetime(2026, 11, 18, 1, 0, 10, tzinfo=cet)
+        with mock.patch.object(offers_schedule, "_local_now", return_value=utc_midnight):
+            self.assertTrue(await offers_schedule.warm_if_new_day(), "ook de UTC-dag telt")
+        self.assertEqual(self.warmed, ["warmer", "warmer"])
+        self.assertEqual(self.catalogues.await_count, 2)
+
+    async def test_the_loop_wakes_at_the_day_change(self) -> None:
+        waits: list[float] = []
+
+        async def fake_sleep(seconds: float) -> None:
+            waits.append(seconds)
+            if len(waits) == 2:
+                raise asyncio.CancelledError
+
+        with (
+            mock.patch.object(offers_schedule, "run_if_due", mock.AsyncMock(return_value=False)),
+            mock.patch.object(offers_schedule, "_seconds_to_day_change", return_value=120.0),
+            mock.patch.object(offers_schedule.asyncio, "sleep", fake_sleep),
+        ):
+            with self.assertRaises(asyncio.CancelledError):
+                await offers_schedule._loop()
+        self.assertEqual(waits, [offers_schedule.FIRST_CHECK_SECONDS, 120.0])
