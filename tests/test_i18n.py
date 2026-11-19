@@ -20,6 +20,7 @@ SOURCES = {
     "app.js": (STATIC / "app.js").read_text(encoding="utf-8"),
     "recipe_view.js": (STATIC / "recipe_view.js").read_text(encoding="utf-8"),
     "recipe_nav.js": (STATIC / "recipe_nav.js").read_text(encoding="utf-8"),
+    "plan_drag.js": (STATIC / "plan_drag.js").read_text(encoding="utf-8"),
     "cook_timers.js": (STATIC / "cook_timers.js").read_text(encoding="utf-8"),
     "categories.js": (STATIC / "categories.js").read_text(encoding="utf-8"),
     "onboarding.js": (STATIC / "onboarding.js").read_text(encoding="utf-8"),

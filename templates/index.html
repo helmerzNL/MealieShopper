@@ -650,10 +650,12 @@
               </div>
               <button class="icon-button" id="next-week" type="button" aria-label="Volgende week" data-i18n-attr="aria-label:plan.next_week"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8.59,16.58L13.17,12L8.59,7.41L10,6L16,12L10,18L8.59,16.58Z"/></svg></button>
               <button class="icon-button" id="load-plan" type="button" aria-label="Weekmenu synchroniseren" title="Weekmenu synchroniseren" data-i18n-attr="aria-label:plan.sync;title:plan.sync"><svg viewBox="0 0 24 24" aria-hidden="true" data-mdi="mdiSync"><path d="M12,18A6,6 0 0,1 6,12C6,11 6.25,10.03 6.7,9.2L5.24,7.74C4.46,8.97 4,10.43 4,12A8,8 0 0,0 12,20V23L16,19L12,15M12,4V1L8,5L12,9V6A6,6 0 0,1 18,12C18,13 17.75,13.97 17.3,14.8L18.76,16.26C19.54,15.03 20,13.57 20,12A8,8 0 0,0 12,4Z"/></svg></button>
+              <button class="icon-button plan-edit-mode" id="plan-edit-mode" type="button" aria-pressed="false" aria-label="Weekmenu bewerken" title="Weekmenu bewerken" data-i18n-attr="aria-label:plan.arrange;title:plan.arrange"><svg viewBox="0 0 24 24" aria-hidden="true" data-mdi="mdiPencilOutline"><path d="M14.06,9L15,9.94L5.92,19H5V18.08L14.06,9M17.66,3C17.41,3 17.15,3.1 16.96,3.29L15.13,5.12L18.88,8.87L20.71,7.04C21.1,6.65 21.1,6 20.71,5.63L18.37,3.29C18.17,3.09 17.92,3 17.66,3M14.06,6.19L3,17.25V21H6.75L17.81,9.94L14.06,6.19Z"/></svg></button>
               <button class="button button--secondary week-today" id="this-week" type="button" data-i18n="week.this" hidden>Deze week</button>
               <button class="button button--secondary shop-jump" id="shop-jump" type="button" hidden></button>
             </div>
           </div>
+          <p class="muted plan-arrange-hint" id="plan-arrange-hint" hidden data-i18n="plan.arrange_hint">Sleep een maaltijd naar een andere dag. Houd haar even op ‹ of › om een week terug of verder te gaan.</p>
           <div id="planner-message"></div>
           <div id="meal-days" class="day-grid"></div>
         </div>
@@ -2570,6 +2572,7 @@
     <script src="{{ url_for('static', filename='shopping.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='recipe_view.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='recipe_nav.js', v=config.ASSET_VERSION) }}"></script>
+    <script src="{{ url_for('static', filename='plan_drag.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='cook_timers.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='categories.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='facets.js', v=config.ASSET_VERSION) }}"></script>

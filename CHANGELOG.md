@@ -2,6 +2,16 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub; een stabiele release krijgt de teksten van alle versies sinds de vorige stabiele release.
 
+## v4.31.0
+
+*English summary: The week menu has an **Edit week menu** button next to sync. While it is on, you drag meals with the mouse or your finger to another day; hold a meal on the arrow to the previous or next week for a moment and the week menu moves a week, so you can put it in another week. Dropping sends only the new day to Mealie; the meal, its recipe and servings stay as they were.*
+
+### Weekmenu in 4.31.0
+
+- **Maaltijden slepen naar een andere dag.** Naast de knop Synchroniseren staat een kleine knop **Weekmenu bewerken** (een potlood). Staat die aan, dan krijgen de maaltijden een gestippelde rand en sleep je ze met de muis of je vinger naar een andere dag. De dag waar je boven hangt licht op; bij loslaten staat de maaltijd daar, meteen ook in Mealie. Alleen de dag verandert: de soort maaltijd, het recept en de porties blijven. Lukt het niet, dan staat de maaltijd weer waar Mealie haar heeft, met een melding.
+- **Naar een andere week.** Houd je de maaltijd tijdens het slepen even op **‹** of **›**, dan schuift het weekmenu een week terug of verder (en zo lang je blijft staan nog een week); zet haar daar op een dag neer.
+- **Ook op een telefoon.** Het slepen gebruikt pointer-events, zodat het met een muis, een vinger en een pen hetzelfde werkt. Bij de boven- of onderrand scrolt de pagina mee, zodat je bij de pijlen komt; **Esc** breekt het slepen af. In de bewerkstand opent een tik op een maaltijd niets.
+
 ## v4.30.0
 
 *English summary: Shared AH weekly prices now come as a validated, prepared SQLite database. Price history and offer annotations read the selected products directly, which avoids rebuilding the complete shared catalogue on a small server. Existing installations migrate in the background without deleting old rows. Exact legacy imports follow later source corrections, while local observations keep priority. Updates pause for foreground requests, retain the previous valid copy on failure and keep working offline from the local copy. Ordinary warm history requests use an indexed group lookup and read only the receipt lines for the selected products.*
