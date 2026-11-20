@@ -8,6 +8,8 @@ Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar
 
 ### Sneller in 4.32.0
 
+Pull request: [#346](https://github.com/helmerzNL/MealieShopper/pull/346).
+
 - **De aanbiedingen na een schrijfactie.** Een nieuwe koppeling of een prijs, ook van een product dat niet in de aanbieding is, maakte het hele voorbereide leesmodel van de gedeelde prijzen ongeldig. Tot de volgende start of nacht nam elke /api/offers dan de trage weg langs alle folderproducten en alle bonregels: lokaal 1,4 tot 2 s, op de server 6,3 s. Nu schrijven SQLite-triggers per geraakt product, naam, koppeling en bonregel een rij in `shared_price_dirty`, en werkt de volgende aanvraag alleen die rijen af (4 tot 6 ms in plaats van een nieuwe bouw van 24 tot 31 s). De lijst na een schrijfactie duurt nu even lang als een lijst uit een klaar leesmodel, lokaal ongeveer 0,2 s. Een aanvraag werkt hooguit 2048 producten af, de rest gaat op de achtergrond.
 - **Een nieuwe dag** werkt alleen de producten uit de aanbiedingen en die met een aankoop of bonregel na de vorige bouw bij, en een deploy bouwt het leesmodel niet meer opnieuw op: het hangt aan zijn formaat, niet aan de versie van de app.
 - **De nachtelijke run warmt de aanbiedingen nog een keer op** als de rondes voor losse namen en de prijsindex klaar zijn. Op 17-11-2026 schreef de ronde voor losse namen na het opwarmen nog 17 koppelingen, en de eerste bezoeker van die dag wachtte 6,3 s.
