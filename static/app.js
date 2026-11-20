@@ -976,7 +976,8 @@ function renderMeal(entry) {
   const open = note
     ? `data-plan-edit="${id}" title="${escapeHtml(t("plan.edit"))}"`
     : `data-plan-view="${id}" title="${escapeHtml(t("plan.view"))}"`;
-  return `<div class="${classes} meal--planned">
+  // `data-plan-entry`: de maaltijd die je in de bewerkstand naar een andere dag sleept (plan_drag.js).
+  return `<div class="${classes} meal--planned" data-plan-entry="${id}">
       <button class="meal__open" type="button" ${open}>${content}</button>
       <button class="meal__edit" type="button" data-plan-edit="${id}" title="${escapeHtml(t("plan.edit"))}" aria-label="${escapeHtml(t("plan.edit_meal", { name: mealName(entry) }))}">${mdiIcon(MDI_PENCIL_OUTLINE)}</button>
     </div>`;
@@ -1052,7 +1053,7 @@ function renderMealPlan(entries) {
   $("#meal-days").innerHTML = dates
     .map(
       (date) => `
-        <article class="day-card${date === today ? " day-card--today" : ""}${byDay[date] ? "" : " day-card--empty"}">
+        <article class="day-card${date === today ? " day-card--today" : ""}${byDay[date] ? "" : " day-card--empty"}" data-plan-date="${date}">
           <div class="day-card__head">
             <h3>${escapeHtml(formatDate(date))}${date === today ? `<span class="day-card__today">${escapeHtml(t("plan.today"))}</span>` : ""}</h3>
             ${byDay[date] ? addButton(date, true) : ""}
@@ -3119,6 +3120,8 @@ $("#prev-week").addEventListener("click", () => changePlanWeek(state.weekOffset 
 $("#next-week").addEventListener("click", () => changePlanWeek(state.weekOffset + 1));
 $("#load-plan").addEventListener("click", () => loadMealPlan({ force: true }));
 $("#meal-days").addEventListener("click", (event) => {
+  // In de bewerkstand (plan_drag.js) sleep je een maaltijd; een tik erop opent dan niets.
+  if (event.target.closest(".is-arranging .meal--planned")) return;
   const add = event.target.closest("[data-plan-add]");
   if (add) return openPlanDialog({ date: add.dataset.planAdd });
   const button = event.target.closest("[data-plan-view], [data-plan-edit]");

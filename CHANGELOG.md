@@ -2,11 +2,11 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub; een stabiele release krijgt de teksten van alle versies sinds de vorige stabiele release.
 
-## v4.31.0
+## v4.32.0
 
 *English summary: Offers open fast again after a write to the price catalogue. A single new link or price used to make the whole prepared read model of the shared prices invalid, so every /api/offers until the next start or night took the slow fallbacks (1.4 to 2 s locally, 6.3 s measured on a server), and the next build started from scratch (24 to 31 s). SQLite triggers now mark only the touched products, names and receipt inputs, and the next request updates only those (4 to 6 ms). The answer after a write takes as long as the ready answer (about 0.2 s locally). The nightly run warms the offers again once the background rounds that still write have finished, SQLite reads the database through mmap (on ZFS a scan went from 290 to 80 ms), and the page asks for the offers one round trip after it has loaded instead of after four.*
 
-### Sneller in 4.31.0
+### Sneller in 4.32.0
 
 - **De aanbiedingen na een schrijfactie.** Een nieuwe koppeling of een prijs, ook van een product dat niet in de aanbieding is, maakte het hele voorbereide leesmodel van de gedeelde prijzen ongeldig. Tot de volgende start of nacht nam elke /api/offers dan de trage weg langs alle folderproducten en alle bonregels: lokaal 1,4 tot 2 s, op de server 6,3 s. Nu schrijven SQLite-triggers per geraakt product, naam, koppeling en bonregel een rij in `shared_price_dirty`, en werkt de volgende aanvraag alleen die rijen af (4 tot 6 ms in plaats van een nieuwe bouw van 24 tot 31 s). De lijst na een schrijfactie duurt nu even lang als een lijst uit een klaar leesmodel, lokaal ongeveer 0,2 s. Een aanvraag werkt hooguit 2048 producten af, de rest gaat op de achtergrond.
 - **Een nieuwe dag** werkt alleen de producten uit de aanbiedingen en die met een aankoop of bonregel na de vorige bouw bij, en een deploy bouwt het leesmodel niet meer opnieuw op: het hangt aan zijn formaat, niet aan de versie van de app.
@@ -16,9 +16,19 @@ Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar
 - **De pagina vraagt de aanbiedingen eerder aan.** Na het laden wachtte /api/offers op vier aanvragen na elkaar: de inlogstatus, de installatiehulp, de passkeys en de status van Mealie. De inlogstatus en de installatiehulp gaan nu samen, het scherm opent voor de passkeys en de winkelstatussen, en de eerste dag van de week staat al in de pagina (`data-week-start`, van de server) of in het geheugen van de browser. Met een 4x tragere processor en 4G begon /api/offers zo 0,19 s na het laden in plaats van 0,66 s.
 - **Het mandje van AH** werd met dat eerder openen twee keer opgevraagd: een tweede aanvraag voor dezelfde winkel wacht nu op de eerste.
 
-### Database en back-up in 4.31.0
+### Database en back-up in 4.32.0
 
 - Nieuwe tabellen voor het leesmodel van de gedeelde prijzen: `shared_price_dirty`, `shared_price_receipt_keys`, `shared_price_receipt_names` en `shared_price_receipt_prices`, met triggers op de tabellen van de catalogus. Ze zijn afgeleid en staan niet in een back-up. Het formaat van het leesmodel gaat naar `search-v4`, dus de eerste start na de update bouwt het een keer opnieuw op.
+
+## v4.31.0
+
+*English summary: The week menu has an **Edit week menu** button next to sync. While it is on, you drag meals with the mouse or your finger to another day; hold a meal on the arrow to the previous or next week for a moment and the week menu moves a week, so you can put it in another week. Dropping sends only the new day to Mealie; the meal, its recipe and servings stay as they were.*
+
+### Weekmenu in 4.31.0
+
+- **Maaltijden slepen naar een andere dag.** Naast de knop Synchroniseren staat een kleine knop **Weekmenu bewerken** (een potlood). Staat die aan, dan krijgen de maaltijden een gestippelde rand en sleep je ze met de muis of je vinger naar een andere dag. De dag waar je boven hangt licht op; bij loslaten staat de maaltijd daar, meteen ook in Mealie. Alleen de dag verandert: de soort maaltijd, het recept en de porties blijven. Lukt het niet, dan staat de maaltijd weer waar Mealie haar heeft, met een melding.
+- **Naar een andere week.** Houd je de maaltijd tijdens het slepen even op **‹** of **›**, dan schuift het weekmenu een week terug of verder (en zo lang je blijft staan nog een week); zet haar daar op een dag neer.
+- **Ook op een telefoon.** Het slepen gebruikt pointer-events, zodat het met een muis, een vinger en een pen hetzelfde werkt. Bij de boven- of onderrand scrolt de pagina mee, zodat je bij de pijlen komt; **Esc** breekt het slepen af. In de bewerkstand opent een tik op een maaltijd niets.
 
 ## v4.30.0
 
