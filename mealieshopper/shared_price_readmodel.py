@@ -372,6 +372,9 @@ async def verdict_facts(store: str, items: list[dict[str, Any]], today: str) -> 
             )
             ordering: dict[str, tuple[Any, ...]] = await pack_order(conn, snapshot, store, all_ids, prices._days_ago(today, prices.PACK_DAYS), today)
             recent: list[Any] = await compute.run(_recent, observed, prices._days_ago(today, prices.PACK_DAYS), today, ordering)
+            # De prijsrijen (bij AH bijna 15.000 `sqlite3.Row`'s, die de GC volgt) zijn hierna niet meer nodig: niet vasthouden
+            # tijdens de ladder en de lijnacties, de duurste stappen van deze functie.
+            del observed, private_metadata, rows
             episodes: list[Any] = list(
                 await conn.execute_fetchall(
                     "SELECT * FROM offer_history WHERE store=? AND COALESCE(valid_until,substr(last_seen,1,10))>=? "
@@ -380,7 +383,7 @@ async def verdict_facts(store: str, items: list[dict[str, Any]], today: str) -> 
                 )
             )
             selected, points, bought = await prices._ladder(conn, store, today, selected, ids)
-        lines: dict[str, list[dict[str, Any]]] = await prices._verdict_lines(store, selected, items, ids)
+        lines: dict[str, list[prices.LineSpan]] = await prices._verdict_lines(store, selected, items, ids)
         return prices._VerdictFacts(selected, regulars, recent, episodes, points, bought, lines)
 
 
@@ -397,12 +400,16 @@ def _searched(observed: dict[str, list[Any]], ids: set[str]) -> list[tuple[str, 
 
 
 def _recent(observed: dict[str, list[Any]], since: str, until: str, ordering: dict[str, tuple[Any, ...]]) -> list[Any]:
+    """The observations from `since` to `until` as `prices._known_packs` reads them: only the newest row per product, in the order
+    in which the product first appears in the sorted rows. `_known_packs` keeps only the last row of each product anyway, and this
+    way the verdict for AH does not hold almost 15,000 rows that the GC follows."""
     from . import prices
 
-    return sorted(
+    ordered: list[Any] = sorted(
         (row for rows in observed.values() for row in rows if since <= row["day"] <= until and row["source"] != prices.PUBLIC_OBSERVED_UNKNOWN),
         key=lambda row: (ordering.get(row["product_id"], ("", 1, row["product_id"])), row["day"]),
     )
+    return prices.latest_per_product(ordered)
 
 
 async def annotate(store: str, items: list[dict[str, Any]], today: str) -> None:
