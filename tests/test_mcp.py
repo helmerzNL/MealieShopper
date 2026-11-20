@@ -572,7 +572,7 @@ class LoginReturnTest(McpTestCase):
         self.assertIn("function continueAfterLogin", source)
         self.assertIn(r"/^\/oauth\/authorize\?/.test(next)", source)
         self.assertIn("window.location.replace(next)", source)
-        self.assertLess(source.index("if (continueAfterLogin())"), source.index("await loadCredentials();"))
+        self.assertLess(source.index("if (continueAfterLogin())"), source.index("const credentials = loadCredentials();"))
 
 
 class SettingsEffectTest(McpTestCase):

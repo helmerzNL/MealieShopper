@@ -2,6 +2,27 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub; een stabiele release krijgt de teksten van alle versies sinds de vorige stabiele release.
 
+## v4.32.0
+
+*English summary: Offers open fast again after a write to the price catalogue. A single new link or price used to make the whole prepared read model of the shared prices invalid, so every /api/offers until the next start or night took the slow fallbacks (1.4 to 2 s locally, 6.3 s measured on a server), and the next build started from scratch (24 to 31 s). SQLite triggers now mark only the touched products, names and receipt inputs, and the next request updates only those (4 to 6 ms). The answer after a write takes as long as the ready answer (about 0.2 s locally). The nightly run warms the offers again once the background rounds that still write have finished, SQLite reads the database through mmap (on ZFS a scan went from 290 to 80 ms), and the page asks for the offers one round trip after it has loaded instead of after four. The verdict for the offers holds about a quarter fewer objects for the garbage collector.*
+
+### Sneller in 4.32.0
+
+Pull request: [#346](https://github.com/helmerzNL/MealieShopper/pull/346).
+
+- **De aanbiedingen na een schrijfactie.** Een nieuwe koppeling of een prijs, ook van een product dat niet in de aanbieding is, maakte het hele voorbereide leesmodel van de gedeelde prijzen ongeldig. Tot de volgende start of nacht nam elke /api/offers dan de trage weg langs alle folderproducten en alle bonregels: lokaal 1,4 tot 2 s, op de server 6,3 s. Nu schrijven SQLite-triggers per geraakt product, naam, koppeling en bonregel een rij in `shared_price_dirty`, en werkt de volgende aanvraag alleen die rijen af (4 tot 6 ms in plaats van een nieuwe bouw van 24 tot 31 s). De lijst na een schrijfactie duurt nu even lang als een lijst uit een klaar leesmodel, lokaal ongeveer 0,2 s. Een aanvraag werkt hooguit 2048 producten af, de rest gaat op de achtergrond.
+- **Een nieuwe dag** werkt alleen de producten uit de aanbiedingen en die met een aankoop of bonregel na de vorige bouw bij, en een deploy bouwt het leesmodel niet meer opnieuw op: het hangt aan zijn formaat, niet aan de versie van de app.
+- **De nachtelijke run warmt de aanbiedingen nog een keer op** als de rondes voor losse namen en de prijsindex klaar zijn. Op 17-11-2026 schreef de ronde voor losse namen na het opwarmen nog 17 koppelingen, en de eerste bezoeker van die dag wachtte 6,3 s.
+- **Na middernacht** warmt de app de catalogi en de aanbiedingen op. De lijst hangt aan de dag, dus tussen middernacht en de nachtelijke run rekende de eerste bezoeker hem op de aanvraag uit.
+- **SQLite leest de database via mmap** (`MEALIESHOPPER_SQLITE_MMAP_MB`, standaard 1024, 0 zet het uit). Zonder mmap haalt SQLite elke pagina van 4 KB met een eigen leesopdracht op. Op ZFS met records van 128 KB kostte een scan van `offer_history` in de container van productie zo 290 ms, met mmap 80 ms.
+- **De pagina vraagt de aanbiedingen eerder aan.** Na het laden wachtte /api/offers op vier aanvragen na elkaar: de inlogstatus, de installatiehulp, de passkeys en de status van Mealie. De inlogstatus en de installatiehulp gaan nu samen, het scherm opent voor de passkeys en de winkelstatussen, en de eerste dag van de week staat al in de pagina (`data-week-start`, van de server) of in het geheugen van de browser. Met een 4x tragere processor en 4G begon /api/offers zo 0,19 s na het laden in plaats van 0,66 s.
+- **Het mandje van AH** werd met dat eerder openen twee keer opgevraagd: een tweede aanvraag voor dezelfde winkel wacht nu op de eerste.
+- **Minder objecten voor de garbage collector** bij het oordeel van de aanbiedingen. Het hield de folderacties van de hele lijn als dicts vast (bij AH ruim 20.000) en alle bewaarde prijzen van twee weken als rijen (14.700), terwijl het van een folderactie alleen het begin, het eind en de prijs leest en van de prijzen alleen de nieuwste per product. Na een stap in de rekenthread zijn het nu hooguit 64.800 objecten in plaats van 89.400, en het opwarmen van AH duurt met gedeelde prijzen 1,2 s in plaats van 1,5 s.
+
+### Database en back-up in 4.32.0
+
+- Nieuwe tabellen voor het leesmodel van de gedeelde prijzen: `shared_price_dirty`, `shared_price_receipt_keys`, `shared_price_receipt_names` en `shared_price_receipt_prices`, met triggers op de tabellen van de catalogus. Ze zijn afgeleid en staan niet in een back-up. Het formaat van het leesmodel gaat naar `search-v4`, dus de eerste start na de update bouwt het een keer opnieuw op.
+
 ## v4.31.0
 
 *English summary: The week menu has an **Edit week menu** button next to sync. While it is on, you drag meals with the mouse or your finger to another day; hold a meal on the arrow to the previous or next week for a moment and the week menu moves a week, so you can put it in another week. Dropping sends only the new day to Mealie; the meal, its recipe and servings stay as they were.*

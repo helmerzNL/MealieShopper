@@ -117,7 +117,10 @@ async def test_unready_receipts_are_resolved_once_and_keep_receipt_only_metadata
     monkeypatch.setenv("MEALIESHOPPER_SHARED_PRICES", "true")
     if stale:
         await shared_price_overlay.prepare()
-    today: str = "2026-10-04" if stale else TODAY
+        async with prices._connect() as conn:  # a build that has not finished yet
+            await conn.execute("UPDATE shared_price_build SET ready_revision=''")
+            await conn.commit()
+    today: str = TODAY
     expected: dict[str, Any] = await prices.history("ah", query="receipt", today=today)
     original_rows: Any = shared_price_readmodel.receipt_rows
     requests: list[list[str] | None] = []

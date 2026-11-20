@@ -2535,3 +2535,86 @@ console.log(JSON.stringify([watchedDetailHtml({json.dumps(product)}, 600), watch
         self.assertIn("<div>watched.stat.size=750 g</div>", unknown)
         self.assertNotIn("watched.pack.unknown", unknown)
         self.assertIn("<div>watched.stat.packaging=750 g · watched.pack.bag</div>", known)
+
+
+async def test_2026_11_17_offers_after_a_catalogue_write_reindex_only_the_touched_product(data_dir: Path, monkeypatch: Any) -> None:
+    """Melding (2026-11-17): "Aanbiedingen vers geopend nog steeds traag: na een schrijfactie in de catalogus rekende /api/offers
+    seconden".
+
+    Elke schrijfactie in een tabel van de catalogus maakte het hele voorbereide leesmodel ongeldig, ook een prijs van een product
+    dat niet in de aanbieding is en een eigen koppeling van de nachtelijke run (`loose_names`). Tot de volgende start of nacht nam
+    elke aanvraag dan de trage weg: de folderregels met een Python-functie over alle folderproducten van `offer_history`
+    (`ms_folder_candidate`) en het opnieuw koppelen van alle bonregels met een scan over alle namen. In productie 6,3 s. Nu zet een
+    trigger alleen het geraakte product klaar (`shared_price_dirty`), en werkt de aanvraag alleen dat product bij."""
+    from mealieshopper import shared_price_overlay, shared_price_readmodel, telemetry
+
+    monkeypatch.setenv("MEALIESHOPPER_SHARED_PRICES", "true")
+    monkeypatch.setenv("MEALIESHOPPER_TELEMETRY", "true")
+    monkeypatch.setenv("PASSKEY_AUTH_ENABLED", "false")
+    today: str = prices._now()[:10]
+    async with ah_orders._connect():
+        pass
+    async with price_import._connect():
+        pass
+    async with prices._connect() as conn:
+        await conn.executemany(
+            "INSERT INTO price_observations(store,product_id,day,source,title,brand,unit_size,price,seen_at) VALUES('ah',?,?,'search',?,'AH',?,?,?)",
+            [
+                ("1", today, "AH Halfvolle melk", "1 l", 1.29, today + "T08:00:00+00:00"),
+                ("2", today, "AH Basmati rijst", "1 kg", 2.49, today + "T08:00:00+00:00"),
+            ],
+        )
+        await conn.execute(
+            "INSERT INTO offers(store,product_id,position,title,brand,unit_size,price) VALUES('ah','1',0,'AH Halfvolle melk','AH','1 l',0.99)"
+        )
+        await conn.execute(
+            "INSERT INTO offer_history(store,product_id,title,first_seen,last_seen) VALUES('ah','folder:1','Alle AH Halfvolle melk',?,?)",
+            (today + "T05:00:00+00:00", today + "T05:00:00+00:00"),
+        )
+        await conn.execute("INSERT INTO ah_receipts(receipt_id,date_time,first_seen,details_synced) VALUES('r1',?,?,1)", (today + "T10:00:00", today))
+        await conn.execute(
+            "INSERT INTO ah_receipt_items(receipt_id,position,product_id,name,quantity,price) VALUES('r1',0,NULL,'AH HALFVOLLE MELK',1,1.29)"
+        )
+        await conn.commit()
+    await shared_price_overlay.prepare("ah")
+    # De schrijfacties: een eigen koppeling die bij geen bonregel hoort (zoals de meting) en een prijs van een product buiten de aanbiedingen.
+    async with prices._connect() as conn:
+        await conn.execute(
+            "INSERT INTO product_links(store,kind,key,product_id,title,brand,unit_size,image,source_name,created_at,origin) "
+            "VALUES('ah','name','zz-probe','999999999','probe','','','','probe',?,'exact')",
+            (today,),
+        )
+        await conn.execute("DELETE FROM product_links WHERE key='zz-probe'")
+        await conn.execute(
+            "INSERT INTO price_observations(store,product_id,day,source,title,brand,unit_size,price,seen_at) "
+            "VALUES('ah','2',?,'ahprijsindex','AH Basmati rijst','AH','1 kg',2.39,?)",
+            (prices._days_ago(today, 7), today + "T09:00:00+00:00"),
+        )
+        await conn.commit()
+
+    indexed: list[list[str]] = []
+    original_index: Any = shared_price_readmodel.index_batch
+
+    async def index_batch(conn: Any, snapshot: Any, store: str, day: str, ids: list[str]) -> None:
+        indexed.append(list(ids))
+        await original_index(conn, snapshot, store, day, ids)
+
+    queries: list[str] = []
+    original_query: Any = telemetry.Recording.add_query
+
+    def add_query(self: Any, seconds: float, label: str) -> None:
+        queries.append(label)
+        original_query(self, seconds, label)
+
+    monkeypatch.setattr(shared_price_readmodel, "index_batch", index_batch)
+    monkeypatch.setattr(telemetry.Recording, "add_query", add_query)
+    app: Any = create_app()
+    async with app.test_app() as running:
+        response: Any = await running.test_client().get("/api/offers?store=ah")
+        assert response.status_code == 200
+        body: dict[str, Any] = await response.get_json()
+    assert body["offers"][0]["verdict"]["regular"]["price"] == 1.29
+    assert indexed == [["2"]], indexed
+    assert queries, "de telemetrie mat geen enkele query"
+    assert not [sql for sql in queries if "ms_folder_candidate" in sql], "folderregels zonder leesmodel"
+    assert not [sql for sql in queries if "WITH names AS MATERIALIZED" in sql], "alle bonregels opnieuw gekoppeld"

@@ -15,5 +15,6 @@ def connect(*, uri: bool = False) -> sqlite3.Connection:
     """Een eigen verbinding met de database, met `sqlite3.Row` als rij. Sluit hem zelf (`contextlib.closing`)."""
     auth.data_dir().mkdir(parents=True, exist_ok=True)
     conn: sqlite3.Connection = sqlite3.connect(auth.db_path(), timeout=auth.BUSY_SECONDS, uri=uri)
+    conn.execute(f"PRAGMA mmap_size = {auth.mmap_bytes()}").close()  # zie `auth.mmap_bytes`
     conn.row_factory = sqlite3.Row
     return conn

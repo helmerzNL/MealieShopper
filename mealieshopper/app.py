@@ -316,7 +316,10 @@ def create_app() -> Quart:
 
     @app.get("/")
     async def index(**_route):
-        return await render_template("index.html", public_base_url=await public_base_url(), build_channel=about.build_channel())
+        # `week_start_hint`: de eerste dag van de week die de server al weet (mealie.week_start_hint), voor `data-week-start`.
+        return await render_template(
+            "index.html", public_base_url=await public_base_url(), build_channel=about.build_channel(), week_start_hint=await mealie.week_start_hint()
+        )
 
     # Elke pagina heeft een eigen adres (/recipes, /cart, /stores/ah/orders, ...): de server geeft dezelfde pagina terug en
     # static/router.js toont het juiste scherm. Zo werken herladen, een bladwijzer en Ctrl+klik naar een nieuw tabblad.

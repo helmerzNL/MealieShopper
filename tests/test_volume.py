@@ -44,6 +44,7 @@ from mealieshopper import (
     ai_review,
     auth,
     backup,
+    compute,
     gc_watch,
     image_cache,
     line_offers,
@@ -541,6 +542,39 @@ async def test_building_the_catalogue_does_not_stall(volume_dir: Path) -> None:
         lambda: prices.warm_catalogues(["ah"], today=volume.TODAY),
         prepare=cold(volume_dir),
     )
+
+
+def _pending_products(path: Path) -> int:
+    with contextlib.closing(sqlite3.connect(path)) as conn:
+        return int(conn.execute("SELECT count(*) FROM shared_price_dirty WHERE store='ah' AND kind='product'").fetchone()[0])
+
+
+@pytest.mark.volume
+async def test_draining_a_bulk_write_of_the_shared_read_model_does_not_stall(volume_dir: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Het leesmodel van de gedeelde prijzen (`shared_price_dirty`) op de schaal van productie. Na een synchronisatie van de
+    aanbiedingen (elk product van `offers`) en een prijs van een op de tien producten met prijzen werkt een aanvraag die
+    producten af, zonder dat de event loop stilstaat, en daarna is het leesmodel klaar. De bouw vooraf loopt buiten de meting."""
+    from mealieshopper import shared_price_dirty, shared_price_overlay
+
+    monkeypatch.setenv("MEALIESHOPPER_SHARED_PRICES", "true")
+    await shared_price_overlay.prepare("ah")
+    items: list[dict[str, Any]] = (await offers.load("ah", volume.TODAY))["offers"]
+    assert items
+
+    async def bulk_write() -> None:
+        await asyncio.to_thread(_execute, volume_dir / volume.DB_NAME, "UPDATE offers SET position=position WHERE store='ah'")
+        await asyncio.to_thread(
+            _execute,
+            volume_dir / volume.DB_NAME,
+            "UPDATE price_observations SET price=price WHERE rowid IN (SELECT max(rowid) FROM price_observations WHERE store='ah' "
+            "GROUP BY product_id HAVING abs(random()) % 10 = 0)",
+        )
+        assert await asyncio.to_thread(_pending_products, volume_dir / volume.DB_NAME) >= len(items)
+
+    await quiet(lambda: prices.annotate("ah", [dict(item) for item in items], volume.TODAY), prepare=bulk_write)
+    async with prices._connect() as conn:
+        assert await shared_price_dirty.ready(conn, "ah", "", volume.TODAY)
+        assert not await conn.execute_fetchall("SELECT 1 FROM shared_price_dirty WHERE store='ah' LIMIT 1")
 
 
 class _Wrapper:
@@ -1279,6 +1313,53 @@ async def test_the_nightly_tasks_do_not_stall(volume_dir: Path, fake_stores: Non
 # Hoeveel gevolgde objecten een nachtelijke run er hooguit bij heeft op het moment dat een volle ronde van de GC begint, in welke
 # thread ook: zoals `BUILD_PEAK_ADDED_LIMIT` voor een koude bouw. Daar horen de catalogi van alle winkels bij, die de run bouwt.
 NIGHTLY_PEAK_ADDED_LIMIT: int = 90_000
+
+
+# Hoeveel gevolgde objecten het opwarmen van /api/offers voor AH er hooguit bij heeft na een stap in de rekenthread. Tot
+# 20-11-2026 hield het oordeel de lijnacties als dicts (ruim 20.000) en alle bewaarde prijzen van twee weken als rijen (14.700)
+# vast: na een stap bijna 89.400 objecten, op het drukste moment binnen een stap 90.000 tot 110.000, waardoor
+# `test_a_nightly_run_keeps_the_tracked_set_small` faalde zodra een volle ronde van de GC in het opwarmen viel. Daarna na een stap
+# hooguit 64.800, met en zonder gedeelde prijzen.
+WARM_PEAK_ADDED_LIMIT: int = 80_000
+
+
+@pytest.mark.volume
+@pytest.mark.parametrize("shared", [False, True], ids=["eigen-prijzen", "gedeelde-prijzen"])
+async def test_the_offers_warm_keeps_the_tracked_set_small(volume_dir: Path, monkeypatch: pytest.MonkeyPatch, shared: bool) -> None:
+    # Gemeten na elke `compute.run`, niet bij het begin van een ronde van de GC: zo hangt de uitkomst niet af van wanneer de GC
+    # toevallig loopt. Na `_judge` leven de feiten en het antwoord tegelijk, het drukste moment van het opwarmen.
+    monkeypatch.setenv("MEALIESHOPPER_SHARED_PRICES", "true" if shared else "false")
+    app: Quart = create_app()
+    async with app.test_app():
+        await prices.warm_catalogues(["ah"])
+        warm: Callable[..., Awaitable[None]] = app.extensions["mealieshopper_warm_offers"]
+        await warm(("ah",))
+        async with auth.connect() as conn:  # een eigen koppeling: een nieuwe ETag, dus het volgende opwarmen rekent opnieuw
+            await conn.execute(
+                "INSERT INTO product_links (store, kind, key, product_id, title, brand, unit_size, image, source_name, created_at, origin)"
+                " VALUES ('ah', 'name', 'opwarmtest', '999999999', 'proef', '', '', '', 'proef', '2026-11-17T19:00:00+00:00', 'exact')"
+            )
+            await conn.commit()
+        added: list[int] = []
+        original: Callable[..., Awaitable[Any]] = compute.run
+
+        async def counted(function: Callable[..., Any], /, *args: Any, **kwargs: Any) -> Any:
+            try:
+                return await original(function, *args, **kwargs)
+            finally:
+                added.append(len(gc.get_objects()) - before)
+
+        gc.collect()
+        gc.freeze()
+        try:
+            before: int = len(gc.get_objects())
+            monkeypatch.setattr(compute, "run", counted)
+            await warm(("ah",))
+        finally:
+            monkeypatch.setattr(compute, "run", original)
+            gc.unfreeze()
+    assert len(added) > 10, "het opwarmen rekende niet opnieuw: dan meet deze test niets"
+    assert max(added) < WARM_PEAK_ADDED_LIMIT, sorted(added)[-3:]
 
 
 @pytest.mark.volume

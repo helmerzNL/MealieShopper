@@ -55,6 +55,11 @@ _task: asyncio.Task[None] | None = None
 # De opwarmer van /api/offers (create_app registreert hem): rekent na een synchronisatie het oordeel alvast uit, zodat de
 # eerste bezoeker niet wacht. Zonder registratie (tests, scripts) doet de synchronisatie niets extra's.
 _warmer: Callable[[], Awaitable[None]] | None = None
+# De rondes die de nachtelijke run start zonder erop te wachten en die in de catalogustabellen schrijven (prices.CATALOGUE_TABLES):
+# de koppelingen van de losse namen (product_links) en de weekprijzen van de prijsindex (price_observations).
+CATALOGUE_WRITERS: tuple[str, ...] = (loose_names.TASK_NAME, ah_price_index.TASK_NAME)
+DAY_CHANGE_DELAY: float = 5.0  # zoveel seconden na middernacht warmt de lus op (`warm_if_new_day`)
+_warmed_days: tuple[str, str] = ("", "")  # de lokale dag en de UTC-dag van het laatste opwarmen (`_days`)
 
 
 def set_warmer(warmer: Callable[[], Awaitable[None]] | None) -> None:
@@ -157,7 +162,10 @@ async def run_all(trigger: str, now: datetime | None = None, *, wait_for_images:
     # De nachtelijke run wacht erop (niets heeft haast), de knop niet: die geeft antwoord en warmt op in een eigen task.
     if _warmer is not None:
         if wait_for_images:
+            # De rondes die nu lopen, voor het opwarmen: een ronde die tijdens het opwarmen schrijft en klaar is, telt ook mee.
+            writers: list[asyncio.Task[Any]] = _running_writers()
             await _warm()
+            _warm_after_writers(writers)
         else:
             tasks.spawn("warm-offers", _warm())
     return result
@@ -188,9 +196,67 @@ async def _start_recipe_index() -> None:
         log.warning("Receptencache bijwerken starten mislukt", exc_info=True)
 
 
+def _running_writers() -> list[asyncio.Task[Any]]:
+    """De rondes van `CATALOGUE_WRITERS` die nu nog lopen."""
+    running: dict[str, asyncio.Task[Any]] = tasks.running()
+    return [task for name in CATALOGUE_WRITERS if (task := running.get(name)) is not None and not task.done()]
+
+
+def _warm_after_writers(writers: list[asyncio.Task[Any]]) -> None:
+    """Liep er bij het opwarmen een ronde van `CATALOGUE_WRITERS` (`writers`), dan warmt een eigen task nog een keer op zodra die
+    allemaal klaar zijn. Op 17-11-2026 schreef de ronde voor losse namen nog twee minuten koppelingen na het opwarmen: de ETag
+    veranderde, en de eerste bezoeker van die dag wachtte 6,3 s op een lijst die de app op de aanvraag uitrekende."""
+    if writers:
+        tasks.spawn("warm-offers-after-rounds", _warm_when_done(writers))
+
+
+async def _warm_when_done(writers: list[asyncio.Task[Any]]) -> None:
+    # `asyncio.wait` geeft geen fout van een ronde door: een mislukte of geannuleerde ronde telt ook als klaar.
+    await asyncio.wait(writers)
+    await _warm()
+
+
+def _days(moment: datetime) -> tuple[str, str]:
+    """De lokale dag en de UTC-dag van `moment`: de ETag van /api/offers bevat ze allebei (`offers.signature` rekent met de lokale
+    dag, `prices.offers_signature` met de UTC-dag)."""
+    return moment.date().isoformat(), moment.astimezone(timezone.utc).date().isoformat()
+
+
+def _remember_day() -> None:
+    """Onthoud de dagen van nu als opgewarmd (`warm_if_new_day`)."""
+    global _warmed_days
+    _warmed_days = _days(_local_now())
+
+
+def _seconds_to_day_change() -> float:
+    """Seconden tot de eerstvolgende middernacht, lokaal of in UTC, wat het eerst komt, plus `DAY_CHANGE_DELAY`."""
+    now: datetime = _local_now()
+    waits: list[float] = []
+    for moment in (now, now.astimezone(timezone.utc)):
+        midnight: datetime = (moment + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+        waits.append((midnight - moment).total_seconds())
+    return min(waits) + DAY_CHANGE_DELAY
+
+
+async def warm_if_new_day() -> bool:
+    """Warmt de catalogi en de aanbiedingen op als de lokale dag of de UTC-dag veranderde sinds het vorige opwarmen. Na middernacht
+    is elke lijst van /api/offers ongeldig, en tot de nachtelijke run rekende de eerste bezoeker hem op de aanvraag uit (18-11-2026).
+    Geeft terug of het opwarmde."""
+    if _warmer is None or _days(_local_now()) == _warmed_days:
+        return False
+    _remember_day()
+    try:
+        await prices.warm_catalogues()
+    except Exception:  # noqa: BLE001 - opwarmen is een extraatje
+        log.warning("Catalogi opwarmen na de dagwissel mislukt", exc_info=True)
+    await _warm()
+    return True
+
+
 async def _warm() -> None:
     if _warmer is None:
         return
+    _remember_day()
     try:
         await _warmer()
     except Exception:  # noqa: BLE001 - opwarmen is een extraatje
@@ -249,13 +315,17 @@ async def run_if_due(now: datetime | None = None) -> bool:
 
 
 async def _loop() -> None:
+    # Bij de start warmt create_app de aanbiedingen al op (warm_at_start): de dag van nu telt als opgewarmd.
+    _remember_day()
     wait: float = FIRST_CHECK_SECONDS
     while True:
         await asyncio.sleep(wait)
-        wait = CHECK_SECONDS
+        # Elk kwartier, en ook vlak na elke middernacht (`warm_if_new_day`).
+        wait = min(CHECK_SECONDS, _seconds_to_day_change())
         try:
             if await run_if_due():
                 log.info("Aanbiedingen van alle winkels vernieuwd")
+            await warm_if_new_day()
         except Exception:  # noqa: BLE001 - de taak moet blijven draaien, ook na een fout
             log.exception("Dagelijkse aanbiedingen-run mislukt")
 

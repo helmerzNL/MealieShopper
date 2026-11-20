@@ -28,6 +28,10 @@ TABLES: tuple[str, ...] = (
     "shared_price_receipts",
     "shared_price_receipt_meta",
     "shared_price_lines",
+    "shared_price_dirty",
+    "shared_price_receipt_keys",
+    "shared_price_receipt_names",
+    "shared_price_receipt_prices",
 )
 ORIGIN_TABLE: str = "shared_price_origins"
 COLUMNS: tuple[str, ...] = ("store", "product_id", "day", "source", "title", "brand", "unit_size", "image", "url", "price", "seen_at")
@@ -90,12 +94,12 @@ async def ensure(conn: aiosqlite.Connection) -> None:
 
 
 async def _setup(conn: aiosqlite.Connection) -> None:
-    from . import shared_price_lines
+    from . import shared_price_dirty, shared_price_lines
 
     existed: Any = await auth.fetchone(conn, "SELECT 1 FROM sqlite_master WHERE type='table' AND name='shared_price_lines'")
     groups_existed: Any = await auth.fetchone(conn, "SELECT 1 FROM sqlite_master WHERE type='index' AND name='shared_price_keys_same'")
     families_existed: Any = await auth.fetchone(conn, "SELECT 1 FROM sqlite_master WHERE type='table' AND name='shared_price_families'")
-    await conn.executescript(SCHEMA + shared_price_lines.SCHEMA)
+    await conn.executescript(SCHEMA + shared_price_lines.SCHEMA + shared_price_dirty.SCHEMA)
     if existed is None or groups_existed is None or families_existed is None:
         await conn.execute("DELETE FROM shared_price_build")
         await conn.commit()
@@ -272,7 +276,10 @@ async def revision(conn: aiosqlite.Connection, store: str) -> str:
 
 
 async def prepare(store: str = "ah") -> None:
-    from . import prices, shared_price_readmodel, shared_prices
+    """Build the private read model of `store` once per token of the catalogue and public generation, one bounded batch
+    of products per transaction, and then drain what changed since (`shared_price_dirty.refresh`). A write during the build
+    leaves a pending row instead of starting the build again."""
+    from . import prices, shared_price_dirty, shared_prices
 
     with shared_prices.lease(store) as snapshot:
         if snapshot is not None:
@@ -281,49 +288,79 @@ async def prepare(store: str = "ah") -> None:
         while True:
             await shared_prices.yield_background()
             async with prices._connect() as conn:
-                full_revision: str = await revision(conn, store)
-                version: str = build_revision(full_revision, prices._now()[:10])
-                state: Any = await auth.fetchone(
-                    conn, "SELECT generation,cursor,revision,ready_revision FROM shared_price_build WHERE store=?", (store,)
-                )
-                if state and state[0] == generation and state[3] == version:
-                    return
-                cursor: str = str(state[1]) if state and state[0] == generation and state[2] == version else ""
-                tables: set[str] = await prices._tables(conn)
-                sources: list[tuple[str, tuple[Any, ...]]] = [
-                    ("SELECT product_id FROM price_observations WHERE store=?", (store,)),
-                    ("SELECT product_id FROM offer_history WHERE store=?", (store,)),
-                    ("SELECT product_id FROM offers WHERE store=?", (store,)),
-                    ("SELECT product_id FROM price_history_products WHERE store=?", (store,)),
-                    *[(f"SELECT product_id FROM ({sql})", ()) for sql in prices._purchase_sources(tables, store)],
-                ]
-                await shared_price_readmodel.prepare_receipts(conn, store, prices._now()[:10], full_revision, snapshot)
-                sources.append(("SELECT product_id FROM shared_price_receipts WHERE store=?", (store,)))
-                candidates: set[str] = set()
-                for sql, args in sources:
-                    candidates.update(
-                        row[0]
-                        for row in await conn.execute_fetchall(
-                            "SELECT DISTINCT product_id FROM (" + sql + ") WHERE product_id>? ORDER BY product_id LIMIT ?",
-                            (*args, cursor, BATCH_SIZE),
-                        )
-                    )
-                ids: list[str] = sorted(candidates)[:BATCH_SIZE]
-                await conn.execute("BEGIN IMMEDIATE")
-                if build_revision(await revision(conn, store), prices._now()[:10]) != version:
-                    await conn.rollback()
-                    continue
-                await shared_price_readmodel.index_batch(conn, snapshot, store, prices._now()[:10], ids)
-                ready: bool = len(ids) < BATCH_SIZE
-                await conn.execute(
-                    "INSERT INTO shared_price_build VALUES(?,?,?,?,?) ON CONFLICT(store) DO UPDATE SET "
-                    "generation=excluded.generation,cursor=excluded.cursor,revision=excluded.revision,ready_revision=excluded.ready_revision",
-                    (store, generation, ids[-1] if ids else cursor, version, version if ready else ""),
-                )
-                await conn.commit()
-                if ready:
-                    return
+                await shared_price_dirty.ensure_triggers(conn)
+                if await _build_step(conn, snapshot, store, generation):
+                    break
             await asyncio.sleep(0)
+        async with prices._connect() as conn:
+            await shared_price_dirty.refresh(conn, snapshot, store, prices._now()[:10], request=False)
+
+
+async def _build_step(conn: aiosqlite.Connection, snapshot: Any, store: str, generation: str) -> bool:
+    """One transaction of the build: start it (no pending rows, every receipt line linked) or index the next batch. True
+    once the build is complete."""
+    from . import prices, shared_price_dirty, shared_price_readmodel
+
+    token: str = await shared_price_dirty.token(conn, store)
+    state: Any = await auth.fetchone(conn, "SELECT generation,cursor,revision,ready_revision FROM shared_price_build WHERE store=?", (store,))
+    ours: bool = bool(state) and state[0] == generation
+    done: tuple[str, str] | None = shared_price_dirty.parse_build(state[3]) if ours else None
+    if done is not None and done[0] == token:
+        return True
+    building: tuple[str, str] | None = shared_price_dirty.parse_build(state[2]) if ours else None
+    await conn.execute("BEGIN IMMEDIATE")
+    try:
+        if await shared_price_dirty.token(conn, store) != token:
+            await conn.rollback()
+            return False
+        if building is None or building[0] != token:
+            today: str = prices._now()[:10]
+            await conn.execute("DELETE FROM shared_price_dirty WHERE store=?", (store,))
+            await shared_price_readmodel.relink_receipts(conn, snapshot, store, today, generation, token, mark=False)
+            await conn.execute(
+                "INSERT INTO shared_price_build VALUES(?,?,'',?,'') ON CONFLICT(store) DO UPDATE SET "
+                "generation=excluded.generation,cursor='',revision=excluded.revision,ready_revision=''",
+                (store, generation, shared_price_dirty.build_revision(token, today)),
+            )
+            await conn.commit()
+            return False
+        cursor: str = str(state[1])
+        day: str = building[1]
+        ids: list[str] = await _next_products(conn, store, cursor)
+        await shared_price_readmodel.index_batch(conn, snapshot, store, day, ids)
+        ready: bool = len(ids) < BATCH_SIZE
+        await conn.execute(
+            "UPDATE shared_price_build SET cursor=?,ready_revision=? WHERE store=?", (ids[-1] if ids else cursor, state[2] if ready else "", store)
+        )
+        await conn.commit()
+        return ready
+    except BaseException:
+        await conn.rollback()
+        raise
+
+
+async def _next_products(conn: aiosqlite.Connection, store: str, cursor: str) -> list[str]:
+    """The next `BATCH_SIZE` products of `store` after `cursor`, from every source of the read model."""
+    from . import prices
+
+    tables: set[str] = await prices._tables(conn)
+    sources: list[tuple[str, tuple[Any, ...]]] = [
+        ("SELECT product_id FROM price_observations WHERE store=?", (store,)),
+        ("SELECT product_id FROM offer_history WHERE store=?", (store,)),
+        ("SELECT product_id FROM offers WHERE store=?", (store,)),
+        ("SELECT product_id FROM price_history_products WHERE store=?", (store,)),
+        *[(f"SELECT product_id FROM ({sql})", ()) for sql in prices._purchase_sources(tables, store)],
+        ("SELECT product_id FROM shared_price_receipts WHERE store=?", (store,)),
+    ]
+    candidates: set[str] = set()
+    for sql, args in sources:
+        candidates.update(
+            str(row[0])
+            for row in await conn.execute_fetchall(
+                "SELECT DISTINCT product_id FROM (" + sql + ") WHERE product_id>? ORDER BY product_id LIMIT ?", (*args, cursor, BATCH_SIZE)
+            )
+        )
+    return sorted(candidates)[:BATCH_SIZE]
 
 
 async def reconcile_if_due() -> None:
@@ -357,24 +394,18 @@ async def candidates(conn: aiosqlite.Connection, snapshot: Any, store: str, ids:
     shadow: str = " AND NOT (" + shadow_sql("p") + ")" if snapshot is not None else ""
     # Two local rows per product suffice: the lowest fresh point and the newest point.
     # The mask query below still sees every private day, including non-regular observations.
+    # Each is one probe of the primary key (store, product, day) per product: the window of ten years stays unread.
+    usable: str = "p.store=? AND p.product_id=w.value AND p.day<=? AND p.source!=? AND typeof(p.price) IN ('real','integer') AND p.price>0" + shadow
+    fresh: str = prices._days_ago(until, prices.FRESH_DAYS)
     local: list[Any] = list(
         await conn.execute_fetchall(
-            "WITH selected AS (SELECT p.* FROM price_observations p WHERE p.store=? "
-            "AND p.product_id IN (SELECT value FROM json_each(?)) AND p.day>=? AND p.day<=? "
-            "AND p.source!=? AND typeof(p.price) IN ('real','integer') AND p.price>0" + shadow + "), "
-            "ranked AS (SELECT *,row_number() OVER(PARTITION BY product_id ORDER BY "
-            "CASE WHEN day>=? THEN 0 ELSE 1 END, CASE WHEN day>=? THEN price END,day DESC) AS chosen,"
-            "row_number() OVER(PARTITION BY product_id ORDER BY day DESC) AS newest FROM selected) "
-            "SELECT * FROM ranked WHERE chosen=1 OR newest=1 ORDER BY product_id,day",
-            (
-                store,
-                json.dumps(ids),
-                since,
-                until,
-                prices.PUBLIC_OBSERVED_UNKNOWN,
-                prices._days_ago(until, prices.FRESH_DAYS),
-                prices._days_ago(until, prices.FRESH_DAYS),
-            ),
+            "WITH wanted AS MATERIALIZED (SELECT DISTINCT value FROM json_each(?)), picked AS MATERIALIZED ("
+            "SELECT (SELECT p.rowid FROM price_observations p WHERE " + usable + " AND p.day>=? ORDER BY p.day DESC LIMIT 1) AS id FROM wanted w "
+            "UNION SELECT (SELECT p.rowid FROM price_observations p WHERE "
+            + usable
+            + " AND p.day>=? ORDER BY p.price,p.day DESC LIMIT 1) FROM wanted w) "
+            "SELECT p.* FROM picked c CROSS JOIN price_observations p ON p.rowid=c.id ORDER BY p.product_id,p.day",
+            (json.dumps(ids), store, until, prices.PUBLIC_OBSERVED_UNKNOWN, since, store, until, prices.PUBLIC_OBSERVED_UNKNOWN, max(since, fresh)),
         )
     )
     public: dict[str, list[dict[str, Any]]] = (
@@ -417,7 +448,3 @@ def shadow_sql(row: str) -> str:
         "EXISTS(SELECT 1 FROM main.shared_price_equivalence e WHERE e.store=" + row + ".store "
         "AND e.product_id=" + row + ".product_id AND e.day=" + row + ".day) AND " + coverage_sql(row)
     )
-
-
-def build_revision(revision: str, today: str) -> str:
-    return f"{revision}|{today}|search-v3"
