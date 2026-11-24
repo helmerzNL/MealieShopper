@@ -191,7 +191,7 @@ class BonusParsingTest(AppTestCase):
         self.assertEqual(ah.BONUS_SEARCH_WORKERS, 6)
 
     def test_the_bonus_comes_per_bonus_period_from_graphql(self):
-        with mock.patch.object(ah, "get_token", return_value="t"), mock.patch.object(ah, "_graphql", return_value=BONUS_PROMOTIONS) as graphql:
+        with mock.patch.object(ah, "get_token", return_value="t"), mock.patch.object(ah, "_graphql_partial", return_value=(BONUS_PROMOTIONS, [])) as graphql:
             products = run(ah.get_bonus_promotions(today=date(2026, 11, 1)))
         self.assertIn("bonusPeriods", graphql.call_args.args[1])
         by_key = {(p["id"], p["validFrom"]): p for p in products}
@@ -219,7 +219,7 @@ class BonusParsingTest(AppTestCase):
     def test_graphql_comes_first_and_the_old_routes_are_the_fallback(self):
         with (
             mock.patch.object(ah, "get_token", return_value="t"),
-            mock.patch.object(ah, "_graphql", return_value=BONUS_PROMOTIONS),
+            mock.patch.object(ah, "_graphql_partial", return_value=(BONUS_PROMOTIONS, [])),
             mock.patch.object(ah, "_request_json") as bonus_page,
             mock.patch.object(ah, "date") as fake_date,
         ):
@@ -238,13 +238,28 @@ class BonusParsingTest(AppTestCase):
         }
 
     def test_a_bonus_where_most_products_have_no_details_is_incomplete(self):
-        with mock.patch.object(ah, "get_token", return_value="t"), mock.patch.object(ah, "_graphql", return_value=self.feed_without_titles(3, 1)):
+        with mock.patch.object(ah, "get_token", return_value="t"), mock.patch.object(ah, "_graphql_partial", return_value=(self.feed_without_titles(3, 1), [])):
             with self.assertRaises(ah.BonusIncomplete) as caught:
                 run(ah.get_bonus_promotions(today=date(2026, 11, 24)))
         self.assertIn("3 van de 4", str(caught.exception))
 
+    def test_names_missing_with_graphql_errors_is_still_incomplete_and_other_errors_fail(self):
+        # AH kan de lege namen ook als fouten melden (een veld dat niet null mag zijn): dan telt de bonus net zo goed als onvolledig.
+        errors = [{"message": "Cannot return null for non-nullable field Product.title"}]
+        with mock.patch.object(ah, "get_token", return_value="t"), mock.patch.object(ah, "_graphql_partial", return_value=(self.feed_without_titles(3, 1), errors)):
+            with self.assertRaises(ah.BonusIncomplete):
+                run(ah.get_bonus_promotions(today=date(2026, 11, 24)))
+        with mock.patch.object(ah, "get_token", return_value="t"), mock.patch.object(ah, "_graphql_partial", return_value=(self.feed_without_titles(0, 4), errors)):
+            with self.assertRaises(RuntimeError) as caught:
+                run(ah.get_bonus_promotions(today=date(2026, 11, 24)))
+        self.assertNotIsInstance(caught.exception, ah.BonusIncomplete)
+        self.assertIn("AH bonus ophalen mislukt: Cannot return null", str(caught.exception))
+        with mock.patch.object(ah, "get_token", return_value="t"), mock.patch.object(ah, "_graphql_partial", return_value=({}, errors)):
+            with self.assertRaises(RuntimeError):
+                run(ah.get_bonus_promotions(today=date(2026, 11, 24)))
+
     def test_a_few_products_without_a_name_are_left_out_and_the_rest_stays(self):
-        with mock.patch.object(ah, "get_token", return_value="t"), mock.patch.object(ah, "_graphql", return_value=self.feed_without_titles(1, 3)):
+        with mock.patch.object(ah, "get_token", return_value="t"), mock.patch.object(ah, "_graphql_partial", return_value=(self.feed_without_titles(1, 3), [])):
             products = run(ah.get_bonus_promotions(today=date(2026, 11, 24)))
         self.assertEqual(sorted(p["id"] for p in products), ["200", "201", "202"])
 

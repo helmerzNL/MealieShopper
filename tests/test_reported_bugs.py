@@ -2640,7 +2640,7 @@ class BonusWithoutProductDetailsTest(test_offers.TempDataDirTest):
         with (
             mock.patch.object(offers, "linked", side_effect=lambda store: store == "ah"),
             mock.patch.object(ah, "get_token", return_value="t"),
-            mock.patch.object(ah, "_graphql", side_effect=lambda *args: self.feed(titled)),
+            mock.patch.object(ah, "_graphql_partial", side_effect=lambda *args: (self.feed(titled), [])),
             mock.patch.object(ah, "_request_json", side_effect=ah.AhHttpError("404: Failed dependency", 404)),
             mock.patch.object(ah, "_bonus_from_search", return_value=food) as search,
             mock.patch.object(ah, "date") as fake_date,
@@ -2674,7 +2674,7 @@ class BonusWithoutProductDetailsTest(test_offers.TempDataDirTest):
             self.assertFalse(run(offers_schedule.retry_if_due(nightly + timedelta(hours=1, minutes=15))), "een keer per uur")
             with (
                 mock.patch.object(ah, "get_token", return_value="t"),
-                mock.patch.object(ah, "_graphql", side_effect=lambda *args: self.feed(True)),
+                mock.patch.object(ah, "_graphql_partial", side_effect=lambda *args: (self.feed(True), [])),
                 mock.patch.object(ah, "date") as fake_date,
                 mock.patch.object(prices, "warm_catalogues", return_value=None) as catalogues,
             ):

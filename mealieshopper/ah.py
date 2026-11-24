@@ -1170,8 +1170,10 @@ async def get_bonus_promotions(today: date | None = None) -> list[dict[str, Any]
     """De bonus van alle bonusperiodes die AH kent, als producten met hun looptijd. Een product kan in twee periodes staan
     (deze week en volgende week, elk met een eigen actie); dan komt het twee keer terug. Werkt zonder AH-login.
 
-    Mist de meerderheid van de producten haar naam (`INCOMPLETE_SHARE`), dan een `BonusIncomplete`."""
-    data = await _anonymous(lambda token: _graphql(token, BONUS_PROMOTIONS_QUERY, {}, "AH bonus ophalen"))
+    Mist de meerderheid van de producten haar naam (`INCOMPLETE_SHARE`), dan een `BonusIncomplete`, ook als AH er GraphQL-fouten bij
+    geeft: een product zonder naam kan AH als fout melden, en dan mag de bonus net zo min door de zoekopdrachten worden vervangen. Andere
+    GraphQL-fouten geven een RuntimeError, zoals `_graphql`."""
+    data, errors = await _anonymous(lambda token: _graphql_partial(token, BONUS_PROMOTIONS_QUERY, {}, "AH bonus ophalen"))
     periods = [
         (deals.parse_date(period.get("startDate")), deals.parse_date(period.get("endDate")))
         for period in data.get("bonusPeriods") or []
@@ -1201,6 +1203,8 @@ async def get_bonus_promotions(today: date | None = None) -> list[dict[str, Any]
                 f"AH returned the bonus without product details: {untitled} of the {listed} products have no name",
             )
         )
+    if errors:
+        raise RuntimeError(f"AH bonus ophalen mislukt: {errors[0].get('message', 'GraphQL error')}")
     return list(found.values())
 
 
