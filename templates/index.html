@@ -1102,10 +1102,10 @@
         <div id="offers-watched" class="subpanel">
         <div class="box box--wide">
           <h2 data-i18n="watched.title">Gevolgde producten</h2>
-          <p class="muted" data-i18n="watched.explain">Losse artikelen waarvan MealieShopper elke nacht de prijs, de maat, de verpakking en de afbeelding bewaart. Zo zie je of een product duurder wordt, los van de aanbiedingen.</p>
+          <p class="muted" data-i18n="watched.explain">Losse artikelen waarvan MealieShopper elke dag de prijs, de maat, de verpakking en de afbeelding bewaart. Zo zie je of een product duurder wordt, los van de aanbiedingen.</p>
           <details class="help">
             <summary data-i18n="common.help">Hoe werkt dit?</summary>
-            <p class="muted" data-i18n="watched.explain_more">Zoek een product bij een winkel, of plak een link van een product op ah.nl of jumbo.com, en klik op Volgen. Elke nacht, met de aanbiedingen, haalt de app van elk gevolgd product de gewone prijs, de prijs van dat moment, de maat, het soort verpakking en de afbeelding op. De lijn volgt de gewone prijs: een aanbieding staat er als stip bij en telt niet als prijsverandering. Het product staat met dezelfde prijzen ook in de Prijsgeschiedenis, met de markering Los artikel.</p>
+            <p class="muted" data-i18n="watched.explain_more">Zoek een product bij een winkel, of plak een link van een product op ah.nl of jumbo.com, en klik op Volgen. Elke dag, met de aanbiedingen, haalt de app van elk gevolgd product de gewone prijs, de prijs van dat moment, de maat, het soort verpakking en de afbeelding op. De lijn volgt de gewone prijs: een aanbieding staat er als stip bij en telt niet als prijsverandering. Het product staat met dezelfde prijzen ook in de Prijsgeschiedenis, met de markering Los artikel.</p>
           </details>
           <form id="watched-form" class="watched-form" role="search">
             <label class="watched-form__store">
@@ -1275,7 +1275,7 @@
           <p class="muted" data-i18n="loose.intro">Oude productnamen uit bevestigingsmails die nog bij geen product horen. Kies bij elke naam het product van de winkel, zoek zelf of wijs de naam af.</p>
           <details class="help">
             <summary data-i18n="common.help">Hoe werkt dit?</summary>
-            <p class="muted" data-i18n="loose.intro_more">De app zoekt zulke namen 's nachts of op verzoek op bij de winkel. Een voorstel van de AI is alleen een voorgeselecteerde keuze: er wordt niets gekoppeld voordat je op Koppel gekozen product klikt.</p>
+            <p class="muted" data-i18n="loose.intro_more">De app zoekt zulke namen elke dag of op verzoek op bij de winkel. Een voorstel van de AI is alleen een voorgeselecteerde keuze: er wordt niets gekoppeld voordat je op Koppel gekozen product klikt.</p>
           </details>
           <div id="loose-header"></div>
           <div id="loose-export-home" hidden><button class="button button--secondary" id="loose-export" type="button" disabled>Exporteer voor GitHub</button></div>
@@ -2061,7 +2061,7 @@
           <h2 class="fold__title"><button type="button" class="fold__toggle" id="ai-login-toggle" aria-expanded="false" aria-controls="ai-login-body"><span data-i18n="aireview.title">AI-beoordeling van koppelingen</span><svg class="fold__chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="M7.41,8.58L12,13.17L16.59,8.58L18,10L12,16L6,10L7.41,8.58Z"/></svg></button></h2>
           <div class="fold__body" id="ai-login-body" hidden>
             <p class="muted" data-i18n="aireview.intro">Met een API-sleutel van Claude (Anthropic) of ChatGPT (OpenAI) zoekt een AI recepten bij de aanbiedingen van een winkel. Helemaal optioneel.</p>
-            <p class="muted" data-i18n="aireview.privacy">Er gaat alleen tekst van producten en ingrediënten naar de aanbieder, alleen als je zelf op de knop drukt, en een ronde kost geld. De uitzondering is het vinkje voor losse aankopen hieronder: daar staat wat er dan 's nachts meegaat.</p>
+            <p class="muted" data-i18n="aireview.privacy">Er gaat alleen tekst van producten en ingrediënten naar de aanbieder, alleen als je zelf op de knop drukt, en een ronde kost geld. De uitzondering is het vinkje voor losse aankopen hieronder: daar staat wat er dan bij de dagelijkse ronde meegaat.</p>
             <details class="help">
               <summary data-i18n="common.help">Hoe werkt dit?</summary>
               <p class="muted" data-i18n="aireview.intro_more">Je start het zelf met de knop Recepten zoeken met AI bij de receptvoorstellen: de AI koppelt de ingrediënten van je recepten (Mealie, Albert Heijn, Jumbo, Picnic en Crisp) aan producten uit de aanbieding. Die koppelingen vervangen de koppelingen van MealieShopper voor de recepten die de AI doorzocht heeft. Zonder sleutel werkt alles zoals eerst.</p>
@@ -2070,7 +2070,7 @@
             <form class="auth-form" id="ai-review-form" autocomplete="off">
               <label class="check">
                 <input type="checkbox" id="ai-loose-nightly">
-                <span><span data-i18n="aireview.loose_nightly">Laat de AI 's nachts voorstellen doen voor losse aankopen</span>
+                <span><span data-i18n="aireview.loose_nightly">Laat de AI bij de dagelijkse ronde voorstellen doen voor losse aankopen</span>
                 <small class="muted" data-i18n="aireview.loose_nightly_note">Dan stuurt de app per naam de oude productnaam, hoe vaak en in welke jaren je hem kocht, de laagste en hoogste prijs die je betaalde en de producten die de winkel bij die naam vond (titel, merk, inhoud en prijs) naar de AI-aanbieder. Er wordt niets gekoppeld zonder dat je klikt. Staat standaard uit.</small></span>
               </label>
               <label class="field">

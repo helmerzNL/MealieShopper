@@ -210,7 +210,7 @@ class PageTest(AppTestCase):
         for key in keys:
             self.assertIn(key, EN, key)
             self.assertEqual(placeholders(NL[key]), placeholders(EN[key]), key)
-        self.assertIn("'s nachts", NL["aireview.loose_nightly"])
+        self.assertIn("dagelijkse ronde", NL["aireview.loose_nightly"])
 
     def test_scripts_load_in_the_right_order(self):
         order = [HTML.index(name) for name in ("i18n.js", "i18n/nl.js", "i18n/en.js", "app.js", "onboarding.js")]

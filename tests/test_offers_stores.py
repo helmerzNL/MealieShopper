@@ -651,7 +651,10 @@ class SyncAllTest(TempDataDirTest):
 class ScheduleTest(TempDataDirTest, unittest.IsolatedAsyncioTestCase):
     def setUp(self):
         super().setUp()
-        patcher = mock.patch.dict(os.environ, {"MEALIESHOPPER_OFFERS_SYNC_HOUR": "5", "MEALIESHOPPER_OFFERS_SCHEDULE": "true"})
+        # Precies om 05:00 (zonder spreiding), zodat de tijden hieronder vast staan. Het wisselende tijdstip: RandomTimeTest.
+        patcher = mock.patch.dict(
+            os.environ, {"MEALIESHOPPER_OFFERS_SYNC_HOUR": "5", "MEALIESHOPPER_OFFERS_SYNC_SPREAD": "0", "MEALIESHOPPER_OFFERS_SCHEDULE": "true"}
+        )
         patcher.start()
         self.addCleanup(patcher.stop)
         fake = mock.patch.object(offers, "sync_all", new_callable=mock.AsyncMock, return_value={"stores": {"ah": {"count": 1}}, "finishedAt": "x"})
@@ -696,14 +699,14 @@ class ScheduleTest(TempDataDirTest, unittest.IsolatedAsyncioTestCase):
     def test_a_bad_hour_falls_back_to_the_default(self):
         for value in ("25", "-1", "abc", ""):
             with mock.patch.dict(os.environ, {"MEALIESHOPPER_OFFERS_SYNC_HOUR": value}):
-                self.assertEqual(offers_schedule.sync_hour(), 5)
+                self.assertEqual(offers_schedule.sync_start(), (7, 30))
 
     async def test_status_remembers_the_last_run(self):
         self.assertIsNone((await offers_schedule.status())["lastRun"])
         with mock.patch.object(offers_schedule, "_local_now", return_value=datetime(2026, 10, 24, 12, 0).astimezone()):
             await offers_schedule.sync_now()
         status = await offers_schedule.status()
-        self.assertEqual((status["lastTrigger"], status["lastResult"]["stores"]["ah"]["count"], status["hour"]), ("manual", 1, 5))
+        self.assertEqual((status["lastTrigger"], status["lastResult"]["stores"]["ah"]["count"], status["window"]), ("manual", 1, {"from": "05:00", "until": "05:00"}))
         self.assertTrue(status["enabled"] and status["nextRun"])
         await offers_schedule.run_if_due(datetime(2026, 10, 25, 6, 0).astimezone())
         self.assertEqual((await offers_schedule.status())["lastTrigger"], "scheduled")
@@ -752,6 +755,56 @@ class ScheduleTest(TempDataDirTest, unittest.IsolatedAsyncioTestCase):
         self.sync_all.side_effect = RuntimeError("stuk")
         with self.assertRaises(RuntimeError):
             await offers_schedule.run_if_due(datetime(2026, 10, 22, 6, 0).astimezone())
+
+
+class RandomTimeTest(unittest.TestCase):
+    """Een vast tijdstip is bij de winkels als automatisch verkeer te herkennen: de run valt elke dag ergens anders in zijn venster."""
+
+    def setUp(self):
+        patcher = mock.patch.dict(os.environ, {"MEALIESHOPPER_OFFERS_SCHEDULE": "true"})
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        for name in ("MEALIESHOPPER_OFFERS_SYNC_HOUR", "MEALIESHOPPER_OFFERS_SYNC_SPREAD"):
+            os.environ.pop(name, None)  # de patch hierboven zet ze bij het opruimen terug
+
+    def days(self, seed: str, count: int = 60) -> list[datetime]:
+        first = datetime(2026, 11, 1, 12, 0).astimezone()
+        return [offers_schedule.latest_slot(first + timedelta(days=day), seed) for day in range(count)]
+
+    def test_by_default_the_run_falls_between_half_past_seven_and_nine(self):
+        self.assertEqual(offers_schedule.window(), {"from": "07:30", "until": "09:00"})
+        slots = self.days("installatie-a")
+        for slot in slots:
+            self.assertTrue((7, 30) <= (slot.hour, slot.minute) <= (9, 0), slot)
+        self.assertGreater(len({(slot.hour, slot.minute) for slot in slots}), 30, "elke dag een ander tijdstip")
+        self.assertEqual(slots, self.days("installatie-a"), "vast per dag, ook na een herstart")
+        self.assertNotEqual(slots, self.days("installatie-b"), "per installatie anders")
+
+    def test_the_latest_and_the_next_run_follow_each_other(self):
+        now = datetime(2026, 11, 24, 8, 10).astimezone()
+        for minutes in range(0, 3 * 24 * 60, 37):
+            moment = now + timedelta(minutes=minutes)
+            latest, upcoming = offers_schedule.latest_slot(moment, "s"), offers_schedule.next_slot(moment, "s")
+            self.assertLessEqual(latest, moment)
+            self.assertGreater(upcoming, moment)
+            self.assertEqual(offers_schedule.next_slot(latest, "s"), upcoming, "geen run ertussen")
+            self.assertLess(abs(upcoming - latest - timedelta(days=1)), timedelta(minutes=91))
+
+    def test_the_hour_and_the_spread_can_be_set(self):
+        with mock.patch.dict(os.environ, {"MEALIESHOPPER_OFFERS_SYNC_HOUR": "9", "MEALIESHOPPER_OFFERS_SYNC_SPREAD": "30"}):
+            self.assertEqual(offers_schedule.window(), {"from": "09:00", "until": "09:30"})
+            for slot in self.days("s", 20):
+                self.assertTrue((9, 0) <= (slot.hour, slot.minute) <= (9, 30), slot)
+        with mock.patch.dict(os.environ, {"MEALIESHOPPER_OFFERS_SYNC_SPREAD": "0"}):
+            self.assertEqual({(slot.hour, slot.minute) for slot in self.days("s", 10)}, {(7, 30)})
+        for value in ("-1", "abc", str(offers_schedule.MAX_SPREAD_MINUTES + 1)):
+            with mock.patch.dict(os.environ, {"MEALIESHOPPER_OFFERS_SYNC_SPREAD": value}):
+                self.assertEqual(offers_schedule.sync_spread(), 90, value)
+
+    def test_a_retry_waits_between_45_and_75_minutes(self):
+        gaps = {offers_schedule._retry_gap(f"2026-11-24T0{hour}:{minute:02d}:00+00:00", "s") for hour in range(6, 9) for minute in range(60)}
+        self.assertTrue(all(timedelta(minutes=45) <= gap <= timedelta(minutes=75) for gap in gaps), gaps)
+        self.assertGreater(len(gaps), 10, "niet elke keer even lang")
 
 
 class RoutesTest(TempDataDirTest):

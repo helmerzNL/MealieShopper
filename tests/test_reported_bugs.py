@@ -2667,6 +2667,9 @@ class BonusWithoutProductDetailsTest(test_offers.TempDataDirTest):
         nightly: datetime = datetime(2026, 11, 24, 5, 0, tzinfo=timezone.utc)
         result, _ = self.sync_all(titled=False)
         run(offers_schedule._record("scheduled", result, nightly))
+        jitter = mock.patch.object(offers_schedule, "RETRY_JITTER_MINUTES", 0)  # precies een uur, de spreiding: RandomTimeTest
+        jitter.start()
+        self.addCleanup(jitter.stop)
         with mock.patch.object(offers, "sync_all", side_effect=AssertionError("alleen de winkel die het opnieuw moet proberen")):
             self.assertFalse(run(offers_schedule.retry_if_due(nightly + timedelta(minutes=15))), "pas na een uur")
             with mock.patch.object(offers, "sync", side_effect=ah.BonusIncomplete("nog steeds zonder productgegevens")):

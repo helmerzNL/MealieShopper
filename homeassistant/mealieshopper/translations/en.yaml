@@ -30,8 +30,8 @@ configuration:
     name: Fetch offers daily
     description: Turn the daily task that fetches the offers of all stores off or on. On by default.
   offers_sync_hour:
-    name: Hour of the daily offers run
-    description: The hour of the day (0 to 23) at which the offers are fetched. Default 5.
+    name: Start hour of the daily offers run
+    description: The whole hour (0 to 23) at which the window of the offers run starts. Within 90 minutes after it the run falls at a different time every day. Empty is between 07:30 and 09:00.
   mcp:
     name: MCP server for AI assistants
     description: Start value of the MCP server (on by default, when login is on). The switch in the app (Profile > AI apps) takes precedence.
