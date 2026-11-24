@@ -1891,6 +1891,10 @@
               <li data-i18n-html="jumbo.step4">In de console staat nu een rode regel met <code>jumbo://callbacks/login?code=...</code>. Kopieer die regel (of alleen de tekst vanaf <code>jumbo://</code> tot de sluitende aanhalingsteken).</li>
               <li data-i18n-html="jumbo.step5">Plak hem hieronder en klik direct op <strong>Koppelen</strong>. De code werkt maar één keer en verloopt snel.</li>
             </ol>
+            <details class="help">
+              <summary data-i18n="jumbo.nocode.title">Staat de code niet in de console?</summary>
+              <p class="muted" data-i18n-html="jumbo.nocode.body">Toont de console alleen <code>Prevented navigation to “https://auth.jumbo.com/authorize/resume?state=...”</code> (zo doet Firefox), dan staat de code daar niet. Open het tabblad <strong>Netwerk</strong> <em>voordat</em> je inlogt (zet <em>Logboek behouden</em> aan), kies na het inloggen het verzoek <code>resume?state=...</code> en kopieer bij de antwoordheaders de regel <code>Location: jumbo://callbacks/login?code=...</code>. Plak die regel hieronder.</p>
+            </details>
             <form class="inline-login-form" action="/api/jumbo/auth/start" method="get" target="_blank" rel="noopener">
               <button class="button inline-button" id="jumbo-login" type="submit" data-i18n="jumbo.login">Inloggen bij Jumbo</button>
             </form>

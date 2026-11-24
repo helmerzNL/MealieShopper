@@ -1655,6 +1655,8 @@ I18N.add("nl", {
   "jumbo.step3": "Log in met je Jumbo-account. De pagina lijkt daarna vast te lopen: Jumbo probeert de Jumbo-app te openen. Dat is normaal.",
   "jumbo.step4": "In de console staat nu een rode regel met <code>jumbo://callbacks/login?code=...</code>. Kopieer die regel (of alleen de tekst vanaf <code>jumbo://</code> tot de sluitende aanhalingsteken).",
   "jumbo.step5": "Plak hem hieronder en klik direct op <strong>Koppelen</strong>. De code werkt maar één keer en verloopt snel.",
+  "jumbo.nocode.title": "Staat de code niet in de console?",
+  "jumbo.nocode.body": "Toont de console alleen <code>Prevented navigation to “https://auth.jumbo.com/authorize/resume?state=...”</code> (zo doet Firefox), dan staat de code daar niet. Open het tabblad <strong>Netwerk</strong> <em>voordat</em> je inlogt (zet <em>Logboek behouden</em> aan), kies na het inloggen het verzoek <code>resume?state=...</code> en kopieer bij de antwoordheaders de regel <code>Location: jumbo://callbacks/login?code=...</code>. Plak die regel hieronder.",
   "jumbo.login": "Inloggen bij Jumbo",
   "jumbo.unlink": "Ontkoppelen",
   "jumbo.finish_intro": "Plak de <code>jumbo://callbacks/login?code=...</code> regel uit de console (de code zelf of een refresh token mag ook).",
