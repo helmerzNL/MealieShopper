@@ -229,6 +229,11 @@ FAVORITE_LIST_QUERY = """
 _CODE_PARAM_RE = re.compile(r"(?:^|[?&#\s'\"(])code=([^&\s'\"<>)]+)")
 
 
+def has_oauth_code_param(value: str) -> bool:
+    """Staat er een `code=...` in de geplakte tekst (een URL, een console-regel of een koptekst)?"""
+    return bool(_CODE_PARAM_RE.search(str(value or "")))
+
+
 def extract_oauth_code(value: str) -> str:
     """Haal de OAuth code uit een geplakte URL, console-regel of kale code.
 

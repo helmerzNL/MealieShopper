@@ -1655,6 +1655,7 @@ I18N.add("en", {
   "jumbo.step3": "Log in with your Jumbo account. The page then seems to hang: Jumbo is trying to open the Jumbo app. That is normal.",
   "jumbo.step4": "The console now shows a red line with <code>jumbo://callbacks/login?code=...</code>. Copy that line (or just the text from <code>jumbo://</code> up to the closing quotation mark).",
   "jumbo.step5": "Paste it below and click <strong>Link</strong> right away. The code works only once and expires quickly.",
+  "jumbo.nocode": "If the console only shows <code>Prevented navigation to “https://auth.jumbo.com/authorize/resume?state=...”</code> (Firefox), then open the <strong>Network</strong> tab <em>before</em> you log in (turn on <em>Persist Logs</em>), pick the <code>resume?state=...</code> request after logging in and copy the <code>Location: jumbo://callbacks/login?code=...</code> line from the response headers. Paste that line below.",
   "jumbo.login": "Log in to Jumbo",
   "jumbo.unlink": "Unlink",
   "jumbo.finish_intro": "Paste the <code>jumbo://callbacks/login?code=...</code> line from the console (the code itself or a refresh token also works).",

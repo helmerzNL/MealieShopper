@@ -330,6 +330,7 @@ function renderObJumbo(body) {
         <li>${th("jumbo.step4")}</li>
         <li>${th("jumbo.step5")}</li>
       </ol>
+      <p class="muted">${th("jumbo.nocode")}</p>
       <p><a class="button button--secondary" href="/api/jumbo/auth/start" target="_blank" rel="noopener">${escapeHtml(t("jumbo.login"))}</a></p>
       <form class="auth-form" id="ob-jumbo-form" data-ob-form="jumbo" autocomplete="off">
         <label class="field"><span>${escapeHtml(t("ob.ah.paste_label"))}</span><textarea class="textarea" id="ob-jumbo-token" rows="3" placeholder="jumbo://callbacks/login?code=..." spellcheck="false" required></textarea></label>

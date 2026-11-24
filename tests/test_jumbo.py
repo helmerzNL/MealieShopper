@@ -98,6 +98,48 @@ class LoginTest(TempDataDirTest):
             with self.assertRaises(RuntimeError):
                 run(jumbo.link_account("jumbo://callbacks/login?code=abc"))
 
+    def test_without_a_login_in_progress_the_message_is_shown_not_a_generic_error(self):
+        # JumboAuthError (en dus een 400 met onze eigen tekst) in plaats van een kale RuntimeError, die de route als "Jumbo fout" meldt.
+        with served(side_effect=AssertionError("niet ruilen")):
+            with self.assertRaises(jumbo.JumboAuthError):
+                run(jumbo.link_account("jumbo://callbacks/login?code=abc"))
+
+    def test_the_intermediate_resume_address_is_explained(self):
+        run(jumbo.start_login())
+        for pasted in (
+            "https://auth.jumbo.com/authorize/resume?state=hKFo2SBEUWtOdE9sWkhU",
+            "auth.jumbo.com/authorize/resume?state=hKFo2SBEUWtOdE9sWkhU",
+            "Prevented navigation to \u201chttps://auth.jumbo.com/authorize/resume?state=hKFo2SBEUWtOdE9sWkhU\u201d due to an unknown protocol.",
+        ):
+            with self.subTest(pasted=pasted), served(side_effect=AssertionError("niet ruilen")):
+                with self.assertRaises(jumbo.JumboAuthError) as raised:
+                    run(jumbo.link_account(pasted))
+                message = str(raised.exception)
+                self.assertIn("Netwerk", message)
+                self.assertIn("Location: jumbo://callbacks/login?code=", message)
+                self.assertNotIn("andere inlogpoging", message)  # het state= in dit adres is van Auth0, niet van onze poging
+
+    def test_text_without_a_code_is_refused_before_anything_is_exchanged(self):
+        run(jumbo.start_login())
+        for pasted in ("hallo wereld", "state=abc", "https://www.jumbo.com/", "jumbo://callbacks/login"):
+            with self.subTest(pasted=pasted), served(side_effect=AssertionError("niet ruilen")):
+                with self.assertRaisesRegex(jumbo.JumboAuthError, "geen code"):
+                    run(jumbo.link_account(pasted))
+
+    def test_the_location_header_line_from_the_network_tab_is_exchanged(self):
+        url = run(jumbo.start_login())
+        state = parse_qs(urlsplit(url).query)["state"][0]
+        with served(return_value=reply(TOKENS)) as post:
+            result = run(jumbo.link_account(f"Location: jumbo://callbacks/login?code=abc123&state={state}"))
+        self.assertEqual(sent_json(post.calls.last)["code"], "abc123")
+        self.assertEqual(result, {"connected": True, "type": "code"})
+
+    def test_a_bare_code_is_still_exchanged(self):
+        run(jumbo.start_login())
+        with served(return_value=reply(TOKENS)) as post:
+            run(jumbo.link_account("  'xYz_0123-AbCdEf'  "))
+        self.assertEqual(sent_json(post.calls.last)["code"], "xYz_0123-AbCdEf")
+
     def test_a_stale_login_expires(self):
         run(jumbo.start_login())
         later = mock.patch.object(jumbo.time, "time", return_value=jumbo.time.time() + jumbo.PENDING_TTL_SECONDS + 5)
@@ -499,6 +541,15 @@ class JumboRoutesTest(TempDataDirTest):
 
     async def test_status_route(self):
         self.assertEqual((await self.client.get("/api/jumbo/auth/status")).get_json()["connected"], False)
+
+    async def test_link_route_explains_a_missing_login_and_a_pasted_resume_address(self):
+        response = await self.client.post("/api/jumbo/auth", json={"code": "jumbo://callbacks/login?code=abc"})
+        self.assertEqual(response.status_code, 400)
+        self.assertNotEqual(response.get_json()["error"], "Jumbo fout")
+        await self.client.get("/api/jumbo/auth/start")
+        response = await self.client.post("/api/jumbo/auth", json={"code": "https://auth.jumbo.com/authorize/resume?state=abc"})
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("Netwerk", response.get_json()["error"])
 
     async def test_link_route_delegates_and_maps_errors(self):
         with mock.patch.object(jumbo, "link_account", return_value={"connected": True, "type": "code"}) as link:
