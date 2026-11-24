@@ -50,8 +50,10 @@ class StartTest(unittest.IsolatedAsyncioTestCase):
                 raise asyncio.CancelledError
 
         due = mock.AsyncMock(side_effect=[True, RuntimeError("stuk"), False])
+        retry = mock.AsyncMock(return_value=False)
         with (
             mock.patch.object(offers_schedule, "run_if_due", due),
+            mock.patch.object(offers_schedule, "retry_if_due", retry),
             mock.patch.object(offers_schedule, "_seconds_to_day_change", return_value=24 * 60 * 60.0),  # ver van middernacht
             mock.patch.object(offers_schedule.asyncio, "sleep", fake_sleep),
             self.assertLogs(offers_schedule.log, logging.INFO) as logs,
@@ -60,6 +62,7 @@ class StartTest(unittest.IsolatedAsyncioTestCase):
                 await offers_schedule._loop()
         self.assertEqual(waits, [offers_schedule.FIRST_CHECK_SECONDS] + [offers_schedule.CHECK_SECONDS] * 3)
         self.assertEqual(due.await_count, 3, "een fout in een ronde stopt de lus niet")
+        self.assertEqual(retry.await_count, 2, "elke controle kijkt of een winkel opnieuw moet, behalve na de fout")
         messages: list[str] = [record.getMessage() for record in logs.records]
         self.assertIn("Aanbiedingen van alle winkels vernieuwd", messages)
         self.assertIn("Dagelijkse aanbiedingen-run mislukt", messages)

@@ -2,6 +2,15 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub; een stabiele release krijgt de teksten van alle versies sinds de vorige stabiele release.
 
+## v4.32.1
+
+*English summary: The AH offers are complete again. Around 05:00, when the nightly run fetches the offers, AH returned the bonus without product details (no name, brand, size or photo). The app read that as an empty bonus and fell back on thirty searches for food, which replaced the full list of over 3,100 products with about 480 and left out household and drugstore products. Such a bonus now counts as not ready yet: the previous list stays and the nightly task tries AH again every hour, up to six hours later. A promotion with tiers shows its highest discount.*
+
+### Opgelost in 4.32.1
+
+- **De aanbiedingen van AH zijn weer compleet.** Rond 05:00, als de nachtelijke run de aanbiedingen ophaalt, gaf AH de bonus zonder productgegevens: naam, merk, maat en foto waren leeg, elke nacht sinds 14 november. De app las dat als een lege bonus en viel zonder melding terug op dertig zoekopdrachten naar etenswaren. Die vervingen de volledige lijst van ruim 3100 producten door een stuk of 480, zonder huishouden, drogisterij en dergelijke. Nu telt een bonus waarin de meeste producten geen naam hebben als nog niet klaar: de vorige lijst blijft staan, Instellingen > Koppelen meldt het, en de nachtelijke taak probeert AH elk uur opnieuw, tot zes uur na de run (met de run om 05:00 dus tot 10:00). Mislukt de bonus van AH om een andere reden, dan staat de reden nu in de log voordat de app terugvalt op de zoekopdrachten.
+- **Een actie met staffels toont de hoogste korting**, bijvoorbeeld 60% bij twee stuks en 50% bij een. De app nam de eerste staffel die AH noemde, nu per product die met de laagste prijs per stuk, in welke volgorde AH ze ook geeft.
+
 ## v4.32.0
 
 *English summary: Offers open fast again after a write to the price catalogue. A single new link or price used to make the whole prepared read model of the shared prices invalid, so every /api/offers until the next start or night took the slow fallbacks (1.4 to 2 s locally, 6.3 s measured on a server), and the next build started from scratch (24 to 31 s). SQLite triggers now mark only the touched products, names and receipt inputs, and the next request updates only those (4 to 6 ms). The answer after a write takes as long as the ready answer (about 0.2 s locally). The nightly run warms the offers again once the background rounds that still write have finished, SQLite reads the database through mmap (on ZFS a scan went from 290 to 80 ms), and the page asks for the offers one round trip after it has loaded instead of after four. The verdict for the offers holds about a quarter fewer objects for the garbage collector.*

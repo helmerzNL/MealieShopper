@@ -4,6 +4,9 @@ Een achtergrondtask kijkt elk kwartier of het tijd is: een keer per dag, op `MEA
 (lokale tijd van de container, standaard 5 uur). Is de app dan uit, dan volgt de vernieuwing bij de eerstvolgende
 start. Meerdere workers zijn geen probleem: wie het eerst de run van dit tijdstip in SQLite vastlegt, voert hem uit.
 `MEALIESHOPPER_OFFERS_SCHEDULE=false` zet de taak uit; de knop onder Instellingen > Koppelen blijft werken.
+
+Een winkel die bij de run nog niet klaar is (`offers.RETRY_LATER`: AH gaf rond 05:00 de bonus zonder productgegevens), probeert dezelfde
+taak elk uur opnieuw, tot zes uur na de run (`retry_if_due`). De vorige lijst blijft tot dan staan.
 """
 
 from __future__ import annotations
@@ -41,6 +44,10 @@ log = logging.getLogger(__name__)
 DEFAULT_HOUR = 5
 CHECK_SECONDS = 15 * 60
 FIRST_CHECK_SECONDS = 60
+# Een winkel die later opnieuw moet (`retry` in de uitkomst van de run): een keer per uur, tot zes uur na de run. Met de run om 05:00 dus
+# om 06:00, 07:00, en zo verder tot 10:00.
+RETRY_EVERY = timedelta(hours=1)
+RETRY_WINDOW = timedelta(hours=6)
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS offers_schedule (
@@ -314,6 +321,62 @@ async def run_if_due(now: datetime | None = None) -> bool:
     return True
 
 
+def _pending(summary: Any) -> list[str]:
+    """De winkels in de uitkomst van een run die het later opnieuw moeten proberen."""
+    stores: Any = summary.get("stores") if isinstance(summary, dict) else None
+    return [store for store, result in (stores if isinstance(stores, dict) else {}).items() if isinstance(result, dict) and result.get("retry")]
+
+
+async def _replace_summary(old: str, new: dict[str, Any]) -> bool:
+    """Zet de uitkomst van de laatste run op `new`, alleen als hij nog `old` is. Zo overschrijft een poging geen run die intussen liep
+    (de knop), en doet een tweede worker dezelfde poging niet nog een keer."""
+    async with _connect() as conn:
+        replaced = await conn.execute("UPDATE offers_schedule SET summary = ? WHERE id = 1 AND summary = ?", (json.dumps(new), old))
+        await conn.commit()
+        return replaced.rowcount == 1
+
+
+async def retry_if_due(now: datetime | None = None) -> bool:
+    """Probeer de winkels opnieuw die bij de laatste run later nog eens moesten (`_pending`), een keer per `RETRY_EVERY` en tot
+    `RETRY_WINDOW` na die run. De nieuwe uitkomst komt in de bewaarde run (`retriedAt` is de laatste poging), zodat ook een herstart
+    weet wat er nog openstaat. Geeft terug of er een poging was."""
+    now = now or _local_now()
+    async with _connect() as conn:
+        async with conn.execute("SELECT last_run, summary FROM offers_schedule WHERE id = 1") as cursor:
+            row = await cursor.fetchone()
+    if row is None or not row["last_run"]:
+        return False
+    summary: dict[str, Any] = json.loads(row["summary"])
+    stores: list[str] = _pending(summary)
+    if not stores:
+        return False
+    started: datetime = datetime.fromisoformat(row["last_run"])
+    tried: datetime = datetime.fromisoformat(summary.get("retriedAt") or row["last_run"])
+    if now - started >= RETRY_WINDOW or now - tried < RETRY_EVERY:
+        return False
+    claimed: dict[str, Any] = {**summary, "retriedAt": _utc_iso(now)}
+    if not await _replace_summary(row["summary"], claimed):
+        return False
+    results: dict[str, Any] = dict(summary["stores"])
+    for store in stores:
+        results[store] = await offers.sync_store(store)
+        if "count" in results[store]:
+            log.info("Aanbiedingen van %s alsnog opgehaald: %s", store, results[store]["count"])
+    await _replace_summary(json.dumps(claimed), {**claimed, "stores": results})
+    if any("count" in results[store] for store in stores):
+        await _warm_after_retry()
+    return True
+
+
+async def _warm_after_retry() -> None:
+    """Na een geslaagde poging is de catalogus anders: opbouwen en de aanbiedingen opwarmen, zoals na de nachtelijke run."""
+    try:
+        await prices.warm_catalogues()
+    except Exception:  # noqa: BLE001 - opwarmen is een extraatje
+        log.warning("Catalogi opwarmen na een nieuwe poging mislukt", exc_info=True)
+    await _warm()
+
+
 async def _loop() -> None:
     # Bij de start warmt create_app de aanbiedingen al op (warm_at_start): de dag van nu telt als opgewarmd.
     _remember_day()
@@ -325,6 +388,7 @@ async def _loop() -> None:
         try:
             if await run_if_due():
                 log.info("Aanbiedingen van alle winkels vernieuwd")
+            await retry_if_due()
             await warm_if_new_day()
         except Exception:  # noqa: BLE001 - de taak moet blijven draaien, ook na een fout
             log.exception("Dagelijkse aanbiedingen-run mislukt")

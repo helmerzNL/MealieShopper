@@ -228,6 +228,61 @@ class BonusParsingTest(AppTestCase):
         self.assertEqual(len(products), 5)
         bonus_page.assert_not_called()
 
+    def feed_without_titles(self, untitled: int, titled: int) -> dict[str, Any]:
+        """Een bonus van deze week met `untitled` producten zonder naam (zoals AH hem om 05:00 gaf) en `titled` met."""
+        items: list[dict[str, Any]] = [{**_gql_product(100 + n, "", 1.0), "title": None} for n in range(untitled)]
+        items += [_gql_product(200 + n, f"Product {n}", 1.0) for n in range(titled)]
+        return {
+            "bonusPeriods": [{"startDate": "2026-11-23", "endDate": "2026-11-29", "weekNumber": 48}],
+            "bonusPromotions": [_promotion("1", "25% korting", "2026-11-23", "2026-11-29", items)],
+        }
+
+    def test_a_bonus_where_most_products_have_no_details_is_incomplete(self):
+        with mock.patch.object(ah, "get_token", return_value="t"), mock.patch.object(ah, "_graphql", return_value=self.feed_without_titles(3, 1)):
+            with self.assertRaises(ah.BonusIncomplete) as caught:
+                run(ah.get_bonus_promotions(today=date(2026, 11, 24)))
+        self.assertIn("3 van de 4", str(caught.exception))
+
+    def test_a_few_products_without_a_name_are_left_out_and_the_rest_stays(self):
+        with mock.patch.object(ah, "get_token", return_value="t"), mock.patch.object(ah, "_graphql", return_value=self.feed_without_titles(1, 3)):
+            products = run(ah.get_bonus_promotions(today=date(2026, 11, 24)))
+        self.assertEqual(sorted(p["id"] for p in products), ["200", "201", "202"])
+
+    def test_an_incomplete_bonus_does_not_fall_back_on_the_search(self):
+        with (
+            mock.patch.object(ah, "get_bonus_promotions", side_effect=ah.BonusIncomplete("zonder productgegevens")),
+            mock.patch.object(ah, "_request_json") as bonus_page,
+            mock.patch.object(ah, "_bonus_from_search") as search,
+        ):
+            with self.assertRaises(ah.BonusIncomplete):
+                run(ah.get_bonus_products())
+        bonus_page.assert_not_called()
+        search.assert_not_called()
+
+    def test_the_fallback_says_in_the_log_why_graphql_failed(self):
+        response = httpx.Response(200, json={"products": [{"webshopId": 5, "title": "Pasta", "currentPrice": 1.0, "isBonus": True}]})
+        with (
+            mock.patch.object(ah, "get_token", return_value="t"),
+            mock.patch.object(ah, "get_bonus_promotions", side_effect=RuntimeError("AH bonus ophalen mislukt (500)")),
+            mock.patch.object(ah, "_request_json", side_effect=RuntimeError("404: niet gevonden")),
+            served(return_value=response),
+            mock.patch.object(ah, "BONUS_FALLBACK_TERMS", ("pasta",)),
+            self.assertLogs(ah.log, "WARNING") as logs,
+        ):
+            products = run(ah.get_bonus_products())
+        self.assertEqual([p["id"] for p in products], ["5"])
+        self.assertIn("AH bonus ophalen mislukt (500)", "\n".join(logs.output))
+
+    def test_a_promotion_with_tiers_shows_the_highest_discount(self):
+        # Een actie met staffels (november 2026): 60% bij twee stuks, 50% bij een. AH zet de staffels in willekeurige volgorde.
+        for order in ((("2", "stuks", "60%"), ("1", "stuk", "50%")), (("1", "stuk", "50%"), ("2", "stuks", "60%"))):
+            promotion = _promotion("900001", "x", "2026-11-23", "2026-11-29", [_gql_product(500001, "AH Keukenpapier", 3.99)])
+            promotion["promotionLabels"] = [
+                {"title": None, "topText": f"{top} {mid}", "centerText": None, "bottomText": bottom} for top, mid, bottom in order
+            ]
+            (product,) = ah._promotion_products(promotion)
+            self.assertEqual((product["promoLabel"], product["price"], product["priceBefore"]), ("2 stuks 60%", 1.6, 3.99), order)
+
 
 class OffersStoreTest(TempDataDirTest):
     def test_sync_replaces_the_copy_and_load_reads_it(self):

@@ -166,7 +166,7 @@ Everything is optional. Set `MEALIESHOPPER_TAG` in `.env` next to `docker-compos
 | `RP_ID`, `RP_ORIGINS` (or `RP_ORIGIN`), `RP_NAME` | ❌ | - | Only for passkeys, with a domain name and HTTPS. |
 | `MEALIESHOPPER_MCP` | ❌ | on | Initial value of the MCP server for AI assistants (on when login is on). The switch under Profile, AI apps takes precedence. |
 | `MEALIESHOPPER_OFFERS_SCHEDULE` | ❌ | on | Set to `false` to turn off the daily task that fetches the offers of all stores. The button under Settings, Link keeps working. |
-| `MEALIESHOPPER_OFFERS_SYNC_HOUR` | ❌ | `5` | The hour of the day (0 to 23, the container's time) at which that task fetches the offers. |
+| `MEALIESHOPPER_OFFERS_SYNC_HOUR` | ❌ | `5` | The hour of the day (0 to 23, the container's time) at which that task fetches the offers. If AH still returns the bonus without product details then, the previous list stays and the task tries again every hour, up to six hours later. |
 | `MEALIESHOPPER_PRICE_INDEX` | ❌ | on | Set to `false` to stop the daily task from fetching the regular price per week from ahprijsindex.nl for the Albert Heijn products you bought. |
 | `MEALIESHOPPER_IMAGE_PREFETCH` | ❌ | on | Set to `false` to turn off the background rounds that put the stores' product photos in the cache ahead of time (the `images` folder in the data folder). A photo you open is still fetched and kept. |
 | `MEALIESHOPPER_OFFERS_RECIPES` | ❌ | off | With `true` the app shows the **Recipes** subtab under Offers (recipe suggestions from the offers). Off by default: the matches between ingredients and products are not good enough yet. The MCP tools for AI assistants work with this off too. |

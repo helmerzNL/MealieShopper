@@ -166,7 +166,7 @@ Alles is optioneel. `MEALIESHOPPER_TAG` zet je in `.env` naast `docker-compose.y
 | `RP_ID`, `RP_ORIGINS` (of `RP_ORIGIN`), `RP_NAME` | ❌ | - | Alleen voor passkeys, met een domeinnaam en HTTPS. |
 | `MEALIESHOPPER_MCP` | ❌ | aan | Beginwaarde van de MCP-server voor AI-assistenten (aan als inloggen aanstaat). De schakelaar bij Profiel, AI-apps gaat voor. |
 | `MEALIESHOPPER_OFFERS_SCHEDULE` | ❌ | aan | Met `false` zet je de dagelijkse taak uit die de aanbiedingen van alle winkels ophaalt. De knop onder Instellingen, Koppelen blijft werken. |
-| `MEALIESHOPPER_OFFERS_SYNC_HOUR` | ❌ | `5` | Het uur van de dag (0 tot en met 23, tijd van de container) waarop die taak de aanbiedingen ophaalt. |
+| `MEALIESHOPPER_OFFERS_SYNC_HOUR` | ❌ | `5` | Het uur van de dag (0 tot en met 23, tijd van de container) waarop die taak de aanbiedingen ophaalt. Geeft AH de bonus dan nog zonder productgegevens, dan blijft de vorige lijst staan en probeert de taak het elk uur opnieuw, tot zes uur later. |
 | `MEALIESHOPPER_PRICE_INDEX` | ❌ | aan | Met `false` haalt de dagelijkse taak niet de gewone prijs per week op bij ahprijsindex.nl voor de producten van Albert Heijn die je kocht. |
 | `MEALIESHOPPER_IMAGE_PREFETCH` | ❌ | aan | Met `false` zet je de achtergrondrondes uit die de productfoto's van de winkels alvast in de cache zetten (de map `images` in de data-map). Een foto die je opent, wordt dan nog steeds opgehaald en bewaard. |
 | `MEALIESHOPPER_OFFERS_RECIPES` | ❌ | uit | Met `true` toont de app het subtabblad **Recepten** bij Aanbiedingen (receptvoorstellen uit de aanbiedingen). Standaard uit: de koppelingen tussen ingrediënten en producten zijn nog niet goed genoeg. De MCP-tools voor AI-assistenten werken ook als dit uit staat. |

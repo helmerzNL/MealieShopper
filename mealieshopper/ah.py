@@ -1061,17 +1061,43 @@ BONUS_PROMOTION_TYPES = frozenset({"NATIONAL", "AHONLINE"})
 _SINGLE_UNIT_MECHANICS = (deals.PERCENT, deals.AMOUNT_OFF, deals.FIXED)
 
 
-def _promotion_label(promotion: dict[str, Any]) -> str:
-    """De actietekst zoals AH hem op het schildje zet: "50% korting", "2 voor 2.99", "voor 1.99", "online Bonus"."""
-    labels = promotion.get("promotionLabels") or []
-    first = labels[0] if labels and isinstance(labels[0], dict) else {}
-    parts = (first.get(key) for key in ("title", "topText", "centerText", "bottomText"))
-    return " ".join(str(part).strip() for part in parts if part and str(part).strip())
+def _promotion_labels(promotion: dict[str, Any]) -> list[str]:
+    """De actieteksten zoals AH ze op het schildje zet: "50% korting", "2 voor 2.99", "voor 1.99", "online Bonus". Meestal een, bij een
+    actie met staffels meer, zoals "2 stuks 60%" en "1 stuk 50%" (november 2026)."""
+    texts: list[str] = []
+    for label in promotion.get("promotionLabels") or []:
+        if not isinstance(label, dict):
+            continue
+        parts = (label.get(key) for key in ("title", "topText", "centerText", "bottomText"))
+        text: str = " ".join(str(part).strip() for part in parts if part and str(part).strip())
+        if text:
+            texts.append(text)
+    return texts
 
 
 def _amount(node: Any) -> float | None:
     value = node.get("amount") if isinstance(node, dict) else None
     return float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else None
+
+
+def _label_unit_price(mechanic: dict[str, Any], regular: float | None, now: float | None, unit_size: Any) -> float | None:
+    """Wat een stuk kost met deze actie (bij het minimumaantal), of None als dat niet uit te rekenen is."""
+    if mechanic["type"] == deals.PER_MEASURE:
+        return deals.pack_price(mechanic, unit_size)
+    return deals.effective_unit_price(mechanic, regular, now)
+
+
+def _best_label(choices: list[tuple[str, dict[str, Any]]], regular: float | None, now: float | None, unit_size: Any) -> tuple[str, dict[str, Any]]:
+    """De actietekst met de hoogste korting: de laagste prijs per stuk. Bij gelijk, of als geen enkele prijs uit te rekenen is, de
+    eerste, in de volgorde van AH. Zonder actietekst een lege tekst."""
+    if len(choices) <= 1:
+        return choices[0] if choices else ("", deals.parse_mechanic(""))
+
+    def key(choice: tuple[str, dict[str, Any]]) -> tuple[bool, float]:
+        price: float | None = _label_unit_price(choice[1], regular, now, unit_size)
+        return (price is None, price if price is not None else 0.0)
+
+    return min(choices, key=key)
 
 
 def _promotion_products(promotion: dict[str, Any]) -> list[dict[str, Any]]:
@@ -1080,9 +1106,9 @@ def _promotion_products(promotion: dict[str, Any]) -> list[dict[str, Any]]:
     AH geeft per product de normale prijs (ook voor volgende week, als de actie nog niet loopt). De actieprijs rekenen we uit de
     actietekst uit als dat zonder voorwaarde kan (25% korting, €1 korting, voor 1.99); bij een actie met een minimumaantal
     (2 voor 3, 2e halve prijs) blijft de prijs de normale prijs, zoals AH hem ook toont, en rekent `deals` de prijs per stuk uit.
+    Heeft de actie staffels, dan telt per product de hoogste korting (`_best_label`).
     """
-    label = _promotion_label(promotion)
-    mechanic = deals.parse_mechanic(label)
+    choices: list[tuple[str, dict[str, Any]]] = [(text, deals.parse_mechanic(text)) for text in _promotion_labels(promotion)]
     valid_from = promotion.get("periodStart") or None
     valid_until = _bonus_end({"bonusEndDate": promotion.get("periodEnd")})
     products = []
@@ -1095,6 +1121,7 @@ def _promotion_products(promotion: dict[str, Any]) -> list[dict[str, Any]]:
         price = item.get("price") if isinstance(item.get("price"), dict) else {}
         now, regular = _amount(price.get("now")), _amount(price.get("was"))
         regular = regular if regular is not None else now
+        label, mechanic = _best_label(choices, regular, now, item.get("salesUnitSize"))
         unit = None
         if mechanic["type"] in _SINGLE_UNIT_MECHANICS and mechanic["minQuantity"] == 1:
             unit = deals.effective_unit_price(mechanic, regular, now)
@@ -1122,9 +1149,28 @@ def _promotion_products(promotion: dict[str, Any]) -> list[dict[str, Any]]:
     return products
 
 
+class BonusIncomplete(RuntimeError):
+    """AH gaf de bonus, maar zonder de gegevens van de producten: alleen het id en de prijs, de naam, het merk, de maat en de foto zijn
+    leeg. Zo antwoordde de GraphQL van AH elke nacht rond 05:00 (de auditlog van 14 t/m 24 november 2026), en overdag weer volledig.
+    Geen lege bonus dus, maar een bonus die nog niet klaar is: later opnieuw vragen helpt (`offers_schedule.retry_if_due`)."""
+
+
+# Vanaf welk deel van de bonusproducten zonder naam de bonus als onvolledig telt. Een enkel product zonder naam laten we weg, zoals
+# voorheen. Zonder de meeste namen is de lijst onbruikbaar.
+INCOMPLETE_SHARE = 0.5
+
+
+def _untitled(promotion: dict[str, Any]) -> tuple[int, int]:
+    """Hoeveel producten van een actie een id hebben, en hoeveel daarvan geen naam."""
+    items: list[dict[str, Any]] = [item for item in promotion.get("products") or [] if isinstance(item, dict) and item.get("id")]
+    return len(items), sum(1 for item in items if not str(item.get("title") or "").strip())
+
+
 async def get_bonus_promotions(today: date | None = None) -> list[dict[str, Any]]:
     """De bonus van alle bonusperiodes die AH kent, als producten met hun looptijd. Een product kan in twee periodes staan
-    (deze week en volgende week, elk met een eigen actie); dan komt het twee keer terug. Werkt zonder AH-login."""
+    (deze week en volgende week, elk met een eigen actie); dan komt het twee keer terug. Werkt zonder AH-login.
+
+    Mist de meerderheid van de producten haar naam (`INCOMPLETE_SHARE`), dan een `BonusIncomplete`."""
     data = await _anonymous(lambda token: _graphql(token, BONUS_PROMOTIONS_QUERY, {}, "AH bonus ophalen"))
     periods = [
         (deals.parse_date(period.get("startDate")), deals.parse_date(period.get("endDate")))
@@ -1134,6 +1180,7 @@ async def get_bonus_promotions(today: date | None = None) -> list[dict[str, Any]
     periods = [(start, end) for start, end in periods if start and end]
     today = today or date.today()
     found: dict[tuple[str, Any, Any], dict[str, Any]] = {}
+    listed, untitled = 0, 0
     for promotion in data.get("bonusPromotions") or []:
         if not isinstance(promotion, dict) or promotion.get("promotionType") not in BONUS_PROMOTION_TYPES:
             continue
@@ -1143,8 +1190,17 @@ async def get_bonus_promotions(today: date | None = None) -> list[dict[str, Any]
         # Alleen acties in een bonusperiode die AH zelf noemt; zonder periodes houden we alles.
         if periods and not any(deals.in_week(start, end, first, last) for first, last in periods):
             continue
+        counted: tuple[int, int] = _untitled(promotion)
+        listed, untitled = listed + counted[0], untitled + counted[1]
         for product in _promotion_products(promotion):
             found.setdefault((product["id"], product["validFrom"], product["validUntil"]), product)
+    if listed and untitled > listed * INCOMPLETE_SHARE:
+        raise BonusIncomplete(
+            tr(
+                f"AH gaf de bonus zonder productgegevens: {untitled} van de {listed} producten hebben geen naam",
+                f"AH returned the bonus without product details: {untitled} of the {listed} products have no name",
+            )
+        )
     return list(found.values())
 
 
@@ -1265,12 +1321,19 @@ async def _bonus_from_search(term: str, token: str) -> list[dict[str, Any]]:
 
 async def get_bonus_products() -> list[dict[str, Any]]:
     """De aanbiedingen (AH Bonus): eerst de bonus per bonusperiode (GraphQL, deze en volgende week), anders de bonuspagina,
-    anders zoekopdrachten met de bonusvlag. Werkt zonder AH-login."""
+    anders zoekopdrachten met de bonusvlag. Werkt zonder AH-login.
+
+    Een `BonusIncomplete` gaat door naar de aanroeper: AH heeft de bonus, alleen nog zonder productgegevens. De zoekopdrachten vinden
+    alleen etenswaren, een stuk of 480 van de ruim 3000 producten, en zouden de volledige lijst van de vorige keer vervangen. Waarom de
+    GraphQL mislukte staat in de log zodra de terugval iets vond."""
     errors: list[str] = []
     try:
         promotions = await get_bonus_promotions()
         if promotions:
             return promotions
+        errors.append("AH bonus ophalen gaf geen producten")
+    except BonusIncomplete:
+        raise
     except Exception as exc:  # noqa: BLE001 - onofficiële route; val terug op de bonuspagina en zoeken
         errors.append(str(exc)[:200])
     token = await get_token()
@@ -1301,6 +1364,7 @@ async def get_bonus_products() -> list[dict[str, Any]]:
                 found.setdefault(product["id"], product)
     if not found and errors:
         raise RuntimeError(errors[0])
+    log.warning("AH-bonus uit de terugval (%d producten, alleen een deel): %s", len(found), "; ".join(errors))
     return list(found.values())
 
 
