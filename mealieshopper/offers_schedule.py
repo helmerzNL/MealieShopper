@@ -1,14 +1,21 @@
 """De dagelijkse taak die de aanbiedingen van alle supermarkten ophaalt.
 
-Een achtergrondtask kijkt elk kwartier of het tijd is: een keer per dag, op `MEALIESHOPPER_OFFERS_SYNC_HOUR`
-(lokale tijd van de container, standaard 5 uur). Is de app dan uit, dan volgt de vernieuwing bij de eerstvolgende
-start. Meerdere workers zijn geen probleem: wie het eerst de run van dit tijdstip in SQLite vastlegt, voert hem uit.
-`MEALIESHOPPER_OFFERS_SCHEDULE=false` zet de taak uit; de knop onder Instellingen > Koppelen blijft werken.
+Een achtergrondtask kijkt elk kwartier of het tijd is: een keer per dag, op een tijdstip dat elke dag anders is (lokale tijd van
+de container, standaard tussen 07:30 en 09:00). Een vast tijdstip is bij de winkels als automatisch verkeer te herkennen, dus het
+tijdstip is het begin (`MEALIESHOPPER_OFFERS_SYNC_HOUR`, anders 07:30) plus een aantal minuten tot `MEALIESHOPPER_OFFERS_SYNC_SPREAD`
+(standaard 90), per dag en per installatie anders (`_slot_on`). Is de app dan uit, dan volgt de vernieuwing bij de eerstvolgende start.
+Meerdere workers zijn geen probleem: wie het eerst de run van dit tijdstip in SQLite vastlegt, voert hem uit.
+`MEALIESHOPPER_OFFERS_SCHEDULE=false` zet de taak uit. De knop onder Instellingen > Koppelen blijft werken.
+
+Een winkel die bij de run nog niet klaar is (`offers.RETRY_LATER`: AH gaf rond 05:00 de bonus zonder productgegevens), probeert dezelfde
+taak ongeveer elk uur opnieuw, tot zes uur na de run (`retry_if_due`). De vorige lijst blijft tot dan staan.
 """
 
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import hmac
 import json
 import logging
 from collections.abc import AsyncIterator
@@ -38,9 +45,18 @@ from . import (
 
 log = logging.getLogger(__name__)
 
-DEFAULT_HOUR = 5
+# Het begin van de dagelijkse run (uur, minuut) en hoeveel minuten hij daarna willekeurig kan vallen: standaard tussen 07:30 en 09:00.
+# Rond 05:00 gaf AH de bonus zonder productgegevens (november 2026), overdag wel volledig.
+DEFAULT_START: tuple[int, int] = (7, 30)
+DEFAULT_SPREAD_MINUTES = 90
+MAX_SPREAD_MINUTES = 12 * 60  # zo overlappen de vensters van twee dagen nooit
 CHECK_SECONDS = 15 * 60
 FIRST_CHECK_SECONDS = 60
+# Een winkel die later opnieuw moet (`retry` in de uitkomst van de run): ongeveer een keer per uur, met een pauze die per poging tussen
+# 45 en 75 minuten valt (`_retry_gap`), tot zes uur na de run.
+RETRY_EVERY = timedelta(hours=1)
+RETRY_JITTER_MINUTES = 15
+RETRY_WINDOW = timedelta(hours=6)
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS offers_schedule (
@@ -71,12 +87,50 @@ def enabled() -> bool:
     return environ.get("MEALIESHOPPER_OFFERS_SCHEDULE", "true").strip().lower() not in {"0", "false", "no", "off"}
 
 
-def sync_hour() -> int:
+def sync_start() -> tuple[int, int]:
+    """Het begin van het venster van de dagelijkse run, als (uur, minuut): `MEALIESHOPPER_OFFERS_SYNC_HOUR` op het hele uur, of 07:30
+    als die ontbreekt of geen uur van 0 tot en met 23 is."""
     try:
-        hour = int(environ.get("MEALIESHOPPER_OFFERS_SYNC_HOUR", DEFAULT_HOUR))
+        hour = int(environ.get("MEALIESHOPPER_OFFERS_SYNC_HOUR", "").strip())
     except ValueError:
-        return DEFAULT_HOUR
-    return hour if 0 <= hour <= 23 else DEFAULT_HOUR
+        return DEFAULT_START
+    return (hour, 0) if 0 <= hour <= 23 else DEFAULT_START
+
+
+def sync_spread() -> int:
+    """Hoeveel minuten na het begin de run willekeurig kan vallen: `MEALIESHOPPER_OFFERS_SYNC_SPREAD` (0 is precies op het begin, hooguit
+    `MAX_SPREAD_MINUTES`), anders `DEFAULT_SPREAD_MINUTES`."""
+    try:
+        minutes = int(environ.get("MEALIESHOPPER_OFFERS_SYNC_SPREAD", "").strip())
+    except ValueError:
+        return DEFAULT_SPREAD_MINUTES
+    return minutes if 0 <= minutes <= MAX_SPREAD_MINUTES else DEFAULT_SPREAD_MINUTES
+
+
+def window() -> dict[str, str]:
+    """Het venster van de dagelijkse run in lokale tijd, voor de statusregel: {"from": "07:30", "until": "09:00"}."""
+    hour, minute = sync_start()
+    first = datetime(2000, 1, 1, hour, minute)
+    return {"from": first.strftime("%H:%M"), "until": (first + timedelta(minutes=sync_spread())).strftime("%H:%M")}
+
+
+_seed: str | None = None
+
+
+async def _schedule_seed() -> str:
+    """Een vaste sleutel per installatie voor de willekeurige tijdstippen, afgeleid van het geheim van de app (`auth.master_secret`). Zo
+    valt de run bij elke installatie op een ander tijdstip en verschuift hij niet na een herstart."""
+    global _seed
+    if _seed is None:
+        _seed = hmac.new((await auth.master_secret()).encode(), b"offers-schedule", hashlib.sha256).hexdigest()
+    seed: str = _seed
+    return seed
+
+
+def _pick(seed: str, label: str, choices: int) -> int:
+    """Een getal van 0 tot `choices`, vast voor `seed` en `label` maar niet te voorspellen zonder `seed`."""
+    digest: bytes = hmac.new(seed.encode(), label.encode(), hashlib.sha256).digest()
+    return int.from_bytes(digest[:8], "big") % choices
 
 
 def _utc_iso(moment: datetime) -> str:
@@ -87,14 +141,27 @@ def _local_now() -> datetime:
     return datetime.now().astimezone()
 
 
-def latest_slot(now: datetime) -> datetime:
-    """Het laatste tijdstip van de dagelijkse run dat al voorbij is."""
-    slot = now.replace(hour=sync_hour(), minute=0, second=0, microsecond=0)
-    return slot if now >= slot else slot - timedelta(days=1)
+def _slot_on(day: datetime, seed: str) -> datetime:
+    """Het tijdstip van de run op de dag van `day`: het begin (`sync_start`) plus een aantal minuten tot `sync_spread`, per dag anders."""
+    hour, minute = sync_start()
+    start: datetime = day.replace(hour=hour, minute=minute, second=0, microsecond=0)
+    return start + timedelta(minutes=_pick(seed, start.date().isoformat(), sync_spread() + 1))
 
 
-def next_slot(now: datetime) -> datetime:
-    return latest_slot(now) + timedelta(days=1)
+def latest_slot(now: datetime, seed: str = "") -> datetime:
+    """Het laatste tijdstip van de dagelijkse run dat al voorbij is. Een venster tot `MAX_SPREAD_MINUTES` kan over middernacht lopen,
+    dus de run van eergisteren telt ook mee."""
+    return max(slot for days in (-2, -1, 0) if (slot := _slot_on(now + timedelta(days=days), seed)) <= now)
+
+
+def next_slot(now: datetime, seed: str = "") -> datetime:
+    """Het eerstvolgende tijdstip van de dagelijkse run na `now`."""
+    return min(slot for days in (-1, 0, 1, 2) if (slot := _slot_on(now + timedelta(days=days), seed)) > now)
+
+
+async def next_run(now: datetime) -> datetime:
+    """`next_slot` met de sleutel van deze installatie."""
+    return next_slot(now, await _schedule_seed())
 
 
 @asynccontextmanager
@@ -276,8 +343,8 @@ async def status(now: datetime | None = None) -> dict[str, Any]:
     on = enabled()
     return {
         "enabled": on,
-        "hour": sync_hour(),
-        "nextRun": _utc_iso(next_slot(now)) if on else None,
+        "window": window(),
+        "nextRun": _utc_iso(await next_run(now)) if on else None,
         "lastRun": row["last_run"] if row else None,
         "lastTrigger": row["trigger"] if row else None,
         "lastResult": json.loads(row["summary"]) if row else None,
@@ -287,7 +354,7 @@ async def status(now: datetime | None = None) -> dict[str, Any]:
 
 async def _claim(now: datetime) -> bool:
     """Leg vast dat deze worker de run van het laatste tijdstip uitvoert. Alleen de eerste die dat doet krijgt True."""
-    slot = _utc_iso(latest_slot(now))
+    slot = _utc_iso(latest_slot(now, await _schedule_seed()))
     async with _connect() as conn:
         await conn.execute(
             "INSERT INTO offers_schedule (id, last_run, trigger, summary) VALUES (1, '', 'scheduled', '{}') ON CONFLICT(id) DO NOTHING"
@@ -314,6 +381,68 @@ async def run_if_due(now: datetime | None = None) -> bool:
     return True
 
 
+def _retry_gap(tried: str, seed: str) -> timedelta:
+    """De pauze na de poging van `tried`: `RETRY_EVERY` plus of min tot `RETRY_JITTER_MINUTES`, per poging anders maar vast, zodat elke
+    controle van het kwartier voor dezelfde poging dezelfde pauze ziet."""
+    return RETRY_EVERY + timedelta(minutes=_pick(seed, f"retry:{tried}", 2 * RETRY_JITTER_MINUTES + 1) - RETRY_JITTER_MINUTES)
+
+
+def _pending(summary: Any) -> list[str]:
+    """De winkels in de uitkomst van een run die het later opnieuw moeten proberen."""
+    stores: Any = summary.get("stores") if isinstance(summary, dict) else None
+    return [store for store, result in (stores if isinstance(stores, dict) else {}).items() if isinstance(result, dict) and result.get("retry")]
+
+
+async def _replace_summary(old: str, new: dict[str, Any]) -> bool:
+    """Zet de uitkomst van de laatste run op `new`, alleen als hij nog `old` is. Zo overschrijft een poging geen run die intussen liep
+    (de knop), en doet een tweede worker dezelfde poging niet nog een keer."""
+    async with _connect() as conn:
+        replaced = await conn.execute("UPDATE offers_schedule SET summary = ? WHERE id = 1 AND summary = ?", (json.dumps(new), old))
+        await conn.commit()
+        return replaced.rowcount == 1
+
+
+async def retry_if_due(now: datetime | None = None) -> bool:
+    """Probeer de winkels opnieuw die bij de laatste run later nog eens moesten (`_pending`), ongeveer een keer per `RETRY_EVERY`
+    (`_retry_gap`) en tot `RETRY_WINDOW` na die run. De nieuwe uitkomst komt in de bewaarde run (`retriedAt` is de laatste poging),
+    zodat ook een herstart weet wat er nog openstaat. Geeft terug of er een poging was."""
+    now = now or _local_now()
+    async with _connect() as conn:
+        async with conn.execute("SELECT last_run, summary FROM offers_schedule WHERE id = 1") as cursor:
+            row = await cursor.fetchone()
+    if row is None or not row["last_run"]:
+        return False
+    summary: dict[str, Any] = json.loads(row["summary"])
+    stores: list[str] = _pending(summary)
+    if not stores:
+        return False
+    started: datetime = datetime.fromisoformat(row["last_run"])
+    tried: str = summary.get("retriedAt") or row["last_run"]
+    if now - started >= RETRY_WINDOW or now - datetime.fromisoformat(tried) < _retry_gap(tried, await _schedule_seed()):
+        return False
+    claimed: dict[str, Any] = {**summary, "retriedAt": _utc_iso(now)}
+    if not await _replace_summary(row["summary"], claimed):
+        return False
+    results: dict[str, Any] = dict(summary["stores"])
+    for store in stores:
+        results[store] = await offers.sync_store(store)
+        if "count" in results[store]:
+            log.info("Aanbiedingen van %s alsnog opgehaald: %s", store, results[store]["count"])
+    await _replace_summary(json.dumps(claimed), {**claimed, "stores": results})
+    if any("count" in results[store] for store in stores):
+        await _warm_after_retry()
+    return True
+
+
+async def _warm_after_retry() -> None:
+    """Na een geslaagde poging is de catalogus anders: opbouwen en de aanbiedingen opwarmen, zoals na de nachtelijke run."""
+    try:
+        await prices.warm_catalogues()
+    except Exception:  # noqa: BLE001 - opwarmen is een extraatje
+        log.warning("Catalogi opwarmen na een nieuwe poging mislukt", exc_info=True)
+    await _warm()
+
+
 async def _loop() -> None:
     # Bij de start warmt create_app de aanbiedingen al op (warm_at_start): de dag van nu telt als opgewarmd.
     _remember_day()
@@ -325,6 +454,7 @@ async def _loop() -> None:
         try:
             if await run_if_due():
                 log.info("Aanbiedingen van alle winkels vernieuwd")
+            await retry_if_due()
             await warm_if_new_day()
         except Exception:  # noqa: BLE001 - de taak moet blijven draaien, ook na een fout
             log.exception("Dagelijkse aanbiedingen-run mislukt")

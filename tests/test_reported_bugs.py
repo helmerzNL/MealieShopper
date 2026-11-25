@@ -18,7 +18,7 @@ import tempfile
 import unittest
 import zipfile
 from contextlib import closing
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, ClassVar
 from unittest import mock
@@ -2642,3 +2642,83 @@ class JumboLoginWithoutConsoleCodeTest(test_jumbo.TempDataDirTest):
                     run(jumbo.link_account(pasted))
                 self.assertIn("Location: jumbo://callbacks/login?code=", str(raised.exception))
                 self.assertNotIn("andere inlogpoging", str(raised.exception))
+
+
+# 2026-11-24: een product dat AH deze week in de bonus had, stond niet bij de aanbiedingen. Om 05:00, bij de nachtelijke run, gaf
+# de GraphQL van AH de bonus zonder productgegevens: titel, merk, maat en foto waren null (de auditlog, elke nacht sinds 14 november).
+# De app las dat als een lege bonus en viel zonder melding terug op dertig zoekopdrachten naar etenswaren. Die vervingen de volledige
+# lijst van ruim 3100 producten door een stuk of 480, zonder huishouden en drogisterij.
+class BonusWithoutProductDetailsTest(test_offers.TempDataDirTest):
+    START: ClassVar[str] = "2026-11-23"
+    END: ClassVar[str] = "2026-11-29"
+
+    def feed(self, titled: bool) -> dict[str, Any]:
+        product: dict[str, Any] = test_offers._gql_product(500001, "AH Keukenpapier", 3.99)
+        if not titled:  # zoals AH hem om 05:00 gaf: alleen het id en de prijs
+            product = {**product, "title": None, "brand": None, "salesUnitSize": None, "imagePack": None}
+        promotion: dict[str, Any] = test_offers._promotion("900001", "1 stuk 50%", self.START, self.END, [product], category="Huishouden")
+        return {"bonusPeriods": [{"startDate": self.START, "endDate": self.END, "weekNumber": 48}], "bonusPromotions": [promotion]}
+
+    def sync_all(self, titled: bool) -> tuple[dict[str, Any], mock.MagicMock]:
+        food: list[dict[str, Any]] = [{"id": "1", "title": "Kipfilet", "price": 3.0}]
+        with (
+            mock.patch.object(offers, "linked", side_effect=lambda store: store == "ah"),
+            mock.patch.object(ah, "get_token", return_value="t"),
+            mock.patch.object(ah, "_graphql_partial", side_effect=lambda *args: (self.feed(titled), [])),
+            mock.patch.object(ah, "_request_json", side_effect=ah.AhHttpError("404: Failed dependency", 404)),
+            mock.patch.object(ah, "_bonus_from_search", return_value=food) as search,
+            mock.patch.object(ah, "date") as fake_date,
+        ):
+            fake_date.today.return_value = date(2026, 11, 24)
+            result: dict[str, Any] = run(offers.sync_all())
+        return result, search
+
+    def titles(self) -> list[str]:
+        return [offer["title"] for offer in run(offers.load("ah"))["offers"]]
+
+    def test_2026_11_24_a_bonus_without_product_details_keeps_the_full_list(self) -> None:
+        self.sync_all(titled=True)
+        self.assertEqual(self.titles(), ["AH Keukenpapier"])
+        with self.assertLogs(offers.log, "WARNING") as logs:
+            result, search = self.sync_all(titled=False)
+        self.assertTrue(result["stores"]["ah"]["retry"], "later opnieuw proberen")
+        self.assertIn("zonder productgegevens", result["stores"]["ah"]["error"])
+        search.assert_not_called()  # de zoekopdrachten zouden de volledige lijst vervangen door een deel
+        self.assertEqual(self.titles(), ["AH Keukenpapier"], "de bewaarde lijst blijft staan")
+        self.assertIn("zonder productgegevens", "\n".join(logs.output), "de fout staat in de log")
+
+    def test_2026_11_24_the_nightly_run_tries_ah_again_later_in_the_morning(self) -> None:
+        nightly: datetime = datetime(2026, 11, 24, 5, 0, tzinfo=timezone.utc)
+        result, _ = self.sync_all(titled=False)
+        run(offers_schedule._record("scheduled", result, nightly))
+        jitter = mock.patch.object(offers_schedule, "RETRY_JITTER_MINUTES", 0)  # precies een uur, de spreiding: RandomTimeTest
+        jitter.start()
+        self.addCleanup(jitter.stop)
+        with mock.patch.object(offers, "sync_all", side_effect=AssertionError("alleen de winkel die het opnieuw moet proberen")):
+            self.assertFalse(run(offers_schedule.retry_if_due(nightly + timedelta(minutes=15))), "pas na een uur")
+            with mock.patch.object(offers, "sync", side_effect=ah.BonusIncomplete("nog steeds zonder productgegevens")):
+                self.assertTrue(run(offers_schedule.retry_if_due(nightly + timedelta(hours=1))))
+            self.assertFalse(run(offers_schedule.retry_if_due(nightly + timedelta(hours=1, minutes=15))), "een keer per uur")
+            with (
+                mock.patch.object(ah, "get_token", return_value="t"),
+                mock.patch.object(ah, "_graphql_partial", side_effect=lambda *args: (self.feed(True), [])),
+                mock.patch.object(ah, "date") as fake_date,
+                mock.patch.object(prices, "warm_catalogues", return_value=None) as catalogues,
+            ):
+                fake_date.today.return_value = date(2026, 11, 24)
+                self.assertTrue(run(offers_schedule.retry_if_due(nightly + timedelta(hours=3))), "om 08:00 is AH er weer")
+            catalogues.assert_called_once()
+            self.assertFalse(run(offers_schedule.retry_if_due(nightly + timedelta(hours=4))), "gelukt: niets meer te doen")
+        status: dict[str, Any] = run(offers_schedule.status(nightly + timedelta(hours=4)))
+        self.assertEqual(status["lastResult"]["stores"]["ah"]["count"], 1)
+        self.assertNotIn("retry", status["lastResult"]["stores"]["ah"])
+        self.assertEqual(self.titles(), ["AH Keukenpapier"])
+
+    def test_2026_11_24_the_retries_stop_six_hours_after_the_nightly_run(self) -> None:
+        nightly: datetime = datetime(2026, 11, 24, 4, 0, tzinfo=timezone.utc)
+        run(offers_schedule._record("scheduled", {"stores": {"ah": {"error": "zonder productgegevens", "retry": True}}}, nightly))
+        with mock.patch.object(offers, "sync_store", side_effect=AssertionError("na het venster geen poging meer")):
+            self.assertFalse(run(offers_schedule.retry_if_due(nightly + offers_schedule.RETRY_WINDOW)))
+        with mock.patch.object(offers, "sync_store", return_value={"error": "nog niet", "retry": True}) as sync_store:
+            self.assertTrue(run(offers_schedule.retry_if_due(nightly + offers_schedule.RETRY_WINDOW - timedelta(minutes=15))))
+        sync_store.assert_awaited_once_with("ah")

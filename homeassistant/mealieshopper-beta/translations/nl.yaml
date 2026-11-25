@@ -30,8 +30,8 @@ configuration:
     name: Aanbiedingen dagelijks ophalen
     description: Zet de dagelijkse taak die de aanbiedingen van alle winkels ophaalt uit of aan. Standaard aan.
   offers_sync_hour:
-    name: Uur van de dagelijkse aanbiedingenrun
-    description: Het uur van de dag (0 tot 23) waarop de aanbiedingen worden opgehaald. Standaard 5.
+    name: Beginuur van de dagelijkse aanbiedingenrun
+    description: Het hele uur (0 tot 23) waarop het venster van de aanbiedingenrun begint. Binnen 90 minuten daarna valt de run elke dag op een ander tijdstip. Leeg is tussen 07:30 en 09:00.
   mcp:
     name: MCP-server voor AI-assistenten
     description: Beginwaarde van de MCP-server (standaard aan, als inloggen aanstaat). De schakelaar in de app (Profiel > AI-apps) gaat voor.

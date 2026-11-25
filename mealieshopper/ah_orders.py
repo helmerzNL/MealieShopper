@@ -1141,14 +1141,14 @@ async def _todo(now: str) -> dict[str, int]:
     return {"lines": len(ids), "receipts": int(receipts), "images": int(images)}
 
 
-def _next_round(now: str) -> str | None:
-    """De volgende nachtelijke ronde (die van de aanbiedingen), of None als die uit staat."""
+async def _next_round(now: str) -> str | None:
+    """De volgende dagelijkse ronde (die van de aanbiedingen), of None als die uit staat."""
     from . import offers_schedule  # offers_schedule importeert deze module
 
     if not offers_schedule.enabled():
         return None
     local = datetime.fromisoformat(now).astimezone()
-    return offers_schedule.next_slot(local).astimezone(timezone.utc).isoformat(timespec="seconds")
+    return (await offers_schedule.next_run(local)).astimezone(timezone.utc).isoformat(timespec="seconds")
 
 
 async def _last_round() -> dict[str, Any] | None:
@@ -1179,7 +1179,7 @@ async def linking_status(now: str | None = None) -> dict[str, Any]:
         "budget": _budget(now),
         "todo": await _todo(now),
         "lastRound": await _last_round(),
-        "nextRound": _next_round(now),
+        "nextRound": await _next_round(now),
         "running": _running(),
     }
 

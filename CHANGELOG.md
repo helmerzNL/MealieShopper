@@ -2,6 +2,18 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub; een stabiele release krijgt de teksten van alle versies sinds de vorige stabiele release.
 
+## v4.33.0
+
+*English summary: The AH offers are complete again. Around 05:00, when the nightly run fetches the offers, AH returned the bonus without product details (no name, brand, size or photo). The app read that as an empty bonus and fell back on thirty searches for food, which replaced the full list of over 3,100 products with about 480 and left out household and drugstore products. Such a bonus now counts as not ready yet: the previous list stays and the daily task tries AH again about every hour, up to six hours later. The daily run now falls at a different time every day, between 07:30 and 09:00 by default, instead of exactly at 05:00. A promotion with tiers shows its highest discount.*
+
+### Opgelost in 4.33.0
+
+Pull request: [#349](https://github.com/helmerzNL/MealieShopper/pull/349).
+
+- **De aanbiedingen van AH zijn weer compleet.** Rond 05:00, als de nachtelijke run de aanbiedingen ophaalt, gaf AH de bonus zonder productgegevens: naam, merk, maat en foto waren leeg, elke nacht sinds 14 november. De app las dat als een lege bonus en viel zonder melding terug op dertig zoekopdrachten naar etenswaren. Die vervingen de volledige lijst van ruim 3100 producten door een stuk of 480, zonder huishouden, drogisterij en dergelijke. Nu telt een bonus waarin de meeste producten geen naam hebben als nog niet klaar: de vorige lijst blijft staan, Instellingen > Koppelen meldt het, en de dagelijkse taak probeert AH ongeveer elk uur opnieuw (na 45 tot 75 minuten), tot zes uur na de run. Mislukt de bonus van AH om een andere reden, dan staat de reden nu in de log voordat de app terugvalt op de zoekopdrachten.
+- **De dagelijkse run valt elke dag op een ander tijdstip**, standaard tussen 07:30 en 09:00 in plaats van precies om 05:00. Een vast tijdstip herkennen de winkels als automatisch verkeer, en rond 05:00 was de bonus van AH nog niet compleet. Het tijdstip is per dag en per installatie anders en blijft na een herstart hetzelfde. `MEALIESHOPPER_OFFERS_SYNC_HOUR` is nu het hele uur waarop het venster begint, de nieuwe `MEALIESHOPPER_OFFERS_SYNC_SPREAD` hoeveel minuten het duurt (standaard 90, 0 is precies op het uur). Instellingen > Koppelen noemt het venster en de volgende run, en `GET /api/offers/status` geeft `window` (`from` en `until`) in plaats van `hour`.
+- **Een actie met staffels toont de hoogste korting**, bijvoorbeeld 60% bij twee stuks en 50% bij een. De app nam de eerste staffel die AH noemde, nu per product die met de laagste prijs per stuk, in welke volgorde AH ze ook geeft.
+
 ## v4.32.1
 
 *English summary: Linking Jumbo no longer ends in two confusing errors when the browser console does not show the login code. Firefox only logs `Prevented navigation to "https://auth.jumbo.com/authorize/resume?state=..."` for the Jumbo login, and the code is only in the `Location` header of that request (Network tab). Pasting that address used to give "This code belongs to a different login attempt" (the `state` in it is Auth0's own) or, without a login in progress, a bare "Jumbo fout". The link now says that the address is not the code and where to find it, the setup guide and Settings > Link > Jumbo show the Network-tab route in a short note under the steps, and a missing login in progress is explained instead of hidden.*

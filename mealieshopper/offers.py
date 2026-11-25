@@ -18,6 +18,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import logging
 import re
 from collections.abc import AsyncIterator, Awaitable
 from contextlib import asynccontextmanager
@@ -49,6 +50,8 @@ from . import (
     picnic_recipes,
 )
 from .i18n import tr
+
+log = logging.getLogger(__name__)
 
 # Winkels waarvan we aanbiedingen kunnen ophalen, met de functie die dat doet.
 FETCHERS: dict[str, Callable[[], Awaitable[list[dict[str, Any]]]]] = {
@@ -969,24 +972,38 @@ def _history_products(rows: Iterable[Any]) -> dict[tuple[str, str], dict[str, An
     return products
 
 
+# De fouten waarbij de winkel er later wel is: dan probeert de nachtelijke run de winkel opnieuw (`offers_schedule.retry_if_due`).
+RETRY_LATER: tuple[type[Exception], ...] = (ah.BonusIncomplete,)
+
+
+async def sync_store(store: str) -> dict[str, Any]:
+    """De uitkomst van `sync` voor een winkel, zoals `sync_all` hem per winkel geeft: `count` en `syncedAt` na een geslaagde
+    vernieuwing, anders `error` (de vorige kopie blijft dan staan), met `retry` als het later wel kan lukken (`RETRY_LATER`)."""
+    try:
+        data: dict[str, Any] = await sync(store)
+    except RETRY_LATER as exc:
+        log.warning("Aanbiedingen van %s nog niet compleet, de vorige lijst blijft staan: %s", store, exc)
+        later: str = tr("De vorige lijst blijft staan, de app probeert het later opnieuw.", "The previous list stays, the app tries again later.")
+        return {"error": f"{str(exc)[:240]}. {later}", "retry": True}
+    except Exception as exc:  # noqa: BLE001 - winkels zijn onofficieel; de bewaarde kopie blijft staan
+        return {"error": str(exc)[:300] or tr("mislukt", "failed")}
+    result: dict[str, Any] = {"count": data["total"], "syncedAt": data["syncedAt"]}
+    if data["personal"]["supported"]:
+        result["personal"] = data["personal"]
+    return result
+
+
 async def sync_all() -> dict[str, Any]:
     """Haal de aanbiedingen van alle winkels op. Een winkel die niet gekoppeld is of mislukt laat de rest staan.
 
-    Per winkel: `count` en `syncedAt` na een geslaagde vernieuwing, `skipped` als de winkel niet gekoppeld is,
-    `error` als het ophalen mislukte (de vorige kopie blijft dan staan).
+    Per winkel de uitkomst van `sync_store`, of `skipped` als de winkel niet gekoppeld is.
     """
     results: dict[str, Any] = {}
     for store in STORES:
         if not await linked(store):
             results[store] = {"skipped": tr("niet gekoppeld", "not linked")}
             continue
-        try:
-            data = await sync(store)
-            results[store] = {"count": data["total"], "syncedAt": data["syncedAt"]}
-            if data["personal"]["supported"]:
-                results[store]["personal"] = data["personal"]
-        except Exception as exc:  # noqa: BLE001 - winkels zijn onofficieel; de bewaarde kopie blijft staan
-            results[store] = {"error": str(exc)[:300] or tr("mislukt", "failed")}
+        results[store] = await sync_store(store)
     return {"stores": results, "finishedAt": _now()}
 
 

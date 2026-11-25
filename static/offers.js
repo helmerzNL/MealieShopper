@@ -1925,7 +1925,10 @@ function renderOffersSync() {
   ).join("");
   const lines = [];
   if (status.enabled) {
-    lines.push(t("offers.sync.schedule", { hour: String(status.hour).padStart(2, "0"), next: formatSyncTime(status.nextRun) }));
+    // Elke dag een ander tijdstip in het venster (offers_schedule.window), of precies op het begin als er geen spreiding is.
+    const span = status.window || {};
+    const key = span.from === span.until ? "offers.sync.schedule_at" : "offers.sync.schedule";
+    lines.push(t(key, { from: span.from || "", until: span.until || "", next: formatSyncTime(status.nextRun) }));
   } else {
     lines.push(t("offers.sync.off"));
   }
