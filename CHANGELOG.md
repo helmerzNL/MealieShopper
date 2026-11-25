@@ -2,15 +2,32 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub; een stabiele release krijgt de teksten van alle versies sinds de vorige stabiele release.
 
-## v4.32.1
+## v4.33.0
 
 *English summary: The AH offers are complete again. Around 05:00, when the nightly run fetches the offers, AH returned the bonus without product details (no name, brand, size or photo). The app read that as an empty bonus and fell back on thirty searches for food, which replaced the full list of over 3,100 products with about 480 and left out household and drugstore products. Such a bonus now counts as not ready yet: the previous list stays and the daily task tries AH again about every hour, up to six hours later. The daily run now falls at a different time every day, between 07:30 and 09:00 by default, instead of exactly at 05:00. A promotion with tiers shows its highest discount.*
 
-### Opgelost in 4.32.1
+### Opgelost in 4.33.0
 
 - **De aanbiedingen van AH zijn weer compleet.** Rond 05:00, als de nachtelijke run de aanbiedingen ophaalt, gaf AH de bonus zonder productgegevens: naam, merk, maat en foto waren leeg, elke nacht sinds 14 november. De app las dat als een lege bonus en viel zonder melding terug op dertig zoekopdrachten naar etenswaren. Die vervingen de volledige lijst van ruim 3100 producten door een stuk of 480, zonder huishouden, drogisterij en dergelijke. Nu telt een bonus waarin de meeste producten geen naam hebben als nog niet klaar: de vorige lijst blijft staan, Instellingen > Koppelen meldt het, en de dagelijkse taak probeert AH ongeveer elk uur opnieuw (na 45 tot 75 minuten), tot zes uur na de run. Mislukt de bonus van AH om een andere reden, dan staat de reden nu in de log voordat de app terugvalt op de zoekopdrachten.
 - **De dagelijkse run valt elke dag op een ander tijdstip**, standaard tussen 07:30 en 09:00 in plaats van precies om 05:00. Een vast tijdstip herkennen de winkels als automatisch verkeer, en rond 05:00 was de bonus van AH nog niet compleet. Het tijdstip is per dag en per installatie anders en blijft na een herstart hetzelfde. `MEALIESHOPPER_OFFERS_SYNC_HOUR` is nu het hele uur waarop het venster begint, de nieuwe `MEALIESHOPPER_OFFERS_SYNC_SPREAD` hoeveel minuten het duurt (standaard 90, 0 is precies op het uur). Instellingen > Koppelen noemt het venster en de volgende run, en `GET /api/offers/status` geeft `window` (`from` en `until`) in plaats van `hour`.
 - **Een actie met staffels toont de hoogste korting**, bijvoorbeeld 60% bij twee stuks en 50% bij een. De app nam de eerste staffel die AH noemde, nu per product die met de laagste prijs per stuk, in welke volgorde AH ze ook geeft.
+
+## v4.32.1
+
+*English summary: Linking Jumbo no longer ends in two confusing errors when the browser console does not show the login code. Firefox only logs `Prevented navigation to "https://auth.jumbo.com/authorize/resume?state=..."` for the Jumbo login, and the code is only in the `Location` header of that request (Network tab). Pasting that address used to give "This code belongs to a different login attempt" (the `state` in it is Auth0's own) or, without a login in progress, a bare "Jumbo fout". The link now says that the address is not the code and where to find it, the setup guide and Settings > Link > Jumbo show the Network-tab route in a short note under the steps, and a missing login in progress is explained instead of hidden.*
+
+### Opgelost in 4.32.1
+
+Issue: [#347](https://github.com/helmerzNL/MealieShopper/issues/347).
+
+- **Jumbo koppelen: duidelijke melding als de code niet in de console staat.** Na de melding dat de console alleen `Prevented navigation to “https://auth.jumbo.com/authorize/resume?state=...”` toonde en de code niet. Dat adres is het tussenstation waar Auth0 de browser na het inloggen naartoe stuurt; pas het antwoord daarop verwijst naar `jumbo://callbacks/login?code=...`, en de console toont dat adres niet. De code staat dan alleen in de `Location`-header van dat verzoek, in het tabblad **Netwerk**. Plakte je het tussenadres, dan kreeg je "Deze code hoort bij een andere inlogpoging" (het `state=` erin is een eigen waarde van Auth0, niet die van onze inlogpoging) en, zonder lopende login, alleen "Jumbo fout". Nu zegt de koppeling dat dit adres de code niet bevat en waar je de regel `Location: jumbo://callbacks/login?code=...` wel vindt. Tekst zonder `code=` (en geen kale code of refresh-token) krijgt de melding dat er geen code in staat, zonder dat er iets bij Jumbo wordt ingewisseld. Een geplakte regel mag nu ook beginnen met `Location:`.
+- **"Geen lopende Jumbo-login" is weer te lezen.** `_pending` gaf een gewone `RuntimeError`, die de route als 424 "Jumbo fout" meldde, terwijl de tekst zegt wat je moet doen (opnieuw *Inloggen bij Jumbo* kiezen). Het is nu een `JumboAuthError`: een 400 met de tekst zelf.
+- **Een korte uitleg bij de koppeling.** Onder de stappen bij **Instellingen > Koppelen > Jumbo** en in de installatiehulp staat een regel over wat te doen als de console alleen `Prevented navigation to …` toont: de route via het tabblad Netwerk. De handleiding (Nederlands en Engels) beschrijft die route ook, met de twee nieuwe meldingen bij Problemen oplossen.
+
+### Tests in 4.32.1
+
+- `tests/test_reported_bugs.py` (`JumboLoginWithoutConsoleCodeTest`): het tussenadres, met en zonder `https://`, en zonder en met lopende login, geeft de uitleg en nooit "een andere inlogpoging" of "Jumbo fout". De test faalt op de code van 4.32.0.
+- `tests/test_jumbo.py`: het tussenadres en tekst zonder code worden geweigerd zonder iets in te wisselen; een regel met `Location:` ervoor en een kale code worden wel ingewisseld; de route geeft een 400 met de uitleg.
 
 ## v4.32.0
 

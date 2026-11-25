@@ -30,6 +30,7 @@ import test_ah_orders  # als module: de opzet van het AH-mandje
 import test_ah_price_index  # idem: de opzet van de ronde langs de prijsindex
 import test_history_chart_js  # als module, voor de Node-opbouw van offers_history.js
 import test_history_stores_js  # als module: anders draait pytest die tests hier nog een keer
+import test_jumbo  # idem: de opzet van de Jumbo-login
 import test_loose_names  # idem: de opzet van de losse aankoopnamen
 import test_offers  # idem: de opzet van de receptvoorstellen
 import test_offers_scan_js  # idem: de Node-opbouw van offers.js
@@ -49,6 +50,7 @@ from mealieshopper import (
     auth,
     deals,
     image_cache,
+    jumbo,
     line_offers,
     loose_names,
     offer_categories,
@@ -2618,6 +2620,28 @@ async def test_2026_11_17_offers_after_a_catalogue_write_reindex_only_the_touche
     assert queries, "de telemetrie mat geen enkele query"
     assert not [sql for sql in queries if "ms_folder_candidate" in sql], "folderregels zonder leesmodel"
     assert not [sql for sql in queries if "WITH names AS MATERIALIZED" in sql], "alle bonregels opnieuw gekoppeld"
+
+
+class JumboLoginWithoutConsoleCodeTest(test_jumbo.TempDataDirTest):
+    def test_2026_11_24_the_resume_address_from_firefox_is_explained_instead_of_failing_twice(self) -> None:
+        # Melding #347: "Krijg een foutmelding bij koppeling met Jumbo, waarin geen callback code in developer mode te zien is. In de console
+        # staat Prevented navigation to https://auth.jumbo.com/authorize/resume?state=... due to an unknown protocol. Als ik die auth state
+        # opgeef als link krijg ik 'jumbo fout' en als ik https:// weglaat krijg ik 'This code belongs to a different login attempt'."
+        # De console toont hier het tussenadres (/authorize/resume), niet de doorverwijzing naar jumbo://; de code staat dan alleen in de
+        # Location-header van het antwoord op dat verzoek (tabblad Netwerk). De koppeling zegt dat nu, in plaats van "Jumbo fout" (geen
+        # lopende login: een RuntimeError die de route als 424 meldde) of "een andere inlogpoging" (het state= is van Auth0, niet van ons).
+        resume = "https://auth.jumbo.com/authorize/resume?state=123eenlangestring456"
+        with self.assertRaises(jumbo.JumboAuthError) as raised:  # geen lopende login: de tekst van onszelf, geen "Jumbo fout"
+            run(jumbo.link_account("jumbo://callbacks/login?code=abc"))
+        self.assertIn("lopende Jumbo-login", str(raised.exception))
+        for login in (False, True):
+            if login:
+                run(jumbo.start_login())
+            for pasted in (resume, resume.removeprefix("https://")):
+                with self.subTest(login=login, pasted=pasted), self.assertRaises(jumbo.JumboAuthError) as raised:
+                    run(jumbo.link_account(pasted))
+                self.assertIn("Location: jumbo://callbacks/login?code=", str(raised.exception))
+                self.assertNotIn("andere inlogpoging", str(raised.exception))
 
 
 # 2026-11-24: een product dat AH deze week in de bonus had, stond niet bij de aanbiedingen. Om 05:00, bij de nachtelijke run, gaf

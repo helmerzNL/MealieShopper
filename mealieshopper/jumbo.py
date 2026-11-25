@@ -30,7 +30,7 @@ from urllib.parse import urlencode
 import httpx
 
 from . import auth, deals, http_client, tasks
-from .ah import extract_oauth_code
+from .ah import extract_oauth_code, has_oauth_code_param
 from .i18n import tr
 from .packs import assess_packs, normalize_quantity
 
@@ -54,6 +54,10 @@ TOKEN_MARGIN_SECONDS = 1800  # ruim voor het verlopen (24 uur) al vernieuwen
 
 _STATE_RE = re.compile(r"(?:^|[?&#\s'\"(])state=([^&\s'\"<>)]+)")
 _REFRESH_TOKEN_RE = re.compile(r"^v\d+\.\S+$")
+# Een kale code (zonder `code=` ervoor): een stuk van letters, cijfers en `-_.~%`, zonder spaties, `=` of `/`.
+_BARE_CODE_RE = re.compile(r"^[\w\-.~%]{8,300}$")
+# Na het inloggen stuurt Auth0 de browser eerst naar dit tussenadres; pas het antwoord daarop verwijst naar `jumbo://`.
+_RESUME_PATH = "/authorize/resume"
 
 
 class JumboAuthError(RuntimeError):
@@ -154,7 +158,8 @@ async def _pending() -> dict[str, Any]:
     except ValueError:
         pending = {}
     if not pending.get("verifier") or time.time() - float(pending.get("at") or 0) > PENDING_TTL_SECONDS:
-        raise RuntimeError(
+        # Een `JumboAuthError` (nog steeds een `RuntimeError`): de route toont de tekst, in plaats van het algemene "Jumbo fout".
+        raise JumboAuthError(
             tr(
                 "Geen lopende Jumbo-login of de login is te oud. Kies opnieuw 'Inloggen bij Jumbo'.",
                 "No Jumbo login in progress, or it has expired. Choose 'Log in to Jumbo' again.",
@@ -202,6 +207,37 @@ async def _remember_tokens(data: dict[str, Any], used_refresh: str = "") -> None
         await auth.set_secret(REFRESH_SECRET, new)  # Auth0 kan het refresh-token bij elke vernieuwing vervangen
 
 
+def _require_code(text: str) -> None:
+    """Weiger geplakte tekst waar geen code in staat, met een melding die zegt waar de code wel te vinden is.
+
+    Volgens melding #347 toont de console (Firefox) alleen `Prevented navigation to "https://auth.jumbo.com/authorize/resume?state=..."`: het
+    adres waarmee de navigatie begon, niet dat van de doorverwijzing naar `jumbo://`. De code staat dan alleen in de
+    `Location`-header van het antwoord op dat verzoek (tabblad Netwerk). Het `state=` in dat tussenadres is een eigen
+    waarde van Auth0 en nooit die van onze inlogpoging; zonder deze controle meldt `link_account` dan ten onrechte "een
+    andere inlogpoging", en wie zonder `https://` plakt, begrijpt er nog minder van.
+    """
+    if has_oauth_code_param(text):
+        return
+    if _RESUME_PATH in text:
+        raise JumboAuthError(
+            tr(
+                "Dit is het tussenadres van Jumbo (…/authorize/resume), niet de code. De code staat niet in dit adres. Sommige browsers, zoals Firefox, laten "
+                "hem ook niet in de console zien: open het tabblad Netwerk voordat je inlogt, kies daar het verzoek 'resume?state=...' en kopieer in de "
+                "antwoordheaders de regel 'Location: jumbo://callbacks/login?code=...'.",
+                "This is Jumbo's intermediate address (…/authorize/resume), not the code. The code is not in this address. Some browsers, such as Firefox, "
+                "do not show it in the console either: open the Network tab before you log in, pick the 'resume?state=...' request there and copy the line "
+                "'Location: jumbo://callbacks/login?code=...' from the response headers.",
+            )
+        )
+    if not _BARE_CODE_RE.match(text.strip("'\"` ")):
+        raise JumboAuthError(
+            tr(
+                "In de geplakte tekst staat geen code. Plak de regel jumbo://callbacks/login?code=... (de code zelf of een refresh-token mag ook).",
+                "The pasted text holds no code. Paste the jumbo://callbacks/login?code=... line (the code itself or a refresh token also works).",
+            )
+        )
+
+
 async def link_account(value: str) -> dict[str, Any]:
     """Koppel vanuit de geplakte `jumbo://callbacks/login?code=...`-regel (of een los refresh-token)."""
     text = str(value or "").strip()
@@ -214,6 +250,7 @@ async def link_account(value: str) -> dict[str, Any]:
         await _remember_tokens(data, used_refresh=text)
         return {"connected": True, "type": "refresh"}
 
+    _require_code(text)
     pending = await _pending()
     pasted_state = _STATE_RE.search(text)
     if pasted_state and pasted_state.group(1) != pending.get("state"):
